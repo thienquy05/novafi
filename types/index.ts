@@ -12,6 +12,8 @@ export interface TaxSettings {
   ficaSsRate: number;       // 6.2
   ficaSsWageBase: number;   // 176100
   ficaMedicareRate: number; // 1.45
+  customExpenseCategories: string[];
+  customIncomeCategories: string[];
 }
 
 export interface TaxResult {

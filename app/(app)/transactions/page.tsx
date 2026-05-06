@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Trash2, Search, Pencil, RefreshCw, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, Search, Pencil, RefreshCw, AlertCircle, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronRight, X } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -13,6 +13,68 @@ import type { Transaction, Account } from '@/types';
 import { CategoryIconBadge } from '@/components/CategoryIcon';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { useCategories } from '@/hooks/useCategories';
+
+// ── Recurring template helpers (localStorage) ─────────────────────────────────
+
+type Template = { id: string; description: string; amount: number; type: Transaction['type']; category: string; account: string };
+const TEMPLATES_KEY = 'nf_tx_templates_v1';
+
+function loadTemplates(): Template[] {
+  try { return JSON.parse(localStorage.getItem(TEMPLATES_KEY) ?? '[]'); } catch { return []; }
+}
+function saveTemplates(templates: Template[]) {
+  try { localStorage.setItem(TEMPLATES_KEY, JSON.stringify(templates)); } catch { /* ignore */ }
+}
+
+// ── Merchant grouping ─────────────────────────────────────────────────────────
+
+type MerchantRow = {
+  merchant: string;
+  total: number;
+  count: number;
+  lastDate: string;
+  transactions: Transaction[];
+};
+
+function buildMerchantRows(transactions: Transaction[]): MerchantRow[] {
+  const map: Record<string, MerchantRow> = {};
+  for (const tx of transactions) {
+    const key = (tx.description || tx.category).toLowerCase().trim();
+    if (!map[key]) map[key] = { merchant: tx.description || tx.category, total: 0, count: 0, lastDate: tx.date, transactions: [] };
+    map[key].total += tx.amount;
+    map[key].count += 1;
+    if (tx.date > map[key].lastDate) map[key].lastDate = tx.date;
+    map[key].transactions.push(tx);
+  }
+  return Object.values(map).sort((a, b) => b.total - a.total);
+}
+
+// ── CSV export ────────────────────────────────────────────────────────────────
+
+function exportCSV(transactions: Transaction[], accountName: (id: string) => string) {
+  const headers = ['Date', 'Description', 'Amount', 'Type', 'Category', 'Account'];
+  const rows = transactions.map((tx) => [
+    tx.date,
+    tx.description,
+    tx.amount.toFixed(2),
+    tx.type,
+    tx.category,
+    accountName(tx.account),
+  ]);
+  const csv = [headers, ...rows]
+    .map((row) => row.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `transactions-${today()}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Empty form ────────────────────────────────────────────────────────────────
 
 const EMPTY_FORM = {
   date: today(),
@@ -23,6 +85,8 @@ const EMPTY_FORM = {
   account: '',
   toAccount: '',
 };
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -36,7 +100,12 @@ export default function TransactionsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
+  const [viewMode, setViewMode] = useState<'list' | 'merchant'>('list');
+  const [expandedMerchant, setExpandedMerchant] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [showTemplates, setShowTemplates] = useState(false);
   const toast = useToast();
+  const { expenseCategories, incomeCategories } = useCategories();
 
   const load = useCallback(async () => {
     setError(false);
@@ -54,9 +123,10 @@ export default function TransactionsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setTemplates(loadTemplates()); }, []);
   const { pullY, refreshing } = usePullToRefresh(load);
 
-  const categories = form.type === 'expense' ? [...EXPENSE_CATEGORIES] : [...INCOME_CATEGORIES];
+  const categories = form.type === 'expense' ? expenseCategories : form.type === 'income' ? incomeCategories : [...EXPENSE_CATEGORIES];
   const filtered = transactions.filter((t) => {
     const matchSearch = !search || t.description.toLowerCase().includes(search.toLowerCase()) || t.category.toLowerCase().includes(search.toLowerCase());
     const matchFilter = filter === 'all' || t.type === filter;
@@ -73,8 +143,30 @@ export default function TransactionsPage() {
   function closeModal() { setOpen(false); setEditTarget(null); setForm(EMPTY_FORM); }
 
   function handleTypeChange(type: Transaction['type']) {
-    const newCategory = type === 'expense' ? 'Food' : type === 'income' ? 'Paycheck' : 'Transfer';
+    const newCategory = type === 'expense' ? (expenseCategories[0] ?? 'Food') : type === 'income' ? (incomeCategories[0] ?? 'Paycheck') : 'Transfer';
     setForm((f) => ({ ...f, type, category: newCategory }));
+  }
+
+  function applyTemplate(t: Template) {
+    setForm({ date: today(), description: t.description, amount: String(t.amount), type: t.type, category: t.category, account: t.account, toAccount: '' });
+    setShowTemplates(false);
+    setOpen(true);
+  }
+
+  function saveAsTemplate() {
+    const amt = parseFloat(form.amount) || 0;
+    if (!form.description && !amt) return;
+    const tpl: Template = { id: generateId(), description: form.description, amount: amt, type: form.type, category: form.category, account: form.account };
+    const updated = [...templates.filter((t) => t.description !== tpl.description || t.category !== tpl.category), tpl];
+    saveTemplates(updated);
+    setTemplates(updated);
+    toast('Template saved', 'success');
+  }
+
+  function deleteTemplate(id: string) {
+    const updated = templates.filter((t) => t.id !== id);
+    saveTemplates(updated);
+    setTemplates(updated);
   }
 
   async function handleSave() {
@@ -91,7 +183,6 @@ export default function TransactionsPage() {
       toAccount: form.type === 'transfer' ? form.toAccount : undefined,
     };
 
-    // Optimistic update
     if (editTarget) {
       setTransactions((prev) => prev.map((t) => t.id === editTarget.id ? updated : t));
     } else {
@@ -107,7 +198,7 @@ export default function TransactionsPage() {
       });
       if (!res.ok) throw new Error();
       toast(editTarget ? 'Transaction updated' : 'Transaction added', 'success');
-      load(); // background refresh to sync account balances
+      load();
     } catch {
       toast('Failed to save transaction', 'error');
       await load();
@@ -133,6 +224,7 @@ export default function TransactionsPage() {
   const totalIncome = filtered.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0);
   const totalExpense = filtered.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
   const accountName = (id: string) => accounts.find((a) => a.id === id)?.name ?? id;
+  const merchantRows = buildMerchantRows(filtered);
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
@@ -150,7 +242,19 @@ export default function TransactionsPage() {
           <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900">Transactions</h1>
           <p className="text-slate-500 text-sm font-medium mt-1">All income and expenses</p>
         </div>
-        <Button onClick={openAdd} className="w-full md:w-auto shadow-sm"><Plus className="w-5 h-5" />Add Transaction</Button>
+        <div className="flex gap-2 flex-wrap">
+          {templates.length > 0 && (
+            <Button variant="secondary" className="shadow-sm" onClick={() => setShowTemplates(true)}>
+              <BookmarkCheck className="w-4 h-4" />
+              Templates
+            </Button>
+          )}
+          <Button variant="secondary" className="shadow-sm" onClick={() => exportCSV(filtered, accountName)}>
+            <Download className="w-4 h-4" />
+            Export CSV
+          </Button>
+          <Button onClick={openAdd} className="shadow-sm"><Plus className="w-5 h-5" />Add Transaction</Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
@@ -159,6 +263,7 @@ export default function TransactionsPage() {
         <Card className="p-4 sm:p-5 border-indigo-100"><p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Net</p><p className={`text-xl font-extrabold mt-1.5 tracking-tight ${totalIncome - totalExpense >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(totalIncome - totalExpense)}</p></Card>
       </div>
 
+      {/* Filters + view toggle */}
       <div className="flex flex-col gap-3">
         <div className="flex flex-col md:flex-row gap-3">
           <div className="relative flex-1 max-w-full md:max-w-md">
@@ -171,11 +276,20 @@ export default function TransactionsPage() {
                 {f.charAt(0).toUpperCase() + f.slice(1)}
               </button>
             ))}
+            {/* View toggle */}
+            <div className="flex bg-white border border-slate-200 rounded-2xl overflow-hidden">
+              <button onClick={() => setViewMode('list')} className={`px-3 h-11 transition-all duration-200 ${viewMode === 'list' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-900'}`} title="List view">
+                <List className="w-4 h-4" />
+              </button>
+              <button onClick={() => setViewMode('merchant')} className={`px-3 h-11 transition-all duration-200 ${viewMode === 'merchant' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-900'}`} title="By merchant">
+                <Users className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
         <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
           <button onClick={() => setCategoryFilter('')} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${!categoryFilter ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'}`}>All</button>
-          {[...EXPENSE_CATEGORIES].map((c) => (
+          {expenseCategories.map((c) => (
             <button key={c} onClick={() => setCategoryFilter(categoryFilter === c ? '' : c)} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${categoryFilter === c ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'}`}>{c}</button>
           ))}
         </div>
@@ -195,7 +309,54 @@ export default function TransactionsPage() {
           <p className="text-slate-500 font-bold">No transactions found.</p>
           {transactions.length === 0 && <Button onClick={openAdd} className="mt-4 shadow-sm">Add Your First Transaction</Button>}
         </Card>
+      ) : viewMode === 'merchant' ? (
+        /* ── Merchant View ─────────────────────────────────────────────── */
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-slate-400 px-1">{merchantRows.length} merchants · sorted by total</p>
+          {merchantRows.map((row) => {
+            const isExpanded = expandedMerchant === row.merchant;
+            return (
+              <div key={row.merchant} className="bg-white rounded-3xl border border-slate-100 overflow-hidden">
+                <button
+                  onClick={() => setExpandedMerchant(isExpanded ? null : row.merchant)}
+                  className="w-full flex items-center justify-between p-4 hover:bg-slate-50 transition-colors text-left"
+                >
+                  <div className="flex items-center gap-3">
+                    <CategoryIconBadge category={row.transactions[0]?.category ?? ''} type={row.transactions[0]?.type ?? 'expense'} className="w-10 h-10 rounded-xl" />
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">{row.merchant || '(no description)'}</p>
+                      <p className="text-xs font-medium text-slate-500 mt-0.5">{row.count} transaction{row.count !== 1 ? 's' : ''} · last {formatDate(row.lastDate)}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-extrabold text-slate-900">{formatCurrency(row.total)}</span>
+                    {isExpanded ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  </div>
+                </button>
+                {isExpanded && (
+                  <div className="border-t border-slate-100 divide-y divide-slate-50">
+                    {row.transactions.map((tx) => (
+                      <div key={tx.id} className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors">
+                        <div>
+                          <p className="text-xs font-bold text-slate-700">{formatDate(tx.date)}</p>
+                          <p className="text-xs font-medium text-slate-400">{tx.category} · {accountName(tx.account)}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-sm font-extrabold ${tx.type === 'income' ? 'text-emerald-600' : tx.type === 'transfer' ? 'text-blue-600' : 'text-slate-900'}`}>
+                            {tx.type === 'income' ? '+' : tx.type === 'transfer' ? '' : '-'}{formatCurrency(tx.amount)}
+                          </span>
+                          <Button variant="ghost" size="icon" className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 h-8 w-8 rounded-xl" onClick={() => openEdit(tx)}><Pencil className="w-3.5 h-3.5" /></Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       ) : (
+        /* ── List View ─────────────────────────────────────────────────── */
         <div className="space-y-2.5">
           {filtered.map((tx) => (
             <div key={tx.id} className="group flex items-center justify-between p-4 sm:p-4.5 rounded-3xl bg-white border border-slate-100 hover:border-slate-200 hover:shadow-sm transition-all duration-200">
@@ -222,6 +383,7 @@ export default function TransactionsPage() {
         </div>
       )}
 
+      {/* ── Add/Edit Transaction Modal ───────────────────────────────────── */}
       <Modal open={open} onClose={closeModal} title={editTarget ? 'Edit Transaction' : 'New Transaction'}>
         <div className="space-y-4 pb-4">
           <div className="flex p-1.5 rounded-2xl bg-slate-100">
@@ -266,12 +428,43 @@ export default function TransactionsPage() {
               </div>
             );
           })()}
+          {/* Save as template */}
+          {!editTarget && (
+            <button
+              type="button"
+              onClick={saveAsTemplate}
+              className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-700 transition-colors"
+            >
+              <Bookmark className="w-3.5 h-3.5" />
+              Save as recurring template
+            </button>
+          )}
         </div>
         <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={closeModal}>Cancel</Button>
             <Button className="flex-1" onClick={handleSave} disabled={saving || !form.amount}>{saving ? 'Saving…' : editTarget ? 'Save Changes' : 'Add Transaction'}</Button>
           </div>
+        </div>
+      </Modal>
+
+      {/* ── Templates Modal ──────────────────────────────────────────────── */}
+      <Modal open={showTemplates} onClose={() => setShowTemplates(false)} title="Recurring Templates">
+        <div className="space-y-2 pb-4">
+          {templates.length === 0 ? (
+            <div className="text-center py-8 text-slate-500 font-medium text-sm">No templates saved yet.<br />Use &quot;Save as recurring template&quot; when adding a transaction.</div>
+          ) : templates.map((t) => (
+            <div key={t.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 border border-slate-100 hover:border-slate-200 transition-colors">
+              <div>
+                <p className="text-sm font-bold text-slate-900">{t.description || t.category}</p>
+                <p className="text-xs font-medium text-slate-500 mt-0.5">{t.category} · {formatCurrency(t.amount)}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button size="sm" className="h-8" onClick={() => applyTemplate(t)}>Use</Button>
+                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50" onClick={() => deleteTemplate(t.id)}><X className="w-3.5 h-3.5" /></Button>
+              </div>
+            </div>
+          ))}
         </div>
       </Modal>
     </div>

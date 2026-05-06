@@ -469,13 +469,62 @@ Replaced `transition-all duration-300` (watches every CSS property, expensive) w
 
 ---
 
+## RocketMoney Feature Expansion (May 6, 2026)
+
+### New Files
+- `hooks/useCategories.ts` — `useCategories()` hook; fetches `/api/categories` once, caches in sessionStorage (5 min TTL); returns `expenseCategories` + `incomeCategories` including custom ones
+- `app/api/categories/route.ts` — GET returns combined EXPENSE_CATEGORIES + custom; PUT saves custom categories to Settings sheet; 30 s in-process cache
+- `app/(app)/reports/page.tsx` — New annual report page at `/reports`
+
+### Modified Files
+
+**`types/index.ts`** — Added `customExpenseCategories: string[]` + `customIncomeCategories: string[]` to `TaxSettings`
+
+**`lib/sheets.ts`** — `getSettings`/`saveSettings` read/write `custom_expense_categories` + `custom_income_categories` (pipe-separated)
+
+**`lib/utils.ts`** — `DEFAULT_TAX_SETTINGS` includes empty custom category arrays
+
+**`app/(app)/dashboard/DashboardCharts.tsx`**
+- `BudgetData` type: added `prevMonthSpent?: number`
+- `BudgetBars`: added `showMoM` prop for per-category MoM delta display
+- Added `HealthScoreData` type, `EmergencyFundWidget` component, `FinancialHealthScore` component (conic-gradient circular gauge, letter grade, 4-factor breakdown)
+
+**`app/(app)/dashboard/page.tsx`**
+- Computes emergency fund (liquid savings / avg 3-month expenses), health score (0-100 composite), prevMonthCategorySpend map
+- Assets strip: 4-col grid, added "Emergency" cell
+- Added EmergencyFundWidget + FinancialHealthScore row
+- BudgetBars now receives showMoM + prevMonthSpent per category
+
+**`app/(app)/planning/page.tsx`** — useCategories hook; MoM delta per budget card; custom categories in dropdown
+
+**`app/(app)/transactions/page.tsx`** — CSV export button, merchant grouping toggle (list vs by-merchant view), recurring templates (localStorage)
+
+**`app/(app)/bills/page.tsx`** — Subscription auto-detection (detectSubscriptions), SubscriptionTracker component; useCategories for bill category dropdown
+
+**`app/(app)/settings/page.tsx`** — Custom Categories card: add/remove custom expense and income categories, saved to Settings sheet
+
+**`app/(app)/dashboard/QuickAddTransaction.tsx`** — useCategories hook replaces hardcoded lists
+
+**`components/Sidebar.tsx`** — Added Reports nav item (FileText icon, `/reports`)
+
+### Reports Page (`/reports`)
+- Year selector, 4 summary stat cards, highlights (best/worst month)
+- Monthly cash flow BarChart, category spending bars, top merchants list, monthly breakdown table
+
 ## Potential Future Enhancements
 | Priority | Task |
 |----------|------|
-| High | Emergency fund tracker (show months of expenses covered by savings) |
 | High | Credit card payoff calculator (months to payoff at X/month) |
-| Medium | Export data to CSV |
-| Medium | Recurring transaction templates |
-| Done | Account balance auto-sync for regular expense/income transactions — shipped May 6, 2026 |
-| Done | Net worth trend chart over time — shipped May 6, 2026 |
+| Medium | Split transactions across multiple categories |
+| Done | Emergency fund tracker — shipped May 6, 2026 |
+| Done | Financial Health Score (composite 0-100) — shipped May 6, 2026 |
+| Done | Per-category MoM spending trends — shipped May 6, 2026 |
+| Done | Subscription auto-detection — shipped May 6, 2026 |
+| Done | Merchant grouping view — shipped May 6, 2026 |
+| Done | Recurring transaction templates — shipped May 6, 2026 |
+| Done | Custom categories — shipped May 6, 2026 |
+| Done | Export data to CSV — shipped May 6, 2026 |
+| Done | Annual report page — shipped May 6, 2026 |
+| Done | Account balance auto-sync — shipped May 6, 2026 |
+| Done | Net worth trend chart — shipped May 6, 2026 |
 | Low | Annual tax summary / W-2 estimator |

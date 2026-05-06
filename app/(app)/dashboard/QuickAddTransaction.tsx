@@ -7,8 +7,8 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { generateId, today } from '@/lib/utils';
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '@/types';
 import type { Account, Transaction } from '@/types';
+import { useCategories } from '@/hooks/useCategories';
 
 const EMPTY_FORM = {
   date: today(),
@@ -24,11 +24,12 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[]; 
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const { expenseCategories, incomeCategories } = useCategories();
 
-  const categories = form.type === 'expense' ? [...EXPENSE_CATEGORIES] : [...INCOME_CATEGORIES];
+  const categories = form.type === 'expense' ? expenseCategories : incomeCategories;
 
   function handleTypeChange(type: Transaction['type']) {
-    const newCategory = type === 'expense' ? 'Food' : 'Paycheck';
+    const newCategory = type === 'expense' ? (expenseCategories[0] ?? 'Food') : (incomeCategories[0] ?? 'Paycheck');
     setForm((f) => ({ ...f, type, category: newCategory }));
   }
 

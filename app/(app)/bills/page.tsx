@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Trash2, Calendar, CheckCircle2, Circle, AlarmClock, Pencil, RefreshCw, AlertCircle, Banknote } from 'lucide-react';
+import { Plus, Trash2, Calendar, CheckCircle2, Circle, AlarmClock, Pencil, RefreshCw, AlertCircle, Banknote, Repeat } from 'lucide-react';
+import type { Transaction } from '@/types';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -9,13 +10,95 @@ import { Modal } from '@/components/ui/Modal';
 import { BillsSkeleton } from '@/components/ui/Skeleton';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
 import type { Bill, Account, PaycheckEntry } from '@/types';
-import { EXPENSE_CATEGORIES } from '@/types';
+import { useCategories } from '@/hooks/useCategories';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 
 const FREQUENCY_LABELS: Record<Bill['frequency'], string> = {
   weekly: 'Weekly', biweekly: 'Bi-weekly', monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly',
 };
+
+// ── Subscription detection ─────────────────────────────────────────────────────
+
+type DetectedSub = {
+  name: string;
+  avgAmount: number;
+  monthlyCount: number;
+  lastDate: string;
+  category: string;
+};
+
+function detectSubscriptions(transactions: Transaction[]): DetectedSub[] {
+  const expenses = transactions.filter((t) => t.type === 'expense' && t.description);
+  const grouped: Record<string, Transaction[]> = {};
+  for (const tx of expenses) {
+    const key = tx.description.toLowerCase().trim();
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(tx);
+  }
+
+  const subs: DetectedSub[] = [];
+  for (const [, txs] of Object.entries(grouped)) {
+    if (txs.length < 2) continue;
+    const months = new Set(txs.map((t) => t.date.slice(0, 7)));
+    if (months.size < 2) continue;
+
+    // Check if amounts are similar (within 20% or $5)
+    const amounts = txs.map((t) => t.amount);
+    const avg = amounts.reduce((s, a) => s + a, 0) / amounts.length;
+    const allSimilar = amounts.every((a) => Math.abs(a - avg) <= Math.max(avg * 0.2, 5));
+    if (!allSimilar) continue;
+
+    const sorted = [...txs].sort((a, b) => b.date.localeCompare(a.date));
+    subs.push({
+      name: sorted[0].description,
+      avgAmount: avg,
+      monthlyCount: months.size,
+      lastDate: sorted[0].date,
+      category: sorted[0].category,
+    });
+  }
+
+  return subs.sort((a, b) => b.avgAmount - a.avgAmount);
+}
+
+// ── Subscription Tracker component ────────────────────────────────────────────
+
+function SubscriptionTracker({ transactions }: { transactions: Transaction[] }) {
+  const subs = detectSubscriptions(transactions);
+  const monthlyTotal = subs.reduce((s, sub) => s + sub.avgAmount, 0);
+
+  if (subs.length === 0) return null;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between px-1">
+        <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+          <Repeat className="w-3.5 h-3.5" /> Detected Subscriptions
+        </h2>
+        <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-lg">
+          {formatCurrency(monthlyTotal)}/mo
+        </span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        {subs.map((sub) => (
+          <div key={sub.name} className="flex items-center justify-between p-3.5 rounded-2xl bg-white border border-indigo-100 hover:border-indigo-200 transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center shrink-0">
+                <Repeat className="w-4 h-4 text-indigo-500" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-slate-900 capitalize">{sub.name}</p>
+                <p className="text-xs font-medium text-slate-500 mt-0.5">{sub.category} · {sub.monthlyCount} mo detected</p>
+              </div>
+            </div>
+            <span className="text-sm font-extrabold text-indigo-600 ml-2 shrink-0">{formatCurrency(sub.avgAmount)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function nextDueAfter(currentDue: string, frequency: Bill['frequency']): string {
   const d = new Date(currentDue);
@@ -213,6 +296,7 @@ export default function BillsPage() {
   const [bills, setBills] = useState<Bill[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [paychecks, setPaychecks] = useState<PaycheckEntry[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -220,16 +304,18 @@ export default function BillsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
   const toast = useToast();
+  const { expenseCategories } = useCategories();
 
   const load = useCallback(async () => {
     setError(false);
     try {
-      const [bRes, aRes, pRes] = await Promise.all([fetch('/api/bills'), fetch('/api/accounts'), fetch('/api/paychecks')]);
+      const [bRes, aRes, pRes, txRes] = await Promise.all([fetch('/api/bills'), fetch('/api/accounts'), fetch('/api/paychecks'), fetch('/api/transactions')]);
       if (!bRes.ok) throw new Error();
-      const [b, a, p] = await Promise.all([bRes.json(), aRes.json(), pRes.ok ? pRes.json() : Promise.resolve([])]);
+      const [b, a, p, tx] = await Promise.all([bRes.json(), aRes.json(), pRes.ok ? pRes.json() : Promise.resolve([]), txRes.ok ? txRes.json() : Promise.resolve([])]);
       setBills([...b].sort((x: Bill, y: Bill) => x.nextDue.localeCompare(y.nextDue)));
       setAccounts(a);
       setPaychecks(p);
+      setTransactions(tx);
     } catch {
       setError(true);
     } finally {
@@ -388,6 +474,9 @@ export default function BillsPage() {
           {/* Cashflow Calendar */}
           <CashflowCalendar bills={activeBills} paychecks={paychecks} nowMs={nowMs} />
 
+          {/* Subscription Tracker */}
+          {transactions.length > 0 && <SubscriptionTracker transactions={transactions} />}
+
           {/* Horizontal Timeline */}
           <BillsTimeline bills={activeBills} nowMs={nowMs} />
 
@@ -462,7 +551,7 @@ export default function BillsPage() {
             <Select label="Frequency" value={form.frequency} options={Object.entries(FREQUENCY_LABELS).map(([value, label]) => ({ value, label }))} onChange={(e) => setForm((f) => ({ ...f, frequency: e.target.value as Bill['frequency'] }))} />
           </div>
           <Input label="Next Due Date" type="date" value={form.nextDue} onChange={(e) => setForm((f) => ({ ...f, nextDue: e.target.value }))} />
-          <Select label="Category" value={form.category} options={EXPENSE_CATEGORIES.map((c) => ({ value: c, label: c }))} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} />
+          <Select label="Category" value={form.category} options={expenseCategories.map((c) => ({ value: c, label: c }))} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} />
           {accounts.length > 0 && (
             <Select label="Pay from Account (optional)" value={form.account} options={[{ value: '', label: '— None —' }, ...accounts.map((a) => ({ value: a.id, label: a.name }))]} onChange={(e) => setForm((f) => ({ ...f, account: e.target.value }))} />
           )}

@@ -1,23 +1,34 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Save, RotateCcw, ExternalLink } from 'lucide-react';
+import { Save, RotateCcw, ExternalLink, Plus, X } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { DEFAULT_TAX_SETTINGS } from '@/lib/utils';
 import type { TaxSettings } from '@/types';
+import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '@/types';
+import { invalidateCategoriesCache } from '@/hooks/useCategories';
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<TaxSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [newExpCat, setNewExpCat] = useState('');
+  const [newIncCat, setNewIncCat] = useState('');
 
   useEffect(() => {
     fetch('/api/settings')
       .then((r) => r.json())
-      .then((s) => { setSettings(s); setLoading(false); });
+      .then((s: TaxSettings) => {
+        setSettings({
+          ...s,
+          customExpenseCategories: s.customExpenseCategories ?? [],
+          customIncomeCategories: s.customIncomeCategories ?? [],
+        });
+        setLoading(false);
+      });
   }, []);
 
   function update<K extends keyof TaxSettings>(key: K, value: TaxSettings[K]) {
@@ -32,9 +43,36 @@ export default function SettingsPage() {
       body: JSON.stringify(settings),
       headers: { 'Content-Type': 'application/json' },
     });
+    invalidateCategoriesCache();
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  }
+
+  function addExpCat() {
+    const cat = newExpCat.trim();
+    if (!cat || !settings) return;
+    const existing = [...EXPENSE_CATEGORIES as readonly string[], ...(settings.customExpenseCategories ?? [])];
+    if (existing.includes(cat)) return;
+    setSettings((s) => s ? { ...s, customExpenseCategories: [...(s.customExpenseCategories ?? []), cat] } : s);
+    setNewExpCat('');
+  }
+
+  function removeExpCat(cat: string) {
+    setSettings((s) => s ? { ...s, customExpenseCategories: (s.customExpenseCategories ?? []).filter((c) => c !== cat) } : s);
+  }
+
+  function addIncCat() {
+    const cat = newIncCat.trim();
+    if (!cat || !settings) return;
+    const existing = [...INCOME_CATEGORIES as readonly string[], ...(settings.customIncomeCategories ?? [])];
+    if (existing.includes(cat)) return;
+    setSettings((s) => s ? { ...s, customIncomeCategories: [...(s.customIncomeCategories ?? []), cat] } : s);
+    setNewIncCat('');
+  }
+
+  function removeIncCat(cat: string) {
+    setSettings((s) => s ? { ...s, customIncomeCategories: (s.customIncomeCategories ?? []).filter((c) => c !== cat) } : s);
   }
 
   function handleReset() {
@@ -207,6 +245,73 @@ export default function SettingsPage() {
               onChange={(e) => update('ficaMedicareRate', Number(e.target.value))}
             />
           </div>
+        </Card>
+
+        {/* Custom Categories */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Custom Categories</CardTitle>
+          </CardHeader>
+          <p className="text-sm font-medium text-slate-500 mb-5">
+            Add categories beyond the defaults. They appear in all transaction, bill, and budget dropdowns.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            {/* Expense */}
+            <div>
+              <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">Expense Categories</p>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {[...EXPENSE_CATEGORIES].map((c) => (
+                  <span key={c} className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 text-xs font-bold">{c}</span>
+                ))}
+                {(settings.customExpenseCategories ?? []).map((c) => (
+                  <span key={c} className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold">
+                    {c}
+                    <button onClick={() => removeExpCat(c)} className="hover:text-rose-600 transition-colors ml-0.5"><X className="w-3 h-3" /></button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  className="flex-1 h-9 px-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/10"
+                  placeholder="New category…"
+                  value={newExpCat}
+                  onChange={(e) => setNewExpCat(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addExpCat(); } }}
+                />
+                <button onClick={addExpCat} className="h-9 px-3 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            {/* Income */}
+            <div>
+              <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">Income Categories</p>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {[...INCOME_CATEGORIES].map((c) => (
+                  <span key={c} className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 text-xs font-bold">{c}</span>
+                ))}
+                {(settings.customIncomeCategories ?? []).map((c) => (
+                  <span key={c} className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
+                    {c}
+                    <button onClick={() => removeIncCat(c)} className="hover:text-rose-600 transition-colors ml-0.5"><X className="w-3 h-3" /></button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  className="flex-1 h-9 px-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/10"
+                  placeholder="New category…"
+                  value={newIncCat}
+                  onChange={(e) => setNewIncCat(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addIncCat(); } }}
+                />
+                <button onClick={addIncCat} className="h-9 px-3 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 transition-colors">
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+          <p className="text-xs font-medium text-slate-400 mt-4">Changes take effect after clicking Save above.</p>
         </Card>
 
         {/* Data Storage */}

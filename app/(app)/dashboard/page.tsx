@@ -2,8 +2,8 @@ import { auth } from '@/lib/auth';
 import { batchGetDashboardData, getNetWorthHistory, appendNetWorthSnapshot } from '@/lib/sheets';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
-import { TrendingUp, TrendingDown, DollarSign, Calendar, PiggyBank, ArrowUpRight, ArrowDownRight, Wallet, BarChart3, ArrowLeftRight } from 'lucide-react';
-import { SpendingPieChart, MonthlyBarChart, BudgetBars, GoalsSummary, NetWorthTrendChart, HealthBanner } from './DashboardCharts';
+import { TrendingUp, TrendingDown, DollarSign, Calendar, PiggyBank, ArrowUpRight, Wallet, BarChart3, ArrowLeftRight } from 'lucide-react';
+import { SpendingPieChart, MonthlyBarChart, BudgetBars, GoalsSummary, NetWorthTrendChart, HealthBanner, EmergencyFundWidget, FinancialHealthScore } from './DashboardCharts';
 import { QuickAddTransaction } from './QuickAddTransaction';
 import { CategoryIconBadge } from '@/components/CategoryIcon';
 import type { NetWorthPoint } from './DashboardCharts';
@@ -136,7 +136,12 @@ export default async function DashboardPage() {
     };
   });
 
-  // Budget vs actual this month
+  // Budget vs actual this month + prev month MoM
+  const prevMonthCategorySpend: Record<string, number> = {};
+  prevMonthTx.filter((t) => t.type === 'expense').forEach((t) => {
+    prevMonthCategorySpend[t.category] = (prevMonthCategorySpend[t.category] ?? 0) + t.amount;
+  });
+
   const budgetData = budgets.map((b) => {
     const spent = monthTx
       .filter((t) => t.type === 'expense' && t.category === b.category)
@@ -144,9 +149,29 @@ export default async function DashboardPage() {
     const budget = b.period === 'monthly' ? b.amount
       : b.period === 'weekly' ? b.amount * 4.33
       : b.amount / 12;
-    return { category: b.category, budget, spent };
+    return { category: b.category, budget, spent, prevMonthSpent: prevMonthCategorySpend[b.category] ?? 0 };
   });
   const overBudgetCount = budgetData.filter((b) => b.spent > b.budget).length;
+
+  // Emergency fund
+  const liquidSavings = accounts
+    .filter((a) => a.type === 'checking' || a.type === 'savings')
+    .reduce((s, a) => s + a.balance, 0);
+  const last3MonthsExpenses = Array.from({ length: 3 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (i + 1), 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    return transactions.filter((t) => t.type === 'expense' && t.date.startsWith(key)).reduce((s, t) => s + t.amount, 0);
+  });
+  const avgMonthlyExpense = last3MonthsExpenses.reduce((s, v) => s + v, 0) / 3;
+  const emergencyFundMonths = avgMonthlyExpense > 0 ? liquidSavings / avgMonthlyExpense : 0;
+
+  // Financial health score
+  const debtRatio = totalAssets > 0 ? totalDebt / totalAssets : 0;
+  const savingsRateScore = savingsRate >= 20 ? 25 : savingsRate >= 10 ? 17 : savingsRate >= 5 ? 10 : savingsRate > 0 ? 5 : 0;
+  const emergencyScore = emergencyFundMonths >= 6 ? 25 : emergencyFundMonths >= 3 ? 18 : emergencyFundMonths >= 1 ? 10 : emergencyFundMonths >= 0.5 ? 5 : 0;
+  const budgetScore = budgets.length === 0 ? 12 : Math.max(0, 25 - overBudgetCount * 6);
+  const debtScore = debtRatio <= 0.1 ? 25 : debtRatio <= 0.3 ? 20 : debtRatio <= 0.5 ? 15 : debtRatio <= 0.75 ? 10 : 5;
+  const healthScore = savingsRateScore + emergencyScore + budgetScore + debtScore;
 
   // Goals summary
   const goalData = goals.map((g) => {
@@ -259,8 +284,8 @@ export default async function DashboardPage() {
         ))}
       </div>
 
-      {/* Assets vs Liabilities strip */}
-      <div className="grid grid-cols-3 gap-3">
+      {/* Assets / Liabilities / Savings / Emergency Fund */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-white rounded-2xl border border-emerald-100 p-4">
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Assets</p>
           <p className="text-lg font-extrabold text-emerald-600 mt-1 tracking-tight">{formatCurrency(totalAssets)}</p>
@@ -272,6 +297,12 @@ export default async function DashboardPage() {
         <div className="bg-white rounded-2xl border border-slate-100 p-4">
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Savings</p>
           <p className="text-lg font-extrabold text-purple-600 mt-1 tracking-tight">{formatCurrency(totalSaved)}</p>
+        </div>
+        <div className="bg-white rounded-2xl border border-slate-100 p-4">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Emergency</p>
+          <p className={`text-lg font-extrabold mt-1 tracking-tight ${emergencyFundMonths >= 6 ? 'text-emerald-600' : emergencyFundMonths >= 3 ? 'text-indigo-600' : emergencyFundMonths >= 1 ? 'text-amber-600' : 'text-rose-600'}`}>
+            {emergencyFundMonths.toFixed(1)} <span className="text-sm font-bold text-slate-400">mo</span>
+          </p>
         </div>
       </div>
 
@@ -323,6 +354,19 @@ export default async function DashboardPage() {
         </Card>
       </div>
 
+      {/* Emergency Fund + Health Score row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <EmergencyFundWidget liquidSavings={liquidSavings} avgMonthlyExpense={avgMonthlyExpense} />
+        <FinancialHealthScore data={{
+          score: healthScore,
+          savingsRate,
+          emergencyFundMonths,
+          overBudgetCount,
+          budgetCount: budgets.length,
+          debtRatio,
+        }} />
+      </div>
+
       {/* Budget + Goals row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <Card>
@@ -336,7 +380,7 @@ export default async function DashboardPage() {
             <a href="/planning" className="text-xs font-bold text-indigo-600 hover:text-indigo-500 transition-colors bg-indigo-50 px-3 py-1.5 rounded-lg">Manage</a>
           </CardHeader>
           <div className="mt-4">
-            <BudgetBars data={budgetData} daysLeft={daysLeft} daysElapsed={daysElapsed} />
+            <BudgetBars data={budgetData} daysLeft={daysLeft} daysElapsed={daysElapsed} showMoM />
           </div>
         </Card>
 

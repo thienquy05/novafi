@@ -12,6 +12,7 @@ import {
   PiggyBank,
   Calendar,
   BarChart3,
+  FileText,
 } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { cn } from '@/lib/utils';
@@ -72,6 +73,7 @@ const NAV = [
   { href: '/savings', label: 'Savings', icon: PiggyBank, badgeKey: null },
   { href: '/bills', label: 'Bills', icon: Calendar, badgeKey: 'overdueBills' as keyof BadgeCounts },
   { href: '/planning', label: 'Planning', icon: BarChart3, badgeKey: 'overBudget' as keyof BadgeCounts },
+  { href: '/reports', label: 'Reports', icon: FileText, badgeKey: null },
   { href: '/settings', label: 'Settings', icon: Settings, badgeKey: null },
 ];
 

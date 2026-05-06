@@ -46,6 +46,8 @@ export async function getSettings(
     ficaSsRate: Number(get('fica_ss_rate', '6.2')),
     ficaSsWageBase: Number(get('fica_ss_wage_base', '176100')),
     ficaMedicareRate: Number(get('fica_medicare_rate', '1.45')),
+    customExpenseCategories: get('custom_expense_categories', '').split('|').filter(Boolean),
+    customIncomeCategories: get('custom_income_categories', '').split('|').filter(Boolean),
   };
 }
 
@@ -67,6 +69,8 @@ export async function saveSettings(
     ['fica_ss_rate', String(settings.ficaSsRate)],
     ['fica_ss_wage_base', String(settings.ficaSsWageBase)],
     ['fica_medicare_rate', String(settings.ficaMedicareRate)],
+    ['custom_expense_categories', (settings.customExpenseCategories ?? []).join('|')],
+    ['custom_income_categories', (settings.customIncomeCategories ?? []).join('|')],
   ];
   await sheets.spreadsheets.values.update({
     spreadsheetId,

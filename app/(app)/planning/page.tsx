@@ -8,8 +8,8 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { PlanningSkeleton } from '@/components/ui/Skeleton';
 import { formatCurrency, formatDate, generateId } from '@/lib/utils';
-import { EXPENSE_CATEGORIES } from '@/types';
 import type { Budget, Goal, Transaction, Account } from '@/types';
+import { useCategories } from '@/hooks/useCategories';
 import { motion } from 'framer-motion';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
@@ -60,6 +60,7 @@ export default function PlanningPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
   const toast = useToast();
+  const { expenseCategories } = useCategories();
 
   const load = useCallback(async () => {
     setError(false);
@@ -86,10 +87,18 @@ export default function PlanningPage() {
   const daysElapsed = now.getDate();
   const daysLeft = daysInMonth - daysElapsed;
 
+  const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevMonthKey = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
+
   const monthExpenses = transactions.filter((t) => t.date.startsWith(thisMonth) && t.type === 'expense');
+  const prevMonthExpenses = transactions.filter((t) => t.date.startsWith(prevMonthKey) && t.type === 'expense');
 
   function spentForCategory(cat: string): number {
     return monthExpenses.filter((t) => t.category === cat).reduce((s, t) => s + t.amount, 0);
+  }
+
+  function prevSpentForCategory(cat: string): number {
+    return prevMonthExpenses.filter((t) => t.category === cat).reduce((s, t) => s + t.amount, 0);
   }
 
   // ─── Budget CRUD ──────────────────────────────────────────────────────────
@@ -218,7 +227,7 @@ export default function PlanningPage() {
   }, 0);
 
   const savingsAccounts = accounts.filter((a) => a.type === 'savings');
-  const unbudgetedWithSpending = EXPENSE_CATEGORIES.filter(
+  const unbudgetedWithSpending = expenseCategories.filter(
     (c) => !budgets.some((b) => b.category === c) && monthExpenses.some((t) => t.category === c)
   );
 
@@ -297,6 +306,8 @@ export default function PlanningPage() {
                 {budgets.map((budget, i) => {
                   const monthly = monthlyAmount(budget);
                   const spent = spentForCategory(budget.category);
+                  const prevSpent = prevSpentForCategory(budget.category);
+                  const momDiff = spent - prevSpent;
                   const pct = monthly > 0 ? Math.min(100, (spent / monthly) * 100) : 0;
                   const over = spent > monthly;
                   const remaining = monthly - spent;
@@ -368,13 +379,19 @@ export default function PlanningPage() {
                             )}
                           </p>
                           <div className="flex items-center gap-1.5">
+                            {prevSpent > 0 && Math.abs(momDiff) >= 0.5 && (
+                              <span className={`text-xs font-bold flex items-center gap-0.5 ${momDiff > 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
+                                {momDiff > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                                {momDiff > 0 ? '+' : ''}{formatCurrency(momDiff)} vs last mo
+                              </span>
+                            )}
                             {willOvershoot && (
                               <span className="text-xs font-bold text-amber-600 flex items-center gap-0.5">
                                 <TrendingUp className="w-3 h-3" />
                                 ~{formatCurrency(overshootAmt)} overshoot
                               </span>
                             )}
-                            {!over && !willOvershoot && pct > 0 && (
+                            {!over && !willOvershoot && pct > 0 && !prevSpent && (
                               <span className="text-xs font-bold text-emerald-600 flex items-center gap-0.5">
                                 <Zap className="w-3 h-3" />
                                 On pace
@@ -571,7 +588,7 @@ export default function PlanningPage() {
           <Select
             label="Category"
             value={budgetForm.category}
-            options={EXPENSE_CATEGORIES.map((c) => ({ value: c, label: c }))}
+            options={expenseCategories.map((c) => ({ value: c, label: c }))}
             onChange={(e) => setBudgetForm((f) => ({ ...f, category: e.target.value }))}
             disabled={!!editBudget}
           />

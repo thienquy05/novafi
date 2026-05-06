@@ -34,9 +34,17 @@ const DEFAULT_COLOR = '#6366f1';
 
 export type CategoryData = { name: string; value: number };
 export type MonthlyData = { month: string; income: number; expenses: number };
-export type BudgetData = { category: string; budget: number; spent: number };
+export type BudgetData = { category: string; budget: number; spent: number; prevMonthSpent?: number };
 export type GoalData = { id: string; name: string; icon: string; current: number; target: number; deadline: string };
 export type NetWorthPoint = { month: string; label: string; netWorth: number };
+export type HealthScoreData = {
+  score: number;
+  savingsRate: number;
+  emergencyFundMonths: number;
+  overBudgetCount: number;
+  budgetCount: number;
+  debtRatio: number;
+};
 
 function CustomTooltip({ active, payload }: { active?: boolean; payload?: { name: string; value: number }[] }) {
   if (!active || !payload?.length) return null;
@@ -298,7 +306,7 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
 
 // ── Budget Bars ───────────────────────────────────────────────────────────────
 
-export function BudgetBars({ data, daysLeft, daysElapsed }: { data: BudgetData[]; daysLeft?: number; daysElapsed?: number }) {
+export function BudgetBars({ data, daysLeft, daysElapsed, showMoM }: { data: BudgetData[]; daysLeft?: number; daysElapsed?: number; showMoM?: boolean }) {
   if (data.length === 0) {
     return (
       <div className="text-slate-500 text-sm py-8 text-center bg-slate-50 rounded-2xl border border-slate-100">
@@ -360,11 +368,24 @@ export function BudgetBars({ data, daysLeft, daysElapsed }: { data: BudgetData[]
                   </span>
                 )}
               </p>
-              {willOvershoot && projected && (
-                <p className="text-xs font-bold text-amber-600">
-                  ~{formatCurrency(projected - b.budget)} overshoot
-                </p>
-              )}
+              <div className="flex items-center gap-2">
+                {showMoM && b.prevMonthSpent !== undefined && (
+                  (() => {
+                    const diff = b.spent - b.prevMonthSpent;
+                    if (Math.abs(diff) < 0.5) return <span className="text-xs font-bold text-slate-400">same as last mo</span>;
+                    return (
+                      <span className={`text-xs font-bold ${diff > 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
+                        {diff > 0 ? '+' : ''}{formatCurrency(diff)} vs last mo
+                      </span>
+                    );
+                  })()
+                )}
+                {willOvershoot && projected && (
+                  <p className="text-xs font-bold text-amber-600">
+                    ~{formatCurrency(projected - b.budget)} overshoot
+                  </p>
+                )}
+              </div>
             </div>
           </motion.div>
         );
@@ -456,6 +477,155 @@ export function NetWorthTrendChart({ data }: { data: NetWorthPoint[] }) {
             />
           </AreaChart>
         </ResponsiveContainer>}
+      </div>
+    </div>
+  );
+}
+
+// ── Emergency Fund Widget ─────────────────────────────────────────────────────
+
+export function EmergencyFundWidget({
+  liquidSavings,
+  avgMonthlyExpense,
+}: {
+  liquidSavings: number;
+  avgMonthlyExpense: number;
+}) {
+  const months = avgMonthlyExpense > 0 ? liquidSavings / avgMonthlyExpense : 0;
+  const capped = Math.min(months, 9);
+  const pct = (capped / 6) * 100;
+
+  type Status = 'danger' | 'warning' | 'good' | 'great';
+  const status: Status = months < 1 ? 'danger' : months < 3 ? 'warning' : months < 6 ? 'good' : 'great';
+  const labels: Record<Status, string> = {
+    danger: 'At risk',
+    warning: 'Building up',
+    good: 'Getting there',
+    great: 'Fully funded',
+  };
+  const colors: Record<Status, string> = {
+    danger: 'bg-rose-500',
+    warning: 'bg-amber-500',
+    good: 'bg-indigo-500',
+    great: 'bg-emerald-500',
+  };
+  const textColors: Record<Status, string> = {
+    danger: 'text-rose-600',
+    warning: 'text-amber-600',
+    good: 'text-indigo-600',
+    great: 'text-emerald-600',
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-100 p-4">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Emergency Fund</p>
+        <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${textColors[status]} bg-slate-50`}>
+          {labels[status]}
+        </span>
+      </div>
+      <p className={`text-lg font-extrabold tracking-tight ${textColors[status]}`}>
+        {months.toFixed(1)} <span className="text-sm font-bold text-slate-400">mo covered</span>
+      </p>
+      <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2 overflow-hidden">
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${Math.min(100, pct)}%` }}
+          transition={{ duration: 1, ease: 'easeOut' }}
+          className={`h-full rounded-full ${colors[status]}`}
+        />
+      </div>
+      <div className="flex justify-between mt-1">
+        <span className="text-[10px] font-bold text-slate-400">0</span>
+        <span className="text-[10px] font-bold text-slate-400">3 mo</span>
+        <span className="text-[10px] font-bold text-slate-400">6 mo</span>
+      </div>
+      <p className="text-[11px] font-medium text-slate-400 mt-1">
+        {formatCurrency(liquidSavings)} liquid · {avgMonthlyExpense > 0 ? `${formatCurrency(avgMonthlyExpense)}/mo avg` : 'no expense data'}
+      </p>
+    </div>
+  );
+}
+
+// ── Financial Health Score ─────────────────────────────────────────────────────
+
+export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
+  const { score, savingsRate, emergencyFundMonths, overBudgetCount, budgetCount, debtRatio } = data;
+
+  type Grade = 'A' | 'B' | 'C' | 'D' | 'F';
+  const grade: Grade = score >= 85 ? 'A' : score >= 70 ? 'B' : score >= 55 ? 'C' : score >= 40 ? 'D' : 'F';
+  const gradeColors: Record<Grade, string> = {
+    A: 'text-emerald-600',
+    B: 'text-indigo-600',
+    C: 'text-amber-600',
+    D: 'text-orange-600',
+    F: 'text-rose-600',
+  };
+  const ringColor = score >= 85 ? '#10b981' : score >= 70 ? '#6366f1' : score >= 55 ? '#f59e0b' : score >= 40 ? '#f97316' : '#f43f5e';
+
+  const components = [
+    {
+      label: 'Savings Rate',
+      detail: `${savingsRate.toFixed(0)}%`,
+      score: Math.round(savingsRate >= 20 ? 25 : savingsRate >= 10 ? 17 : savingsRate >= 5 ? 10 : savingsRate > 0 ? 5 : 0),
+      max: 25,
+    },
+    {
+      label: 'Emergency Fund',
+      detail: `${emergencyFundMonths.toFixed(1)} mo`,
+      score: Math.round(emergencyFundMonths >= 6 ? 25 : emergencyFundMonths >= 3 ? 18 : emergencyFundMonths >= 1 ? 10 : emergencyFundMonths >= 0.5 ? 5 : 0),
+      max: 25,
+    },
+    {
+      label: 'Budget Control',
+      detail: budgetCount === 0 ? 'No budgets' : overBudgetCount === 0 ? 'On track' : `${overBudgetCount} over`,
+      score: budgetCount === 0 ? 12 : Math.max(0, Math.round(25 - overBudgetCount * 6)),
+      max: 25,
+    },
+    {
+      label: 'Debt Ratio',
+      detail: `${(debtRatio * 100).toFixed(0)}%`,
+      score: Math.round(debtRatio <= 0.1 ? 25 : debtRatio <= 0.3 ? 20 : debtRatio <= 0.5 ? 15 : debtRatio <= 0.75 ? 10 : 5),
+      max: 25,
+    },
+  ];
+
+  return (
+    <div className="bg-white rounded-3xl border border-slate-100 p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Financial Health</p>
+          <p className="text-slate-500 text-xs font-medium mt-0.5">4-factor composite score</p>
+        </div>
+        <div className="text-center">
+          <div
+            className="relative w-16 h-16 flex items-center justify-center rounded-full"
+            style={{
+              background: `conic-gradient(${ringColor} ${score * 3.6}deg, #f1f5f9 0deg)`,
+            }}
+          >
+            <div className="absolute inset-1.5 bg-white rounded-full flex flex-col items-center justify-center">
+              <span className={`text-lg font-extrabold leading-none ${gradeColors[grade]}`}>{grade}</span>
+              <span className="text-[10px] font-bold text-slate-400">{score}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="space-y-2">
+        {components.map((c) => (
+          <div key={c.label} className="flex items-center gap-3">
+            <span className="text-xs font-bold text-slate-600 w-32 shrink-0">{c.label}</span>
+            <div className="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${(c.score / c.max) * 100}%` }}
+                transition={{ duration: 0.8, ease: 'easeOut' }}
+                className="h-full rounded-full bg-indigo-500"
+              />
+            </div>
+            <span className="text-[11px] font-bold text-slate-500 w-16 text-right shrink-0">{c.detail}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
