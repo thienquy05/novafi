@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   LayoutDashboard,
   DollarSign,
@@ -13,10 +13,12 @@ import {
   Calendar,
   BarChart3,
   FileText,
+  MoreHorizontal,
+  X,
 } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { cn } from '@/lib/utils';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { LogoMark } from './LogoMark';
 
 type BadgeCounts = { overdueBills: number; overBudget: number };
@@ -161,56 +163,186 @@ export function MobileHeader() {
   );
 }
 
-// Mobile nav shows the 5 most important pages
-const MOBILE_NAV = [
-  { href: '/dashboard', label: 'Home', icon: LayoutDashboard, badgeKey: null as keyof BadgeCounts | null },
-  { href: '/accounts', label: 'Accounts', icon: Landmark, badgeKey: null },
-  { href: '/transactions', label: 'Spending', icon: ArrowLeftRight, badgeKey: null },
-  { href: '/bills', label: 'Bills', icon: Calendar, badgeKey: 'overdueBills' as keyof BadgeCounts },
-  { href: '/planning', label: 'Planning', icon: BarChart3, badgeKey: 'overBudget' as keyof BadgeCounts },
+// Primary 5 tabs always visible in the bottom bar
+const MOBILE_NAV_PRIMARY = [
+  { href: '/dashboard',     label: 'Home',     icon: LayoutDashboard, badgeKey: null as keyof BadgeCounts | null },
+  { href: '/transactions',  label: 'Spending', icon: ArrowLeftRight,  badgeKey: null },
+  { href: '/bills',         label: 'Bills',    icon: Calendar,        badgeKey: 'overdueBills' as keyof BadgeCounts },
+  { href: '/planning',      label: 'Planning', icon: BarChart3,       badgeKey: 'overBudget' as keyof BadgeCounts },
 ];
+
+// Items surfaced in the "More" slide-up sheet
+const MOBILE_NAV_MORE = [
+  { href: '/accounts',  label: 'Accounts',  icon: Landmark,   badgeKey: null as keyof BadgeCounts | null },
+  { href: '/savings',   label: 'Savings',   icon: PiggyBank,  badgeKey: null },
+  { href: '/paychecks', label: 'Paychecks', icon: DollarSign, badgeKey: null },
+  { href: '/reports',   label: 'Reports',   icon: FileText,   badgeKey: null },
+  { href: '/settings',  label: 'Settings',  icon: Settings,   badgeKey: null },
+];
+
+const MORE_HREFS = new Set(MOBILE_NAV_MORE.map((i) => i.href));
 
 export function MobileNav() {
   const path = usePathname();
   const badges = useBadges();
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const sheetRef = useRef<HTMLDivElement>(null);
+
+  // Close sheet when navigating
+  useEffect(() => { setSheetOpen(false); }, [path]);
+
+  // Close on outside tap
+  useEffect(() => {
+    if (!sheetOpen) return;
+    const handler = (e: MouseEvent | TouchEvent) => {
+      if (sheetRef.current && !sheetRef.current.contains(e.target as Node)) {
+        setSheetOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('touchstart', handler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('touchstart', handler);
+    };
+  }, [sheetOpen]);
+
+  const moreActive = MORE_HREFS.has(path) || [...MORE_HREFS].some((h) => path.startsWith(h + '/'));
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl border-t border-slate-200 px-2 py-2 flex items-center justify-around z-50 pb-safe shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
-      {MOBILE_NAV.map(({ href, label, icon: Icon, badgeKey }) => {
-        const active = path === href || path.startsWith(href + '/');
-        const badgeCount = badgeKey ? badges[badgeKey] : 0;
-        return (
-          <Link
-            key={href}
-            href={href}
-            className={cn(
-              'relative flex flex-col items-center gap-1 p-2 rounded-xl transition-colors duration-150 min-w-[60px] min-h-[52px] justify-center tap-highlight-none select-none',
-              active ? 'text-indigo-600' : 'text-slate-400'
-            )}
+    <>
+      {/* Backdrop */}
+      <AnimatePresence>
+        {sheetOpen && (
+          <motion.div
+            key="backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="md:hidden fixed inset-0 bg-black/30 backdrop-blur-sm z-40"
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Slide-up sheet */}
+      <AnimatePresence>
+        {sheetOpen && (
+          <motion.div
+            key="sheet"
+            ref={sheetRef}
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', bounce: 0.1, duration: 0.38 }}
+            className="md:hidden fixed bottom-[72px] left-0 right-0 z-50 bg-white rounded-t-3xl border-t border-slate-200 shadow-[0_-20px_60px_rgba(0,0,0,0.12)] px-4 pt-5 pb-6"
           >
-            {active && (
-              <motion.div
-                layoutId="mobile-nav-active"
-                className="absolute inset-0 bg-indigo-50 rounded-xl"
-                initial={false}
-                transition={{ type: 'spring', bounce: 0.15, duration: 0.35 }}
-              />
-            )}
-            <div className="relative">
-              <Icon className={cn('w-5 h-5 relative z-10', active && 'drop-shadow-[0_0_8px_rgba(79,70,229,0.3)]')} />
-              {badgeCount > 0 && (
-                <span className={cn(
-                  'absolute -top-1.5 -right-1.5 text-white text-[9px] font-extrabold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5',
-                  badgeKey === 'overdueBills' ? 'bg-rose-500' : 'bg-amber-500'
-                )}>
-                  {badgeCount > 9 ? '9+' : badgeCount}
-                </span>
-              )}
+            {/* Drag handle */}
+            <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-5" />
+
+            <div className="grid grid-cols-5 gap-2">
+              {MOBILE_NAV_MORE.map(({ href, label, icon: Icon, badgeKey }) => {
+                const active = path === href || path.startsWith(href + '/');
+                const badgeCount = badgeKey ? badges[badgeKey] : 0;
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    className={cn(
+                      'flex flex-col items-center gap-1.5 py-3 px-1 rounded-2xl transition-colors duration-150 tap-highlight-none select-none',
+                      active ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 active:bg-slate-50'
+                    )}
+                  >
+                    <div className="relative">
+                      <Icon className="w-6 h-6" />
+                      {badgeCount > 0 && (
+                        <span className={cn(
+                          'absolute -top-1.5 -right-1.5 text-white text-[9px] font-extrabold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5',
+                          badgeKey === 'overdueBills' ? 'bg-rose-500' : 'bg-amber-500'
+                        )}>
+                          {badgeCount > 9 ? '9+' : badgeCount}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[10px] font-semibold leading-tight text-center">{label}</span>
+                  </Link>
+                );
+              })}
             </div>
-            <span className="text-[10px] font-semibold relative z-10 leading-tight">{label}</span>
-          </Link>
-        );
-      })}
-    </nav>
+
+            {/* Sign out */}
+            <button
+              onClick={() => signOut({ callbackUrl: '/' })}
+              className="mt-4 w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors duration-150 border border-slate-100 tap-highlight-none select-none"
+            >
+              <LogOut className="w-4 h-4" />
+              Sign Out
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Bottom bar */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-slate-200 px-2 py-2 flex items-center justify-around z-50 pb-safe shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
+        {MOBILE_NAV_PRIMARY.map(({ href, label, icon: Icon, badgeKey }) => {
+          const active = path === href || path.startsWith(href + '/');
+          const badgeCount = badgeKey ? badges[badgeKey] : 0;
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={cn(
+                'relative flex flex-col items-center gap-1 p-2 rounded-xl transition-colors duration-150 min-w-[58px] min-h-[52px] justify-center tap-highlight-none select-none',
+                active ? 'text-indigo-600' : 'text-slate-400'
+              )}
+            >
+              {active && (
+                <motion.div
+                  layoutId="mobile-nav-active"
+                  className="absolute inset-0 bg-indigo-50 rounded-xl"
+                  initial={false}
+                  transition={{ type: 'spring', bounce: 0.15, duration: 0.35 }}
+                />
+              )}
+              <div className="relative">
+                <Icon className={cn('w-5 h-5 relative z-10', active && 'drop-shadow-[0_0_8px_rgba(79,70,229,0.3)]')} />
+                {badgeCount > 0 && (
+                  <span className={cn(
+                    'absolute -top-1.5 -right-1.5 text-white text-[9px] font-extrabold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5',
+                    badgeKey === 'overdueBills' ? 'bg-rose-500' : 'bg-amber-500'
+                  )}>
+                    {badgeCount > 9 ? '9+' : badgeCount}
+                  </span>
+                )}
+              </div>
+              <span className="text-[10px] font-semibold relative z-10 leading-tight">{label}</span>
+            </Link>
+          );
+        })}
+
+        {/* More button */}
+        <button
+          onClick={() => setSheetOpen((v) => !v)}
+          className={cn(
+            'relative flex flex-col items-center gap-1 p-2 rounded-xl transition-colors duration-150 min-w-[58px] min-h-[52px] justify-center tap-highlight-none select-none',
+            (moreActive || sheetOpen) ? 'text-indigo-600' : 'text-slate-400'
+          )}
+        >
+          {(moreActive || sheetOpen) && !sheetOpen && (
+            <motion.div
+              layoutId="mobile-nav-active"
+              className="absolute inset-0 bg-indigo-50 rounded-xl"
+              initial={false}
+              transition={{ type: 'spring', bounce: 0.15, duration: 0.35 }}
+            />
+          )}
+          {sheetOpen
+            ? <X className="w-5 h-5 relative z-10" />
+            : <MoreHorizontal className={cn('w-5 h-5 relative z-10', (moreActive || sheetOpen) && 'drop-shadow-[0_0_8px_rgba(79,70,229,0.3)]')} />
+          }
+          <span className="text-[10px] font-semibold relative z-10 leading-tight">More</span>
+        </button>
+      </nav>
+    </>
   );
 }

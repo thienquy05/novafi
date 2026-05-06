@@ -581,6 +581,24 @@ Added `loading.tsx` in every route directory under `app/(app)/`. Next.js shows t
 
 ---
 
+## Mobile Nav — "More" Sheet (May 6, 2026)
+
+### Problem
+Mobile bottom nav only showed 5 items (Dashboard, Accounts, Transactions, Bills, Planning). Reports and Settings were unreachable from mobile.
+
+### Solution
+Redesigned `MobileNav` in `components/Sidebar.tsx`:
+- **4 primary tabs**: Home, Spending, Bills, Planning (always visible in bottom bar)
+- **"More" button** (5th slot): toggles a spring-animated slide-up sheet
+- **Sheet contents** (5 icons in a row): Accounts, Savings, Paychecks, Reports, Settings
+- **Sheet footer**: Sign Out button
+- Sheet closes automatically on navigation (`useEffect` on `path`) or outside tap
+- Backdrop (`bg-black/30 + backdrop-blur-sm`) dims the page while sheet is open
+- "More" button icon flips to ✕ when sheet is open
+- "More" button shows indigo active state when current route is any of the sheet items
+
+---
+
 ## Potential Future Enhancements
 | Priority | Task |
 |----------|------|
