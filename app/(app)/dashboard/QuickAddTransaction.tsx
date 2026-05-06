@@ -96,33 +96,40 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[], 
             ))}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <Input
-              label="Amount ($)"
-              type="number"
-              min="0"
-              step="0.01"
-              placeholder="0.00"
-              value={form.amount}
-              onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-              autoFocus
-            />
+          {/* Amount — large tap target on mobile */}
+          <div className="relative">
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Amount ($)</label>
+            <div className="relative flex items-center">
+              <span className="absolute left-4 text-xl font-bold text-slate-400 pointer-events-none">$</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                placeholder="0.00"
+                value={form.amount}
+                onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
+                className="w-full pl-9 pr-4 py-4 text-2xl font-extrabold text-slate-900 placeholder-slate-300 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Date"
               type="date"
               value={form.date}
               onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
             />
+            <Input
+              label="Description"
+              placeholder="e.g. Grocery run, Coffee"
+              value={form.description}
+              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+            />
           </div>
 
-          <Input
-            label="Description"
-            placeholder="e.g. Grocery run, Coffee, Salary"
-            value={form.description}
-            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-          />
-
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Select
               label="Category"
               value={form.category}
@@ -140,7 +147,7 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[], 
             />
           </div>
 
-          <div className="flex gap-3 pt-4">
+          <div className="flex gap-3 pt-2">
             <Button
               variant="secondary"
               className="flex-1"

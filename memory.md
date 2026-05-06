@@ -228,6 +228,14 @@ npm run dev                         # → http://localhost:3000
 
 ---
 
+## QuickAdd Transaction — Mobile Modal (May 6, 2026)
+- `Modal.tsx`: split into sticky header + scrollable body (`overflow-y-auto`, `max-h-[92dvh]`) so form is never clipped behind the soft keyboard
+- `QuickAddTransaction.tsx`:
+  - Amount input is now a full-width hero field with `$` prefix, `text-2xl` weight, and `inputMode="decimal"` for the numeric keypad
+  - Removed `autoFocus` — prevents keyboard firing before the bottom sheet finishes sliding up
+  - All two-column grids changed to `grid-cols-1 sm:grid-cols-2` — single column on phones, two columns on tablet/desktop
+  - Date + Description now share a row on sm+; Category + Account share a row on sm+
+
 ## Bills Edit (May 6, 2026)
 - Added edit (pencil) button to each bill row (both active and paused sections)
 - Clicking pencil opens the Add/Edit modal pre-filled with that bill's data
