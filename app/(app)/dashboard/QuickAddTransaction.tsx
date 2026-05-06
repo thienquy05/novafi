@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { Plus, Zap } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -18,7 +18,7 @@ const EMPTY_FORM = {
   account: '',
 };
 
-export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[], isFab?: boolean }) {
+export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[]; isFab?: boolean }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -30,15 +30,19 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[], 
     setForm((f) => ({ ...f, type, category: newCategory }));
   }
 
+  function handleClose() {
+    setOpen(false);
+    setForm(EMPTY_FORM);
+  }
+
   async function handleSave() {
     if (!form.amount || !form.account) return;
     setSaving(true);
-    const amount = parseFloat(form.amount) || 0;
     const tx: Transaction = {
       id: generateId(),
       date: form.date,
       description: form.description,
-      amount,
+      amount: parseFloat(form.amount) || 0,
       type: form.type,
       category: form.category,
       account: form.account,
@@ -50,8 +54,7 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[], 
       headers: { 'Content-Type': 'application/json' },
     });
 
-    setOpen(false);
-    setForm({ ...EMPTY_FORM, date: today() });
+    handleClose();
     setSaving(false);
     window.location.reload();
   }
@@ -59,9 +62,9 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[], 
   return (
     <>
       {isFab ? (
-        <Button 
-          onClick={() => setOpen(true)} 
-          size="icon" 
+        <Button
+          onClick={() => setOpen(true)}
+          size="icon"
           className="h-14 w-14 rounded-full shadow-[0_8px_30px_rgb(79,70,229,0.3)] bg-indigo-600 hover:bg-indigo-700 text-white"
         >
           <Plus className="w-6 h-6" />
@@ -73,22 +76,21 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[], 
         </Button>
       )}
 
-      <Modal
-        open={open}
-        onClose={() => { setOpen(false); setForm(EMPTY_FORM); }}
-        title="New Transaction"
-      >
-        <div className="space-y-5">
-          {/* Type toggle */}
+      <Modal open={open} onClose={handleClose} title="New Transaction">
+        {/* All form fields — scrollable */}
+        <div className="space-y-4 pb-4">
+          {/* Expense / Income toggle */}
           <div className="flex p-1.5 rounded-2xl bg-slate-100">
             {(['expense', 'income'] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => handleTypeChange(t)}
-                className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all duration-300 ${
+                className={`flex-1 py-2.5 text-sm font-bold rounded-xl transition-all duration-200 ${
                   form.type === t
-                    ? t === 'expense' ? 'bg-white text-rose-600 shadow-sm' : 'bg-white text-emerald-600 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-700'
+                    ? t === 'expense'
+                      ? 'bg-white text-rose-600 shadow-sm'
+                      : 'bg-white text-emerald-600 shadow-sm'
+                    : 'text-slate-500'
                 }`}
               >
                 {t === 'expense' ? 'Expense' : 'Income'}
@@ -96,11 +98,13 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[], 
             ))}
           </div>
 
-          {/* Amount — large tap target on mobile */}
-          <div className="relative">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Amount ($)</label>
+          {/* Amount — prominent hero field */}
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
+              Amount ($)
+            </label>
             <div className="relative flex items-center">
-              <span className="absolute left-4 text-xl font-bold text-slate-400 pointer-events-none">$</span>
+              <span className="absolute left-4 text-2xl font-bold text-slate-400 pointer-events-none select-none">$</span>
               <input
                 type="number"
                 inputMode="decimal"
@@ -109,12 +113,13 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[], 
                 placeholder="0.00"
                 value={form.amount}
                 onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-                className="w-full pl-9 pr-4 py-4 text-2xl font-extrabold text-slate-900 placeholder-slate-300 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-3.5 text-2xl font-extrabold text-slate-900 placeholder-slate-300 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Date + Description — always 2 columns */}
+          <div className="grid grid-cols-2 gap-3">
             <Input
               label="Date"
               type="date"
@@ -123,13 +128,14 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[], 
             />
             <Input
               label="Description"
-              placeholder="e.g. Grocery run, Coffee"
+              placeholder="e.g. Netflix"
               value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Category + Account — always 2 columns */}
+          <div className="grid grid-cols-2 gap-3">
             <Select
               label="Category"
               value={form.category}
@@ -146,13 +152,12 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[], 
               onChange={(e) => setForm((f) => ({ ...f, account: e.target.value }))}
             />
           </div>
+        </div>
 
-          <div className="flex gap-3 pt-2">
-            <Button
-              variant="secondary"
-              className="flex-1"
-              onClick={() => { setOpen(false); setForm(EMPTY_FORM); }}
-            >
+        {/* Sticky action bar — always visible at the bottom of the sheet */}
+        <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+          <div className="flex gap-3">
+            <Button variant="secondary" className="flex-1" onClick={handleClose}>
               Cancel
             </Button>
             <Button

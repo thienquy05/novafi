@@ -228,6 +228,19 @@ npm run dev                         # → http://localhost:3000
 
 ---
 
+## QuickAdd + Modal — Mobile Fix (May 6, 2026)
+- Root cause: bottom sheet was flush with screen bottom, hidden behind the fixed mobile nav bar; Cancel/Save were unreachable
+- `Modal.tsx`:
+  - z-index raised to `z-[200]` (above nav's `z-50`)
+  - Container uses `pb-[4.5rem] sm:pb-0` — lifts the sheet above the ~4rem mobile nav bar
+  - Body scroll lock (`document.body.style.overflow`) prevents background scroll while open
+  - `max-h-[80dvh]` on mobile keeps the panel compact
+  - Header is a fixed `shrink-0` strip; body is `overflow-y-auto flex-1`
+- `QuickAddTransaction.tsx`:
+  - Action buttons moved into a **sticky footer** (`sticky bottom-0 bg-white border-t`) pinned to the visible bottom of the sheet regardless of content length
+  - Form always uses `grid-cols-2` for Date+Description and Category+Account — keeps the form compact and avoids needing to scroll
+  - Amount stays as the prominent `$` hero field with `inputMode="decimal"`
+
 ## QuickAdd Transaction — Mobile Modal (May 6, 2026)
 - `Modal.tsx`: split into sticky header + scrollable body (`overflow-y-auto`, `max-h-[92dvh]`) so form is never clipped behind the soft keyboard
 - `QuickAddTransaction.tsx`:
