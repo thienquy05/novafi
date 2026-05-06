@@ -228,6 +228,14 @@ npm run dev                         # → http://localhost:3000
 
 ---
 
+## Bills Edit (May 6, 2026)
+- Added edit (pencil) button to each bill row (both active and paused sections)
+- Clicking pencil opens the Add/Edit modal pre-filled with that bill's data
+- `editingId` state distinguishes add vs edit mode
+- Modal title changes to "Edit Bill"; save button reads "Save Changes"
+- `handleSave` reuses existing POST `/api/bills` (upsert by ID) — no API changes needed
+- `isActive` is preserved when editing; new bills default to `isActive: true`
+
 ## Potential Future Enhancements
 | Priority | Task |
 |----------|------|

@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Trash2, Calendar, CheckCircle2, Circle, AlarmClock } from 'lucide-react';
+import { Plus, Trash2, Calendar, CheckCircle2, Circle, AlarmClock, Pencil } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -44,6 +44,7 @@ export default function BillsPage() {
   const [bills, setBills] = useState<Bill[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -59,26 +60,51 @@ export default function BillsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  function openAdd() {
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+    setOpen(true);
+  }
+
+  function openEdit(bill: Bill) {
+    setEditingId(bill.id);
+    setForm({
+      name: bill.name,
+      amount: String(bill.amount),
+      frequency: bill.frequency,
+      nextDue: bill.nextDue,
+      account: bill.account ?? '',
+      category: bill.category,
+      isActive: bill.isActive,
+    });
+    setOpen(true);
+  }
+
+  function closeModal() {
+    setOpen(false);
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+  }
+
   async function handleSave() {
     if (!form.name || !form.amount) return;
     setSaving(true);
     const bill: Bill = {
-      id: generateId(),
+      id: editingId ?? generateId(),
       name: form.name,
       amount: parseFloat(form.amount),
       frequency: form.frequency,
       nextDue: form.nextDue,
       account: form.account,
       category: form.category,
-      isActive: true,
+      isActive: editingId ? form.isActive : true,
     };
     await fetch('/api/bills', {
       method: 'POST',
       body: JSON.stringify(bill),
       headers: { 'Content-Type': 'application/json' },
     });
-    setOpen(false);
-    setForm(EMPTY_FORM);
+    closeModal();
     await load();
     setSaving(false);
   }
@@ -141,7 +167,7 @@ export default function BillsPage() {
           <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900">Bills</h1>
           <p className="text-slate-500 text-base font-medium mt-1">Track and manage your recurring bills</p>
         </div>
-        <Button onClick={() => setOpen(true)} className="w-full md:w-auto shadow-sm hover:shadow-md">
+        <Button onClick={openAdd} className="w-full md:w-auto shadow-sm hover:shadow-md">
           <Plus className="w-5 h-5" />
           Add Bill
         </Button>
@@ -176,7 +202,7 @@ export default function BillsPage() {
           </div>
           <p className="text-slate-900 font-bold text-lg mb-1">No bills added yet.</p>
           <p className="text-slate-500 font-medium mb-6">Add your first recurring bill to start tracking.</p>
-          <Button onClick={() => setOpen(true)} className="shadow-sm">Add Your First Bill</Button>
+          <Button onClick={openAdd} className="shadow-sm">Add Your First Bill</Button>
         </Card>
       ) : (
         <div className="space-y-8">
@@ -227,6 +253,13 @@ export default function BillsPage() {
                         </span>
                         <div className="flex gap-2">
                           <button
+                            title="Edit bill"
+                            onClick={() => openEdit(bill)}
+                            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors"
+                          >
+                            <Pencil className="w-5 h-5" />
+                          </button>
+                          <button
                             title="Mark as paid"
                             onClick={() => handleMarkPaid(bill)}
                             className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-colors"
@@ -271,6 +304,13 @@ export default function BillsPage() {
                     </div>
                     <div className="flex gap-2">
                       <button
+                        title="Edit bill"
+                        onClick={() => openEdit(bill)}
+                        className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors"
+                      >
+                        <Pencil className="w-5 h-5" />
+                      </button>
+                      <button
                         title="Resume bill"
                         onClick={() => handleToggle(bill)}
                         className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-colors"
@@ -293,8 +333,8 @@ export default function BillsPage() {
         </div>
       )}
 
-      {/* Add Bill Modal */}
-      <Modal open={open} onClose={() => { setOpen(false); setForm(EMPTY_FORM); }} title="Add Recurring Bill">
+      {/* Add / Edit Bill Modal */}
+      <Modal open={open} onClose={closeModal} title={editingId ? 'Edit Bill' : 'Add Recurring Bill'}>
         <div className="space-y-5">
           <Input
             label="Bill Name"
@@ -343,11 +383,11 @@ export default function BillsPage() {
             />
           )}
           <div className="flex gap-3 pt-4">
-            <Button variant="secondary" className="flex-1" onClick={() => { setOpen(false); setForm(EMPTY_FORM); }}>
+            <Button variant="secondary" className="flex-1" onClick={closeModal}>
               Cancel
             </Button>
             <Button className="flex-1 shadow-sm" onClick={handleSave} disabled={saving || !form.name || !form.amount}>
-              {saving ? 'Saving…' : 'Add Bill'}
+              {saving ? 'Saving…' : editingId ? 'Save Changes' : 'Add Bill'}
             </Button>
           </div>
         </div>
