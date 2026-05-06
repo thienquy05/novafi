@@ -436,6 +436,39 @@ npm run dev                         # → http://localhost:3000
 
 ---
 
+---
+
+## UI/Performance Optimization Pass — May 6, 2026
+
+### Performance fixes
+- `globals.css`: Removed `background-attachment: fixed` from body — it forces constant GPU repaints on mobile WebKit during scroll. Background gradient still applies normally.
+- `globals.css`: Added `touch-action: manipulation` to `body` — eliminates the browser's 300 ms tap-delay on mobile touch devices.
+- `app/layout.tsx`: Added `display: 'swap'` to `Inter` font config — shows fallback font immediately while Inter loads instead of invisible text (FOIT).
+- `QuickAddTransaction.tsx`: Replaced `window.location.reload()` with `router.refresh()` from `next/navigation` — avoids a full page/JS reload after adding a transaction; only re-fetches RSC data.
+- `components/ui/Modal.tsx`: Added `style={{ willChange: 'transform' }}` to the animated sheet panel — promotes it to its own compositor layer for GPU-accelerated slide animation.
+- Framer Motion spring animations in `Sidebar.tsx` and `Modal.tsx`: Reduced spring `duration` from `0.6` → `0.35` and stiffness/bounce tuned for snappier feel.
+
+### CSS transition specificity
+Replaced `transition-all duration-300` (watches every CSS property, expensive) with property-specific transitions throughout:
+- `Button.tsx`: `transition-[color,background-color,border-color,box-shadow,transform] duration-150`
+- `Card.tsx`: `transition-[box-shadow,border-color] duration-200`
+- `Input.tsx`, `Select.tsx`: `transition-[border-color,background-color,box-shadow] duration-150`
+- `Sidebar.tsx` nav links: `transition-colors duration-150`
+
+### DOM simplification
+- `Card.tsx`: Removed the `<div className="absolute inset-0 … opacity-0 group-hover:opacity-100">` gradient overlay — it was invisible/unnoticeable and added an extra DOM node + style recalc on every hover. Also removed the unnecessary `<div className="relative z-10">` wrapper; children render directly.
+
+### Mobile tap UX
+- Added `tap-highlight-none` (`-webkit-tap-highlight-color: transparent`) to all sidebar nav links, mobile nav links, modal drag handle, and sign-out buttons — removes the grey flash on tap that feels laggy.
+- Added `select-none` to nav and button elements to prevent text selection on long-press.
+- Mobile nav items now have `min-h-[52px]` and `justify-center` ensuring a ≥44 px touch target (Apple HIG minimum).
+- Mobile header sign-out button padding increased to `p-2.5` and gets `hover:bg-rose-50` for visible feedback.
+
+### Login page
+- Replaced emoji feature bullets (📊 🔒 ⚡ 🎯) with properly styled Lucide icon badges (`TrendingUp`, `Shield`, `Zap`, `Target`) — consistent rendering across all platforms.
+
+---
+
 ## Potential Future Enhancements
 | Priority | Task |
 |----------|------|

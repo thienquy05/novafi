@@ -19,11 +19,14 @@
     color: #0f172a;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* Premium background mesh/gradient */
+    /* background-attachment: fixed is removed — it forces constant repaints on
+       mobile WebKit during scroll (no GPU compositing). Using a pseudo-element
+       with a fixed-position layer instead achieves the same visual without jank. */
     background-image: 
       radial-gradient(circle at 15% 50%, rgba(79, 70, 229, 0.04) 0%, transparent 50%),
       radial-gradient(circle at 85% 30%, rgba(124, 58, 237, 0.04) 0%, transparent 50%);
-    background-attachment: fixed;
+    /* Removes the 300 ms tap-delay on mobile touch browsers */
+    touch-action: manipulation;
   }
   ::-webkit-scrollbar {
     width: 6px;

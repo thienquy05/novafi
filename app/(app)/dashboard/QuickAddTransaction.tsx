@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -19,6 +20,7 @@ const EMPTY_FORM = {
 };
 
 export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[]; isFab?: boolean }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -56,7 +58,7 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[]; 
 
     handleClose();
     setSaving(false);
-    window.location.reload();
+    router.refresh();
   }
 
   return (

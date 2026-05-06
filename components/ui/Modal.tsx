@@ -71,7 +71,8 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
             initial={{ opacity: 0, y: '100%' }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: '100%' }}
-            transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+            transition={{ type: 'spring', damping: 30, stiffness: 340 }}
+            style={{ willChange: 'transform' }}
             className={cn(
               'relative z-10 w-full max-w-lg bg-white shadow-2xl',
               'rounded-t-[2rem] sm:rounded-3xl',
@@ -83,23 +84,21 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
           >
             {/* Drag handle — mobile only. Larger touch target than visual indicator. */}
             <div
-              className="shrink-0 pt-3 pb-2 sm:hidden flex justify-center touch-none select-none cursor-grab active:cursor-grabbing"
+              className="shrink-0 pt-3 pb-1.5 sm:hidden flex justify-center touch-none select-none cursor-grab active:cursor-grabbing tap-highlight-none"
               onPointerDown={(e) => dragControls.start(e)}
             >
-              <div className="w-12 h-1.5 rounded-full bg-slate-300" />
+              <div className="w-10 h-1 rounded-full bg-slate-200" />
             </div>
 
             {/* Header */}
-            <div className="shrink-0 flex items-center justify-between px-6 pt-3 pb-3 sm:px-8 sm:pt-7 sm:pb-4">
+            <div className="shrink-0 flex items-center justify-between px-6 pt-3 pb-3 sm:px-8 sm:pt-6 sm:pb-4">
               <h2 className="text-xl font-bold text-slate-900 tracking-tight">{title}</h2>
-              <Button
-                variant="ghost"
-                size="icon"
+              <button
                 onClick={onClose}
-                className="h-10 w-10 p-0 rounded-full hover:bg-slate-100 shrink-0"
+                className="h-9 w-9 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors duration-150 tap-highlight-none shrink-0"
               >
-                <X className="w-5 h-5 text-slate-500" />
-              </Button>
+                <X className="w-4.5 h-4.5" />
+              </button>
             </div>
 
             {/* Scrollable body — overscroll-contain prevents page scroll bleed */}

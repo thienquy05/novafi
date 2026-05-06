@@ -103,7 +103,7 @@ export function Sidebar() {
               key={href}
               href={href}
               className={cn(
-                'relative flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-semibold transition-all duration-300 group overflow-hidden',
+                'relative flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-semibold transition-colors duration-150 group overflow-hidden tap-highlight-none select-none',
                 active
                   ? 'text-indigo-600'
                   : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
@@ -114,10 +114,10 @@ export function Sidebar() {
                   layoutId="sidebar-active"
                   className="absolute inset-0 bg-indigo-50 border border-indigo-100 rounded-xl"
                   initial={false}
-                  transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
+                  transition={{ type: 'spring', bounce: 0.15, duration: 0.35 }}
                 />
               )}
-              <Icon className={cn('w-5 h-5 shrink-0 relative z-10 transition-colors duration-300', active ? 'text-indigo-600' : 'group-hover:text-slate-900')} />
+              <Icon className={cn('w-5 h-5 shrink-0 relative z-10 transition-colors duration-150', active ? 'text-indigo-600' : 'group-hover:text-slate-900')} />
               <span className="relative z-10 flex-1">{label}</span>
               {badgeCount > 0 && (
                 <NavBadge
@@ -133,9 +133,9 @@ export function Sidebar() {
       {/* Sign out */}
       <button
         onClick={() => signOut({ callbackUrl: '/' })}
-        className="group flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-semibold text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-all duration-300 mt-auto"
+        className="group flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-semibold text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors duration-150 mt-auto tap-highlight-none select-none"
       >
-        <LogOut className="w-5 h-5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
+        <LogOut className="w-5 h-5 shrink-0 group-hover:scale-110 transition-transform duration-150" />
         Sign Out
       </button>
     </aside>
@@ -151,7 +151,7 @@ export function MobileHeader() {
       </div>
       <button
         onClick={() => signOut({ callbackUrl: '/' })}
-        className="p-2 text-slate-500 hover:text-rose-600 bg-slate-50 rounded-full transition-colors"
+        className="p-2.5 text-slate-500 hover:text-rose-600 bg-slate-50 hover:bg-rose-50 rounded-full transition-colors duration-150 tap-highlight-none"
       >
         <LogOut className="w-5 h-5" />
       </button>
@@ -182,8 +182,8 @@ export function MobileNav() {
             key={href}
             href={href}
             className={cn(
-              'relative flex flex-col items-center gap-1.5 p-2 rounded-xl transition-all duration-300 min-w-[64px]',
-              active ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-900'
+              'relative flex flex-col items-center gap-1 p-2 rounded-xl transition-colors duration-150 min-w-[60px] min-h-[52px] justify-center tap-highlight-none select-none',
+              active ? 'text-indigo-600' : 'text-slate-400'
             )}
           >
             {active && (
@@ -191,7 +191,7 @@ export function MobileNav() {
                 layoutId="mobile-nav-active"
                 className="absolute inset-0 bg-indigo-50 rounded-xl"
                 initial={false}
-                transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
+                transition={{ type: 'spring', bounce: 0.15, duration: 0.35 }}
               />
             )}
             <div className="relative">
@@ -205,7 +205,7 @@ export function MobileNav() {
                 </span>
               )}
             </div>
-            <span className="text-[10px] font-bold relative z-10">{label}</span>
+            <span className="text-[10px] font-semibold relative z-10 leading-tight">{label}</span>
           </Link>
         );
       })}

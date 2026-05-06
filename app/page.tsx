@@ -1,7 +1,7 @@
 import { auth } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { signIn } from '@/lib/auth';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, TrendingUp, Shield, Zap, Target } from 'lucide-react';
 
 export default async function LoginPage() {
   const session = await auth();
@@ -76,16 +76,18 @@ export default async function LoginPage() {
               </button>
             </form>
 
-            <div className="mt-10 grid grid-cols-2 gap-4">
+            <div className="mt-10 grid grid-cols-2 gap-3">
               {[
-                { icon: '📊', text: 'Smart Tracking' },
-                { icon: '🔒', text: '100% Private' },
-                { icon: '⚡️', text: 'Real-time Sync' },
-                { icon: '🎯', text: 'Goal Setting' },
-              ].map((f) => (
-                <div key={f.text} className="flex items-center gap-2 text-sm text-slate-600 font-medium">
-                  <span className="text-base">{f.icon}</span>
-                  <span>{f.text}</span>
+                { Icon: TrendingUp, text: 'Smart Tracking', color: 'text-indigo-500' },
+                { Icon: Shield, text: '100% Private', color: 'text-emerald-500' },
+                { Icon: Zap, text: 'Real-time Sync', color: 'text-amber-500' },
+                { Icon: Target, text: 'Goal Setting', color: 'text-purple-500' },
+              ].map(({ Icon, text, color }) => (
+                <div key={text} className="flex items-center gap-2.5 text-sm text-slate-600 font-medium">
+                  <div className={`shrink-0 p-1.5 rounded-lg bg-slate-50 border border-slate-100 ${color}`}>
+                    <Icon className="w-3.5 h-3.5" />
+                  </div>
+                  <span>{text}</span>
                 </div>
               ))}
             </div>

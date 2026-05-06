@@ -5,14 +5,11 @@ export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={cn(
-        'rounded-3xl bg-white border border-slate-100 p-5 sm:p-7 shadow-sm hover:shadow-md transition-all duration-300 relative overflow-hidden group',
+        'rounded-3xl bg-white border border-slate-100 p-5 sm:p-7 shadow-sm hover:shadow-md hover:border-slate-200 transition-[box-shadow,border-color] duration-200',
         className
       )}
       {...props}
-    >
-      <div className="absolute inset-0 bg-gradient-to-br from-slate-50/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
-      <div className="relative z-10">{props.children}</div>
-    </div>
+    />
   );
 }
 
