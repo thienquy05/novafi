@@ -243,7 +243,7 @@ export default function AccountsPage() {
       )}
 
       <Modal open={open} onClose={() => { setOpen(false); setForm(EMPTY_FORM); setEditTarget(null); }} title={editTarget ? 'Edit Account' : 'Add Account'}>
-        <div className="space-y-5">
+        <div className="space-y-5 pb-4">
           <Select label="Account Type" value={form.type} options={Object.entries(ACCOUNT_TYPE_CONFIG).map(([value, { label }]) => ({ value, label }))} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as Account['type'] }))} />
           <Input label="Account Name" placeholder={form.type === 'checking' ? 'e.g. Chase Checking' : form.type === 'credit' ? 'e.g. Chase Sapphire' : 'e.g. HYSA'} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
           <Input label="Institution (optional)" placeholder="e.g. Chase, Bank of America" value={form.institution} onChange={(e) => setForm((f) => ({ ...f, institution: e.target.value }))} />
@@ -259,7 +259,9 @@ export default function AccountsPage() {
               ))}
             </div>
           </div>
-          <div className="flex gap-3 pt-4">
+        </div>
+        <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+          <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={() => { setOpen(false); setForm(EMPTY_FORM); setEditTarget(null); }}>Cancel</Button>
             <Button className="flex-1 shadow-sm" onClick={handleSave} disabled={saving || !form.name}>{saving ? 'Saving…' : editTarget ? 'Update Account' : 'Add Account'}</Button>
           </div>

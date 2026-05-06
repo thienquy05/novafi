@@ -218,7 +218,7 @@ export default function PaychecksPage() {
 
       {/* Add Paycheck Modal */}
       <Modal open={open} onClose={() => { setOpen(false); setForm(EMPTY_FORM); setPreview(null); }} title="Log Paycheck">
-        <div className="space-y-5">
+        <div className="space-y-5 pb-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Pay Date"
@@ -271,7 +271,9 @@ export default function PaychecksPage() {
             </div>
           )}
 
-          <div className="flex gap-3 pt-4">
+        </div>
+        <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+          <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={() => { setOpen(false); setForm(EMPTY_FORM); setPreview(null); }}>
               Cancel
             </Button>

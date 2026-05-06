@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from './Button';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 
 interface ModalProps {
   open: boolean;
@@ -15,6 +15,7 @@ interface ModalProps {
 
 export function Modal({ open, onClose, title, children, className }: ModalProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const dragControls = useDragControls();
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -38,24 +39,35 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
     <AnimatePresence>
       {open && (
         /*
-         * On mobile: "items-end pb-[4.5rem]" lifts the sheet above the
-         * fixed bottom nav bar (~4rem tall) so it never slides behind it.
-         * On sm+: centered with standard padding.
+         * On mobile: bottom sheet lifted above the fixed nav bar.
+         * pb uses env(safe-area-inset-bottom) so the sheet clears the
+         * home indicator on iPhone X+ devices as well.
+         * On sm+: centered dialog with standard padding.
          */
-        <div className="fixed inset-0 z-[200] flex items-end pb-[4.5rem] sm:items-center sm:pb-0 justify-center p-0 sm:p-6">
+        <div className="fixed inset-0 z-[200] flex items-end justify-center p-0 sm:p-6 sm:items-center"
+          style={{ paddingBottom: 'calc(4.5rem + env(safe-area-inset-bottom, 0px))' }}
+        >
           {/* Backdrop */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
             onClick={onClose}
           />
 
-          {/* Sheet panel */}
+          {/* Sheet panel — drag="y" controlled only from the handle strip */}
           <motion.div
             ref={ref}
+            drag="y"
+            dragControls={dragControls}
+            dragListener={false}
+            dragConstraints={{ top: 0 }}
+            dragElastic={0}
+            onDragEnd={(_, { offset, velocity }) => {
+              if (offset.y > 100 || velocity.y > 500) onClose();
+            }}
             initial={{ opacity: 0, y: '100%' }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: '100%' }}
@@ -64,30 +76,33 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
               'relative z-10 w-full max-w-lg bg-white shadow-2xl',
               'rounded-t-[2rem] sm:rounded-3xl',
               'flex flex-col',
-              // Leave room for scroll + sticky footer; cap so it never overflows
-              'max-h-[80dvh] sm:max-h-[90vh]',
+              // 88dvh gives more room for tall forms; capped at 90vh on desktop
+              'max-h-[88dvh] sm:max-h-[90vh]',
               className
             )}
           >
-            {/* Drag handle — mobile only */}
-            <div className="shrink-0 pt-3 sm:hidden flex justify-center">
-              <div className="w-10 h-1 rounded-full bg-slate-200" />
+            {/* Drag handle — mobile only. Larger touch target than visual indicator. */}
+            <div
+              className="shrink-0 pt-3 pb-2 sm:hidden flex justify-center touch-none select-none cursor-grab active:cursor-grabbing"
+              onPointerDown={(e) => dragControls.start(e)}
+            >
+              <div className="w-12 h-1.5 rounded-full bg-slate-300" />
             </div>
 
             {/* Header */}
-            <div className="shrink-0 flex items-center justify-between px-6 pt-4 pb-3 sm:px-8 sm:pt-7 sm:pb-4">
+            <div className="shrink-0 flex items-center justify-between px-6 pt-3 pb-3 sm:px-8 sm:pt-7 sm:pb-4">
               <h2 className="text-xl font-bold text-slate-900 tracking-tight">{title}</h2>
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={onClose}
-                className="h-9 w-9 p-0 rounded-full hover:bg-slate-100 shrink-0"
+                className="h-10 w-10 p-0 rounded-full hover:bg-slate-100 shrink-0"
               >
                 <X className="w-5 h-5 text-slate-500" />
               </Button>
             </div>
 
-            {/* Scrollable body */}
+            {/* Scrollable body — overscroll-contain prevents page scroll bleed */}
             <div className="overflow-y-auto overscroll-contain flex-1 px-6 sm:px-8">
               {children}
             </div>

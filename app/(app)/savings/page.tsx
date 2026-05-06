@@ -273,7 +273,7 @@ export default function SavingsPage() {
         onClose={() => { setOpen(false); setForm(EMPTY_FORM); }}
         title={form.type === 'deposit' ? 'Deposit to Savings' : 'Withdraw from Savings'}
       >
-        <div className="space-y-5">
+        <div className="space-y-5 pb-4">
           <div className="flex p-1.5 rounded-2xl bg-slate-100">
             <button
               onClick={() => setForm((f) => ({ ...f, type: 'deposit' }))}
@@ -319,7 +319,9 @@ export default function SavingsPage() {
             value={form.date}
             onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
           />
-          <div className="flex gap-3 pt-4">
+        </div>
+        <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+          <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={() => { setOpen(false); setForm(EMPTY_FORM); }}>
               Cancel
             </Button>

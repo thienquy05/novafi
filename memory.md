@@ -417,6 +417,25 @@ npm run dev                         # → http://localhost:3000
 
 ---
 
+## Modal Mobile Enhancements (May 6, 2026)
+
+### `components/ui/Modal.tsx`
+- **Swipe-to-dismiss**: Added `useDragControls` from framer-motion; drag handle strip (`sm:hidden`) is the only trigger — `dragListener={false}` on the panel prevents accidental drags from the scrollable body; close fires when `offset.y > 100` or `velocity.y > 500`
+- **Safe-area insets**: Bottom padding uses `calc(4.5rem + env(safe-area-inset-bottom, 0px))` via inline style — lifts the sheet above both the mobile nav bar AND the iPhone home indicator on notched devices
+- **Expanded max-height**: `max-h-[80dvh]` → `max-h-[88dvh]` on mobile so taller forms (Goals, Paychecks) don't cut off content
+- **Drag handle**: Slightly taller touch target (`pb-2`) and `touch-none select-none` to prevent text selection during drag
+
+### All modal forms — sticky action footers
+- Moved Cancel + Save/primary action buttons out of the scrollable form body and into a `sticky bottom-0` footer strip (`bg-white border-t border-slate-100`) so they're always reachable without scrolling
+- Affected pages: `accounts/page.tsx`, `bills/page.tsx`, `planning/page.tsx` (both budget and goal modals), `paychecks/page.tsx`, `savings/page.tsx`
+- Form content divs gained `pb-4` so the last field isn't flush against the sticky footer
+
+### Single-column grids on mobile
+- All `grid-cols-2` inside modal forms changed to `grid-cols-1 sm:grid-cols-2` so fields stack vertically on phones and sit side-by-side on tablets/desktop
+- Affected: `QuickAddTransaction.tsx` (Date+Desc, Category+Account rows), `transactions/page.tsx` (same rows), `bills/page.tsx` (Amount+Frequency row), `planning/page.tsx` (Period+Limit row)
+
+---
+
 ## Potential Future Enhancements
 | Priority | Task |
 |----------|------|

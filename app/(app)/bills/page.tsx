@@ -455,9 +455,9 @@ export default function BillsPage() {
       )}
 
       <Modal open={open} onClose={closeModal} title={editingId ? 'Edit Bill' : 'Add Recurring Bill'}>
-        <div className="space-y-5">
+        <div className="space-y-5 pb-4">
           <Input label="Bill Name" placeholder="e.g. Netflix, Rent, Car Insurance" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input label="Amount ($)" type="number" min="0" step="0.01" placeholder="0.00" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} />
             <Select label="Frequency" value={form.frequency} options={Object.entries(FREQUENCY_LABELS).map(([value, label]) => ({ value, label }))} onChange={(e) => setForm((f) => ({ ...f, frequency: e.target.value as Bill['frequency'] }))} />
           </div>
@@ -466,7 +466,9 @@ export default function BillsPage() {
           {accounts.length > 0 && (
             <Select label="Pay from Account (optional)" value={form.account} options={[{ value: '', label: '— None —' }, ...accounts.map((a) => ({ value: a.id, label: a.name }))]} onChange={(e) => setForm((f) => ({ ...f, account: e.target.value }))} />
           )}
-          <div className="flex gap-3 pt-4">
+        </div>
+        <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+          <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={closeModal}>Cancel</Button>
             <Button className="flex-1 shadow-sm" onClick={handleSave} disabled={saving || !form.name || !form.amount}>{saving ? 'Saving…' : editingId ? 'Save Changes' : 'Add Bill'}</Button>
           </div>

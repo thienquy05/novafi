@@ -118,8 +118,8 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[]; 
             </div>
           </div>
 
-          {/* Date + Description — always 2 columns */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Date + Description */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input
               label="Date"
               type="date"
@@ -134,8 +134,8 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[]; 
             />
           </div>
 
-          {/* Category + Account — always 2 columns */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Category + Account */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Select
               label="Category"
               value={form.category}

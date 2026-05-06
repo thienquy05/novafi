@@ -567,7 +567,7 @@ export default function PlanningPage() {
         onClose={() => { setBudgetModalOpen(false); setBudgetForm(EMPTY_BUDGET_FORM); setEditBudget(null); }}
         title={editBudget ? 'Edit Budget' : 'Set Budget'}
       >
-        <div className="space-y-5">
+        <div className="space-y-5 pb-4">
           <Select
             label="Category"
             value={budgetForm.category}
@@ -575,7 +575,7 @@ export default function PlanningPage() {
             onChange={(e) => setBudgetForm((f) => ({ ...f, category: e.target.value }))}
             disabled={!!editBudget}
           />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Select
               label="Period"
               value={budgetForm.period}
@@ -597,7 +597,9 @@ export default function PlanningPage() {
               This replaces the existing budget for {budgetForm.category}.
             </p>
           )}
-          <div className="flex gap-3 pt-4">
+        </div>
+        <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+          <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={() => { setBudgetModalOpen(false); setBudgetForm(EMPTY_BUDGET_FORM); setEditBudget(null); }}>Cancel</Button>
             <Button className="flex-1 shadow-sm" onClick={saveBudget} disabled={saving || !budgetForm.amount}>
               {saving ? 'Saving…' : editBudget ? 'Save Changes' : 'Save Budget'}
@@ -612,7 +614,7 @@ export default function PlanningPage() {
         onClose={() => { setGoalModalOpen(false); setGoalForm(EMPTY_GOAL_FORM); setEditGoal(null); }}
         title={editGoal ? 'Edit Goal' : 'Add Goal'}
       >
-        <div className="space-y-5">
+        <div className="space-y-5 pb-4">
           <div>
             <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Icon</p>
             <div className="flex gap-2 flex-wrap">
@@ -677,7 +679,9 @@ export default function PlanningPage() {
             value={goalForm.deadline}
             onChange={(e) => setGoalForm((f) => ({ ...f, deadline: e.target.value }))}
           />
-          <div className="flex gap-3 pt-4">
+        </div>
+        <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+          <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={() => { setGoalModalOpen(false); setGoalForm(EMPTY_GOAL_FORM); setEditGoal(null); }}>Cancel</Button>
             <Button className="flex-1 shadow-sm" onClick={saveGoal} disabled={saving || !goalForm.name || !goalForm.targetAmount}>
               {saving ? 'Saving…' : editGoal ? 'Update Goal' : 'Add Goal'}
