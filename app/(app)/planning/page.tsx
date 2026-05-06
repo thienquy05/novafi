@@ -1,15 +1,18 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap } from 'lucide-react';
-import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap, RefreshCw, AlertCircle } from 'lucide-react';
+import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
+import { PlanningSkeleton } from '@/components/ui/Skeleton';
 import { formatCurrency, formatDate, generateId } from '@/lib/utils';
 import { EXPENSE_CATEGORIES } from '@/types';
 import type { Budget, Goal, Transaction, Account } from '@/types';
 import { motion } from 'framer-motion';
+import { useToast } from '@/lib/toast';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 
 const PERIOD_OPTIONS = [
   { value: 'monthly', label: 'Monthly' },
@@ -54,24 +57,27 @@ export default function PlanningPage() {
   const [goalForm, setGoalForm] = useState(EMPTY_GOAL_FORM);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(false);
+  const toast = useToast();
 
   const load = useCallback(async () => {
-    setLoading(true);
-    const [bRes, gRes, tRes, aRes] = await Promise.all([
-      fetch('/api/budgets'),
-      fetch('/api/goals'),
-      fetch('/api/transactions'),
-      fetch('/api/accounts'),
-    ]);
-    const [b, g, t, a] = await Promise.all([bRes.json(), gRes.json(), tRes.json(), aRes.json()]);
-    setBudgets(b);
-    setGoals(g);
-    setTransactions(t);
-    setAccounts(a);
-    setLoading(false);
+    setError(false);
+    try {
+      const [bRes, gRes, tRes, aRes] = await Promise.all([
+        fetch('/api/budgets'), fetch('/api/goals'), fetch('/api/transactions'), fetch('/api/accounts'),
+      ]);
+      if (!bRes.ok || !gRes.ok) throw new Error();
+      const [b, g, t, a] = await Promise.all([bRes.json(), gRes.json(), tRes.json(), aRes.json()]);
+      setBudgets(b); setGoals(g); setTransactions(t); setAccounts(a);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  const { pullY, refreshing } = usePullToRefresh(load);
 
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -96,25 +102,32 @@ export default function PlanningPage() {
       amount: parseFloat(budgetForm.amount),
       period: budgetForm.period,
     };
-    await fetch('/api/budgets', {
-      method: 'POST',
-      body: JSON.stringify(budget),
-      headers: { 'Content-Type': 'application/json' },
-    });
+    // Optimistic
+    setBudgets((prev) => existing ? prev.map((b) => b.id === budget.id ? budget : b) : [...prev, budget]);
     setBudgetModalOpen(false);
     setBudgetForm(EMPTY_BUDGET_FORM);
-    await load();
     setSaving(false);
+    try {
+      const res = await fetch('/api/budgets', { method: 'POST', body: JSON.stringify(budget), headers: { 'Content-Type': 'application/json' } });
+      if (!res.ok) throw new Error();
+      toast('Budget saved', 'success');
+    } catch {
+      toast('Failed to save budget', 'error');
+      await load();
+    }
   }
 
   async function deleteBudget(id: string) {
     if (!confirm('Delete this budget?')) return;
-    await fetch('/api/budgets', {
-      method: 'DELETE',
-      body: JSON.stringify({ id }),
-      headers: { 'Content-Type': 'application/json' },
-    });
-    await load();
+    const prev = budgets;
+    setBudgets((b) => b.filter((x) => x.id !== id));
+    try {
+      await fetch('/api/budgets', { method: 'DELETE', body: JSON.stringify({ id }), headers: { 'Content-Type': 'application/json' } });
+      toast('Budget removed', 'success');
+    } catch {
+      setBudgets(prev);
+      toast('Failed to delete budget', 'error');
+    }
   }
 
   // ─── Goal CRUD ────────────────────────────────────────────────────────────
@@ -149,26 +162,33 @@ export default function PlanningPage() {
       icon: goalForm.icon,
       linkedAccountId: goalForm.linkedAccountId || undefined,
     };
-    await fetch('/api/goals', {
-      method: 'POST',
-      body: JSON.stringify(goal),
-      headers: { 'Content-Type': 'application/json' },
-    });
+    // Optimistic
+    setGoals((prev) => editGoal ? prev.map((g) => g.id === goal.id ? goal : g) : [...prev, goal]);
     setGoalModalOpen(false);
     setGoalForm(EMPTY_GOAL_FORM);
     setEditGoal(null);
-    await load();
     setSaving(false);
+    try {
+      const res = await fetch('/api/goals', { method: 'POST', body: JSON.stringify(goal), headers: { 'Content-Type': 'application/json' } });
+      if (!res.ok) throw new Error();
+      toast(editGoal ? 'Goal updated' : 'Goal added', 'success');
+    } catch {
+      toast('Failed to save goal', 'error');
+      await load();
+    }
   }
 
   async function deleteGoal(id: string) {
     if (!confirm('Delete this goal?')) return;
-    await fetch('/api/goals', {
-      method: 'DELETE',
-      body: JSON.stringify({ id }),
-      headers: { 'Content-Type': 'application/json' },
-    });
-    await load();
+    const prev = goals;
+    setGoals((g) => g.filter((x) => x.id !== id));
+    try {
+      await fetch('/api/goals', { method: 'DELETE', body: JSON.stringify({ id }), headers: { 'Content-Type': 'application/json' } });
+      toast('Goal removed', 'success');
+    } catch {
+      setGoals(prev);
+      toast('Failed to delete goal', 'error');
+    }
   }
 
   // ─── Derived stats ────────────────────────────────────────────────────────
@@ -189,6 +209,14 @@ export default function PlanningPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
+      {(pullY > 0 || refreshing) && (
+        <div className="fixed top-0 left-0 right-0 z-50 flex justify-center pt-safe">
+          <div className="flex items-center gap-2 bg-indigo-600 text-white text-xs font-bold px-4 py-2 rounded-full shadow-lg mt-2">
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} style={!refreshing ? { transform: `rotate(${pullY * 180}deg)` } : undefined} />
+            {refreshing ? 'Refreshing…' : pullY >= 1 ? 'Release to refresh' : 'Pull to refresh'}
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="mb-4 md:mb-6">
         <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900">Planning</h1>
@@ -221,8 +249,13 @@ export default function PlanningPage() {
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center h-32">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-indigo-600 border-t-transparent" />
+        <PlanningSkeleton />
+      ) : error ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="w-14 h-14 rounded-full bg-rose-50 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-rose-400" /></div>
+          <p className="text-slate-700 font-bold text-base mb-1">Couldn&apos;t load planning data</p>
+          <p className="text-slate-500 text-sm mb-6">Check your connection and try again.</p>
+          <Button variant="secondary" onClick={load}>Try Again</Button>
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-7">

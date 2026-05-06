@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { getTransactions, addTransaction, deleteTransaction, updateTransaction, getAccounts, upsertAccount } from '@/lib/sheets';
+import { getCache, setCache, invalidateCache } from '@/lib/cache';
 import type { Transaction } from '@/types';
 
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const key = `transactions:${session.spreadsheetId}`;
+  const cached = getCache<Transaction[]>(key);
+  if (cached) return NextResponse.json(cached);
+
   const transactions = await getTransactions(session.accessToken, session.spreadsheetId);
+  setCache(key, transactions);
   return NextResponse.json(transactions);
 }
 
@@ -58,6 +65,8 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  invalidateCache(`transactions:${session.spreadsheetId}`);
+  invalidateCache(`accounts:${session.spreadsheetId}`);
   return NextResponse.json({ ok: true });
 }
 
@@ -113,6 +122,8 @@ export async function PUT(req: NextRequest) {
   }
 
   await updateTransaction(session.accessToken, session.spreadsheetId, updated);
+  invalidateCache(`transactions:${session.spreadsheetId}`);
+  invalidateCache(`accounts:${session.spreadsheetId}`);
   return NextResponse.json({ ok: true });
 }
 
@@ -121,5 +132,6 @@ export async function DELETE(req: NextRequest) {
   if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { id } = await req.json();
   await deleteTransaction(session.accessToken, session.spreadsheetId, id);
+  invalidateCache(`transactions:${session.spreadsheetId}`);
   return NextResponse.json({ ok: true });
 }

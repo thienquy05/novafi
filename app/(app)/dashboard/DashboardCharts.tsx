@@ -1,12 +1,22 @@
 'use client';
+import { useEffect, useState } from 'react';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   AreaChart, Area, ReferenceLine,
 } from 'recharts';
-import { AlertTriangle, TrendingUp, TrendingDown, Sparkles, DollarSign, Target } from 'lucide-react';
+import { AlertTriangle, TrendingUp, Sparkles, DollarSign, Target } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import { motion } from 'framer-motion';
+
+/** Defers chart rendering until the component is mounted in the browser.
+ *  Prevents the recharts "width(-1) height(-1)" warning caused by
+ *  ResponsiveContainer measuring before the DOM is painted. */
+function useChartReady() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => { setReady(true); }, []);
+  return ready;
+}
 
 const CATEGORY_COLORS: Record<string, string> = {
   Food: '#f59e0b',
@@ -182,11 +192,12 @@ export function HealthBanner({
 export function SpendingPieChart({ data }: { data: CategoryData[] }) {
   const isEmpty = data.length === 0;
   const displayData = isEmpty ? [{ name: 'No Spending', value: 1 }] : data;
+  const ready = useChartReady();
 
   return (
     <div className="flex flex-col md:flex-row items-center gap-8 w-full">
       <div className="w-full md:w-56 h-56 relative">
-        <ResponsiveContainer width="100%" height="100%">
+        {!ready ? <div className="w-full h-full rounded-full bg-slate-100 animate-pulse" /> : <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
               data={displayData}
@@ -209,7 +220,7 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
             </Pie>
             {!isEmpty && <Tooltip content={<CustomTooltip />} cursor={{ fill: 'transparent' }} />}
           </PieChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer>}
         {isEmpty && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <span className="text-slate-400 font-bold text-lg">{formatCurrency(0)}</span>
@@ -255,10 +266,11 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
 
 export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
   const isEmpty = data.every(d => d.income === 0 && d.expenses === 0);
+  const ready = useChartReady();
 
   return (
     <div className="h-64 w-full mt-4">
-      <ResponsiveContainer width="100%" height="100%">
+      {!ready ? <div className="w-full h-full rounded-2xl bg-slate-100 animate-pulse" /> : <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} barGap={6}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
           <XAxis
@@ -279,7 +291,7 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
           <Bar dataKey="income" name="Income" fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={32} />
           <Bar dataKey="expenses" name="Expenses" fill="#f43f5e" radius={[6, 6, 0, 0]} maxBarSize={32} />
         </BarChart>
-      </ResponsiveContainer>
+      </ResponsiveContainer>}
     </div>
   );
 }
@@ -377,6 +389,8 @@ function NetWorthTooltip({ active, payload, label }: { active?: boolean; payload
 }
 
 export function NetWorthTrendChart({ data }: { data: NetWorthPoint[] }) {
+  const ready = useChartReady();
+
   if (data.length < 2) {
     return (
       <div className="h-48 flex flex-col items-center justify-center text-center">
@@ -402,7 +416,7 @@ export function NetWorthTrendChart({ data }: { data: NetWorthPoint[] }) {
         </span>
       </div>
       <div className="h-52 w-full">
-        <ResponsiveContainer width="100%" height="100%">
+        {!ready ? <div className="w-full h-full rounded-2xl bg-slate-100 animate-pulse" /> : <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 8, right: 10, left: -10, bottom: 0 }}>
             <defs>
               <linearGradient id="nwPositive" x1="0" y1="0" x2="0" y2="1">
@@ -441,60 +455,8 @@ export function NetWorthTrendChart({ data }: { data: NetWorthPoint[] }) {
               activeDot={{ r: 6, fill: stroke, strokeWidth: 0 }}
             />
           </AreaChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer>}
       </div>
-    </div>
-  );
-}
-
-// ── Spending Alerts (kept for compatibility) ─────────────────────────────────
-export function SpendingAlerts({ data }: { data: BudgetData[] }) {
-  const warnings = data.filter((b) => {
-    const pct = b.budget > 0 ? (b.spent / b.budget) * 100 : 0;
-    return pct >= 80 && b.spent <= b.budget;
-  });
-  const overages = data.filter((b) => b.spent > b.budget);
-  if (warnings.length === 0 && overages.length === 0) return null;
-
-  return (
-    <div className="space-y-3 mb-8">
-      {overages.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="flex items-start gap-4 px-5 py-4 rounded-3xl bg-rose-50 border border-rose-100"
-        >
-          <div className="p-2 bg-white rounded-xl shrink-0 mt-0.5 shadow-sm">
-            <AlertTriangle className="w-5 h-5 text-rose-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-base font-extrabold text-rose-700">Over budget</p>
-            <p className="text-sm text-rose-600 mt-1 font-medium">
-              {overages.map((b) => `${b.category} (+${formatCurrency(b.spent - b.budget)})`).join(' · ')}
-            </p>
-          </div>
-        </motion.div>
-      )}
-      {warnings.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="flex items-start gap-4 px-5 py-4 rounded-3xl bg-amber-50 border border-amber-100"
-        >
-          <div className="p-2 bg-white rounded-xl shrink-0 mt-0.5 shadow-sm">
-            <AlertTriangle className="w-5 h-5 text-amber-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-base font-extrabold text-amber-700">Approaching budget limit</p>
-            <p className="text-sm text-amber-600 mt-1 font-medium">
-              {warnings.map((b) => {
-                const pct = ((b.spent / b.budget) * 100).toFixed(0);
-                return `${b.category} (${pct}%)`;
-              }).join(' · ')}
-            </p>
-          </div>
-        </motion.div>
-      )}
     </div>
   );
 }

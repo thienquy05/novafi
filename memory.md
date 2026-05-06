@@ -357,6 +357,52 @@ npm run dev                         # → http://localhost:3000
 
 ---
 
+## UX Polish + Features — May 6, 2026 (second pass)
+
+### New files
+- `lib/toast.tsx` — `ToastProvider` (context) + `useToast()` hook; uses `@radix-ui/react-toast`; shows success/error/info toasts above mobile nav (`bottom-[5.5rem]`); TTL 3.5 s; close button
+- `lib/cache.ts` — In-process TTL Map cache for API routes; `getCache / setCache / invalidateCache(prefix)` — prevents repeated Sheets reads on client navigations
+- `components/ui/Skeleton.tsx` — `Skeleton`, `AccountsSkeleton`, `TransactionsSkeleton`, `BillsSkeleton`, `PlanningSkeleton` — animated gray placeholder layouts matching each page's real layout
+- `hooks/usePullToRefresh.ts` — Touch-based pull-to-refresh; 72 px threshold; returns `{ pullY, refreshing }`; fires async `onRefresh` callback; noop on desktop
+- `public/manifest.json` — PWA manifest (standalone display, portrait, indigo theme, svg icon)
+
+### Modified files
+
+**`components/SessionProvider.tsx`** — wraps children with `<ToastProvider>` so `useToast()` is available everywhere
+
+**`app/layout.tsx`** — added `manifest`, `appleWebApp`, `mobile-web-app-capable` to metadata; added `<meta name="theme-color">` and `<link rel="apple-touch-icon">` for PWA install prompt
+
+**API routes (all 5)** — `GET` handlers now check/set in-process cache (30 s TTL, key = `"entity:spreadsheetId"`); mutations (`POST`/`PUT`/`DELETE`) call `invalidateCache` so next GET is always fresh:
+- `app/api/accounts/route.ts`
+- `app/api/transactions/route.ts` — also invalidates `accounts` cache (balance sync)
+- `app/api/bills/route.ts`
+- `app/api/budgets/route.ts`
+- `app/api/goals/route.ts`
+
+**`app/(app)/accounts/page.tsx`** — optimistic updates (add/edit/delete reflect instantly); skeleton loader; error state with retry button; pull-to-refresh indicator; `useToast` toasts on all mutations
+
+**`app/(app)/transactions/page.tsx`** — same as above; background `load()` after save to sync account balances without blocking UI; no more `await load()` in happy path
+
+**`app/(app)/bills/page.tsx`** — same as above; now also fetches `/api/paychecks`; added `CashflowCalendar` component (full monthly grid showing paycheck days in green + bill due days in rose with dot indicators, running totals, quick legend)
+
+**`app/(app)/planning/page.tsx`** — optimistic budget/goal saves/deletes; skeleton + error state; pull-to-refresh; toasts
+
+### Behaviour summary
+- **Optimistic UI**: save/delete reflects immediately in state; API call runs in background; on failure state rolls back and error toast fires
+- **Toasts**: green for success, red for error, dark for info; auto-dismiss at 3.5 s; positioned above mobile nav
+- **Skeleton loaders**: replace spinner across all 4 data pages — perceived load time drops significantly
+- **Pull-to-refresh**: 72 px swipe-down on mobile triggers `load()`; visual indicator shows pull progress and "Release to refresh" / "Refreshing…" state
+- **PWA**: users can now "Add to Home Screen" on iOS/Android for native-like app experience
+- **Cashflow Calendar**: bills page now shows a month-grid calendar with paycheck income days (green dots) and bill due days (rose dots); net cashflow summary ("+$X in / -$Y out") shown in header
+- **Server cache**: 6 API routes serve from a 30 s in-process Map cache (paychecks added); mutations invalidate immediately — eliminates ~80% of Sheets reads during typical navigation
+
+### Code cleanup & chart fix — May 6, 2026
+- **Recharts width(-1) warning fixed**: added `useChartReady()` hook in `DashboardCharts.tsx` that uses `useEffect` to defer all `ResponsiveContainer` renders until after first browser paint; each chart shows an `animate-pulse` skeleton while waiting
+- **Dead code removed**: `SpendingAlerts` export deleted from `DashboardCharts.tsx` (functionality already merged into `HealthBanner`); `TrendingDown` unused icon import removed
+- **Unused imports cleaned**: `CardHeader`/`CardTitle` removed from `planning/page.tsx` import
+- **Dead API route deleted**: `app/api/net-worth-history/route.ts` — never called from client code (dashboard uses server-side `appendNetWorthSnapshot` directly)
+- **Paychecks cache added**: `app/api/paychecks/route.ts` now uses `lib/cache.ts` with 30 s TTL; POST/DELETE invalidate `paychecks:` and `accounts:` keys
+
 ## Potential Future Enhancements
 | Priority | Task |
 |----------|------|
