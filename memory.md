@@ -403,6 +403,20 @@ npm run dev                         # → http://localhost:3000
 - **Dead API route deleted**: `app/api/net-worth-history/route.ts` — never called from client code (dashboard uses server-side `appendNetWorthSnapshot` directly)
 - **Paychecks cache added**: `app/api/paychecks/route.ts` now uses `lib/cache.ts` with 30 s TTL; POST/DELETE invalidate `paychecks:` and `accounts:` keys
 
+## Budget Edit (May 6, 2026)
+- Added edit (pencil) button to each budget card in the planning page, matching the same pattern as goals
+- Clicking pencil opens the "Edit Budget" modal pre-filled with the budget's existing category, amount, and period
+- `editBudget` state (`Budget | null`) distinguishes add vs edit mode
+- Modal title changes to "Edit Budget"; save button reads "Save Changes"
+- Category select is disabled when editing (category is the identity key, not meant to change)
+- `saveBudget` uses `editBudget?.id` when in edit mode to preserve the existing row's ID
+- The "This replaces existing budget" warning is suppressed in edit mode
+- `openAddBudget` function resets `editBudget` to `null` and opens a fresh form
+- Toast shows "Budget updated" vs "Budget saved" based on mode
+- No API changes needed — existing POST `/api/budgets` (upsert by ID) handles both add and edit
+
+---
+
 ## Potential Future Enhancements
 | Priority | Task |
 |----------|------|

@@ -50,6 +50,7 @@ export default function PlanningPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
 
   const [budgetModalOpen, setBudgetModalOpen] = useState(false);
+  const [editBudget, setEditBudget] = useState<Budget | null>(null);
   const [goalModalOpen, setGoalModalOpen] = useState(false);
   const [editGoal, setEditGoal] = useState<Goal | null>(null);
 
@@ -92,25 +93,39 @@ export default function PlanningPage() {
   }
 
   // ─── Budget CRUD ──────────────────────────────────────────────────────────
+  function openAddBudget() {
+    setEditBudget(null);
+    setBudgetForm(EMPTY_BUDGET_FORM);
+    setBudgetModalOpen(true);
+  }
+
+  function openEditBudgetFn(budget: Budget) {
+    setEditBudget(budget);
+    setBudgetForm({ category: budget.category, amount: String(budget.amount), period: budget.period });
+    setBudgetModalOpen(true);
+  }
+
   async function saveBudget() {
     if (!budgetForm.amount) return;
     setSaving(true);
-    const existing = budgets.find((b) => b.category === budgetForm.category);
+    const sameCategory = budgets.find((b) => b.category === budgetForm.category && b.id !== editBudget?.id);
     const budget: Budget = {
-      id: existing?.id ?? generateId(),
+      id: editBudget?.id ?? sameCategory?.id ?? generateId(),
       category: budgetForm.category,
       amount: parseFloat(budgetForm.amount),
       period: budgetForm.period,
     };
     // Optimistic
-    setBudgets((prev) => existing ? prev.map((b) => b.id === budget.id ? budget : b) : [...prev, budget]);
+    const isExisting = budgets.some((b) => b.id === budget.id);
+    setBudgets((prev) => isExisting ? prev.map((b) => b.id === budget.id ? budget : b) : [...prev, budget]);
     setBudgetModalOpen(false);
     setBudgetForm(EMPTY_BUDGET_FORM);
+    setEditBudget(null);
     setSaving(false);
     try {
       const res = await fetch('/api/budgets', { method: 'POST', body: JSON.stringify(budget), headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error();
-      toast('Budget saved', 'success');
+      toast(editBudget ? 'Budget updated' : 'Budget saved', 'success');
     } catch {
       toast('Failed to save budget', 'error');
       await load();
@@ -263,7 +278,7 @@ export default function PlanningPage() {
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-bold text-slate-900">Budgets</h2>
-              <Button size="sm" onClick={() => setBudgetModalOpen(true)} className="shadow-sm">
+              <Button size="sm" onClick={openAddBudget} className="shadow-sm">
                 <Plus className="w-4 h-4" /> Set Budget
               </Button>
             </div>
@@ -275,7 +290,7 @@ export default function PlanningPage() {
                 </div>
                 <p className="text-slate-900 font-bold text-base mb-1">No budgets set yet</p>
                 <p className="text-slate-500 font-medium text-sm mb-5">Set spending limits by category to stay on track.</p>
-                <Button onClick={() => setBudgetModalOpen(true)} className="shadow-sm">Set Your First Budget</Button>
+                <Button onClick={openAddBudget} className="shadow-sm">Set Your First Budget</Button>
               </Card>
             ) : (
               <div className="space-y-3">
@@ -307,13 +322,21 @@ export default function PlanningPage() {
                               {budget.period !== 'monthly' ? ` · ${formatCurrency(monthly)}/mo` : ''}
                             </p>
                           </div>
-                          <div className="flex items-center gap-3 shrink-0">
-                            <div className="text-right">
+                          <div className="flex items-center gap-1 shrink-0">
+                            <div className="text-right mr-2">
                               <p className={`text-sm font-extrabold ${over ? 'text-rose-600' : 'text-slate-900'}`}>
                                 {formatCurrency(spent)}
                                 <span className="text-slate-400 font-bold text-xs ml-1">/ {formatCurrency(monthly)}</span>
                               </p>
                             </div>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 h-9 w-9 rounded-xl"
+                              onClick={() => openEditBudgetFn(budget)}
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </Button>
                             <Button
                               variant="ghost"
                               size="icon"
@@ -541,8 +564,8 @@ export default function PlanningPage() {
       {/* ── BUDGET MODAL ──────────────────────────────────────────────────────── */}
       <Modal
         open={budgetModalOpen}
-        onClose={() => { setBudgetModalOpen(false); setBudgetForm(EMPTY_BUDGET_FORM); }}
-        title="Set Budget"
+        onClose={() => { setBudgetModalOpen(false); setBudgetForm(EMPTY_BUDGET_FORM); setEditBudget(null); }}
+        title={editBudget ? 'Edit Budget' : 'Set Budget'}
       >
         <div className="space-y-5">
           <Select
@@ -550,6 +573,7 @@ export default function PlanningPage() {
             value={budgetForm.category}
             options={EXPENSE_CATEGORIES.map((c) => ({ value: c, label: c }))}
             onChange={(e) => setBudgetForm((f) => ({ ...f, category: e.target.value }))}
+            disabled={!!editBudget}
           />
           <div className="grid grid-cols-2 gap-4">
             <Select
@@ -568,15 +592,15 @@ export default function PlanningPage() {
               onChange={(e) => setBudgetForm((f) => ({ ...f, amount: e.target.value }))}
             />
           </div>
-          {budgets.find((b) => b.category === budgetForm.category) && (
+          {!editBudget && budgets.find((b) => b.category === budgetForm.category) && (
             <p className="text-xs font-bold text-amber-600 bg-amber-50 p-3 rounded-xl border border-amber-100">
               This replaces the existing budget for {budgetForm.category}.
             </p>
           )}
           <div className="flex gap-3 pt-4">
-            <Button variant="secondary" className="flex-1" onClick={() => { setBudgetModalOpen(false); setBudgetForm(EMPTY_BUDGET_FORM); }}>Cancel</Button>
+            <Button variant="secondary" className="flex-1" onClick={() => { setBudgetModalOpen(false); setBudgetForm(EMPTY_BUDGET_FORM); setEditBudget(null); }}>Cancel</Button>
             <Button className="flex-1 shadow-sm" onClick={saveBudget} disabled={saving || !budgetForm.amount}>
-              {saving ? 'Saving…' : 'Save Budget'}
+              {saving ? 'Saving…' : editBudget ? 'Save Changes' : 'Save Budget'}
             </Button>
           </div>
         </div>
