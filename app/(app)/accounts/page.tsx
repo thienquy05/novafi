@@ -110,7 +110,7 @@ export default function AccountsPage() {
     .reduce((s, a) => s + a.balance, 0);
 
   const totalDebt = accounts
-    .filter((a) => a.type === 'credit' || a.type === 'loan')
+    .filter((a) => (a.type === 'credit' || a.type === 'loan') && a.balance > 0)
     .reduce((s, a) => s + a.balance, 0);
 
   const grouped = {
@@ -202,13 +202,26 @@ export default function AccountsPage() {
                         </div>
                         <div className="flex items-center justify-between sm:justify-end gap-6 sm:gap-8 w-full sm:w-auto pl-16 sm:pl-0">
                           <div className="text-left sm:text-right">
-                            <p className={`text-lg font-extrabold ${
-                              type === 'credit' || type === 'loan' ? 'text-rose-600' : 'text-slate-900'
-                            }`}>
-                              {type === 'credit' || type === 'loan' ? '-' : ''}{formatCurrency(account.balance)}
-                            </p>
-                            {(type === 'credit' || type === 'loan') && (
-                              <p className="text-xs font-bold text-slate-400">owed</p>
+                            {type === 'credit' || type === 'loan' ? (
+                              account.balance < 0 ? (
+                                <>
+                                  <p className="text-lg font-extrabold text-emerald-600">
+                                    +{formatCurrency(Math.abs(account.balance))}
+                                  </p>
+                                  <p className="text-xs font-bold text-emerald-500">credit (bank owes you)</p>
+                                </>
+                              ) : (
+                                <>
+                                  <p className="text-lg font-extrabold text-rose-600">
+                                    -{formatCurrency(account.balance)}
+                                  </p>
+                                  <p className="text-xs font-bold text-slate-400">owed</p>
+                                </>
+                              )
+                            ) : (
+                              <p className="text-lg font-extrabold text-slate-900">
+                                {formatCurrency(account.balance)}
+                              </p>
                             )}
                           </div>
                           <div className="flex gap-2">
@@ -265,9 +278,12 @@ export default function AccountsPage() {
             onChange={(e) => setForm((f) => ({ ...f, institution: e.target.value }))}
           />
           <Input
-            label={form.type === 'credit' || form.type === 'loan' ? 'Current Balance Owed ($)' : 'Current Balance ($)'}
+            label={
+              form.type === 'credit' || form.type === 'loan'
+                ? 'Balance Owed ($) — enter negative if bank owes you'
+                : 'Current Balance ($)'
+            }
             type="number"
-            min="0"
             step="0.01"
             placeholder="0.00"
             value={form.balance}

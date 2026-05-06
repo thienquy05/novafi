@@ -197,6 +197,15 @@ npm run dev                         # → http://localhost:3000
 
 ---
 
+## Credit Card Negative Balance / Credit (May 6, 2026)
+- Credit/loan accounts can now have negative balances (bank owes you — refund, reward redemption after payoff)
+- Input `min="0"` removed for credit/loan; label updated to "Balance Owed ($) — enter negative if bank owes you"
+- Display: negative credit balance shows green `+$X` with "credit (bank owes you)" label instead of red "-$X owed"
+- Total Debt on accounts page only counts positive balances (actual debt); negative credit balances are excluded
+- Net worth math already correct: `-(-50) = +50` so credit balance naturally boosts net worth
+
+---
+
 ## Savings Negative Balance (May 6, 2026)
 - Savings accounts can go negative (no withdrawal guard by design)
 - Net worth calculation already correctly handles negative savings: `sum + balance` means -$100 savings reduces net worth by $100
