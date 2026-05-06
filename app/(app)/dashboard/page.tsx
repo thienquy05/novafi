@@ -160,9 +160,9 @@ export default async function DashboardPage() {
       label: 'Total Savings',
       value: formatCurrency(totalSaved),
       icon: PiggyBank,
-      color: 'text-purple-600',
-      bg: 'bg-purple-50',
-      border: 'border-purple-100',
+      color: totalSaved >= 0 ? 'text-purple-600' : 'text-rose-600',
+      bg: totalSaved >= 0 ? 'bg-purple-50' : 'bg-rose-50',
+      border: totalSaved >= 0 ? 'border-purple-100' : 'border-rose-100',
     },
   ];
 

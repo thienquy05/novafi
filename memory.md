@@ -197,6 +197,15 @@ npm run dev                         # → http://localhost:3000
 
 ---
 
+## Savings Negative Balance (May 6, 2026)
+- Savings accounts can go negative (no withdrawal guard by design)
+- Net worth calculation already correctly handles negative savings: `sum + balance` means -$100 savings reduces net worth by $100
+- Dashboard "Total Savings" stat card: color switches to rose/red when negative
+- Savings page "Total Saved" card: color switches to rose/red when negative
+- Savings page per-account balance: switches to `text-rose-600` when negative
+
+---
+
 ## Documentation (May 6, 2026)
 - `README.md` — rewritten with full feature list, tech stack table, quick start, Vercel deploy section, and Google Sheets structure overview
 - `SETUP.md` — rewritten as a complete step-by-step guide covering:

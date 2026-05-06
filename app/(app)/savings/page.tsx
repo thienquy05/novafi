@@ -156,14 +156,14 @@ export default function SavingsPage() {
         <>
           {/* Savings accounts summary */}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-            <Card className="md:col-span-1 border-emerald-100 hover:border-emerald-200">
+            <Card className={`md:col-span-1 ${totalSaved >= 0 ? 'border-emerald-100 hover:border-emerald-200' : 'border-rose-100 hover:border-rose-200'}`}>
               <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Saved</p>
-              <p className="text-2xl md:text-3xl font-extrabold text-emerald-600 mt-2 tracking-tight">{formatCurrency(totalSaved)}</p>
+              <p className={`text-2xl md:text-3xl font-extrabold mt-2 tracking-tight ${totalSaved >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(totalSaved)}</p>
             </Card>
             {accounts.map((a) => (
               <Card key={a.id} className="border-l-[6px]" style={{ borderLeftColor: a.color }}>
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider truncate">{a.name}</p>
-                <p className="text-2xl md:text-3xl font-extrabold text-slate-900 mt-2 tracking-tight">{formatCurrency(a.balance)}</p>
+                <p className={`text-2xl md:text-3xl font-extrabold mt-2 tracking-tight ${a.balance < 0 ? 'text-rose-600' : 'text-slate-900'}`}>{formatCurrency(a.balance)}</p>
                 {a.institution && <p className="text-sm font-medium text-slate-500 mt-1">{a.institution}</p>}
               </Card>
             ))}
