@@ -1,12 +1,17 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { batchGetBadgesData } from '@/lib/sheets';
+import { getCache, setCache } from '@/lib/cache';
 
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ overdueBills: 0, overBudget: 0 });
 
   try {
+    const badgeKey = `badges:${session.spreadsheetId}`;
+    const cachedBadge = getCache<{ overdueBills: number; overBudget: number }>(badgeKey);
+    if (cachedBadge) return NextResponse.json(cachedBadge);
+
     const now = new Date();
     const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
@@ -32,7 +37,9 @@ export async function GET() {
       return spent > monthly;
     }).length;
 
-    return NextResponse.json({ overdueBills, overBudget });
+    const result = { overdueBills, overBudget };
+    setCache(badgeKey, result, 60_000);
+    return NextResponse.json(result);
   } catch {
     return NextResponse.json({ overdueBills: 0, overBudget: 0 });
   }

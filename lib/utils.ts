@@ -50,4 +50,6 @@ export const DEFAULT_TAX_SETTINGS = {
   ficaMedicareRate: 1.45,
   customExpenseCategories: [] as string[],
   customIncomeCategories: [] as string[],
+  hiddenExpenseCategories: [] as string[],
+  hiddenIncomeCategories: [] as string[],
 };

@@ -511,6 +511,76 @@ Replaced `transition-all duration-300` (watches every CSS property, expensive) w
 - Year selector, 4 summary stat cards, highlights (best/worst month)
 - Monthly cash flow BarChart, category spending bars, top merchants list, monthly breakdown table
 
+## Category Delete / Hide (May 6, 2026)
+
+### Problem
+Default categories (EXPENSE_CATEGORIES / INCOME_CATEGORIES) had no delete option — only custom ones did.
+
+### Solution
+- `types/index.ts` — Added `hiddenExpenseCategories: string[]` and `hiddenIncomeCategories: string[]` to `TaxSettings`
+- `lib/utils.ts` — DEFAULT_TAX_SETTINGS includes empty arrays for both hidden fields
+- `lib/sheets.ts` — `getSettings` reads `hidden_expense_categories` / `hidden_income_categories` (pipe-separated); `saveSettings` writes them
+- `app/api/categories/route.ts` — filters hidden categories out of both expense and income lists before returning to client
+- `app/(app)/settings/page.tsx`:
+  - Default category pills now show an X button on hover (opacity-0 → group-hover:opacity-100)
+  - Clicking X calls `hideExpCat`/`hideIncCat` → adds to `hiddenExpenseCategories`/`hiddenIncomeCategories`
+  - Hidden categories shown in a rose "Hidden — click to restore" strip; clicking restores them
+  - Custom categories still have always-visible X to fully delete them
+
+### UX
+- Default categories: X appears on hover; removing hides from dropdowns but can be restored
+- Custom categories: X always visible; removing deletes permanently (from the custom list)
+- Changes only take effect after clicking Save (like all other settings)
+
+---
+
+## Performance — Dashboard & API Cache Fix (May 6, 2026)
+
+### Root Cause
+Dashboard server component called `batchGetDashboardData` + `getNetWorthHistory` directly, **bypassing the in-process cache entirely**. Every navigation to `/dashboard` fired 2 cold Google Sheets API calls (~2–3 s each). Also: `badges` API route had no cache at all (fired a batchGet on every sidebar render).
+
+### Fixes
+- **`app/(app)/dashboard/page.tsx`**: Wraps both `batchGetDashboardData` and `getNetWorthHistory` calls with `getCache`/`setCache` from `lib/cache.ts` (45 s TTL). Dashboard now returns instantly on repeat visits within 45 s.
+- **`app/api/badges/route.ts`**: Added in-process cache (60 s TTL) for badge counts — no more batchGet on every navigation.
+- **All API route mutations** (`transactions`, `accounts`, `bills`, `budgets`, `goals`, `paychecks`) now call `invalidateCache('dashboard:${spreadsheetId}')` and `invalidateCache('badges:${spreadsheetId}')` so the dashboard cache is busted immediately after any write.
+- **API route cache TTL** bumped 30 s → 60 s across all GET routes.
+
+### Net Effect
+| Scenario | Before | After |
+|----------|--------|-------|
+| First dashboard load | 4–6 s (2 Sheets calls) | 4–6 s (cold, unavoidable) |
+| Return to dashboard within 45 s | 4–6 s (no cache) | <100 ms (cache hit) |
+| Client page (transactions, bills…) | 1–3 s per load | <100 ms if within 60 s |
+| Sidebar badge fetch | 1–2 s every navigation | <100 ms (cache hit, 60 s TTL) |
+
+---
+
+## Loading Skeletons for All Routes (May 6, 2026)
+
+### Problem
+Clicking sidebar nav links caused a 5-second freeze with no feedback — Next.js App Router shows old page while new page fetches.
+
+### Solution — `loading.tsx` convention
+Added `loading.tsx` in every route directory under `app/(app)/`. Next.js shows these instantly on navigation while the page component loads/renders:
+- `app/(app)/dashboard/loading.tsx` → `DashboardSkeleton`
+- `app/(app)/transactions/loading.tsx` → `TransactionsSkeleton`
+- `app/(app)/bills/loading.tsx` → `BillsSkeleton`
+- `app/(app)/planning/loading.tsx` → `PlanningSkeleton`
+- `app/(app)/accounts/loading.tsx` → `AccountsSkeleton`
+- `app/(app)/settings/loading.tsx` → `SettingsSkeleton`
+- `app/(app)/reports/loading.tsx` → `ReportsSkeleton`
+- `app/(app)/paychecks/loading.tsx` → `PaychecksSkeleton`
+- `app/(app)/savings/loading.tsx` → `SavingsSkeleton`
+
+### New skeleton components added to `components/ui/Skeleton.tsx`
+- `DashboardSkeleton` — header, health banner, stats grid, assets strip, charts row, budget+goals row
+- `SettingsSkeleton` — header with buttons, 4 card placeholders
+- `ReportsSkeleton` — header, stats, bar chart, two chart cards
+- `PaychecksSkeleton` — header, 3 stat cards, 5 row skeletons
+- `SavingsSkeleton` — header, 3 stat cards, 4 account card skeletons
+
+---
+
 ## Potential Future Enhancements
 | Priority | Task |
 |----------|------|

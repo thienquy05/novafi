@@ -14,6 +14,8 @@ export interface TaxSettings {
   ficaMedicareRate: number; // 1.45
   customExpenseCategories: string[];
   customIncomeCategories: string[];
+  hiddenExpenseCategories: string[];
+  hiddenIncomeCategories: string[];
 }
 
 export interface TaxResult {

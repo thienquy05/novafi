@@ -13,7 +13,7 @@ export async function GET() {
   if (cached) return NextResponse.json(cached);
 
   const transactions = await getTransactions(session.accessToken, session.spreadsheetId);
-  setCache(key, transactions);
+  setCache(key, transactions, 60_000);
   return NextResponse.json(transactions);
 }
 
@@ -67,6 +67,8 @@ export async function POST(req: NextRequest) {
 
   invalidateCache(`transactions:${session.spreadsheetId}`);
   invalidateCache(`accounts:${session.spreadsheetId}`);
+  invalidateCache(`dashboard:${session.spreadsheetId}`);
+  invalidateCache(`badges:${session.spreadsheetId}`);
   return NextResponse.json({ ok: true });
 }
 
@@ -124,6 +126,8 @@ export async function PUT(req: NextRequest) {
   await updateTransaction(session.accessToken, session.spreadsheetId, updated);
   invalidateCache(`transactions:${session.spreadsheetId}`);
   invalidateCache(`accounts:${session.spreadsheetId}`);
+  invalidateCache(`dashboard:${session.spreadsheetId}`);
+  invalidateCache(`badges:${session.spreadsheetId}`);
   return NextResponse.json({ ok: true });
 }
 
@@ -133,5 +137,7 @@ export async function DELETE(req: NextRequest) {
   const { id } = await req.json();
   await deleteTransaction(session.accessToken, session.spreadsheetId, id);
   invalidateCache(`transactions:${session.spreadsheetId}`);
+  invalidateCache(`dashboard:${session.spreadsheetId}`);
+  invalidateCache(`badges:${session.spreadsheetId}`);
   return NextResponse.json({ ok: true });
 }

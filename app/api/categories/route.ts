@@ -13,9 +13,11 @@ export async function GET() {
   if (cached) return NextResponse.json(cached);
 
   const settings = await getSettings(session.accessToken, session.spreadsheetId);
+  const hiddenExp = new Set(settings.hiddenExpenseCategories ?? []);
+  const hiddenInc = new Set(settings.hiddenIncomeCategories ?? []);
   const result = {
-    expenseCategories: [...EXPENSE_CATEGORIES, ...(settings.customExpenseCategories ?? [])],
-    incomeCategories: [...INCOME_CATEGORIES, ...(settings.customIncomeCategories ?? [])],
+    expenseCategories: [...EXPENSE_CATEGORIES.filter((c) => !hiddenExp.has(c)), ...(settings.customExpenseCategories ?? [])],
+    incomeCategories: [...INCOME_CATEGORIES.filter((c) => !hiddenInc.has(c)), ...(settings.customIncomeCategories ?? [])],
   };
   setCache(cacheKey, result, 30_000);
   return NextResponse.json(result);

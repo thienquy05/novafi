@@ -48,6 +48,8 @@ export async function getSettings(
     ficaMedicareRate: Number(get('fica_medicare_rate', '1.45')),
     customExpenseCategories: get('custom_expense_categories', '').split('|').filter(Boolean),
     customIncomeCategories: get('custom_income_categories', '').split('|').filter(Boolean),
+    hiddenExpenseCategories: get('hidden_expense_categories', '').split('|').filter(Boolean),
+    hiddenIncomeCategories: get('hidden_income_categories', '').split('|').filter(Boolean),
   };
 }
 
@@ -71,6 +73,8 @@ export async function saveSettings(
     ['fica_medicare_rate', String(settings.ficaMedicareRate)],
     ['custom_expense_categories', (settings.customExpenseCategories ?? []).join('|')],
     ['custom_income_categories', (settings.customIncomeCategories ?? []).join('|')],
+    ['hidden_expense_categories', (settings.hiddenExpenseCategories ?? []).join('|')],
+    ['hidden_income_categories', (settings.hiddenIncomeCategories ?? []).join('|')],
   ];
   await sheets.spreadsheets.values.update({
     spreadsheetId,

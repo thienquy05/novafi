@@ -13,7 +13,7 @@ export async function GET() {
   if (cached) return NextResponse.json(cached);
 
   const accounts = await getAccounts(session.accessToken, session.spreadsheetId);
-  setCache(key, accounts);
+  setCache(key, accounts, 60_000);
   return NextResponse.json(accounts);
 }
 
@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
   const body: Account = await req.json();
   await upsertAccount(session.accessToken, session.spreadsheetId, body);
   invalidateCache(`accounts:${session.spreadsheetId}`);
+  invalidateCache(`dashboard:${session.spreadsheetId}`);
   return NextResponse.json({ ok: true });
 }
 
@@ -32,5 +33,6 @@ export async function DELETE(req: NextRequest) {
   const { id } = await req.json();
   await deleteAccount(session.accessToken, session.spreadsheetId, id);
   invalidateCache(`accounts:${session.spreadsheetId}`);
+  invalidateCache(`dashboard:${session.spreadsheetId}`);
   return NextResponse.json({ ok: true });
 }

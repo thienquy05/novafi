@@ -7,6 +7,7 @@ import { SpendingPieChart, MonthlyBarChart, BudgetBars, GoalsSummary, NetWorthTr
 import { QuickAddTransaction } from './QuickAddTransaction';
 import { CategoryIconBadge } from '@/components/CategoryIcon';
 import type { NetWorthPoint } from './DashboardCharts';
+import { getCache, setCache } from '@/lib/cache';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,10 +22,27 @@ export default async function DashboardPage() {
   const session = await auth();
   if (!session?.accessToken || !session.spreadsheetId) return null;
 
-  const [{ paychecks, transactions, accounts, bills, budgets, goals }, netWorthHistory] = await Promise.all([
-    batchGetDashboardData(session.accessToken, session.spreadsheetId),
-    getNetWorthHistory(session.accessToken, session.spreadsheetId),
+  const dashKey = `dashboard:${session.spreadsheetId}`;
+  const nwhKey  = `nwh:${session.spreadsheetId}`;
+
+  const [dashData, netWorthHistory] = await Promise.all([
+    (async () => {
+      const cached = getCache<Awaited<ReturnType<typeof batchGetDashboardData>>>(dashKey);
+      if (cached) return cached;
+      const fresh = await batchGetDashboardData(session.accessToken, session.spreadsheetId);
+      setCache(dashKey, fresh, 45_000);
+      return fresh;
+    })(),
+    (async () => {
+      const cached = getCache<Awaited<ReturnType<typeof getNetWorthHistory>>>(nwhKey);
+      if (cached) return cached;
+      const fresh = await getNetWorthHistory(session.accessToken, session.spreadsheetId);
+      setCache(nwhKey, fresh, 45_000);
+      return fresh;
+    })(),
   ]);
+
+  const { paychecks, transactions, accounts, bills, budgets, goals } = dashData;
 
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
