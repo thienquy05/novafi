@@ -271,6 +271,15 @@ npm run dev                         # → http://localhost:3000
 - `handleSave` reuses existing POST `/api/bills` (upsert by ID) — no API changes needed
 - `isActive` is preserved when editing; new bills default to `isActive: true`
 
+## Account Balance Auto-Sync (May 6, 2026)
+- `app/api/transactions/route.ts` POST now reads accounts after saving the transaction and updates the relevant account balance(s):
+  - **Expense** → subtracts amount from `account`
+  - **Income** → adds amount to `account`
+  - **Transfer** → subtracts from `account`, adds to `toAccount`; credit/loan payoff reduces balance owed (`Math.max(0, balance - amount)`)
+- Removed duplicate client-side balance updates from `app/(app)/transactions/page.tsx` (was only doing transfers) and `app/(app)/savings/page.tsx` and `app/(app)/paychecks/page.tsx` — all now rely on the single server-side handler
+
+---
+
 ## Potential Future Enhancements
 | Priority | Task |
 |----------|------|
@@ -278,6 +287,6 @@ npm run dev                         # → http://localhost:3000
 | High | Credit card payoff calculator (months to payoff at X/month) |
 | Medium | Export data to CSV |
 | Medium | Recurring transaction templates |
-| Medium | Account balance auto-sync for regular expense/income transactions |
+| Done | Account balance auto-sync for regular expense/income transactions — shipped May 6, 2026 |
 | Done | Net worth trend chart over time — shipped May 6, 2026 |
 | Low | Annual tax summary / W-2 estimator |

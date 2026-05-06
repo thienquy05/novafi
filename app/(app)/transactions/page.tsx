@@ -70,39 +70,11 @@ export default function TransactionsPage() {
       toAccount: form.type === 'transfer' ? form.toAccount : undefined,
     };
 
-    const ops: Promise<unknown>[] = [
-      fetch('/api/transactions', {
-        method: 'POST',
-        body: JSON.stringify(tx),
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    ];
-
-    // Smart transfer: auto-update both account balances
-    if (form.type === 'transfer' && form.account && form.toAccount) {
-      const fromAcc = accounts.find((a) => a.id === form.account);
-      const toAcc = accounts.find((a) => a.id === form.toAccount);
-
-      if (fromAcc) {
-        ops.push(fetch('/api/accounts', {
-          method: 'POST',
-          body: JSON.stringify({ ...fromAcc, balance: fromAcc.balance - amount }),
-          headers: { 'Content-Type': 'application/json' },
-        }));
-      }
-      if (toAcc) {
-        // Credit/loan: paying it down REDUCES the balance owed
-        const isDebtPayoff = toAcc.type === 'credit' || toAcc.type === 'loan';
-        const newBalance = isDebtPayoff ? toAcc.balance - amount : toAcc.balance + amount;
-        ops.push(fetch('/api/accounts', {
-          method: 'POST',
-          body: JSON.stringify({ ...toAcc, balance: Math.max(0, newBalance) }),
-          headers: { 'Content-Type': 'application/json' },
-        }));
-      }
-    }
-
-    await Promise.all(ops);
+    await fetch('/api/transactions', {
+      method: 'POST',
+      body: JSON.stringify(tx),
+      headers: { 'Content-Type': 'application/json' },
+    });
     setOpen(false);
     setForm(EMPTY_FORM);
     await load();

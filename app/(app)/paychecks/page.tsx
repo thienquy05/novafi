@@ -82,7 +82,7 @@ export default function PaychecksPage() {
       headers: { 'Content-Type': 'application/json' },
     });
 
-    // Auto-create an income transaction in checking account
+    // Auto-create an income transaction in checking account (API handles balance update)
     if (form.checkingAccountId) {
       await fetch('/api/transactions', {
         method: 'POST',
@@ -97,16 +97,6 @@ export default function PaychecksPage() {
         }),
         headers: { 'Content-Type': 'application/json' },
       });
-
-      // Update checking account balance
-      const checkingAcc = accounts.find((a) => a.id === form.checkingAccountId);
-      if (checkingAcc) {
-        await fetch('/api/accounts', {
-          method: 'POST',
-          body: JSON.stringify({ ...checkingAcc, balance: checkingAcc.balance + preview.netPaycheck }),
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
     }
 
     setOpen(false);

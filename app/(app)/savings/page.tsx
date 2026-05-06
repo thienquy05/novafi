@@ -82,25 +82,11 @@ export default function SavingsPage() {
       account: form.accountId,
     };
 
-    // Update account balance
-    const newBalance = form.type === 'deposit'
-      ? account.balance + amount
-      : account.balance - amount;
-
-    const updatedAccount: Account = { ...account, balance: newBalance };
-
-    await Promise.all([
-      fetch('/api/transactions', {
-        method: 'POST',
-        body: JSON.stringify(tx),
-        headers: { 'Content-Type': 'application/json' },
-      }),
-      fetch('/api/accounts', {
-        method: 'POST',
-        body: JSON.stringify(updatedAccount),
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    ]);
+    await fetch('/api/transactions', {
+      method: 'POST',
+      body: JSON.stringify(tx),
+      headers: { 'Content-Type': 'application/json' },
+    });
 
     setOpen(false);
     setForm(EMPTY_FORM);
