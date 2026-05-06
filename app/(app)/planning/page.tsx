@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Trash2, Target, PiggyBank, Pencil } from 'lucide-react';
+import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -9,8 +9,8 @@ import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate, generateId } from '@/lib/utils';
 import { EXPENSE_CATEGORIES } from '@/types';
 import type { Budget, Goal, Transaction, Account } from '@/types';
+import { motion } from 'framer-motion';
 
-// ─── Budget helpers ────────────────────────────────────────────────────────────
 const PERIOD_OPTIONS = [
   { value: 'monthly', label: 'Monthly' },
   { value: 'weekly', label: 'Weekly' },
@@ -73,9 +73,12 @@ export default function PlanningPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // ─── This month spending ──────────────────────────────────────────────────
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const daysElapsed = now.getDate();
+  const daysLeft = daysInMonth - daysElapsed;
+
   const monthExpenses = transactions.filter((t) => t.date.startsWith(thisMonth) && t.type === 'expense');
 
   function spentForCategory(cat: string): number {
@@ -168,7 +171,7 @@ export default function PlanningPage() {
     await load();
   }
 
-  // ─── Derived stats for summary ────────────────────────────────────────────
+  // ─── Derived stats ────────────────────────────────────────────────────────
   const totalBudgeted = budgets.reduce((s, b) => s + monthlyAmount(b), 0);
   const totalSpent = budgets.reduce((s, b) => s + spentForCategory(b.category), 0);
   const overBudgetCount = budgets.filter((b) => spentForCategory(b.category) > monthlyAmount(b)).length;
@@ -185,34 +188,34 @@ export default function PlanningPage() {
   );
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6 sm:space-y-8 pb-24 md:pb-8">
+    <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
       {/* Header */}
-      <div className="mb-6 md:mb-8">
-        <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900">Planning</h1>
-        <p className="text-slate-500 text-base font-medium mt-1">Budgets & savings goals in one place</p>
+      <div className="mb-4 md:mb-6">
+        <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900">Planning</h1>
+        <p className="text-slate-500 text-sm font-medium mt-1">Budgets &amp; savings goals · {daysLeft} days left this month</p>
       </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <Card>
+      {/* Summary */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Card className="p-4 sm:p-5">
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Budgeted/mo</p>
-          <p className="text-2xl font-extrabold text-slate-900 mt-2 tracking-tight">{formatCurrency(totalBudgeted)}</p>
+          <p className="text-xl font-extrabold text-slate-900 mt-1.5 tracking-tight">{formatCurrency(totalBudgeted)}</p>
         </Card>
-        <Card>
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Spent This Month</p>
-          <p className={`text-2xl font-extrabold mt-2 tracking-tight ${totalSpent > totalBudgeted ? 'text-rose-600' : 'text-slate-400'}`}>
+        <Card className="p-4 sm:p-5">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Spent</p>
+          <p className={`text-xl font-extrabold mt-1.5 tracking-tight ${totalSpent > totalBudgeted ? 'text-rose-600' : 'text-slate-900'}`}>
             {formatCurrency(totalSpent)}
           </p>
         </Card>
-        <Card className="border-emerald-100 hover:border-emerald-200">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Goals Progress</p>
-          <p className="text-2xl font-extrabold text-emerald-600 mt-2 tracking-tight">{formatCurrency(totalGoalSaved)}</p>
+        <Card className="p-4 sm:p-5 border-emerald-100">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Goals Saved</p>
+          <p className="text-xl font-extrabold text-emerald-600 mt-1.5 tracking-tight">{formatCurrency(totalGoalSaved)}</p>
           <p className="text-xs font-bold text-slate-400 mt-0.5">of {formatCurrency(totalGoalTarget)}</p>
         </Card>
-        <Card className={overBudgetCount > 0 ? "border-rose-100 hover:border-rose-200" : ""}>
+        <Card className={`p-4 sm:p-5 ${overBudgetCount > 0 ? 'border-rose-100' : ''}`}>
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Over Budget</p>
-          <p className={`text-2xl font-extrabold mt-2 tracking-tight ${overBudgetCount > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-            {overBudgetCount} <span className="text-sm font-bold opacity-80">{overBudgetCount === 1 ? 'category' : 'categories'}</span>
+          <p className={`text-xl font-extrabold mt-1.5 tracking-tight ${overBudgetCount > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+            {overBudgetCount} <span className="text-sm font-bold opacity-80">{overBudgetCount === 1 ? 'cat.' : 'cats.'}</span>
           </p>
         </Card>
       </div>
@@ -222,13 +225,11 @@ export default function PlanningPage() {
           <div className="animate-spin rounded-full h-8 w-8 border-2 border-indigo-600 border-t-transparent" />
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* ── BUDGETS SECTION ──────────────────────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-7">
+          {/* ── BUDGETS ──────────────────────────────────────────────────── */}
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                <span className="text-2xl">📊</span> Budgets
-              </h2>
+              <h2 className="text-base font-bold text-slate-900">Budgets</h2>
               <Button size="sm" onClick={() => setBudgetModalOpen(true)} className="shadow-sm">
                 <Plus className="w-4 h-4" /> Set Budget
               </Button>
@@ -236,62 +237,98 @@ export default function PlanningPage() {
 
             {budgets.length === 0 ? (
               <Card className="text-center py-12 bg-slate-50 border-slate-100">
-                <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100">
-                  <Target className="w-8 h-8 text-slate-400" />
+                <div className="w-14 h-14 rounded-full bg-white flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100">
+                  <Target className="w-7 h-7 text-slate-400" />
                 </div>
-                <p className="text-slate-900 font-bold text-lg mb-1">No budgets set yet.</p>
-                <p className="text-slate-500 font-medium text-sm mb-6">Set spending limits by category to stay on track.</p>
+                <p className="text-slate-900 font-bold text-base mb-1">No budgets set yet</p>
+                <p className="text-slate-500 font-medium text-sm mb-5">Set spending limits by category to stay on track.</p>
                 <Button onClick={() => setBudgetModalOpen(true)} className="shadow-sm">Set Your First Budget</Button>
               </Card>
             ) : (
-              <div className="space-y-4">
-                {budgets.map((budget) => {
+              <div className="space-y-3">
+                {budgets.map((budget, i) => {
                   const monthly = monthlyAmount(budget);
                   const spent = spentForCategory(budget.category);
                   const pct = monthly > 0 ? Math.min(100, (spent / monthly) * 100) : 0;
                   const over = spent > monthly;
                   const remaining = monthly - spent;
 
+                  // Projected end-of-month spend
+                  const projected = daysElapsed > 0 ? (spent / daysElapsed) * daysInMonth : null;
+                  const willOvershoot = projected !== null && projected > monthly && !over;
+                  const overshootAmt = projected ? projected - monthly : 0;
+
                   return (
-                    <Card key={budget.id} className="hover:shadow-md transition-all">
-                      <div className="flex items-start justify-between mb-4">
-                        <div>
-                          <p className="text-base font-bold text-slate-900">{budget.category}</p>
-                          <p className="text-sm font-medium text-slate-500 mt-0.5">
-                            {formatCurrency(budget.amount)}/{budget.period}
-                            {budget.period !== 'monthly' ? ` · ${formatCurrency(monthly)}/mo` : ''}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          <div className="text-right">
-                            <p className={`text-base font-extrabold ${over ? 'text-rose-600' : 'text-slate-900'}`}>
-                              {formatCurrency(spent)}
-                              <span className="text-slate-400 font-bold text-xs ml-1">/ {formatCurrency(monthly)}</span>
-                            </p>
-                            <p className={`text-xs font-bold mt-0.5 ${over ? 'text-rose-500' : 'text-slate-400'}`}>
-                              {over ? `${formatCurrency(Math.abs(remaining))} over` : `${formatCurrency(remaining)} left`}
+                    <motion.div
+                      key={budget.id}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                    >
+                      <Card className={`hover:shadow-md transition-all p-4 sm:p-5 ${over ? 'border-rose-100' : willOvershoot ? 'border-amber-100' : ''}`}>
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1 min-w-0 mr-3">
+                            <p className="text-sm font-bold text-slate-900">{budget.category}</p>
+                            <p className="text-xs font-medium text-slate-500 mt-0.5">
+                              {formatCurrency(budget.amount)}/{budget.period}
+                              {budget.period !== 'monthly' ? ` · ${formatCurrency(monthly)}/mo` : ''}
                             </p>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 h-10 w-10 rounded-xl"
-                            onClick={() => deleteBudget(budget.id)}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          <div className="flex items-center gap-3 shrink-0">
+                            <div className="text-right">
+                              <p className={`text-sm font-extrabold ${over ? 'text-rose-600' : 'text-slate-900'}`}>
+                                {formatCurrency(spent)}
+                                <span className="text-slate-400 font-bold text-xs ml-1">/ {formatCurrency(monthly)}</span>
+                              </p>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 h-9 w-9 rounded-xl"
+                              onClick={() => deleteBudget(budget.id)}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
                         </div>
-                      </div>
-                      <div className="w-full bg-slate-100 rounded-full h-2.5">
-                        <div
-                          className={`h-2.5 rounded-full transition-all duration-500 ${
-                            over ? 'bg-rose-500' : pct > 80 ? 'bg-amber-500' : 'bg-indigo-500'
-                          }`}
-                          style={{ width: `${Math.min(100, pct)}%` }}
-                        />
-                      </div>
-                      <p className="text-xs font-bold text-slate-400 mt-2 text-right">{pct.toFixed(0)}% used</p>
-                    </Card>
+
+                        <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                          <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${Math.min(100, pct)}%` }}
+                            transition={{ duration: 0.8, ease: 'easeOut' }}
+                            className={`h-full rounded-full ${over ? 'bg-rose-500' : pct > 80 ? 'bg-amber-500' : 'bg-indigo-500'}`}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between mt-2">
+                          <p className="text-xs font-bold">
+                            {over ? (
+                              <span className="text-rose-600">{formatCurrency(Math.abs(remaining))} over</span>
+                            ) : (
+                              <span className="text-slate-500">
+                                {formatCurrency(remaining)} left · {daysLeft}d
+                              </span>
+                            )}
+                          </p>
+                          <div className="flex items-center gap-1.5">
+                            {willOvershoot && (
+                              <span className="text-xs font-bold text-amber-600 flex items-center gap-0.5">
+                                <TrendingUp className="w-3 h-3" />
+                                ~{formatCurrency(overshootAmt)} overshoot
+                              </span>
+                            )}
+                            {!over && !willOvershoot && pct > 0 && (
+                              <span className="text-xs font-bold text-emerald-600 flex items-center gap-0.5">
+                                <Zap className="w-3 h-3" />
+                                On pace
+                              </span>
+                            )}
+                            <span className="text-xs font-bold text-slate-400">{pct.toFixed(0)}%</span>
+                          </div>
+                        </div>
+                      </Card>
+                    </motion.div>
                   );
                 })}
               </div>
@@ -300,18 +337,15 @@ export default function PlanningPage() {
             {/* Unbudgeted categories with spending */}
             {unbudgetedWithSpending.length > 0 && (
               <div className="mt-2">
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 px-1">Unbudgeted — spending detected</p>
-                <div className="space-y-3">
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 px-1">Unbudgeted spending detected</p>
+                <div className="space-y-2">
                   {unbudgetedWithSpending.map((c) => {
                     const spent = spentForCategory(c);
                     return (
-                      <div
-                        key={c}
-                        className="flex items-center justify-between px-5 py-4 rounded-2xl bg-slate-50 border border-dashed border-slate-200"
-                      >
+                      <div key={c} className="flex items-center justify-between px-4 py-3 rounded-2xl bg-slate-50 border border-dashed border-slate-200">
                         <p className="text-sm font-bold text-slate-700">{c}</p>
-                        <div className="flex items-center gap-4">
-                          <p className="text-sm font-extrabold text-slate-900">{formatCurrency(spent)} <span className="text-slate-500 font-medium text-xs">this month</span></p>
+                        <div className="flex items-center gap-3">
+                          <p className="text-sm font-extrabold text-slate-900">{formatCurrency(spent)}</p>
                           <button
                             onClick={() => { setBudgetForm((f) => ({ ...f, category: c })); setBudgetModalOpen(true); }}
                             className="text-xs font-bold text-indigo-600 hover:text-indigo-500 transition-colors bg-indigo-50 px-3 py-1.5 rounded-lg"
@@ -327,12 +361,10 @@ export default function PlanningPage() {
             )}
           </div>
 
-          {/* ── GOALS SECTION ────────────────────────────────────────────── */}
+          {/* ── GOALS ────────────────────────────────────────────────────── */}
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                <span className="text-2xl">🎯</span> Goals
-              </h2>
+              <h2 className="text-base font-bold text-slate-900">Goals</h2>
               <Button size="sm" onClick={openAddGoal} className="shadow-sm">
                 <Plus className="w-4 h-4" /> Add Goal
               </Button>
@@ -340,18 +372,18 @@ export default function PlanningPage() {
 
             {goals.length === 0 ? (
               <Card className="text-center py-12 bg-slate-50 border-slate-100">
-                <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100">
-                  <PiggyBank className="w-8 h-8 text-slate-400" />
+                <div className="w-14 h-14 rounded-full bg-white flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100">
+                  <PiggyBank className="w-7 h-7 text-slate-400" />
                 </div>
-                <p className="text-slate-900 font-bold text-lg mb-1">No savings goals yet.</p>
-                <p className="text-slate-500 font-medium text-sm mb-6">
+                <p className="text-slate-900 font-bold text-base mb-1">No savings goals yet</p>
+                <p className="text-slate-500 font-medium text-sm mb-5">
                   Set a target — emergency fund, vacation, down payment — and track your progress.
                 </p>
                 <Button onClick={openAddGoal} className="shadow-sm">Add Your First Goal</Button>
               </Card>
             ) : (
-              <div className="space-y-4">
-                {goals.map((goal) => {
+              <div className="space-y-3">
+                {goals.map((goal, i) => {
                   const linked = goal.linkedAccountId
                     ? accounts.find((a) => a.id === goal.linkedAccountId)
                     : null;
@@ -360,87 +392,111 @@ export default function PlanningPage() {
                   const remaining = goal.targetAmount - current;
                   const achieved = current >= goal.targetAmount;
 
-                  const daysLeft = goal.deadline
-                    ? Math.ceil((new Date(goal.deadline).getTime() - new Date().getTime()) / 86400000)
+                  const daysToDeadline = goal.deadline
+                    ? Math.ceil((new Date(goal.deadline).getTime() - now.getTime()) / 86400000)
                     : null;
 
-                  const monthlyNeeded =
-                    daysLeft && daysLeft > 0 && remaining > 0
-                      ? remaining / (daysLeft / 30.44)
-                      : null;
+                  const monthsLeft = daysToDeadline && daysToDeadline > 0 ? daysToDeadline / 30.44 : null;
+                  const monthlyNeeded = monthsLeft && remaining > 0 ? remaining / monthsLeft : null;
+
+                  // On-track status
+                  const onTrack =
+                    achieved ? 'done'
+                    : !goal.deadline ? 'nodl'
+                    : daysToDeadline && daysToDeadline <= 0 ? 'overdue'
+                    : pct >= ((daysInMonth - daysLeft) / daysInMonth) * 100 ? 'ontarget'
+                    : 'behind';
 
                   return (
-                    <Card key={goal.id} className={`hover:shadow-md transition-all ${achieved ? 'border-emerald-200 bg-emerald-50/30' : ''}`}>
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-2xl shrink-0 shadow-sm border border-slate-100">
-                            {goal.icon}
-                          </div>
-                          <div>
-                            <p className="text-base font-bold text-slate-900 flex items-center gap-2">
-                              {goal.name}
-                              {achieved && <span className="text-xs text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md font-bold">✓ Achieved!</span>}
-                            </p>
-                            {linked && (
-                              <p className="text-xs font-medium text-slate-500 mt-0.5">Linked: {linked.name}</p>
-                            )}
-                            {goal.deadline && (
-                              <p className="text-xs font-medium text-slate-500 mt-0.5">
-                                {daysLeft && daysLeft > 0
-                                  ? `${daysLeft} days left · Due ${formatDate(goal.deadline)}`
-                                  : `Due ${formatDate(goal.deadline)}`}
+                    <motion.div
+                      key={goal.id}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                    >
+                      <Card className={`hover:shadow-md transition-all p-4 sm:p-5 ${achieved ? 'border-emerald-200 bg-emerald-50/30' : ''}`}>
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <div className="w-11 h-11 rounded-2xl bg-white flex items-center justify-center text-xl shrink-0 shadow-sm border border-slate-100">
+                              {goal.icon}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
+                                {goal.name}
+                                {achieved && (
+                                  <span className="text-xs text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-md font-bold">Done!</span>
+                                )}
+                                {onTrack === 'behind' && (
+                                  <span className="text-xs text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-md font-bold flex items-center gap-0.5">
+                                    <TrendingDown className="w-2.5 h-2.5" /> Behind
+                                  </span>
+                                )}
+                                {onTrack === 'ontarget' && !achieved && (
+                                  <span className="text-xs text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md font-bold flex items-center gap-0.5">
+                                    <TrendingUp className="w-2.5 h-2.5" /> On track
+                                  </span>
+                                )}
                               </p>
-                            )}
+                              {linked && <p className="text-xs font-medium text-slate-500 mt-0.5">Linked: {linked.name}</p>}
+                              {goal.deadline && daysToDeadline !== null && (
+                                <p className="text-xs font-medium text-slate-500">
+                                  {daysToDeadline > 0 ? `${daysToDeadline}d left · ` : 'Deadline passed · '}
+                                  {formatDate(goal.deadline)}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0 ml-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 h-9 w-9 rounded-xl"
+                              onClick={() => openEditGoal(goal)}
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 h-9 w-9 rounded-xl"
+                              onClick={() => deleteGoal(goal.id)}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 h-10 w-10 rounded-xl"
-                            onClick={() => openEditGoal(goal)}
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 h-10 w-10 rounded-xl"
-                            onClick={() => deleteGoal(goal.id)}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+
+                        <div className="w-full bg-slate-100 rounded-full h-2.5 mb-2 overflow-hidden">
+                          <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${pct}%` }}
+                            transition={{ duration: 0.8, ease: 'easeOut' }}
+                            className={`h-full rounded-full ${achieved ? 'bg-emerald-500' : 'bg-indigo-500'}`}
+                          />
                         </div>
-                      </div>
 
-                      <div className="w-full bg-slate-100 rounded-full h-2.5 mb-3">
-                        <div
-                          className={`h-2.5 rounded-full transition-all duration-500 ${achieved ? 'bg-emerald-500' : 'bg-indigo-500'}`}
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-baseline gap-2">
-                          <span className={`text-lg font-extrabold ${achieved ? 'text-emerald-600' : 'text-slate-900'}`}>
-                            {formatCurrency(current)}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-baseline gap-1.5">
+                            <span className={`text-base font-extrabold ${achieved ? 'text-emerald-600' : 'text-slate-900'}`}>
+                              {formatCurrency(current)}
+                            </span>
+                            <span className="text-xs font-bold text-slate-400">/ {formatCurrency(goal.targetAmount)}</span>
+                          </div>
+                          <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg ${achieved ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-50 text-indigo-700'}`}>
+                            {pct.toFixed(0)}%
                           </span>
-                          <span className="text-xs font-bold text-slate-400">/ {formatCurrency(goal.targetAmount)}</span>
                         </div>
-                        <div className="text-right">
-                          <span className="text-sm font-extrabold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-lg">{pct.toFixed(0)}%</span>
-                        </div>
-                      </div>
 
-                      {(!achieved && remaining > 0) && (
-                        <div className="flex justify-between items-center mt-3 pt-3 border-t border-slate-100">
-                          <p className="text-xs font-bold text-slate-500">{formatCurrency(remaining)} to go</p>
-                          {monthlyNeeded && (
-                            <p className="text-xs font-bold text-slate-400">{formatCurrency(monthlyNeeded)}/mo needed</p>
-                          )}
-                        </div>
-                      )}
-                    </Card>
+                        {!achieved && remaining > 0 && (
+                          <div className="flex justify-between items-center mt-2.5 pt-2.5 border-t border-slate-100">
+                            <p className="text-xs font-bold text-slate-500">{formatCurrency(remaining)} to go</p>
+                            {monthlyNeeded && (
+                              <p className="text-xs font-bold text-slate-400">{formatCurrency(monthlyNeeded)}/mo needed</p>
+                            )}
+                          </div>
+                        )}
+                      </Card>
+                    </motion.div>
                   );
                 })}
               </div>
@@ -450,7 +506,11 @@ export default function PlanningPage() {
       )}
 
       {/* ── BUDGET MODAL ──────────────────────────────────────────────────────── */}
-      <Modal open={budgetModalOpen} onClose={() => { setBudgetModalOpen(false); setBudgetForm(EMPTY_BUDGET_FORM); }} title="Set Budget">
+      <Modal
+        open={budgetModalOpen}
+        onClose={() => { setBudgetModalOpen(false); setBudgetForm(EMPTY_BUDGET_FORM); }}
+        title="Set Budget"
+      >
         <div className="space-y-5">
           <Select
             label="Category"
@@ -458,7 +518,7 @@ export default function PlanningPage() {
             options={EXPENSE_CATEGORIES.map((c) => ({ value: c, label: c }))}
             onChange={(e) => setBudgetForm((f) => ({ ...f, category: e.target.value }))}
           />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <Select
               label="Period"
               value={budgetForm.period}
@@ -476,7 +536,9 @@ export default function PlanningPage() {
             />
           </div>
           {budgets.find((b) => b.category === budgetForm.category) && (
-            <p className="text-xs font-bold text-amber-600 bg-amber-50 p-3 rounded-xl border border-amber-100">This replaces the existing budget for {budgetForm.category}.</p>
+            <p className="text-xs font-bold text-amber-600 bg-amber-50 p-3 rounded-xl border border-amber-100">
+              This replaces the existing budget for {budgetForm.category}.
+            </p>
           )}
           <div className="flex gap-3 pt-4">
             <Button variant="secondary" className="flex-1" onClick={() => { setBudgetModalOpen(false); setBudgetForm(EMPTY_BUDGET_FORM); }}>Cancel</Button>
@@ -488,17 +550,20 @@ export default function PlanningPage() {
       </Modal>
 
       {/* ── GOAL MODAL ────────────────────────────────────────────────────────── */}
-      <Modal open={goalModalOpen} onClose={() => { setGoalModalOpen(false); setGoalForm(EMPTY_GOAL_FORM); setEditGoal(null); }} title={editGoal ? 'Edit Goal' : 'Add Goal'}>
+      <Modal
+        open={goalModalOpen}
+        onClose={() => { setGoalModalOpen(false); setGoalForm(EMPTY_GOAL_FORM); setEditGoal(null); }}
+        title={editGoal ? 'Edit Goal' : 'Add Goal'}
+      >
         <div className="space-y-5">
-          {/* Icon picker */}
           <div>
-            <p className="text-sm font-bold text-slate-700 ml-1 mb-2">Icon</p>
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Icon</p>
             <div className="flex gap-2 flex-wrap">
               {GOAL_ICONS.map((ic) => (
                 <button
                   key={ic}
                   onClick={() => setGoalForm((f) => ({ ...f, icon: ic }))}
-                  className={`text-2xl w-12 h-12 rounded-2xl border-2 transition-all flex items-center justify-center shadow-sm hover:scale-110 ${
+                  className={`text-xl w-11 h-11 rounded-2xl border-2 transition-all flex items-center justify-center hover:scale-110 ${
                     goalForm.icon === ic ? 'border-indigo-500 bg-indigo-50' : 'border-transparent bg-white hover:border-slate-200'
                   }`}
                 >
@@ -507,7 +572,6 @@ export default function PlanningPage() {
               ))}
             </div>
           </div>
-
           <Input
             label="Goal Name"
             placeholder="e.g. Emergency Fund, Down Payment, Vacation"
@@ -523,7 +587,6 @@ export default function PlanningPage() {
             value={goalForm.targetAmount}
             onChange={(e) => setGoalForm((f) => ({ ...f, targetAmount: e.target.value }))}
           />
-
           {savingsAccounts.length > 0 ? (
             <Select
               label="Link to Savings Account (optional)"
@@ -535,7 +598,6 @@ export default function PlanningPage() {
               onChange={(e) => setGoalForm((f) => ({ ...f, linkedAccountId: e.target.value }))}
             />
           ) : null}
-
           {!goalForm.linkedAccountId && (
             <Input
               label="Current Amount ($)"
@@ -547,20 +609,17 @@ export default function PlanningPage() {
               onChange={(e) => setGoalForm((f) => ({ ...f, currentAmount: e.target.value }))}
             />
           )}
-
           {goalForm.linkedAccountId && (
             <p className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3">
               Progress will automatically use the linked account&apos;s balance.
             </p>
           )}
-
           <Input
             label="Target Date (optional)"
             type="date"
             value={goalForm.deadline}
             onChange={(e) => setGoalForm((f) => ({ ...f, deadline: e.target.value }))}
           />
-
           <div className="flex gap-3 pt-4">
             <Button variant="secondary" className="flex-1" onClick={() => { setGoalModalOpen(false); setGoalForm(EMPTY_GOAL_FORM); setEditGoal(null); }}>Cancel</Button>
             <Button className="flex-1 shadow-sm" onClick={saveGoal} disabled={saving || !goalForm.name || !goalForm.targetAmount}>

@@ -193,6 +193,24 @@ export async function deleteTransaction(
   await deleteRowById(accessToken, spreadsheetId, 'Transactions', id, 'H');
 }
 
+export async function updateTransaction(
+  accessToken: string,
+  spreadsheetId: string,
+  tx: Transaction
+): Promise<void> {
+  await deleteRowById(accessToken, spreadsheetId, 'Transactions', tx.id, 'H');
+  const sheets = getSheetsClient(accessToken);
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: 'Transactions!A1',
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: {
+      values: [[tx.id, tx.date, tx.description, tx.amount, tx.type, tx.category, tx.account, tx.toAccount ?? '']],
+    },
+  });
+}
+
 // ── Accounts ──────────────────────────────────────────────────────────────────
 
 export async function getAccounts(
@@ -449,6 +467,142 @@ export async function appendNetWorthSnapshot(
       values: [[snapshot.id, snapshot.date, snapshot.month, snapshot.netWorth]],
     },
   });
+}
+
+// ── Batch reads (reduces quota usage) ────────────────────────────────────────
+
+/**
+ * Fetches Bills, Budgets, and Transactions in a single batchGet API call.
+ * Used by the /api/badges endpoint instead of 3 separate requests.
+ */
+export async function batchGetBadgesData(
+  accessToken: string,
+  spreadsheetId: string
+): Promise<{ bills: Bill[]; budgets: Budget[]; transactions: Transaction[] }> {
+  const sheets = getSheetsClient(accessToken);
+  const ranges = [
+    'Bills!A2:H200',
+    'Budgets!A2:D200',
+    'Transactions!A2:H1000',
+  ];
+  const res = await sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges });
+  const vr = res.data.valueRanges ?? [];
+  const bills: Bill[] = (vr[0]?.values ?? []).map((r) => ({
+    id: r[0] ?? '',
+    name: r[1] ?? '',
+    amount: Number(r[2] ?? 0),
+    frequency: (r[3] ?? 'monthly') as Bill['frequency'],
+    nextDue: r[4] ?? '',
+    account: r[5] ?? '',
+    category: r[6] ?? '',
+    isActive: r[7] === 'true',
+  }));
+  const budgets: Budget[] = (vr[1]?.values ?? []).map((r) => ({
+    id: r[0] ?? '',
+    category: r[1] ?? '',
+    amount: Number(r[2] ?? 0),
+    period: (r[3] ?? 'monthly') as Budget['period'],
+  }));
+  const transactions: Transaction[] = (vr[2]?.values ?? []).map((r) => ({
+    id: r[0] ?? '',
+    date: r[1] ?? '',
+    description: r[2] ?? '',
+    amount: Number(r[3] ?? 0),
+    type: (r[4] ?? 'expense') as Transaction['type'],
+    category: r[5] ?? '',
+    account: r[6] ?? '',
+    toAccount: r[7] ?? '',
+  }));
+  return { bills, budgets, transactions };
+}
+
+/**
+ * Fetches all 6 main data sheets in a single batchGet API call.
+ * Used by the dashboard instead of 6 separate requests.
+ * NetWorthHistory is fetched separately because it may not exist yet.
+ */
+export async function batchGetDashboardData(
+  accessToken: string,
+  spreadsheetId: string
+): Promise<{
+  paychecks: PaycheckEntry[];
+  transactions: Transaction[];
+  accounts: Account[];
+  bills: Bill[];
+  budgets: Budget[];
+  goals: Goal[];
+}> {
+  const sheets = getSheetsClient(accessToken);
+  const ranges = [
+    'Paychecks!A2:J1000',
+    'Transactions!A2:H1000',
+    'Accounts!A2:H200',
+    'Bills!A2:H200',
+    'Budgets!A2:D200',
+    'Goals!A2:G200',
+  ];
+  const res = await sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges });
+  const vr = res.data.valueRanges ?? [];
+
+  const paychecks: PaycheckEntry[] = (vr[0]?.values ?? []).map((r) => ({
+    id: r[0] ?? '',
+    date: r[1] ?? '',
+    grossAmount: Number(r[2] ?? 0),
+    federalWithheld: Number(r[3] ?? 0),
+    stateWithheld: Number(r[4] ?? 0),
+    localWithheld: Number(r[5] ?? 0),
+    k401: Number(r[6] ?? 0),
+    hsa: Number(r[7] ?? 0),
+    netAmount: Number(r[8] ?? 0),
+    notes: r[9] ?? '',
+  }));
+  const transactions: Transaction[] = (vr[1]?.values ?? []).map((r) => ({
+    id: r[0] ?? '',
+    date: r[1] ?? '',
+    description: r[2] ?? '',
+    amount: Number(r[3] ?? 0),
+    type: (r[4] ?? 'expense') as Transaction['type'],
+    category: r[5] ?? '',
+    account: r[6] ?? '',
+    toAccount: r[7] ?? '',
+  }));
+  const accounts: Account[] = (vr[2]?.values ?? []).map((r) => ({
+    id: r[0] ?? '',
+    name: r[1] ?? '',
+    type: (r[2] ?? 'checking') as Account['type'],
+    institution: r[3] ?? '',
+    balance: Number(r[4] ?? 0),
+    last4: r[5] ?? '',
+    color: r[6] ?? '#6366f1',
+    createdAt: r[7] ?? '',
+  }));
+  const bills: Bill[] = (vr[3]?.values ?? []).map((r) => ({
+    id: r[0] ?? '',
+    name: r[1] ?? '',
+    amount: Number(r[2] ?? 0),
+    frequency: (r[3] ?? 'monthly') as Bill['frequency'],
+    nextDue: r[4] ?? '',
+    account: r[5] ?? '',
+    category: r[6] ?? '',
+    isActive: r[7] === 'true',
+  }));
+  const budgets: Budget[] = (vr[4]?.values ?? []).map((r) => ({
+    id: r[0] ?? '',
+    category: r[1] ?? '',
+    amount: Number(r[2] ?? 0),
+    period: (r[3] ?? 'monthly') as Budget['period'],
+  }));
+  const goals: Goal[] = (vr[5]?.values ?? []).map((r) => ({
+    id: r[0] ?? '',
+    name: r[1] ?? '',
+    targetAmount: Number(r[2] ?? 0),
+    currentAmount: Number(r[3] ?? 0),
+    deadline: r[4] ?? '',
+    icon: r[5] ?? '🎯',
+    linkedAccountId: r[6] ?? '',
+  }));
+
+  return { paychecks, transactions, accounts, bills, budgets, goals };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

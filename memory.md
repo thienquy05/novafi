@@ -280,6 +280,83 @@ npm run dev                         # → http://localhost:3000
 
 ---
 
+## RocketMoney UX Overhaul (May 6, 2026)
+
+### New Files
+- `components/CategoryIcon.tsx` — `CATEGORY_ICONS` map (category → Lucide icon + color tokens) + `CategoryIconBadge` client component; used on transactions page and dashboard recent feed
+- `app/api/badges/route.ts` — GET returns `{ overdueBills: number, overBudget: number }` for sidebar badge dots; fetches bills + budgets + transactions server-side, non-blocking
+
+### Modified Files
+
+**`lib/sheets.ts`**
+- Added `updateTransaction(accessToken, spreadsheetId, tx)` — deletes old row by ID, re-appends with new data (used by PUT endpoint)
+
+**`app/api/transactions/route.ts`**
+- Added `PUT` handler: receives `{ original: Transaction, updated: Transaction }`, reverses original balance effects, applies new balance effects, then calls `updateTransaction`. Preserves the core formula: every balance change is calculated server-side
+
+**`components/Sidebar.tsx`**
+- Added `useBadges()` hook — fetches `/api/badges` once on mount, returns `{ overdueBills, overBudget }`
+- `NavBadge` component renders a small red/amber count pill next to Bills and Planning nav items
+- Both desktop sidebar and mobile bottom nav show badges with matching color coding (red = overdue, amber = over-budget)
+
+**`app/(app)/dashboard/DashboardCharts.tsx`**
+- Added `HealthBanner` component — full-width status card showing: on-track/warning/danger status, savings rate pill, over-budget count, net cash flow + safe-to-spend subtitle, days-left progress bar
+- Updated `BudgetBars` — added `daysLeft` and `daysElapsed` props; shows "X left · Yd" per category and "~$X overshoot" projection when daily spend pace will exceed budget
+- Updated `GoalsSummary` — shows monthly amount needed to hit deadline target
+
+**`app/(app)/dashboard/page.tsx`**
+- Added previous month calculations (`prevMonthIncome`, `prevMonthSpending`, `prevNetWorth`)
+- Added `daysInMonth`, `daysElapsed`, `daysLeft`, `totalAssets`, `totalDebt`, `billsThisMonth`, `safeToSpend`, `overBudgetCount`
+- MoM delta percentages computed (`spendingDelta`, `incomeDelta`, `netWorthDelta`)
+- Stats grid now shows delta badge per card (up/down arrow + %) with direction-aware coloring
+- Replaced "Total Savings" stat card with "Safe to Spend" (income − spent − bills due this month)
+- Replaced "Last Paycheck" stat card with "Month Income"
+- Added Assets / Liabilities / Savings 3-col strip below stats
+- `HealthBanner` renders above stats; `SpendingAlerts` removed from dashboard (integrated into HealthBanner)
+- Recent transactions now use `CategoryIconBadge` instead of generic arrow icons
+- Passes `daysLeft` / `daysElapsed` to `BudgetBars`
+
+**`app/(app)/bills/page.tsx`**
+- Added `BillsTimeline` component — horizontal scrollable strip of all days in the current month; days with bills show rose dots + bill name legend below; auto-scrolls to today on mount
+- Added overdue banner at top when any active bill is past due
+- Summary card color-codes based on overdue count vs upcoming count
+
+**`app/(app)/planning/page.tsx`**
+- Added `daysInMonth`, `daysElapsed`, `daysLeft` calculations
+- Per budget: shows "X left · Yd" below progress bar; projected end-of-month overshoot warning; "On pace" green indicator when within budget
+- Per goal: shows on-track/behind/done status badge (compared to progress % vs time elapsed); monthly amount needed displayed
+
+**`app/(app)/transactions/page.tsx`**
+- Uses `CategoryIconBadge` in place of generic income/expense arrows — each transaction shows a category-specific colored icon
+- Added `editTarget` state and `openEdit(tx)` function
+- Edit button (pencil icon) appears on hover per transaction row
+- Modal now has dual add/edit mode: title + save button text change; on save calls PUT (edit) or POST (add)
+- Edit correctly reverses and re-applies balance effects via the PUT endpoint
+
+**`app/globals.css`**
+- Added `pt-safe` utility for top safe area
+- Added `overscroll-behavior: none` on `html` to prevent iOS bounce layout jank
+- Added `tap-highlight-none` and `scroll-smooth-ios` utilities
+
+---
+
+## Google Sheets Quota Fix — May 6, 2026
+
+**Problem:** Google Sheets API returning 429 "Quota exceeded" on `getAccounts` because the app was firing 7+ individual read requests per page load plus 3 more from the `/api/badges` sidebar hook on every navigation, hitting the 300 reads/minute/user quota.
+
+**Solution — batchGet (primary fix):**
+- Added `batchGetDashboardData()` to `lib/sheets.ts`: reads Paychecks, Transactions, Accounts, Bills, Budgets, Goals in **1** batchGet API call instead of 6 separate ones. NetWorthHistory fetched separately (may not exist, needs creation fallback).
+- Added `batchGetBadgesData()` to `lib/sheets.ts`: reads Bills, Budgets, Transactions in **1** batchGet instead of 3 separate calls.
+- `app/(app)/dashboard/page.tsx`: replaced 7-call `Promise.all` with `batchGetDashboardData` + `getNetWorthHistory` — **7 reads → 2 reads** per dashboard load.
+- `app/api/badges/route.ts`: replaced 3-call `Promise.all` with `batchGetBadgesData` — **3 reads → 1 read** per badge fetch.
+
+**Solution — session-storage cache (secondary fix):**
+- `components/Sidebar.tsx` `useBadges` hook: added 2-minute TTL cache in `sessionStorage`. Badge data is now served from cache for all page navigations within the same session; only fetches Sheets once every 2 minutes — eliminates the repeated Sheets hit on every route change.
+
+**Net result:** Dashboard page: 7 → 2 Sheets reads. Badge fetches: 3 → 1 and only once per 2 min per session. Overall quota usage reduced ~80% under normal navigation patterns.
+
+---
+
 ## Potential Future Enhancements
 | Priority | Task |
 |----------|------|

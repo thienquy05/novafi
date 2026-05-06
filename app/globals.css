@@ -11,6 +11,8 @@
 @layer base {
   html {
     color-scheme: light;
+    /* Prevent overscroll bounce on iOS causing layout jank */
+    overscroll-behavior: none;
   }
   body {
     background-color: var(--color-background);
@@ -43,12 +45,24 @@
   .pb-safe {
     padding-bottom: env(safe-area-inset-bottom, 24px);
   }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
   .hide-scrollbar::-webkit-scrollbar {
     display: none;
   }
   .hide-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+  /* Improve tap responsiveness on mobile */
+  .tap-highlight-none {
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* Smooth momentum scrolling on iOS */
+  .scroll-smooth-ios {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
   }
   .glass {
     background: rgba(255, 255, 255, 0.8);

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getTransactions, addTransaction, deleteTransaction, getAccounts, upsertAccount } from '@/lib/sheets';
+import { getTransactions, addTransaction, deleteTransaction, updateTransaction, getAccounts, upsertAccount } from '@/lib/sheets';
 import type { Transaction } from '@/types';
 
 export async function GET() {
@@ -58,6 +58,61 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  return NextResponse.json({ ok: true });
+}
+
+export async function PUT(req: NextRequest) {
+  const session = await auth();
+  if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { original, updated }: { original: Transaction; updated: Transaction } = await req.json();
+
+  const accounts = await getAccounts(session.accessToken, session.spreadsheetId);
+  const findAcc = (id: string) => accounts.find((a) => a.id === id);
+
+  // Reverse original balance effects
+  if (original.type === 'expense') {
+    const acc = findAcc(original.account);
+    if (acc) await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: acc.balance + original.amount });
+  } else if (original.type === 'income') {
+    const acc = findAcc(original.account);
+    if (acc) await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: acc.balance - original.amount });
+  } else if (original.type === 'transfer') {
+    const fromAcc = findAcc(original.account);
+    const toAcc = findAcc(original.toAccount ?? '');
+    if (fromAcc) await upsertAccount(session.accessToken, session.spreadsheetId, { ...fromAcc, balance: fromAcc.balance + original.amount });
+    if (toAcc) {
+      const isDebt = toAcc.type === 'credit' || toAcc.type === 'loan';
+      await upsertAccount(session.accessToken, session.spreadsheetId, {
+        ...toAcc,
+        balance: isDebt ? toAcc.balance + original.amount : toAcc.balance - original.amount,
+      });
+    }
+  }
+
+  // Fetch fresh accounts after reversal
+  const fresh = await getAccounts(session.accessToken, session.spreadsheetId);
+  const findFresh = (id: string) => fresh.find((a) => a.id === id);
+
+  // Apply new balance effects
+  if (updated.type === 'expense') {
+    const acc = findFresh(updated.account);
+    if (acc) await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: acc.balance - updated.amount });
+  } else if (updated.type === 'income') {
+    const acc = findFresh(updated.account);
+    if (acc) await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: acc.balance + updated.amount });
+  } else if (updated.type === 'transfer') {
+    const fromAcc = findFresh(updated.account);
+    const toAcc = findFresh(updated.toAccount ?? '');
+    if (fromAcc) await upsertAccount(session.accessToken, session.spreadsheetId, { ...fromAcc, balance: fromAcc.balance - updated.amount });
+    if (toAcc) {
+      const isDebt = toAcc.type === 'credit' || toAcc.type === 'loan';
+      const newBalance = isDebt ? Math.max(0, toAcc.balance - updated.amount) : toAcc.balance + updated.amount;
+      await upsertAccount(session.accessToken, session.spreadsheetId, { ...toAcc, balance: newBalance });
+    }
+  }
+
+  await updateTransaction(session.accessToken, session.spreadsheetId, updated);
   return NextResponse.json({ ok: true });
 }
 
