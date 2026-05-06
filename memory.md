@@ -228,6 +228,20 @@ npm run dev                         # → http://localhost:3000
 
 ---
 
+## Icon Fix (May 6, 2026)
+- Root cause: `<img src="/icon.svg">` doesn't render SVG filters/gradients reliably; metadata `icons` override doesn't work with App Router file convention
+- Fix 1: Copied `public/icon.svg` → `app/icon.svg` — Next.js App Router automatically serves any `icon.svg` in app/ as the browser tab favicon (no metadata needed)
+- Fix 2: Created `components/LogoMark.tsx` — inline SVG component with camelCase React props (`stopColor`, `strokeOpacity`, etc.) so gradients + glow filters render correctly in all browsers
+- Fix 3: Replaced both `<img>` usages in `Sidebar.tsx` with `<LogoMark>` component
+- Removed manual `metadata.icons` from `app/layout.tsx` (redundant with file convention)
+
+## NovaFi Icon Design (May 6, 2026)
+- Designed a custom premium SVG icon: `/public/icon.svg`
+- Mark: upward chevron (two thick white arms with rounded caps) + 4-pointed star sparkle (✦) at the peak with a layered radial glow
+- Background: deep indigo-to-violet gradient (#3730A3 → #4F46E5 → #6D28D9) with a celestial radial highlight behind the star
+- Wired into `app/layout.tsx` metadata (`icons.icon`, `icons.apple`, `icons.shortcut`) for favicon + PWA
+- `Sidebar.tsx`: replaced `<Sparkles>` icon with `<img src="/icon.svg">` in both desktop sidebar and mobile header; removed unused `Sparkles` import
+
 ## QuickAdd + Modal — Mobile Fix (May 6, 2026)
 - Root cause: bottom sheet was flush with screen bottom, hidden behind the fixed mobile nav bar; Cancel/Save were unreachable
 - `Modal.tsx`:

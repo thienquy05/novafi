@@ -7,7 +7,6 @@ import {
   ArrowLeftRight,
   Settings,
   LogOut,
-  Sparkles,
   Landmark,
   PiggyBank,
   Calendar,
@@ -16,6 +15,7 @@ import {
 import { signOut } from 'next-auth/react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
+import { LogoMark } from './LogoMark';
 
 const NAV = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -37,9 +37,7 @@ export function Sidebar() {
       <div className="flex items-center gap-3 px-2 mb-10">
         <div className="relative">
           <div className="absolute inset-0 bg-indigo-500 rounded-xl blur opacity-30" />
-          <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-lg border border-white/10">
-            <Sparkles className="w-5 h-5 text-white" />
-          </div>
+          <LogoMark className="relative w-10 h-10 rounded-xl shadow-lg" />
         </div>
         <div>
           <p className="text-slate-900 font-bold text-lg tracking-tight leading-none">Nova<span className="text-gradient">Fi</span></p>
@@ -93,9 +91,7 @@ export function MobileHeader() {
   return (
     <header className="md:hidden flex items-center justify-between px-4 py-4 bg-white/90 backdrop-blur-xl border-b border-slate-200 sticky top-0 z-40">
       <div className="flex items-center gap-3">
-        <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-lg border border-white/10">
-          <Sparkles className="w-4 h-4 text-white" />
-        </div>
+        <LogoMark className="w-9 h-9 rounded-xl shadow-md" />
         <p className="text-slate-900 font-bold text-xl tracking-tight leading-none">Nova<span className="text-gradient">Fi</span></p>
       </div>
       <button
