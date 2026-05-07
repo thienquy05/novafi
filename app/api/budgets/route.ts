@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getBudgets, upsertBudget, deleteBudget } from '@/lib/sheets';
+import { getBudgets, upsertBudget, deleteBudget, reorderBudgets } from '@/lib/sheets';
 import { getCache, setCache, invalidateCache } from '@/lib/cache';
 import type { Budget } from '@/types';
 
@@ -36,5 +36,15 @@ export async function DELETE(req: NextRequest) {
   invalidateCache(`budgets:${session.spreadsheetId}`);
   invalidateCache(`dashboard:${session.spreadsheetId}`);
   invalidateCache(`badges:${session.spreadsheetId}`);
+  return NextResponse.json({ ok: true });
+}
+
+export async function PATCH(req: NextRequest) {
+  const session = await auth();
+  if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const items: { id: string; position: number }[] = await req.json();
+  await reorderBudgets(session.accessToken, session.spreadsheetId, items);
+  invalidateCache(`budgets:${session.spreadsheetId}`);
+  invalidateCache(`dashboard:${session.spreadsheetId}`);
   return NextResponse.json({ ok: true });
 }

@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { AccountsSkeleton } from '@/components/ui/Skeleton';
+import { FitText } from '@/components/ui/FitText';
 import { formatCurrency, generateId, today } from '@/lib/utils';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
@@ -159,15 +160,15 @@ export default function AccountsPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card className="border-indigo-100 hover:border-indigo-200">
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Net Worth</p>
-          <p className={`text-2xl md:text-3xl font-extrabold mt-2 tracking-tight ${netWorth >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(netWorth)}</p>
+          <FitText maxSize={28} minSize={13} className={`font-extrabold mt-2 ${netWorth >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(netWorth)}</FitText>
         </Card>
         <Card>
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Assets</p>
-          <p className="text-2xl md:text-3xl font-extrabold mt-2 text-slate-900 tracking-tight">{formatCurrency(totalAssets)}</p>
+          <FitText maxSize={28} minSize={13} className="font-extrabold mt-2 text-slate-900">{formatCurrency(totalAssets)}</FitText>
         </Card>
         <Card>
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Debt</p>
-          <p className="text-2xl md:text-3xl font-extrabold mt-2 text-rose-600 tracking-tight">{formatCurrency(totalDebt)}</p>
+          <FitText maxSize={28} minSize={13} className="font-extrabold mt-2 text-rose-600">{formatCurrency(totalDebt)}</FitText>
         </Card>
       </div>
 

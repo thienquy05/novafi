@@ -8,6 +8,7 @@ import { QuickAddTransaction } from './QuickAddTransaction';
 import { CategoryIconBadge } from '@/components/CategoryIcon';
 import type { NetWorthPoint } from './DashboardCharts';
 import { getCache, setCache } from '@/lib/cache';
+import { FitText } from '@/components/ui/FitText';
 
 export const dynamic = 'force-dynamic';
 
@@ -289,7 +290,7 @@ export default async function DashboardPage() {
               </div>
               <p className="text-xs font-bold text-slate-500 leading-tight">{label}</p>
             </div>
-            <p className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">{value}</p>
+            <FitText maxSize={28} minSize={13} className="font-extrabold text-slate-900 mt-0.5">{value}</FitText>
             {delta !== null && Math.abs(delta) > 0.5 && (
               <p className={`text-xs font-bold mt-1.5 flex items-center gap-0.5 ${
                 (positiveIsGood ? delta > 0 : delta < 0) ? 'text-emerald-600' : 'text-rose-600'
@@ -306,15 +307,15 @@ export default async function DashboardPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-white rounded-2xl border border-emerald-100 p-4">
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Assets</p>
-          <p className="text-lg font-extrabold text-emerald-600 mt-1 tracking-tight">{formatCurrency(totalAssets)}</p>
+          <FitText maxSize={18} minSize={11} className="font-extrabold text-emerald-600 mt-1">{formatCurrency(totalAssets)}</FitText>
         </div>
         <div className="bg-white rounded-2xl border border-rose-100 p-4">
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Liabilities</p>
-          <p className="text-lg font-extrabold text-rose-600 mt-1 tracking-tight">{totalDebt > 0 ? `-${formatCurrency(totalDebt)}` : formatCurrency(0)}</p>
+          <FitText maxSize={18} minSize={11} className="font-extrabold text-rose-600 mt-1">{totalDebt > 0 ? `-${formatCurrency(totalDebt)}` : formatCurrency(0)}</FitText>
         </div>
         <div className="bg-white rounded-2xl border border-slate-100 p-4">
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Savings</p>
-          <p className="text-lg font-extrabold text-purple-600 mt-1 tracking-tight">{formatCurrency(totalSaved)}</p>
+          <FitText maxSize={18} minSize={11} className="font-extrabold text-purple-600 mt-1">{formatCurrency(totalSaved)}</FitText>
         </div>
         <div className="bg-white rounded-2xl border border-slate-100 p-4">
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Emergency</p>

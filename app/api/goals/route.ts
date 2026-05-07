@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getGoals, upsertGoal, deleteGoal } from '@/lib/sheets';
+import { getGoals, upsertGoal, deleteGoal, reorderGoals } from '@/lib/sheets';
 import { getCache, setCache, invalidateCache } from '@/lib/cache';
 import type { Goal } from '@/types';
 
@@ -32,6 +32,16 @@ export async function DELETE(req: NextRequest) {
   if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { id } = await req.json();
   await deleteGoal(session.accessToken, session.spreadsheetId, id);
+  invalidateCache(`goals:${session.spreadsheetId}`);
+  invalidateCache(`dashboard:${session.spreadsheetId}`);
+  return NextResponse.json({ ok: true });
+}
+
+export async function PATCH(req: NextRequest) {
+  const session = await auth();
+  if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const items: { id: string; position: number }[] = await req.json();
+  await reorderGoals(session.accessToken, session.spreadsheetId, items);
   invalidateCache(`goals:${session.spreadsheetId}`);
   invalidateCache(`dashboard:${session.spreadsheetId}`);
   return NextResponse.json({ ok: true });

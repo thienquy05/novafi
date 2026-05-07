@@ -599,6 +599,53 @@ Redesigned `MobileNav` in `components/Sidebar.tsx`:
 
 ---
 
+## Transaction Fixes — May 7, 2026
+
+### Hover effects removed from edit/delete buttons
+- **Files:** `app/(app)/transactions/page.tsx`
+- List view: removed `group`, `opacity-0 group-hover:opacity-100` from button container — buttons always visible
+- Both views: removed `hover:text-indigo-600 hover:bg-indigo-50` / `hover:text-rose-600 hover:bg-rose-50` from buttons
+- Merchant view edit button also stripped of hover color classes
+- **Why:** Mobile devices cannot hover; buttons were invisible/inaccessible on touch screens
+
+### DELETE transaction now reverses account balances
+- **File:** `app/api/transactions/route.ts`
+- DELETE handler now fetches the transaction + accounts before deleting
+- Reverses balance: expense → refunds account, income → deducts from account, transfer → unwinds both sides (debt payoff reversal included)
+- Also added missing `invalidateCache('accounts:...')` to DELETE (was missing before)
+- **Why:** Previously, deleting a transaction permanently left account balances wrong
+
+---
+
+## FitText + Drag Reorder — May 7, 2026
+
+### FitText auto-shrinking numbers
+- Created `components/ui/FitText.tsx` — `ResizeObserver`-based `<span>` that shrinks `font-size` in 0.5px steps until `scrollWidth <= clientWidth`; prevents number wrap on mobile
+- Props: `children` (string), `maxSize` (default 28px), `minSize` (default 12px), `className` (color/weight only)
+- Applied to: dashboard main stats (line ~292) and summary row (lines ~309–321), accounts summary (lines ~162–170), savings account cards (lines ~147, 152)
+
+### Drag-to-reorder budgets & goals (planning page) — May 7, 2026
+- Added `position?: number` to `Budget` and `Goal` types in `types/index.ts`
+- `lib/sheets.ts`: `getBudgets` reads col E (position), sorts by position, falls back to row index for legacy rows; `upsertBudget` writes position = max+1 to col E; added `reorderBudgets()` batchUpdate col E
+- Same pattern for goals: col H; `reorderGoals()` added
+- `deleteBudget` updated to use `'E'` (was `'D'`); `deleteGoal` updated to use `'H'` (was `'G'`)
+- Added `PATCH` handler to `/api/budgets` and `/api/goals` — accepts `[{id, position}]` array
+- `planning/page.tsx`: extracted `BudgetItem` and `GoalItem` as `Reorder.Item` sub-components with `GripVertical` drag handle (`dragListener={false}` + `useDragControls`); 600ms debounce before PATCH call
+- Animation: replaced `motion.div` wrappers + `motion.div` progress bars with static CSS `transition-all` (simpler inside Reorder.Item)
+
+### Nav order in Settings — May 7, 2026
+- `settings/page.tsx`: added `NAV_ITEMS` array + `NavReorderRow` component using `Reorder.Group/Item`; `navOrder` state loaded from `localStorage` on mount; saved to `localStorage` key `novafi_nav_order` on Save click
+- `components/Sidebar.tsx`: added `getSortedNav()` reads `novafi_nav_order` from localStorage, sorts `NAV` accordingly; `useEffect` in `Sidebar` component applies the sort on mount (avoids SSR mismatch)
+
+### Mobile nav reorder + removeChild fix — May 7, 2026
+- Fixed `Uncaught NotFoundError: removeChild` crash: wrapped every conditional `<motion.div layoutId="mobile-nav-active">` in `<AnimatePresence>` so Framer Motion handles DOM lifecycle properly
+- Replaced hardcoded `MOBILE_NAV_PRIMARY` / `MOBILE_NAV_MORE` with `ALL_MOBILE_NAV` (all 9 items) and dynamic `primaryNav = navOrder.slice(0,4)` / `moreNav = navOrder.slice(4)`
+- Order stored in localStorage key `novafi_mobile_nav_order`; `getMobileNavOrder()` loads + merges on mount
+- "Customize" button in More sheet opens a new slide-up sheet with numbered list of all 9 items, ↑/↓ buttons per item, a visual divider at position 4 ("More" section separator), and a "Reset to Default" button
+- Backdrop shows during both sheets (sheetOpen || customizeOpen); outside-tap logic handles both refs
+
+---
+
 ## Potential Future Enhancements
 | Priority | Task |
 |----------|------|

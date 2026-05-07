@@ -277,17 +277,21 @@ export async function getGoals(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Goals!A2:G200',
+    range: 'Goals!A2:H200',
   });
-  return (res.data.values ?? []).map((r) => ({
-    id: r[0] ?? '',
-    name: r[1] ?? '',
-    targetAmount: Number(r[2] ?? 0),
-    currentAmount: Number(r[3] ?? 0),
-    deadline: r[4] ?? '',
-    icon: r[5] ?? '🎯',
-    linkedAccountId: r[6] ?? '',
-  }));
+  const rows = res.data.values ?? [];
+  return rows
+    .map((r, i) => ({
+      id: r[0] ?? '',
+      name: r[1] ?? '',
+      targetAmount: Number(r[2] ?? 0),
+      currentAmount: Number(r[3] ?? 0),
+      deadline: r[4] ?? '',
+      icon: r[5] ?? '🎯',
+      linkedAccountId: r[6] ?? '',
+      position: r[7] !== undefined && r[7] !== '' ? Number(r[7]) : i,
+    }))
+    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 }
 
 export async function upsertGoal(
@@ -295,7 +299,10 @@ export async function upsertGoal(
   spreadsheetId: string,
   goal: Goal
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Goals', goal.id, 'G');
+  const existing = await getGoals(accessToken, spreadsheetId);
+  const maxPos = existing.reduce((m, g) => g.id !== goal.id ? Math.max(m, g.position ?? 0) : m, -1);
+  const position = goal.position ?? maxPos + 1;
+  await deleteRowById(accessToken, spreadsheetId, 'Goals', goal.id, 'H');
   const sheets = getSheetsClient(accessToken);
   await sheets.spreadsheets.values.append({
     spreadsheetId,
@@ -303,8 +310,36 @@ export async function upsertGoal(
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
-      values: [[goal.id, goal.name, goal.targetAmount, goal.currentAmount, goal.deadline, goal.icon, goal.linkedAccountId ?? '']],
+      values: [[goal.id, goal.name, goal.targetAmount, goal.currentAmount, goal.deadline, goal.icon, goal.linkedAccountId ?? '', position]],
     },
+  });
+}
+
+export async function reorderGoals(
+  accessToken: string,
+  spreadsheetId: string,
+  items: { id: string; position: number }[]
+): Promise<void> {
+  const sheets = getSheetsClient(accessToken);
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: 'Goals!A2:A200',
+  });
+  const rows = res.data.values ?? [];
+  const updates = items.map(({ id, position }) => {
+    const rowIdx = rows.findIndex((r) => r[0] === id);
+    if (rowIdx === -1) return null;
+    const sheetRow = rowIdx + 2;
+    return {
+      range: `Goals!H${sheetRow}`,
+      values: [[position]],
+    };
+  }).filter(Boolean) as { range: string; values: number[][] }[];
+
+  if (updates.length === 0) return;
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: { valueInputOption: 'RAW', data: updates },
   });
 }
 
@@ -313,7 +348,7 @@ export async function deleteGoal(
   spreadsheetId: string,
   id: string
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Goals', id, 'G');
+  await deleteRowById(accessToken, spreadsheetId, 'Goals', id, 'H');
 }
 
 // ── Bills ─────────────────────────────────────────────────────────────────────
@@ -366,14 +401,18 @@ export async function getBudgets(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Budgets!A2:D200',
+    range: 'Budgets!A2:E200',
   });
-  return (res.data.values ?? []).map((r) => ({
-    id: r[0] ?? '',
-    category: r[1] ?? '',
-    amount: Number(r[2] ?? 0),
-    period: (r[3] ?? 'monthly') as Budget['period'],
-  }));
+  const rows = res.data.values ?? [];
+  return rows
+    .map((r, i) => ({
+      id: r[0] ?? '',
+      category: r[1] ?? '',
+      amount: Number(r[2] ?? 0),
+      period: (r[3] ?? 'monthly') as Budget['period'],
+      position: r[4] !== undefined && r[4] !== '' ? Number(r[4]) : i,
+    }))
+    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 }
 
 export async function upsertBudget(
@@ -381,7 +420,10 @@ export async function upsertBudget(
   spreadsheetId: string,
   budget: Budget
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Budgets', budget.id, 'D');
+  const existing = await getBudgets(accessToken, spreadsheetId);
+  const maxPos = existing.reduce((m, b) => b.id !== budget.id ? Math.max(m, b.position ?? 0) : m, -1);
+  const position = budget.position ?? maxPos + 1;
+  await deleteRowById(accessToken, spreadsheetId, 'Budgets', budget.id, 'E');
   const sheets = getSheetsClient(accessToken);
   await sheets.spreadsheets.values.append({
     spreadsheetId,
@@ -389,8 +431,36 @@ export async function upsertBudget(
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
-      values: [[budget.id, budget.category, budget.amount, budget.period]],
+      values: [[budget.id, budget.category, budget.amount, budget.period, position]],
     },
+  });
+}
+
+export async function reorderBudgets(
+  accessToken: string,
+  spreadsheetId: string,
+  items: { id: string; position: number }[]
+): Promise<void> {
+  const sheets = getSheetsClient(accessToken);
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: 'Budgets!A2:A200',
+  });
+  const rows = res.data.values ?? [];
+  const updates = items.map(({ id, position }) => {
+    const rowIdx = rows.findIndex((r) => r[0] === id);
+    if (rowIdx === -1) return null;
+    const sheetRow = rowIdx + 2; // 1-indexed + header
+    return {
+      range: `Budgets!E${sheetRow}`,
+      values: [[position]],
+    };
+  }).filter(Boolean) as { range: string; values: number[][] }[];
+
+  if (updates.length === 0) return;
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: { valueInputOption: 'RAW', data: updates },
   });
 }
 
@@ -399,7 +469,7 @@ export async function deleteBudget(
   spreadsheetId: string,
   id: string
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Budgets', id, 'D');
+  await deleteRowById(accessToken, spreadsheetId, 'Budgets', id, 'E');
 }
 
 export async function deleteBill(

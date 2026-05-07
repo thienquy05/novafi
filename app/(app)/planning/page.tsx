@@ -1,6 +1,6 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
-import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap, RefreshCw, AlertCircle } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap, RefreshCw, AlertCircle, GripVertical } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -10,7 +10,7 @@ import { PlanningSkeleton } from '@/components/ui/Skeleton';
 import { formatCurrency, formatDate, generateId } from '@/lib/utils';
 import type { Budget, Goal, Transaction, Account } from '@/types';
 import { useCategories } from '@/hooks/useCategories';
-import { motion } from 'framer-motion';
+import { Reorder, useDragControls } from 'framer-motion';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 
@@ -215,6 +215,34 @@ export default function PlanningPage() {
     }
   }
 
+  // ─── Reorder ──────────────────────────────────────────────────────────────
+  const budgetReorderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const goalReorderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleBudgetReorder(newOrder: Budget[]) {
+    setBudgets(newOrder);
+    if (budgetReorderTimer.current) clearTimeout(budgetReorderTimer.current);
+    budgetReorderTimer.current = setTimeout(() => {
+      fetch('/api/budgets', {
+        method: 'PATCH',
+        body: JSON.stringify(newOrder.map((b, i) => ({ id: b.id, position: i }))),
+        headers: { 'Content-Type': 'application/json' },
+      }).catch(() => toast('Failed to save order', 'error'));
+    }, 600);
+  }
+
+  function handleGoalReorder(newOrder: Goal[]) {
+    setGoals(newOrder);
+    if (goalReorderTimer.current) clearTimeout(goalReorderTimer.current);
+    goalReorderTimer.current = setTimeout(() => {
+      fetch('/api/goals', {
+        method: 'PATCH',
+        body: JSON.stringify(newOrder.map((g, i) => ({ id: g.id, position: i }))),
+        headers: { 'Content-Type': 'application/json' },
+      }).catch(() => toast('Failed to save order', 'error'));
+    }, 600);
+  }
+
   // ─── Derived stats ────────────────────────────────────────────────────────
   const totalBudgeted = budgets.reduce((s, b) => s + monthlyAmount(b), 0);
   const totalSpent = budgets.reduce((s, b) => s + spentForCategory(b.category), 0);
@@ -302,8 +330,8 @@ export default function PlanningPage() {
                 <Button onClick={openAddBudget} className="shadow-sm">Set Your First Budget</Button>
               </Card>
             ) : (
-              <div className="space-y-3">
-                {budgets.map((budget, i) => {
+              <Reorder.Group axis="y" values={budgets} onReorder={handleBudgetReorder} className="space-y-3 list-none">
+                {budgets.map((budget) => {
                   const monthly = monthlyAmount(budget);
                   const spent = spentForCategory(budget.category);
                   const prevSpent = prevSpentForCategory(budget.category);
@@ -311,100 +339,30 @@ export default function PlanningPage() {
                   const pct = monthly > 0 ? Math.min(100, (spent / monthly) * 100) : 0;
                   const over = spent > monthly;
                   const remaining = monthly - spent;
-
-                  // Projected end-of-month spend
                   const projected = daysElapsed > 0 ? (spent / daysElapsed) * daysInMonth : null;
                   const willOvershoot = projected !== null && projected > monthly && !over;
                   const overshootAmt = projected ? projected - monthly : 0;
 
                   return (
-                    <motion.div
+                    <BudgetItem
                       key={budget.id}
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.05 }}
-                    >
-                      <Card className={`hover:shadow-md transition-all p-4 sm:p-5 ${over ? 'border-rose-100' : willOvershoot ? 'border-amber-100' : ''}`}>
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex-1 min-w-0 mr-3">
-                            <p className="text-sm font-bold text-slate-900">{budget.category}</p>
-                            <p className="text-xs font-medium text-slate-500 mt-0.5">
-                              {formatCurrency(budget.amount)}/{budget.period}
-                              {budget.period !== 'monthly' ? ` · ${formatCurrency(monthly)}/mo` : ''}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <div className="text-right mr-2">
-                              <p className={`text-sm font-extrabold ${over ? 'text-rose-600' : 'text-slate-900'}`}>
-                                {formatCurrency(spent)}
-                                <span className="text-slate-400 font-bold text-xs ml-1">/ {formatCurrency(monthly)}</span>
-                              </p>
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 h-9 w-9 rounded-xl"
-                              onClick={() => openEditBudgetFn(budget)}
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 h-9 w-9 rounded-xl"
-                              onClick={() => deleteBudget(budget.id)}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-
-                        <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                          <motion.div
-                            initial={{ width: 0 }}
-                            animate={{ width: `${Math.min(100, pct)}%` }}
-                            transition={{ duration: 0.8, ease: 'easeOut' }}
-                            className={`h-full rounded-full ${over ? 'bg-rose-500' : pct > 80 ? 'bg-amber-500' : 'bg-indigo-500'}`}
-                          />
-                        </div>
-
-                        <div className="flex items-center justify-between mt-2">
-                          <p className="text-xs font-bold">
-                            {over ? (
-                              <span className="text-rose-600">{formatCurrency(Math.abs(remaining))} over</span>
-                            ) : (
-                              <span className="text-slate-500">
-                                {formatCurrency(remaining)} left · {daysLeft}d
-                              </span>
-                            )}
-                          </p>
-                          <div className="flex items-center gap-1.5">
-                            {prevSpent > 0 && Math.abs(momDiff) >= 0.5 && (
-                              <span className={`text-xs font-bold flex items-center gap-0.5 ${momDiff > 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
-                                {momDiff > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                                {momDiff > 0 ? '+' : ''}{formatCurrency(momDiff)} vs last mo
-                              </span>
-                            )}
-                            {willOvershoot && (
-                              <span className="text-xs font-bold text-amber-600 flex items-center gap-0.5">
-                                <TrendingUp className="w-3 h-3" />
-                                ~{formatCurrency(overshootAmt)} overshoot
-                              </span>
-                            )}
-                            {!over && !willOvershoot && pct > 0 && !prevSpent && (
-                              <span className="text-xs font-bold text-emerald-600 flex items-center gap-0.5">
-                                <Zap className="w-3 h-3" />
-                                On pace
-                              </span>
-                            )}
-                            <span className="text-xs font-bold text-slate-400">{pct.toFixed(0)}%</span>
-                          </div>
-                        </div>
-                      </Card>
-                    </motion.div>
+                      budget={budget}
+                      monthly={monthly}
+                      spent={spent}
+                      prevSpent={prevSpent}
+                      momDiff={momDiff}
+                      pct={pct}
+                      over={over}
+                      remaining={remaining}
+                      willOvershoot={willOvershoot}
+                      overshootAmt={overshootAmt}
+                      daysLeft={daysLeft}
+                      onEdit={openEditBudgetFn}
+                      onDelete={deleteBudget}
+                    />
                   );
                 })}
-              </div>
+              </Reorder.Group>
             )}
 
             {/* Unbudgeted categories with spending */}
@@ -455,8 +413,8 @@ export default function PlanningPage() {
                 <Button onClick={openAddGoal} className="shadow-sm">Add Your First Goal</Button>
               </Card>
             ) : (
-              <div className="space-y-3">
-                {goals.map((goal, i) => {
+              <Reorder.Group axis="y" values={goals} onReorder={handleGoalReorder} className="space-y-3 list-none">
+                {goals.map((goal) => {
                   const linked = goal.linkedAccountId
                     ? accounts.find((a) => a.id === goal.linkedAccountId)
                     : null;
@@ -464,15 +422,11 @@ export default function PlanningPage() {
                   const pct = goal.targetAmount > 0 ? Math.min(100, (current / goal.targetAmount) * 100) : 0;
                   const remaining = goal.targetAmount - current;
                   const achieved = current >= goal.targetAmount;
-
                   const daysToDeadline = goal.deadline
                     ? Math.ceil((new Date(goal.deadline).getTime() - now.getTime()) / 86400000)
                     : null;
-
                   const monthsLeft = daysToDeadline && daysToDeadline > 0 ? daysToDeadline / 30.44 : null;
                   const monthlyNeeded = monthsLeft && remaining > 0 ? remaining / monthsLeft : null;
-
-                  // On-track status
                   const onTrack =
                     achieved ? 'done'
                     : !goal.deadline ? 'nodl'
@@ -481,98 +435,23 @@ export default function PlanningPage() {
                     : 'behind';
 
                   return (
-                    <motion.div
+                    <GoalItem
                       key={goal.id}
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.05 }}
-                    >
-                      <Card className={`hover:shadow-md transition-all p-4 sm:p-5 ${achieved ? 'border-emerald-200 bg-emerald-50/30' : ''}`}>
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex items-center gap-3 flex-1 min-w-0">
-                            <div className="w-11 h-11 rounded-2xl bg-white flex items-center justify-center text-xl shrink-0 shadow-sm border border-slate-100">
-                              {goal.icon}
-                            </div>
-                            <div className="min-w-0">
-                              <p className="text-sm font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
-                                {goal.name}
-                                {achieved && (
-                                  <span className="text-xs text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-md font-bold">Done!</span>
-                                )}
-                                {onTrack === 'behind' && (
-                                  <span className="text-xs text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-md font-bold flex items-center gap-0.5">
-                                    <TrendingDown className="w-2.5 h-2.5" /> Behind
-                                  </span>
-                                )}
-                                {onTrack === 'ontarget' && !achieved && (
-                                  <span className="text-xs text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md font-bold flex items-center gap-0.5">
-                                    <TrendingUp className="w-2.5 h-2.5" /> On track
-                                  </span>
-                                )}
-                              </p>
-                              {linked && <p className="text-xs font-medium text-slate-500 mt-0.5">Linked: {linked.name}</p>}
-                              {goal.deadline && daysToDeadline !== null && (
-                                <p className="text-xs font-medium text-slate-500">
-                                  {daysToDeadline > 0 ? `${daysToDeadline}d left · ` : 'Deadline passed · '}
-                                  {formatDate(goal.deadline)}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0 ml-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 h-9 w-9 rounded-xl"
-                              onClick={() => openEditGoal(goal)}
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 h-9 w-9 rounded-xl"
-                              onClick={() => deleteGoal(goal.id)}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-
-                        <div className="w-full bg-slate-100 rounded-full h-2.5 mb-2 overflow-hidden">
-                          <motion.div
-                            initial={{ width: 0 }}
-                            animate={{ width: `${pct}%` }}
-                            transition={{ duration: 0.8, ease: 'easeOut' }}
-                            className={`h-full rounded-full ${achieved ? 'bg-emerald-500' : 'bg-indigo-500'}`}
-                          />
-                        </div>
-
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-baseline gap-1.5">
-                            <span className={`text-base font-extrabold ${achieved ? 'text-emerald-600' : 'text-slate-900'}`}>
-                              {formatCurrency(current)}
-                            </span>
-                            <span className="text-xs font-bold text-slate-400">/ {formatCurrency(goal.targetAmount)}</span>
-                          </div>
-                          <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg ${achieved ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-50 text-indigo-700'}`}>
-                            {pct.toFixed(0)}%
-                          </span>
-                        </div>
-
-                        {!achieved && remaining > 0 && (
-                          <div className="flex justify-between items-center mt-2.5 pt-2.5 border-t border-slate-100">
-                            <p className="text-xs font-bold text-slate-500">{formatCurrency(remaining)} to go</p>
-                            {monthlyNeeded && (
-                              <p className="text-xs font-bold text-slate-400">{formatCurrency(monthlyNeeded)}/mo needed</p>
-                            )}
-                          </div>
-                        )}
-                      </Card>
-                    </motion.div>
+                      goal={goal}
+                      linked={linked ?? null}
+                      current={current}
+                      pct={pct}
+                      remaining={remaining}
+                      achieved={achieved}
+                      daysToDeadline={daysToDeadline}
+                      monthlyNeeded={monthlyNeeded ?? null}
+                      onTrack={onTrack}
+                      onEdit={openEditGoal}
+                      onDelete={deleteGoal}
+                    />
                   );
                 })}
-              </div>
+              </Reorder.Group>
             )}
           </div>
         </div>
@@ -707,5 +586,174 @@ export default function PlanningPage() {
         </div>
       </Modal>
     </div>
+  );
+}
+
+// ── Draggable Budget Card ──────────────────────────────────────────────────────
+function BudgetItem({ budget, monthly, spent, prevSpent, momDiff, pct, over, remaining, willOvershoot, overshootAmt, daysLeft, onEdit, onDelete }: {
+  budget: Budget;
+  monthly: number; spent: number; prevSpent: number; momDiff: number;
+  pct: number; over: boolean; remaining: number; willOvershoot: boolean; overshootAmt: number; daysLeft: number;
+  onEdit: (b: Budget) => void; onDelete: (id: string) => void;
+}) {
+  const controls = useDragControls();
+  return (
+    <Reorder.Item value={budget} dragListener={false} dragControls={controls} className="list-none">
+      <Card className={`transition-all p-4 sm:p-5 ${over ? 'border-rose-100' : willOvershoot ? 'border-amber-100' : ''}`}>
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-center gap-2 flex-1 min-w-0 mr-2">
+            <button
+              className="touch-none cursor-grab active:cursor-grabbing text-slate-300 shrink-0 p-1 -ml-1"
+              onPointerDown={(e) => controls.start(e)}
+            >
+              <GripVertical className="w-4 h-4" />
+            </button>
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-slate-900">{budget.category}</p>
+              <p className="text-xs font-medium text-slate-500 mt-0.5">
+                {formatCurrency(budget.amount)}/{budget.period}
+                {budget.period !== 'monthly' ? ` · ${formatCurrency(monthly)}/mo` : ''}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <div className="text-right mr-1">
+              <p className={`text-sm font-extrabold ${over ? 'text-rose-600' : 'text-slate-900'}`}>
+                {formatCurrency(spent)}
+                <span className="text-slate-400 font-bold text-xs ml-1">/ {formatCurrency(monthly)}</span>
+              </p>
+            </div>
+            <Button variant="ghost" size="icon" className="text-slate-400 h-9 w-9 rounded-xl" onClick={() => onEdit(budget)}>
+              <Pencil className="w-4 h-4" />
+            </Button>
+            <Button variant="ghost" size="icon" className="text-slate-400 h-9 w-9 rounded-xl" onClick={() => onDelete(budget.id)}>
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-700 ${over ? 'bg-rose-500' : pct > 80 ? 'bg-amber-500' : 'bg-indigo-500'}`}
+            style={{ width: `${Math.min(100, pct)}%` }}
+          />
+        </div>
+
+        <div className="flex items-center justify-between mt-2">
+          <p className="text-xs font-bold">
+            {over
+              ? <span className="text-rose-600">{formatCurrency(Math.abs(remaining))} over</span>
+              : <span className="text-slate-500">{formatCurrency(remaining)} left · {daysLeft}d</span>
+            }
+          </p>
+          <div className="flex items-center gap-1.5">
+            {prevSpent > 0 && Math.abs(momDiff) >= 0.5 && (
+              <span className={`text-xs font-bold flex items-center gap-0.5 ${momDiff > 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
+                {momDiff > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                {momDiff > 0 ? '+' : ''}{formatCurrency(momDiff)} vs last mo
+              </span>
+            )}
+            {willOvershoot && (
+              <span className="text-xs font-bold text-amber-600 flex items-center gap-0.5">
+                <TrendingUp className="w-3 h-3" />~{formatCurrency(overshootAmt)} overshoot
+              </span>
+            )}
+            {!over && !willOvershoot && pct > 0 && !prevSpent && (
+              <span className="text-xs font-bold text-emerald-600 flex items-center gap-0.5">
+                <Zap className="w-3 h-3" />On pace
+              </span>
+            )}
+            <span className="text-xs font-bold text-slate-400">{pct.toFixed(0)}%</span>
+          </div>
+        </div>
+      </Card>
+    </Reorder.Item>
+  );
+}
+
+// ── Draggable Goal Card ────────────────────────────────────────────────────────
+function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadline, monthlyNeeded, onTrack, onEdit, onDelete }: {
+  goal: Goal; linked: { name: string } | null; current: number; pct: number; remaining: number;
+  achieved: boolean; daysToDeadline: number | null; monthlyNeeded: number | null;
+  onTrack: string; onEdit: (g: Goal) => void; onDelete: (id: string) => void;
+}) {
+  const controls = useDragControls();
+  return (
+    <Reorder.Item value={goal} dragListener={false} dragControls={controls} className="list-none">
+      <Card className={`transition-all p-4 sm:p-5 ${achieved ? 'border-emerald-200 bg-emerald-50/30' : ''}`}>
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <button
+              className="touch-none cursor-grab active:cursor-grabbing text-slate-300 shrink-0 p-1 -ml-1"
+              onPointerDown={(e) => controls.start(e)}
+            >
+              <GripVertical className="w-4 h-4" />
+            </button>
+            <div className="w-11 h-11 rounded-2xl bg-white flex items-center justify-center text-xl shrink-0 shadow-sm border border-slate-100">
+              {goal.icon}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
+                {goal.name}
+                {achieved && <span className="text-xs text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-md font-bold">Done!</span>}
+                {onTrack === 'behind' && (
+                  <span className="text-xs text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-md font-bold flex items-center gap-0.5">
+                    <TrendingDown className="w-2.5 h-2.5" /> Behind
+                  </span>
+                )}
+                {onTrack === 'ontarget' && !achieved && (
+                  <span className="text-xs text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md font-bold flex items-center gap-0.5">
+                    <TrendingUp className="w-2.5 h-2.5" /> On track
+                  </span>
+                )}
+              </p>
+              {linked && <p className="text-xs font-medium text-slate-500 mt-0.5">Linked: {linked.name}</p>}
+              {goal.deadline && daysToDeadline !== null && (
+                <p className="text-xs font-medium text-slate-500">
+                  {daysToDeadline > 0 ? `${daysToDeadline}d left · ` : 'Deadline passed · '}
+                  {formatDate(goal.deadline)}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-1 shrink-0 ml-2">
+            <Button variant="ghost" size="icon" className="text-slate-400 h-9 w-9 rounded-xl" onClick={() => onEdit(goal)}>
+              <Pencil className="w-4 h-4" />
+            </Button>
+            <Button variant="ghost" size="icon" className="text-slate-400 h-9 w-9 rounded-xl" onClick={() => onDelete(goal.id)}>
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="w-full bg-slate-100 rounded-full h-2.5 mb-2 overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-700 ${achieved ? 'bg-emerald-500' : 'bg-indigo-500'}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div className="flex items-baseline gap-1.5">
+            <span className={`text-base font-extrabold ${achieved ? 'text-emerald-600' : 'text-slate-900'}`}>
+              {formatCurrency(current)}
+            </span>
+            <span className="text-xs font-bold text-slate-400">/ {formatCurrency(goal.targetAmount)}</span>
+          </div>
+          <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg ${achieved ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-50 text-indigo-700'}`}>
+            {pct.toFixed(0)}%
+          </span>
+        </div>
+
+        {!achieved && remaining > 0 && (
+          <div className="flex justify-between items-center mt-2.5 pt-2.5 border-t border-slate-100">
+            <p className="text-xs font-bold text-slate-500">{formatCurrency(remaining)} to go</p>
+            {monthlyNeeded && (
+              <p className="text-xs font-bold text-slate-400">{formatCurrency(monthlyNeeded)}/mo needed</p>
+            )}
+          </div>
+        )}
+      </Card>
+    </Reorder.Item>
   );
 }

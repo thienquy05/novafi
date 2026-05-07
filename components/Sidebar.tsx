@@ -15,6 +15,9 @@ import {
   FileText,
   MoreHorizontal,
   X,
+  ChevronUp,
+  ChevronDown,
+  Sliders,
 } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { cn } from '@/lib/utils';
@@ -79,9 +82,28 @@ const NAV = [
   { href: '/settings', label: 'Settings', icon: Settings, badgeKey: null },
 ];
 
+const NAV_ORDER_KEY = 'novafi_nav_order';
+
+function getSortedNav() {
+  if (typeof window === 'undefined') return NAV;
+  try {
+    const raw = localStorage.getItem(NAV_ORDER_KEY);
+    if (!raw) return NAV;
+    const order: string[] = JSON.parse(raw);
+    const sorted = order.map((href) => NAV.find((n) => n.href === href)).filter(Boolean) as typeof NAV;
+    const missing = NAV.filter((n) => !order.includes(n.href));
+    return [...sorted, ...missing];
+  } catch {
+    return NAV;
+  }
+}
+
 export function Sidebar() {
   const path = usePathname();
   const badges = useBadges();
+  const [sortedNav, setSortedNav] = useState(NAV);
+
+  useEffect(() => { setSortedNav(getSortedNav()); }, []);
 
   return (
     <aside className="hidden md:flex flex-col w-64 min-h-screen bg-white/80 backdrop-blur-xl border-r border-slate-200 px-4 py-8 shrink-0 relative z-50">
@@ -99,7 +121,7 @@ export function Sidebar() {
 
       {/* Nav */}
       <nav className="flex flex-col gap-1.5 flex-1">
-        {NAV.map(({ href, label, icon: Icon, badgeKey }) => {
+        {sortedNav.map(({ href, label, icon: Icon, badgeKey }) => {
           const active = path === href || path.startsWith(href + '/');
           const badgeCount = badgeKey ? badges[badgeKey] : 0;
           return (
@@ -163,41 +185,58 @@ export function MobileHeader() {
   );
 }
 
-// Primary 5 tabs always visible in the bottom bar
-const MOBILE_NAV_PRIMARY = [
-  { href: '/dashboard',     label: 'Home',     icon: LayoutDashboard, badgeKey: null as keyof BadgeCounts | null },
-  { href: '/transactions',  label: 'Spending', icon: ArrowLeftRight,  badgeKey: null },
-  { href: '/bills',         label: 'Bills',    icon: Calendar,        badgeKey: 'overdueBills' as keyof BadgeCounts },
-  { href: '/planning',      label: 'Planning', icon: BarChart3,       badgeKey: 'overBudget' as keyof BadgeCounts },
+const MOBILE_NAV_ORDER_KEY = 'novafi_mobile_nav_order';
+
+const ALL_MOBILE_NAV = [
+  { href: '/dashboard',    label: 'Home',      icon: LayoutDashboard, badgeKey: null as keyof BadgeCounts | null },
+  { href: '/transactions', label: 'Spending',  icon: ArrowLeftRight,  badgeKey: null },
+  { href: '/bills',        label: 'Bills',     icon: Calendar,        badgeKey: 'overdueBills' as keyof BadgeCounts },
+  { href: '/planning',     label: 'Planning',  icon: BarChart3,       badgeKey: 'overBudget' as keyof BadgeCounts },
+  { href: '/accounts',     label: 'Accounts',  icon: Landmark,        badgeKey: null },
+  { href: '/savings',      label: 'Savings',   icon: PiggyBank,       badgeKey: null },
+  { href: '/paychecks',    label: 'Paychecks', icon: DollarSign,      badgeKey: null },
+  { href: '/reports',      label: 'Reports',   icon: FileText,        badgeKey: null },
+  { href: '/settings',     label: 'Settings',  icon: Settings,        badgeKey: null },
 ];
 
-// Items surfaced in the "More" slide-up sheet
-const MOBILE_NAV_MORE = [
-  { href: '/accounts',  label: 'Accounts',  icon: Landmark,   badgeKey: null as keyof BadgeCounts | null },
-  { href: '/savings',   label: 'Savings',   icon: PiggyBank,  badgeKey: null },
-  { href: '/paychecks', label: 'Paychecks', icon: DollarSign, badgeKey: null },
-  { href: '/reports',   label: 'Reports',   icon: FileText,   badgeKey: null },
-  { href: '/settings',  label: 'Settings',  icon: Settings,   badgeKey: null },
-];
-
-const MORE_HREFS = new Set(MOBILE_NAV_MORE.map((i) => i.href));
+function getMobileNavOrder(): typeof ALL_MOBILE_NAV {
+  if (typeof window === 'undefined') return ALL_MOBILE_NAV;
+  try {
+    const raw = localStorage.getItem(MOBILE_NAV_ORDER_KEY);
+    if (!raw) return ALL_MOBILE_NAV;
+    const order: string[] = JSON.parse(raw);
+    const sorted = order.map((href) => ALL_MOBILE_NAV.find((n) => n.href === href)).filter(Boolean) as typeof ALL_MOBILE_NAV;
+    const missing = ALL_MOBILE_NAV.filter((n) => !order.includes(n.href));
+    return [...sorted, ...missing];
+  } catch {
+    return ALL_MOBILE_NAV;
+  }
+}
 
 export function MobileNav() {
   const path = usePathname();
   const badges = useBadges();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+  const [navOrder, setNavOrder] = useState(ALL_MOBILE_NAV);
   const sheetRef = useRef<HTMLDivElement>(null);
+  const customizeRef = useRef<HTMLDivElement>(null);
 
-  // Close sheet when navigating
-  useEffect(() => { setSheetOpen(false); }, [path]);
+  useEffect(() => { setNavOrder(getMobileNavOrder()); }, []);
+
+  // Close sheets when navigating
+  useEffect(() => { setSheetOpen(false); setCustomizeOpen(false); }, [path]);
 
   // Close on outside tap
   useEffect(() => {
-    if (!sheetOpen) return;
+    if (!sheetOpen && !customizeOpen) return;
     const handler = (e: MouseEvent | TouchEvent) => {
-      if (sheetRef.current && !sheetRef.current.contains(e.target as Node)) {
-        setSheetOpen(false);
+      const target = e.target as Node;
+      if (customizeOpen) {
+        if (customizeRef.current && !customizeRef.current.contains(target)) setCustomizeOpen(false);
+        return;
       }
+      if (sheetRef.current && !sheetRef.current.contains(target)) setSheetOpen(false);
     };
     document.addEventListener('mousedown', handler);
     document.addEventListener('touchstart', handler);
@@ -205,15 +244,31 @@ export function MobileNav() {
       document.removeEventListener('mousedown', handler);
       document.removeEventListener('touchstart', handler);
     };
-  }, [sheetOpen]);
+  }, [sheetOpen, customizeOpen]);
 
-  const moreActive = MORE_HREFS.has(path) || [...MORE_HREFS].some((h) => path.startsWith(h + '/'));
+  const primaryNav = navOrder.slice(0, 4);
+  const moreNav = navOrder.slice(4);
+  const moreActive = moreNav.some(({ href }) => path === href || path.startsWith(href + '/'));
+
+  function moveItem(index: number, direction: 'up' | 'down') {
+    const next = [...navOrder];
+    const swapIdx = direction === 'up' ? index - 1 : index + 1;
+    if (swapIdx < 0 || swapIdx >= next.length) return;
+    [next[index], next[swapIdx]] = [next[swapIdx], next[index]];
+    setNavOrder(next);
+    try { localStorage.setItem(MOBILE_NAV_ORDER_KEY, JSON.stringify(next.map((n) => n.href))); } catch { /* ignore */ }
+  }
+
+  function resetOrder() {
+    setNavOrder(ALL_MOBILE_NAV);
+    try { localStorage.removeItem(MOBILE_NAV_ORDER_KEY); } catch { /* ignore */ }
+  }
 
   return (
     <>
       {/* Backdrop */}
       <AnimatePresence>
-        {sheetOpen && (
+        {(sheetOpen || customizeOpen) && (
           <motion.div
             key="backdrop"
             initial={{ opacity: 0 }}
@@ -225,9 +280,79 @@ export function MobileNav() {
         )}
       </AnimatePresence>
 
+      {/* Customize sheet */}
+      <AnimatePresence>
+        {customizeOpen && (
+          <motion.div
+            key="customize"
+            ref={customizeRef}
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', bounce: 0.1, duration: 0.38 }}
+            className="md:hidden fixed bottom-[72px] left-0 right-0 z-50 bg-white rounded-t-3xl border-t border-slate-200 shadow-[0_-20px_60px_rgba(0,0,0,0.12)] px-4 pt-5 pb-6 max-h-[80vh] overflow-y-auto"
+          >
+            <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-4" />
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-bold text-slate-900">Navigation Order</h2>
+              <button
+                onClick={() => setCustomizeOpen(false)}
+                className="text-sm font-semibold text-indigo-600 tap-highlight-none px-1"
+              >
+                Done
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400 mb-3">First 4 items appear in the bottom bar. The rest go in More.</p>
+
+            <div className="space-y-0.5">
+              {navOrder.map(({ href, label, icon: Icon }, index) => (
+                <div key={href}>
+                  {index === 4 && (
+                    <div className="flex items-center gap-2 my-3">
+                      <div className="flex-1 h-px bg-slate-200" />
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">More</span>
+                      <div className="flex-1 h-px bg-slate-200" />
+                    </div>
+                  )}
+                  <div className="flex items-center gap-3 py-2.5 px-2 rounded-xl">
+                    <span className="w-5 h-5 flex items-center justify-center text-[11px] font-bold text-slate-300 shrink-0">{index + 1}</span>
+                    <Icon className="w-5 h-5 text-slate-500 shrink-0" />
+                    <span className="flex-1 text-sm font-semibold text-slate-700">{label}</span>
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        onClick={() => moveItem(index, 'up')}
+                        disabled={index === 0}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-25 tap-highlight-none"
+                      >
+                        <ChevronUp className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => moveItem(index, 'down')}
+                        disabled={index === navOrder.length - 1}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-25 tap-highlight-none"
+                      >
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <button
+              onClick={resetOrder}
+              className="mt-4 w-full py-2.5 text-sm font-semibold text-slate-400 hover:text-slate-600 tap-highlight-none"
+            >
+              Reset to Default
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Slide-up sheet */}
       <AnimatePresence>
-        {sheetOpen && (
+        {sheetOpen && !customizeOpen && (
           <motion.div
             key="sheet"
             ref={sheetRef}
@@ -237,11 +362,10 @@ export function MobileNav() {
             transition={{ type: 'spring', bounce: 0.1, duration: 0.38 }}
             className="md:hidden fixed bottom-[72px] left-0 right-0 z-50 bg-white rounded-t-3xl border-t border-slate-200 shadow-[0_-20px_60px_rgba(0,0,0,0.12)] px-4 pt-5 pb-6"
           >
-            {/* Drag handle */}
             <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-5" />
 
             <div className="grid grid-cols-5 gap-2">
-              {MOBILE_NAV_MORE.map(({ href, label, icon: Icon, badgeKey }) => {
+              {moreNav.map(({ href, label, icon: Icon, badgeKey }) => {
                 const active = path === href || path.startsWith(href + '/');
                 const badgeCount = badgeKey ? badges[badgeKey] : 0;
                 return (
@@ -270,21 +394,29 @@ export function MobileNav() {
               })}
             </div>
 
-            {/* Sign out */}
-            <button
-              onClick={() => signOut({ callbackUrl: '/' })}
-              className="mt-4 w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors duration-150 border border-slate-100 tap-highlight-none select-none"
-            >
-              <LogOut className="w-4 h-4" />
-              Sign Out
-            </button>
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => { setSheetOpen(false); setCustomizeOpen(true); }}
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors duration-150 border border-slate-100 tap-highlight-none select-none"
+              >
+                <Sliders className="w-4 h-4" />
+                Customize
+              </button>
+              <button
+                onClick={() => signOut({ callbackUrl: '/' })}
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors duration-150 border border-slate-100 tap-highlight-none select-none"
+              >
+                <LogOut className="w-4 h-4" />
+                Sign Out
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
 
       {/* Bottom bar */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-slate-200 px-2 py-2 flex items-center justify-around z-50 pb-safe shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
-        {MOBILE_NAV_PRIMARY.map(({ href, label, icon: Icon, badgeKey }) => {
+        {primaryNav.map(({ href, label, icon: Icon, badgeKey }) => {
           const active = path === href || path.startsWith(href + '/');
           const badgeCount = badgeKey ? badges[badgeKey] : 0;
           return (
@@ -296,14 +428,17 @@ export function MobileNav() {
                 active ? 'text-indigo-600' : 'text-slate-400'
               )}
             >
-              {active && (
-                <motion.div
-                  layoutId="mobile-nav-active"
-                  className="absolute inset-0 bg-indigo-50 rounded-xl"
-                  initial={false}
-                  transition={{ type: 'spring', bounce: 0.15, duration: 0.35 }}
-                />
-              )}
+              <AnimatePresence>
+                {active && (
+                  <motion.div
+                    layoutId="mobile-nav-active"
+                    className="absolute inset-0 bg-indigo-50 rounded-xl"
+                    initial={false}
+                    exit={{ opacity: 0 }}
+                    transition={{ type: 'spring', bounce: 0.15, duration: 0.35 }}
+                  />
+                )}
+              </AnimatePresence>
               <div className="relative">
                 <Icon className={cn('w-5 h-5 relative z-10', active && 'drop-shadow-[0_0_8px_rgba(79,70,229,0.3)]')} />
                 {badgeCount > 0 && (
@@ -328,14 +463,17 @@ export function MobileNav() {
             (moreActive || sheetOpen) ? 'text-indigo-600' : 'text-slate-400'
           )}
         >
-          {(moreActive || sheetOpen) && !sheetOpen && (
-            <motion.div
-              layoutId="mobile-nav-active"
-              className="absolute inset-0 bg-indigo-50 rounded-xl"
-              initial={false}
-              transition={{ type: 'spring', bounce: 0.15, duration: 0.35 }}
-            />
-          )}
+          <AnimatePresence>
+            {moreActive && !sheetOpen && (
+              <motion.div
+                layoutId="mobile-nav-active"
+                className="absolute inset-0 bg-indigo-50 rounded-xl"
+                initial={false}
+                exit={{ opacity: 0 }}
+                transition={{ type: 'spring', bounce: 0.15, duration: 0.35 }}
+              />
+            )}
+          </AnimatePresence>
           {sheetOpen
             ? <X className="w-5 h-5 relative z-10" />
             : <MoreHorizontal className={cn('w-5 h-5 relative z-10', (moreActive || sheetOpen) && 'drop-shadow-[0_0_8px_rgba(79,70,229,0.3)]')} />

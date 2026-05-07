@@ -8,6 +8,7 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
 import type { Account, Transaction, Goal } from '@/types';
+import { FitText } from '@/components/ui/FitText';
 
 type ActionForm = {
   type: 'deposit' | 'withdraw';
@@ -144,12 +145,12 @@ export default function SavingsPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             <Card className={`md:col-span-1 ${totalSaved >= 0 ? 'border-emerald-100 hover:border-emerald-200' : 'border-rose-100 hover:border-rose-200'}`}>
               <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Saved</p>
-              <p className={`text-2xl md:text-3xl font-extrabold mt-2 tracking-tight ${totalSaved >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(totalSaved)}</p>
+              <FitText maxSize={28} minSize={13} className={`font-extrabold mt-2 ${totalSaved >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(totalSaved)}</FitText>
             </Card>
             {accounts.map((a) => (
               <Card key={a.id} className="border-l-[6px]" style={{ borderLeftColor: a.color }}>
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider truncate">{a.name}</p>
-                <p className={`text-2xl md:text-3xl font-extrabold mt-2 tracking-tight ${a.balance < 0 ? 'text-rose-600' : 'text-slate-900'}`}>{formatCurrency(a.balance)}</p>
+                <FitText maxSize={28} minSize={13} className={`font-extrabold mt-2 ${a.balance < 0 ? 'text-rose-600' : 'text-slate-900'}`}>{formatCurrency(a.balance)}</FitText>
                 {a.institution && <p className="text-sm font-medium text-slate-500 mt-1">{a.institution}</p>}
               </Card>
             ))}

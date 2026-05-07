@@ -72,6 +72,7 @@ export interface Budget {
   category: string;
   amount: number;
   period: 'monthly' | 'weekly' | 'yearly';
+  position?: number;
 }
 
 export interface Bill {
@@ -93,6 +94,7 @@ export interface Goal {
   deadline: string;
   icon: string;
   linkedAccountId?: string; // optional savings account — balance used as progress
+  position?: number;
 }
 
 export const EXPENSE_CATEGORIES = [
