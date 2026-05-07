@@ -165,8 +165,10 @@ export default function SavingsPage() {
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {goals.map((g) => {
-                  const pct = Math.min(100, (g.currentAmount / g.targetAmount) * 100);
-                  const remaining = g.targetAmount - g.currentAmount;
+                  const linked = g.linkedAccountId ? accounts.find((a) => a.id === g.linkedAccountId) : null;
+                  const current = linked ? linked.balance : g.currentAmount;
+                  const pct = Math.min(100, (current / g.targetAmount) * 100);
+                  const remaining = g.targetAmount - current;
                   return (
                     <Card key={g.id} className="hover:shadow-md transition-all">
                       <div className="flex items-start justify-between mb-4">
@@ -187,7 +189,7 @@ export default function SavingsPage() {
                         />
                       </div>
                       <div className="flex justify-between text-sm font-bold text-slate-500">
-                        <span className="text-slate-700">{formatCurrency(g.currentAmount)} saved</span>
+                        <span className="text-slate-700">{formatCurrency(current)} saved</span>
                         <span>{formatCurrency(remaining)} to go</span>
                       </div>
                     </Card>
