@@ -432,15 +432,15 @@ export default function SettingsPage() {
               <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">Expense Categories</p>
               <div className="flex flex-wrap gap-2 mb-3">
                 {[...EXPENSE_CATEGORIES].filter((c) => !(settings.hiddenExpenseCategories ?? []).includes(c)).map((c) => (
-                  <span key={c} className="group flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 text-xs font-bold">
+                  <span key={c} className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 text-xs font-bold">
                     {c}
-                    <button onClick={() => hideExpCat(c)} title="Hide category" className="opacity-0 group-hover:opacity-100 hover:text-rose-500 transition-all ml-0.5"><X className="w-3 h-3" /></button>
+                    <button onClick={() => hideExpCat(c)} title="Hide category" className="text-slate-400 ml-0.5"><X className="w-3 h-3" /></button>
                   </span>
                 ))}
                 {(settings.customExpenseCategories ?? []).map((c) => (
                   <span key={c} className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold">
                     {c}
-                    <button onClick={() => removeExpCat(c)} className="hover:text-rose-600 transition-colors ml-0.5"><X className="w-3 h-3" /></button>
+                    <button onClick={() => removeExpCat(c)} className="text-slate-400 ml-0.5"><X className="w-3 h-3" /></button>
                   </span>
                 ))}
               </div>
@@ -448,7 +448,7 @@ export default function SettingsPage() {
                 <div className="flex flex-wrap gap-1.5 mb-3 p-2.5 rounded-xl bg-rose-50 border border-rose-100">
                   <span className="text-xs font-bold text-rose-400 w-full mb-1">Hidden — click to restore:</span>
                   {(settings.hiddenExpenseCategories ?? []).map((c) => (
-                    <button key={c} onClick={() => restoreExpCat(c)} className="px-2.5 py-1 rounded-lg bg-white border border-rose-200 text-rose-500 text-xs font-bold hover:bg-rose-100 transition-colors line-through">{c}</button>
+                    <button key={c} onClick={() => restoreExpCat(c)} className="px-2.5 py-1 rounded-lg bg-white border border-rose-200 text-rose-500 text-xs font-bold line-through">{c}</button>
                   ))}
                 </div>
               )}
@@ -460,7 +460,7 @@ export default function SettingsPage() {
                   onChange={(e) => setNewExpCat(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addExpCat(); } }}
                 />
-                <button onClick={addExpCat} className="h-9 px-3 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">
+                <button onClick={addExpCat} className="h-9 px-3 rounded-xl bg-indigo-600 text-white">
                   <Plus className="w-4 h-4" />
                 </button>
               </div>
@@ -470,15 +470,15 @@ export default function SettingsPage() {
               <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">Income Categories</p>
               <div className="flex flex-wrap gap-2 mb-3">
                 {[...INCOME_CATEGORIES].filter((c) => !(settings.hiddenIncomeCategories ?? []).includes(c)).map((c) => (
-                  <span key={c} className="group flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 text-xs font-bold">
+                  <span key={c} className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 text-xs font-bold">
                     {c}
-                    <button onClick={() => hideIncCat(c)} title="Hide category" className="opacity-0 group-hover:opacity-100 hover:text-rose-500 transition-all ml-0.5"><X className="w-3 h-3" /></button>
+                    <button onClick={() => hideIncCat(c)} title="Hide category" className="text-slate-400 ml-0.5"><X className="w-3 h-3" /></button>
                   </span>
                 ))}
                 {(settings.customIncomeCategories ?? []).map((c) => (
                   <span key={c} className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
                     {c}
-                    <button onClick={() => removeIncCat(c)} className="hover:text-rose-600 transition-colors ml-0.5"><X className="w-3 h-3" /></button>
+                    <button onClick={() => removeIncCat(c)} className="text-slate-400 ml-0.5"><X className="w-3 h-3" /></button>
                   </span>
                 ))}
               </div>
@@ -486,7 +486,7 @@ export default function SettingsPage() {
                 <div className="flex flex-wrap gap-1.5 mb-3 p-2.5 rounded-xl bg-rose-50 border border-rose-100">
                   <span className="text-xs font-bold text-rose-400 w-full mb-1">Hidden — click to restore:</span>
                   {(settings.hiddenIncomeCategories ?? []).map((c) => (
-                    <button key={c} onClick={() => restoreIncCat(c)} className="px-2.5 py-1 rounded-lg bg-white border border-rose-200 text-rose-500 text-xs font-bold hover:bg-rose-100 transition-colors line-through">{c}</button>
+                    <button key={c} onClick={() => restoreIncCat(c)} className="px-2.5 py-1 rounded-lg bg-white border border-rose-200 text-rose-500 text-xs font-bold line-through">{c}</button>
                   ))}
                 </div>
               )}
@@ -498,7 +498,7 @@ export default function SettingsPage() {
                   onChange={(e) => setNewIncCat(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addIncCat(); } }}
                 />
-                <button onClick={addIncCat} className="h-9 px-3 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 transition-colors">
+                <button onClick={addIncCat} className="h-9 px-3 rounded-xl bg-emerald-600 text-white">
                   <Plus className="w-4 h-4" />
                 </button>
               </div>

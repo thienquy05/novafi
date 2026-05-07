@@ -1,7 +1,8 @@
 import { auth } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { signIn } from '@/lib/auth';
-import { Sparkles, TrendingUp, Shield, Zap, Target } from 'lucide-react';
+import { TrendingUp, Shield, Zap, Target } from 'lucide-react';
+import { LogoMark } from '@/components/LogoMark';
 
 export default async function LoginPage() {
   const session = await auth();
@@ -11,16 +12,14 @@ export default async function LoginPage() {
     <main className="min-h-screen bg-slate-50 flex items-center justify-center px-4 relative overflow-hidden">
       {/* Background Orbs */}
       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-600/10 rounded-full blur-[128px] pointer-events-none" />
-      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-600/10 rounded-full blur-[128px] pointer-events-none" />
+      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-indigo-400/8 rounded-full blur-[128px] pointer-events-none" />
 
       <div className="w-full max-w-md relative z-10">
         {/* Logo & Header */}
         <div className="flex flex-col items-center gap-6 mb-12">
           <div className="relative group">
-            <div className="absolute inset-0 bg-indigo-500 rounded-2xl blur-xl opacity-30 group-hover:opacity-50 transition-opacity duration-500" />
-            <div className="relative flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-2xl border border-white/10">
-              <Sparkles className="w-10 h-10 text-white" />
-            </div>
+            <div className="absolute inset-0 bg-indigo-600 rounded-2xl blur-xl opacity-25 group-hover:opacity-40 transition-opacity duration-500" />
+            <LogoMark className="relative w-20 h-20 rounded-2xl shadow-2xl" />
           </div>
           <div className="text-center space-y-2">
             <h1 className="text-4xl font-extrabold tracking-tight text-slate-900">
@@ -81,7 +80,7 @@ export default async function LoginPage() {
                 { Icon: TrendingUp, text: 'Smart Tracking', color: 'text-indigo-500' },
                 { Icon: Shield, text: '100% Private', color: 'text-emerald-500' },
                 { Icon: Zap, text: 'Real-time Sync', color: 'text-amber-500' },
-                { Icon: Target, text: 'Goal Setting', color: 'text-purple-500' },
+                { Icon: Target, text: 'Goal Setting', color: 'text-sky-500' },
               ].map(({ Icon, text, color }) => (
                 <div key={text} className="flex items-center gap-2.5 text-sm text-slate-600 font-medium">
                   <div className={`shrink-0 p-1.5 rounded-lg bg-slate-50 border border-slate-100 ${color}`}>

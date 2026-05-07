@@ -1,4 +1,4 @@
-# RocketMoney App — Build Memory
+# NovaFi App — Build Memory
 
 Tracks completed work at each step so any session can resume without losing context.
 

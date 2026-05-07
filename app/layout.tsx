@@ -23,7 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <head>
-        <meta name="theme-color" content="#4f46e5" />
+        <meta name="theme-color" content="#1568a3" />
         <link rel="apple-touch-icon" href="/icon.svg" />
       </head>
       <body className={inter.className} suppressHydrationWarning>
