@@ -13,6 +13,7 @@ import type { Transaction, Account } from '@/types';
 import { CategoryIconBadge } from '@/components/CategoryIcon';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { useCategories } from '@/hooks/useCategories';
 
 // ── Recurring template helpers (localStorage) ─────────────────────────────────
@@ -124,6 +125,7 @@ export default function TransactionsPage() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setTemplates(loadTemplates()); }, []);
+  useAutoRefresh(load);
   const { pullY, refreshing } = usePullToRefresh(load);
 
   const categories = form.type === 'expense' ? expenseCategories : form.type === 'income' ? incomeCategories : [...EXPENSE_CATEGORIES];

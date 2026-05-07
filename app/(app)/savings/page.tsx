@@ -1,12 +1,13 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, ArrowDownLeft, ArrowUpRight, PiggyBank, Target } from 'lucide-react';
+import { Plus, ArrowDownLeft, ArrowUpRight, ArrowRightLeft, PiggyBank, Target } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
+import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import type { Account, Transaction, Goal } from '@/types';
 import { FitText } from '@/components/ui/FitText';
 
@@ -52,6 +53,7 @@ export default function SavingsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useAutoRefresh(load);
 
   const savingsAccountIds = accounts.map((a) => a.id);
 
@@ -238,8 +240,16 @@ export default function SavingsPage() {
             ) : (
               <div className="space-y-3">
                 {savingsTx.map((tx) => {
-                  const accountName = accounts.find((a) => a.id === tx.account)?.name ?? tx.account;
-                  const isDeposit = tx.type === 'income';
+                  const fromName = accounts.find((a) => a.id === tx.account)?.name ?? tx.account;
+                  const toName = tx.toAccount ? accounts.find((a) => a.id === tx.toAccount)?.name : null;
+                  const isTransfer = tx.type === 'transfer';
+                  const isIncoming = isTransfer
+                    ? savingsAccountIds.includes(tx.toAccount ?? '')
+                    : tx.type === 'income';
+                  const displayDesc = tx.description || (isTransfer ? 'Transfer' : isIncoming ? 'Savings Deposit' : 'Savings Withdrawal');
+                  const subtitle = isTransfer && toName
+                    ? `${fromName} → ${toName} · ${formatDate(tx.date)}`
+                    : `${fromName} · ${formatDate(tx.date)}`;
                   return (
                     <div
                       key={tx.id}
@@ -247,19 +257,21 @@ export default function SavingsPage() {
                     >
                       <div className="flex items-center gap-4">
                         <div className={`flex items-center justify-center w-12 h-12 rounded-2xl shrink-0 border ${
-                          isDeposit ? 'bg-emerald-50 border-emerald-100' : 'bg-rose-50 border-rose-100'
+                          isTransfer ? 'bg-indigo-50 border-indigo-100' : isIncoming ? 'bg-emerald-50 border-emerald-100' : 'bg-rose-50 border-rose-100'
                         }`}>
-                          {isDeposit
+                          {isTransfer
+                            ? <ArrowRightLeft className="w-6 h-6 text-indigo-600" />
+                            : isIncoming
                             ? <ArrowDownLeft className="w-6 h-6 text-emerald-600" />
                             : <ArrowUpRight className="w-6 h-6 text-rose-600" />}
                         </div>
                         <div>
-                          <p className="text-base font-bold text-slate-900">{tx.description}</p>
-                          <p className="text-sm font-medium text-slate-500 mt-0.5">{accountName} · {formatDate(tx.date)}</p>
+                          <p className="text-base font-bold text-slate-900">{displayDesc}</p>
+                          <p className="text-sm font-medium text-slate-500 mt-0.5">{subtitle}</p>
                         </div>
                       </div>
-                      <span className={`text-lg font-extrabold ${isDeposit ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        {isDeposit ? '+' : '-'}{formatCurrency(tx.amount)}
+                      <span className={`text-lg font-extrabold ${isTransfer ? (isIncoming ? 'text-emerald-600' : 'text-rose-600') : isIncoming ? 'text-emerald-600' : 'text-rose-600'}`}>
+                        {isIncoming ? '+' : '-'}{formatCurrency(tx.amount)}
                       </span>
                     </div>
                   );

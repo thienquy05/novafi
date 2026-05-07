@@ -646,6 +646,30 @@ Redesigned `MobileNav` in `components/Sidebar.tsx`:
 
 ---
 
+## Savings Page Fixes — May 7, 2026
+
+### Savings goals now sync linked account balance
+- **File:** `app/(app)/savings/page.tsx`
+- Goal cards now check `g.linkedAccountId` first; if set, uses that account's live `balance` as the "saved" amount and for the progress % — falls back to `g.currentAmount` if no linked account
+- Matches the existing pattern in `planning/page.tsx` and `dashboard/page.tsx` (those were already correct)
+- **Why:** Savings page always read `g.currentAmount` (which stays 0 by default), so linked-account goals always showed 0% progress
+
+### Transfer transactions in savings history
+- **File:** `app/(app)/savings/page.tsx`
+- Added `ArrowRightLeft` (indigo) icon for transfer-type transactions; deposit (green) and withdrawal (red) icons unchanged
+- Direction detection: if savings account is the `toAccount` → treated as incoming (+green); if it's the `account` → outgoing (-red)
+- Subtitle for transfers shows `FromAccount → ToAccount · Date`
+- Description falls back to `"Transfer"` when `tx.description` is empty (fixes rows where the transaction ID was stored as the description)
+- **Why:** Transfers always rendered as red withdrawals regardless of direction; some old rows had the generated ID stored as description
+
+### Auto-refresh hook — `hooks/useAutoRefresh.ts`
+- **New file:** `hooks/useAutoRefresh.ts` — shared hook; calls `load()` on `visibilitychange` (tab becomes active) and every 30 s via `setInterval`
+- **Applied to:** `savings/page.tsx`, `accounts/page.tsx`, `transactions/page.tsx`
+- Dashboard is a server component — not applicable
+- **Why:** Changes made on one page (e.g. transactions) were not reflected on other pages until a manual refresh; stale data could show for up to 60 s
+
+---
+
 ## Potential Future Enhancements
 | Priority | Task |
 |----------|------|

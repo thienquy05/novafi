@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { AccountsSkeleton } from '@/components/ui/Skeleton';
+import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { FitText } from '@/components/ui/FitText';
 import { formatCurrency, generateId, today } from '@/lib/utils';
 import { useToast } from '@/lib/toast';
@@ -58,6 +59,7 @@ export default function AccountsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useAutoRefresh(load);
 
   const { pullY, refreshing } = usePullToRefresh(load);
 
