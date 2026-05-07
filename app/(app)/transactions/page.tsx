@@ -345,7 +345,7 @@ export default function TransactionsPage() {
                           <span className={`text-sm font-extrabold ${tx.type === 'income' ? 'text-emerald-600' : tx.type === 'transfer' ? 'text-blue-600' : 'text-slate-900'}`}>
                             {tx.type === 'income' ? '+' : tx.type === 'transfer' ? '' : '-'}{formatCurrency(tx.amount)}
                           </span>
-                          <Button variant="ghost" size="icon" className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 h-8 w-8 rounded-xl" onClick={() => openEdit(tx)}><Pencil className="w-3.5 h-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className="text-slate-400 h-8 w-8 rounded-xl" onClick={() => openEdit(tx)}><Pencil className="w-3.5 h-3.5" /></Button>
                         </div>
                       </div>
                     ))}
@@ -359,7 +359,7 @@ export default function TransactionsPage() {
         /* ── List View ─────────────────────────────────────────────────── */
         <div className="space-y-2.5">
           {filtered.map((tx) => (
-            <div key={tx.id} className="group flex items-center justify-between p-4 sm:p-4.5 rounded-3xl bg-white border border-slate-100 hover:border-slate-200 hover:shadow-sm transition-all duration-200">
+            <div key={tx.id} className="flex items-center justify-between p-4 sm:p-4.5 rounded-3xl bg-white border border-slate-100 transition-all duration-200">
               <div className="flex items-center gap-3.5 flex-1 min-w-0">
                 <CategoryIconBadge category={tx.category} type={tx.type} className="w-11 h-11 rounded-2xl" />
                 <div className="min-w-0 flex-1">
@@ -373,9 +373,9 @@ export default function TransactionsPage() {
                 <span className={`text-sm font-extrabold whitespace-nowrap ${tx.type === 'income' ? 'text-emerald-600' : tx.type === 'transfer' ? 'text-blue-600' : 'text-slate-900'}`}>
                   {tx.type === 'income' ? '+' : tx.type === 'transfer' ? '' : '-'}{formatCurrency(tx.amount)}
                 </span>
-                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-                  <Button variant="ghost" size="icon" className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 h-9 w-9 rounded-xl" onClick={() => openEdit(tx)}><Pencil className="w-3.5 h-3.5" /></Button>
-                  <Button variant="ghost" size="icon" className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 h-9 w-9 rounded-xl" onClick={() => handleDelete(tx.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                <div className="flex gap-1">
+                  <Button variant="ghost" size="icon" className="text-slate-400 h-9 w-9 rounded-xl" onClick={() => openEdit(tx)}><Pencil className="w-3.5 h-3.5" /></Button>
+                  <Button variant="ghost" size="icon" className="text-slate-400 h-9 w-9 rounded-xl" onClick={() => handleDelete(tx.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                 </div>
               </div>
             </div>

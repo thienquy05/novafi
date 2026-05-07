@@ -135,8 +135,38 @@ export async function DELETE(req: NextRequest) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { id } = await req.json();
+
+  // Reverse the transaction's effect on account balances before deleting
+  const [transactions, accounts] = await Promise.all([
+    getTransactions(session.accessToken, session.spreadsheetId),
+    getAccounts(session.accessToken, session.spreadsheetId),
+  ]);
+  const tx = transactions.find((t) => t.id === id);
+  if (tx) {
+    const findAcc = (accId: string) => accounts.find((a) => a.id === accId);
+    if (tx.type === 'expense') {
+      const acc = findAcc(tx.account);
+      if (acc) await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: acc.balance + tx.amount });
+    } else if (tx.type === 'income') {
+      const acc = findAcc(tx.account);
+      if (acc) await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: acc.balance - tx.amount });
+    } else if (tx.type === 'transfer') {
+      const fromAcc = findAcc(tx.account);
+      const toAcc = findAcc(tx.toAccount ?? '');
+      if (fromAcc) await upsertAccount(session.accessToken, session.spreadsheetId, { ...fromAcc, balance: fromAcc.balance + tx.amount });
+      if (toAcc) {
+        const isDebt = toAcc.type === 'credit' || toAcc.type === 'loan';
+        await upsertAccount(session.accessToken, session.spreadsheetId, {
+          ...toAcc,
+          balance: isDebt ? toAcc.balance + tx.amount : toAcc.balance - tx.amount,
+        });
+      }
+    }
+  }
+
   await deleteTransaction(session.accessToken, session.spreadsheetId, id);
   invalidateCache(`transactions:${session.spreadsheetId}`);
+  invalidateCache(`accounts:${session.spreadsheetId}`);
   invalidateCache(`dashboard:${session.spreadsheetId}`);
   invalidateCache(`badges:${session.spreadsheetId}`);
   return NextResponse.json({ ok: true });
