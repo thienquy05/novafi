@@ -253,7 +253,13 @@ export default function PaychecksPage() {
                 { label: 'Gross Pay', value: preview.grossPaycheck, cls: 'text-slate-900 font-extrabold' },
                 { label: `401(k) (${settings?.k401Pct}%)`, value: -preview.k401, cls: 'text-indigo-600 font-bold' },
                 { label: 'HSA', value: -preview.hsa, cls: 'text-indigo-600 font-bold' },
-                { label: `Federal Tax (${settings?.federalRate}%)`, value: -preview.federalTax, cls: 'text-rose-600 font-bold' },
+                {
+                  label: settings?.useFederalBrackets
+                    ? `Federal Tax (progressive${preview.marginalRate !== undefined ? ` · ${preview.marginalRate.toFixed(0)}% marginal` : ''})`
+                    : `Federal Tax (${settings?.federalRate}%)`,
+                  value: -preview.federalTax,
+                  cls: 'text-rose-600 font-bold',
+                },
                 { label: `State Tax (${settings?.stateRate}%)`, value: -preview.stateTax, cls: 'text-rose-600 font-bold' },
                 { label: `City Tax (${settings?.cityRate}%)`, value: -preview.cityTax, cls: 'text-rose-600 font-bold' },
                 { label: 'FICA (SS + Medicare)', value: -(preview.ficaSs + preview.ficaMedicare), cls: 'text-rose-600 font-bold' },
@@ -267,7 +273,12 @@ export default function PaychecksPage() {
                 <span className="text-slate-900 font-bold">Net Take-Home</span>
                 <span className="text-emerald-600 font-extrabold text-lg">{formatCurrency(preview.netPaycheck)}</span>
               </div>
-              <p className="text-xs font-medium text-slate-500 text-right mt-1">Effective rate: {preview.effectiveRate.toFixed(1)}%</p>
+              <div className="text-xs font-medium text-slate-500 text-right mt-1 space-y-0.5">
+                <p>Effective rate: {preview.effectiveRate.toFixed(1)}%</p>
+                {settings?.useFederalBrackets && preview.taxableIncome !== undefined && (
+                  <p>Annual taxable income: {preview.taxableIncome.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}</p>
+                )}
+              </div>
             </div>
           )}
 

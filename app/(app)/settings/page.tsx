@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Save, RotateCcw, ExternalLink, Plus, X, GripVertical, LayoutDashboard, Landmark, DollarSign, ArrowLeftRight, PiggyBank, Calendar, BarChart3, FileText, Settings as SettingsIcon } from 'lucide-react';
+import { Save, RotateCcw, ExternalLink, Plus, X, GripVertical, LayoutDashboard, Landmark, DollarSign, ArrowLeftRight, PiggyBank, Calendar, BarChart3, FileText, Settings as SettingsIcon, Info } from 'lucide-react';
+import { BRACKETS_2026, STANDARD_DEDUCTION_2026 } from '@/lib/tax';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -243,25 +244,119 @@ export default function SettingsPage() {
         {/* Tax Rates */}
         <Card>
           <CardHeader>
-            <CardTitle>Tax Rates</CardTitle>
+            <CardTitle>Federal Tax</CardTitle>
+          </CardHeader>
+
+          {/* Progressive brackets toggle */}
+          <div className="flex items-start gap-4 p-4 rounded-2xl bg-indigo-50 border border-indigo-100 mb-5">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={settings.useFederalBrackets}
+              onClick={() => update('useFederalBrackets', !settings.useFederalBrackets)}
+              className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 ${settings.useFederalBrackets ? 'bg-indigo-600' : 'bg-slate-300'}`}
+            >
+              <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition-transform ${settings.useFederalBrackets ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-slate-900">Use 2026 IRS Progressive Brackets</p>
+              <p className="text-xs font-medium text-slate-500 mt-0.5">
+                {settings.useFederalBrackets
+                  ? 'Federal withholding uses real IRS brackets + standard deduction for your filing status. More accurate than a flat rate.'
+                  : 'Enter a flat federal rate below. Switch to progressive brackets for automatic IRS bracket calculations.'}
+              </p>
+            </div>
+          </div>
+
+          {settings.useFederalBrackets ? (
+            /* Bracket table view */
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Info className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <p className="text-xs font-medium text-slate-500">
+                  Brackets below are for <span className="font-bold text-slate-700">{
+                    { single: 'Single', mfj: 'Married Filing Jointly', mfs: 'Married Filing Separately', hoh: 'Head of Household' }[settings.filingStatus]
+                  }</span> — update your filing status in Payroll & Deductions above.
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 overflow-hidden mb-4">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="text-left px-4 py-2.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Taxable Income</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const brackets = BRACKETS_2026[settings.filingStatus];
+                      return brackets.map(({ max, rate }, i) => {
+                        const prev = i === 0 ? 0 : brackets[i - 1].max;
+                        const from = prev.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+                        const to = max === Infinity ? '∞' : max.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+                        return (
+                          <tr key={rate} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
+                            <td className="px-4 py-2.5 text-slate-700 font-medium">{from} – {to}</td>
+                            <td className="px-4 py-2.5 text-right">
+                              <span className={`inline-block px-2 py-0.5 rounded-lg text-xs font-bold ${rate >= 0.32 ? 'bg-rose-100 text-rose-700' : rate >= 0.22 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                {(rate * 100).toFixed(0)}%
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      });
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex items-center gap-2 px-1 mb-5">
+                <span className="text-xs font-medium text-slate-500">Standard deduction:</span>
+                <span className="text-xs font-bold text-slate-700">
+                  {STANDARD_DEDUCTION_2026[settings.filingStatus].toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}
+                </span>
+                <span className="text-xs text-slate-400">subtracted from your income before brackets apply</span>
+              </div>
+
+              {/* Savings optimizer hint */}
+              <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-100">
+                <p className="text-xs font-bold text-emerald-800 mb-1">Maximize Your Tax Savings</p>
+                <p className="text-xs font-medium text-emerald-700 leading-relaxed">
+                  Pre-tax contributions to your 401(k), HSA, and IRA reduce your taxable income before brackets apply — every dollar contributed saves you money at your marginal rate.
+                  Raise your 401(k) % or HSA amount in <span className="font-bold">Payroll & Deductions</span> above and re-open a paycheck to see the difference.
+                </p>
+              </div>
+            </div>
+          ) : (
+            /* Flat rate view */
+            <div>
+              <p className="text-sm font-medium text-slate-500 mb-5">
+                Enter your estimated flat federal rate. Use your marginal bracket rate (e.g. 22%) or your effective rate from last year&apos;s return.
+              </p>
+              <div>
+                <Input
+                  label="Federal Rate %"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value={settings.federalRate}
+                  onChange={(e) => update('federalRate', Number(e.target.value))}
+                />
+                <p className="text-xs font-bold text-slate-400 mt-2 ml-1">e.g. 22 for the 22% bracket</p>
+              </div>
+            </div>
+          )}
+        </Card>
+
+        {/* State & City Tax */}
+        <Card>
+          <CardHeader>
+            <CardTitle>State & Local Tax</CardTitle>
           </CardHeader>
           <p className="text-sm font-medium text-slate-500 mb-5">
-            Enter your estimated flat rates. For federal, use your marginal or effective rate.
-            Find your city rate on your local municipality&apos;s website.
+            Most states and cities use flat rates. Find your city rate on your local municipality&apos;s website.
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-            <div>
-              <Input
-                label="Federal Rate %"
-                type="number"
-                min="0"
-                max="100"
-                step="0.1"
-                value={settings.federalRate}
-                onChange={(e) => update('federalRate', Number(e.target.value))}
-              />
-              <p className="text-xs font-bold text-slate-400 mt-2 ml-1">e.g. 22 for the 22% bracket</p>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
               <Input
                 label="State Rate %"

@@ -6,12 +6,13 @@ export interface TaxSettings {
   k401Pct: number;
   hsaAnnual: number;
   iraAnnual: number;
-  federalRate: number;      // flat % e.g. 22
-  stateRate: number;        // flat % e.g. 3.125
-  cityRate: number;         // flat % e.g. 1.5
-  ficaSsRate: number;       // 6.2
-  ficaSsWageBase: number;   // 176100
-  ficaMedicareRate: number; // 1.45
+  federalRate: number;         // flat % — used when useFederalBrackets is false
+  stateRate: number;
+  cityRate: number;
+  ficaSsRate: number;
+  ficaSsWageBase: number;
+  ficaMedicareRate: number;
+  useFederalBrackets: boolean; // when true, uses 2026 IRS progressive brackets instead of federalRate
   customExpenseCategories: string[];
   customIncomeCategories: string[];
   hiddenExpenseCategories: string[];
@@ -30,6 +31,8 @@ export interface TaxResult {
   totalTax: number;
   netPaycheck: number;
   effectiveRate: number;
+  marginalRate?: number;   // highest federal bracket hit (only set when useFederalBrackets is true)
+  taxableIncome?: number;  // annualized income after deductions (only set when useFederalBrackets is true)
 }
 
 export interface PaycheckEntry {
