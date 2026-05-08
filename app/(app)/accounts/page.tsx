@@ -46,11 +46,11 @@ export default function AccountsPage() {
   const toast = useToast();
 
   const load = useCallback(async () => {
-    setError(false);
     try {
       const res = await fetch('/api/accounts');
       if (!res.ok) throw new Error();
       setAccounts(await res.json());
+      setError(false);
     } catch {
       setError(true);
     } finally {
