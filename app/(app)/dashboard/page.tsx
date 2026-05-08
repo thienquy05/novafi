@@ -8,7 +8,7 @@ import {
   calcSavingsRateScore, calcEmergencyScore, calcBudgetScore, calcDebtScore,
 } from '@/lib/calculations';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
-import { TrendingUp, TrendingDown, DollarSign, Calendar, PiggyBank, ArrowUpRight, Wallet, BarChart3, ArrowLeftRight } from 'lucide-react';
+import { TrendingUp, TrendingDown, Calendar, PiggyBank, ArrowUpRight, Wallet, BarChart3, ArrowLeftRight } from 'lucide-react';
 import { SpendingPieChart, MonthlyBarChart, BudgetBars, GoalsSummary, NetWorthTrendChart, HealthBanner, EmergencyFundWidget, FinancialHealthScore } from './DashboardCharts';
 import { QuickAddTransaction } from './QuickAddTransaction';
 import { CategoryIconBadge } from '@/components/CategoryIcon';
@@ -53,7 +53,7 @@ export default async function DashboardPage() {
     })(),
   ]);
 
-  const { paychecks, transactions, accounts, bills, budgets, goals } = dashData;
+  const { transactions, accounts, bills, budgets, goals } = dashData;
 
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -90,7 +90,7 @@ export default async function DashboardPage() {
   const alreadySnapped = netWorthHistory.some((s) => s.month === currentMonthKey);
   if (!alreadySnapped) {
     appendNetWorthSnapshot(session.accessToken, session.spreadsheetId, {
-      id: `nw_${Date.now()}`,
+      id: `nw_${currentMonthKey}`,
       date: now.toISOString().split('T')[0],
       month: currentMonthKey,
       netWorth,
@@ -114,10 +114,6 @@ export default async function DashboardPage() {
 
   // Savings rate
   const savingsRate = calcSavingsRate(monthIncome, monthSpending);
-
-  // Last paycheck
-  const sorted = [...paychecks].sort((a, b) => b.date.localeCompare(a.date));
-  const lastPaycheck = sorted[0];
 
   // Upcoming bills (next 14 days)
   const upcomingBills = bills

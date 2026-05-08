@@ -2,7 +2,6 @@ import NextAuth from 'next-auth';
 import Google from 'next-auth/providers/google';
 import { google as googleApis } from 'googleapis';
 import { DEFAULT_TAX_SETTINGS } from './utils';
-import type { TaxSettings } from '@/types';
 
 const SPREADSHEET_NAME = 'NovaFi Finance Data';
 

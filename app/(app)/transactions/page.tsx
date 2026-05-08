@@ -8,7 +8,7 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { TransactionsSkeleton } from '@/components/ui/Skeleton';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '@/types';
+import { EXPENSE_CATEGORIES } from '@/types';
 import type { Transaction, Account } from '@/types';
 import { CategoryIconBadge } from '@/components/CategoryIcon';
 import { useToast } from '@/lib/toast';

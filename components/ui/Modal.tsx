@@ -2,7 +2,6 @@
 import { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Button } from './Button';
 import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 
 interface ModalProps {

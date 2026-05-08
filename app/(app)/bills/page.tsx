@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Plus, Trash2, Calendar, CheckCircle2, Circle, AlarmClock, Pencil, RefreshCw, AlertCircle, Banknote, Repeat } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -464,7 +464,7 @@ export default function BillsPage() {
     }
   }
 
-  const nowMs = Date.now();
+  const nowMs = useMemo(() => Date.now(), [bills]);
   const activeBills = bills.filter((b) => b.isActive);
   const inactiveBills = bills.filter((b) => !b.isActive);
   const monthlyTotal = activeBills.reduce((s, b) => {

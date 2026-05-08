@@ -697,7 +697,7 @@ async function deleteRowById(
   spreadsheetId: string,
   sheetName: string,
   id: string,
-  lastCol: string
+  _lastCol: string
 ) {
   const sheets = getSheetsClient(accessToken);
   const sheetMeta = await sheets.spreadsheets.get({ spreadsheetId });
