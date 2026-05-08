@@ -1,6 +1,12 @@
 import { auth } from '@/lib/auth';
 import { batchGetDashboardData, getNetWorthHistory, appendNetWorthSnapshot, getSettings } from '@/lib/sheets';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import {
+  calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
+  calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, pctChange as calcPctChange,
+  normalizeMonthlyBudget, calcAvgMonthlyExpense, calcEmergencyFundMonths,
+  calcSavingsRateScore, calcEmergencyScore, calcBudgetScore, calcDebtScore,
+} from '@/lib/calculations';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { TrendingUp, TrendingDown, DollarSign, Calendar, PiggyBank, ArrowUpRight, Wallet, BarChart3, ArrowLeftRight } from 'lucide-react';
 import { SpendingPieChart, MonthlyBarChart, BudgetBars, GoalsSummary, NetWorthTrendChart, HealthBanner, EmergencyFundWidget, FinancialHealthScore } from './DashboardCharts';
@@ -14,10 +20,6 @@ export const dynamic = 'force-dynamic';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-function pctChange(current: number, prev: number): number | null {
-  if (prev === 0) return null;
-  return ((current - prev) / prev) * 100;
-}
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -58,15 +60,15 @@ export default async function DashboardPage() {
 
   // This month
   const monthTx = transactions.filter((t) => t.date.startsWith(thisMonth));
-  const monthIncome = monthTx.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-  const monthSpending = monthTx.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+  const monthIncome = calcMonthIncome(transactions, thisMonth);
+  const monthSpending = calcMonthExpense(transactions, thisMonth);
 
   // Previous month
   const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const prevMonthKey = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
   const prevMonthTx = transactions.filter((t) => t.date.startsWith(prevMonthKey));
-  const prevMonthIncome = prevMonthTx.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-  const prevMonthSpending = prevMonthTx.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+  const prevMonthIncome = calcMonthIncome(transactions, prevMonthKey);
+  const prevMonthSpending = calcMonthExpense(transactions, prevMonthKey);
 
   // Days info
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
@@ -74,16 +76,12 @@ export default async function DashboardPage() {
   const daysLeft = daysInMonth - daysElapsed;
 
   // Net worth
-  const traditionalNetWorth = accounts.reduce((sum, a) => {
-    return sum + (a.type === 'credit' || a.type === 'loan' ? -a.balance : a.balance);
-  }, 0);
-  const liquidNetWorth = accounts.reduce((sum, a) => {
-    return sum + (a.type === 'credit' ? -a.balance : a.type === 'loan' ? 0 : a.balance);
-  }, 0);
+  const traditionalNetWorth = calcTraditionalNetWorth(accounts);
+  const liquidNetWorth = calcLiquidNetWorth(accounts);
   const excludeLoans = settings.excludeLoansFromNetWorth;
   const netWorth = excludeLoans ? liquidNetWorth : traditionalNetWorth;
-  const totalAssets = accounts.filter((a) => a.type !== 'credit' && a.type !== 'loan').reduce((s, a) => s + a.balance, 0);
-  const totalDebt = accounts.filter((a) => (a.type === 'credit' || a.type === 'loan') && a.balance > 0).reduce((s, a) => s + a.balance, 0);
+  const totalAssets = calcTotalAssets(accounts);
+  const totalDebt = calcTotalDebt(accounts);
   const totalLoanDebt = accounts.filter((a) => a.type === 'loan' && a.balance > 0).reduce((s, a) => s + a.balance, 0);
   const totalSaved = accounts.filter((a) => a.type === 'savings').reduce((s, a) => s + a.balance, 0);
 
@@ -115,7 +113,7 @@ export default async function DashboardPage() {
   const prevNetWorth = netWorthPoints.length >= 2 ? netWorthPoints[netWorthPoints.length - 2].netWorth : null;
 
   // Savings rate
-  const savingsRate = monthIncome > 0 ? Math.max(0, ((monthIncome - monthSpending) / monthIncome) * 100) : 0;
+  const savingsRate = calcSavingsRate(monthIncome, monthSpending);
 
   // Last paycheck
   const sorted = [...paychecks].sort((a, b) => b.date.localeCompare(a.date));
@@ -141,7 +139,7 @@ export default async function DashboardPage() {
     .reduce((s, b) => s + b.amount, 0);
 
   // Safe to spend
-  const safeToSpend = Math.max(0, monthIncome - monthSpending - billsThisMonth);
+  const safeToSpend = calcSafeToSpend(monthIncome, monthSpending, billsThisMonth);
 
   // Recent transactions (last 6)
   const recentTx = [...transactions]
@@ -179,31 +177,27 @@ export default async function DashboardPage() {
     const spent = monthTx
       .filter((t) => t.type === 'expense' && t.category === b.category)
       .reduce((s, t) => s + t.amount, 0);
-    const budget = b.period === 'monthly' ? b.amount
-      : b.period === 'weekly' ? b.amount * 4.33
-      : b.amount / 12;
+    const budget = normalizeMonthlyBudget(b.amount, b.period);
     return { category: b.category, budget, spent, prevMonthSpent: prevMonthCategorySpend[b.category] ?? 0 };
   });
   const overBudgetCount = budgetData.filter((b) => b.spent > b.budget).length;
 
   // Emergency fund
-  const liquidSavings = accounts
-    .filter((a) => a.type === 'checking' || a.type === 'savings')
-    .reduce((s, a) => s + a.balance, 0);
+  const liquidSavings = calcLiquidSavings(accounts);
   const last3MonthsExpenses = Array.from({ length: 3 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (i + 1), 1);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    return transactions.filter((t) => t.type === 'expense' && t.date.startsWith(key)).reduce((s, t) => s + t.amount, 0);
+    return calcMonthExpense(transactions, key);
   });
-  const avgMonthlyExpense = last3MonthsExpenses.reduce((s, v) => s + v, 0) / 3;
-  const emergencyFundMonths = avgMonthlyExpense > 0 ? liquidSavings / avgMonthlyExpense : 0;
+  const avgMonthlyExpense = calcAvgMonthlyExpense(last3MonthsExpenses);
+  const emergencyFundMonths = calcEmergencyFundMonths(liquidSavings, avgMonthlyExpense);
 
   // Financial health score
   const debtRatio = totalAssets > 0 ? totalDebt / totalAssets : 0;
-  const savingsRateScore = savingsRate >= 20 ? 25 : savingsRate >= 10 ? 17 : savingsRate >= 5 ? 10 : savingsRate > 0 ? 5 : 0;
-  const emergencyScore = emergencyFundMonths >= 6 ? 25 : emergencyFundMonths >= 3 ? 18 : emergencyFundMonths >= 1 ? 10 : emergencyFundMonths >= 0.5 ? 5 : 0;
-  const budgetScore = budgets.length === 0 ? 12 : Math.max(0, 25 - overBudgetCount * 6);
-  const debtScore = debtRatio <= 0.1 ? 25 : debtRatio <= 0.3 ? 20 : debtRatio <= 0.5 ? 15 : debtRatio <= 0.75 ? 10 : 5;
+  const savingsRateScore = calcSavingsRateScore(savingsRate);
+  const emergencyScore = calcEmergencyScore(emergencyFundMonths);
+  const budgetScore = calcBudgetScore(budgets.length, overBudgetCount);
+  const debtScore = calcDebtScore(debtRatio);
   const healthScore = savingsRateScore + emergencyScore + budgetScore + debtScore;
 
   // Goals summary
@@ -220,9 +214,9 @@ export default async function DashboardPage() {
   });
 
   // MoM deltas
-  const spendingDelta = pctChange(monthSpending, prevMonthSpending);
-  const incomeDelta = pctChange(monthIncome, prevMonthIncome);
-  const netWorthDelta = prevNetWorth !== null ? pctChange(netWorth, prevNetWorth) : null;
+  const spendingDelta = calcPctChange(monthSpending, prevMonthSpending);
+  const incomeDelta = calcPctChange(monthIncome, prevMonthIncome);
+  const netWorthDelta = prevNetWorth !== null ? calcPctChange(netWorth, prevNetWorth) : null;
 
   const stats = [
     {

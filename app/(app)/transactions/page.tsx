@@ -339,9 +339,9 @@ export default function TransactionsPage() {
                   <div className="border-t border-slate-100 divide-y divide-slate-50">
                     {row.transactions.map((tx) => (
                       <div key={tx.id} className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors">
-                        <div>
-                          <p className="text-xs font-bold text-slate-700">{formatDate(tx.date)}</p>
-                          <p className="text-xs font-medium text-slate-400">{tx.category} · {accountName(tx.account)}</p>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-bold text-slate-700 shrink-0">{formatDate(tx.date)}</p>
+                          <p className="text-xs font-medium text-slate-400 truncate">{tx.category} · {accountName(tx.account)}</p>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`text-sm font-extrabold ${tx.type === 'income' ? 'text-emerald-600' : tx.type === 'transfer' ? 'text-blue-600' : 'text-slate-900'}`}>
@@ -366,9 +366,12 @@ export default function TransactionsPage() {
                 <CategoryIconBadge category={tx.category} type={tx.type} className="w-11 h-11 rounded-2xl" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-bold text-slate-900 truncate">{tx.description || tx.category}</p>
-                  <p className="text-xs font-medium text-slate-500 mt-0.5 truncate">
-                    {tx.category}{tx.account ? ` · ${accountName(tx.account)}` : ''}{tx.type === 'transfer' && tx.toAccount ? ` → ${accountName(tx.toAccount)}` : ''}{' · '}{formatDate(tx.date)}
-                  </p>
+                  <div className="flex items-center gap-1 mt-0.5">
+                    <p className="text-xs font-medium text-slate-500 truncate min-w-0">
+                      {tx.category}{tx.account ? ` · ${accountName(tx.account)}` : ''}{tx.type === 'transfer' && tx.toAccount ? ` → ${accountName(tx.toAccount)}` : ''}
+                    </p>
+                    <span className="text-xs font-medium text-slate-400 shrink-0">· {formatDate(tx.date)}</span>
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-2 sm:gap-3 ml-3">
