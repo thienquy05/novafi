@@ -1,7 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, Trash2, Calendar, CheckCircle2, Circle, AlarmClock, Pencil, RefreshCw, AlertCircle, Banknote, Repeat } from 'lucide-react';
-import type { Transaction } from '@/types';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -9,7 +8,8 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { BillsSkeleton } from '@/components/ui/Skeleton';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
-import type { Bill, Account, PaycheckEntry } from '@/types';
+import { billToTransactionDefaults } from '@/lib/calculations';
+import type { Bill, Account, PaycheckEntry, Transaction } from '@/types';
 import { useCategories } from '@/hooks/useCategories';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
@@ -116,6 +116,21 @@ const EMPTY_FORM = {
   name: '', amount: '', frequency: 'monthly' as Bill['frequency'],
   nextDue: today(), account: '', category: 'Bills', isActive: true,
 };
+
+// ── Recurring template helpers (mirrors transactions page localStorage format) ─
+type BillTemplate = { id: string; description: string; amount: number; type: Transaction['type']; category: string; account: string };
+const TEMPLATES_KEY = 'nf_tx_templates_v1';
+function loadTemplates(): BillTemplate[] {
+  try { return JSON.parse(localStorage.getItem(TEMPLATES_KEY) ?? '[]'); } catch { return []; }
+}
+function saveTemplates(templates: BillTemplate[]) {
+  try { localStorage.setItem(TEMPLATES_KEY, JSON.stringify(templates)); } catch { /* ignore */ }
+}
+function upsertTemplate(tpl: BillTemplate) {
+  const existing = loadTemplates();
+  const updated = [...existing.filter((t) => t.description !== tpl.description || t.category !== tpl.category), tpl];
+  saveTemplates(updated);
+}
 
 // ── Cashflow Calendar ──────────────────────────────────────────────────────────
 function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paychecks: PaycheckEntry[]; nowMs: number }) {
@@ -303,6 +318,9 @@ export default function BillsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
+  const [payBill, setPayBill] = useState<Bill | null>(null);
+  const [payForm, setPayForm] = useState({ description: '', date: today(), amount: '', account: '', category: '' });
+  const [paying, setPaying] = useState(false);
   const toast = useToast();
   const { expenseCategories } = useCategories();
 
@@ -366,16 +384,58 @@ export default function BillsPage() {
     }
   }
 
-  async function handleMarkPaid(bill: Bill) {
+  function openPayModal(bill: Bill) {
+    const defaults = billToTransactionDefaults(bill, today());
+    setPayBill(bill);
+    setPayForm({ description: defaults.description, date: defaults.date, amount: String(defaults.amount), account: defaults.account, category: defaults.category });
+  }
+
+  function closePayModal() { setPayBill(null); }
+
+  async function advanceBillDue(bill: Bill) {
     const updated: Bill = { ...bill, nextDue: nextDueAfter(bill.nextDue, bill.frequency) };
     setBills((prev) => prev.map((b) => b.id === bill.id ? updated : b).sort((x, y) => x.nextDue.localeCompare(y.nextDue)));
+    await fetch('/api/bills', { method: 'POST', body: JSON.stringify(updated), headers: { 'Content-Type': 'application/json' } });
+  }
+
+  async function handleRecordPayment() {
+    if (!payBill) return;
+    setPaying(true);
+    const tx: Transaction = {
+      id: generateId(),
+      date: payForm.date,
+      description: payForm.description,
+      amount: parseFloat(payForm.amount) || 0,
+      type: 'expense',
+      category: payForm.category,
+      account: payForm.account,
+    };
     try {
-      await fetch('/api/bills', { method: 'POST', body: JSON.stringify(updated), headers: { 'Content-Type': 'application/json' } });
-      toast(`${bill.name} marked paid`, 'success');
+      const [txRes] = await Promise.all([
+        fetch('/api/transactions', { method: 'POST', body: JSON.stringify(tx), headers: { 'Content-Type': 'application/json' } }),
+        advanceBillDue(payBill),
+      ]);
+      if (!txRes.ok) throw new Error();
+      upsertTemplate({ id: generateId(), description: tx.description, amount: tx.amount, type: 'expense', category: tx.category, account: tx.account });
+      toast(`${payBill.name} paid & transaction recorded`, 'success');
+      closePayModal();
+    } catch {
+      toast('Failed to record payment', 'error');
+    } finally {
+      setPaying(false);
+    }
+  }
+
+  async function handleSkipPayment() {
+    if (!payBill) return;
+    try {
+      await advanceBillDue(payBill);
+      toast(`${payBill.name} marked paid`, 'success');
     } catch {
       toast('Failed to mark as paid', 'error');
       await load();
     }
+    closePayModal();
   }
 
   async function handleToggle(bill: Bill) {
@@ -508,7 +568,7 @@ export default function BillsPage() {
                         <span className={`text-base font-extrabold ${isOverdue ? 'text-rose-600' : 'text-slate-900'}`}>{formatCurrency(bill.amount)}</span>
                         <div className="flex gap-1.5">
                           <button title="Edit" onClick={() => openEdit(bill)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
-                          <button title="Mark paid" onClick={() => handleMarkPaid(bill)} className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-colors"><CheckCircle2 className="w-4 h-4" /></button>
+                          <button title="Mark paid" onClick={() => openPayModal(bill)} className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-colors"><CheckCircle2 className="w-4 h-4" /></button>
                           <button title="Pause" onClick={() => handleToggle(bill)} className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-colors"><Circle className="w-4 h-4" /></button>
                           <button title="Delete" onClick={() => handleDelete(bill.id)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"><Trash2 className="w-4 h-4" /></button>
                         </div>
@@ -542,6 +602,29 @@ export default function BillsPage() {
           )}
         </div>
       )}
+
+      {/* ── Record Payment modal ── */}
+      <Modal open={!!payBill} onClose={closePayModal} title="Record Payment">
+        <div className="space-y-5 pb-4">
+          <Input label="Description" value={payForm.description} onChange={(e) => setPayForm((f) => ({ ...f, description: e.target.value }))} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Input label="Amount ($)" type="number" min="0" step="0.01" value={payForm.amount} onChange={(e) => setPayForm((f) => ({ ...f, amount: e.target.value }))} />
+            <Input label="Date" type="date" value={payForm.date} onChange={(e) => setPayForm((f) => ({ ...f, date: e.target.value }))} />
+          </div>
+          {accounts.length > 0 && (
+            <Select label="Pay from Account" value={payForm.account} options={[{ value: '', label: '— None —' }, ...accounts.map((a) => ({ value: a.id, label: a.name }))]} onChange={(e) => setPayForm((f) => ({ ...f, account: e.target.value }))} />
+          )}
+          <p className="text-xs text-slate-500 font-medium">This will record an expense transaction and save a recurring template for quick re-use.</p>
+        </div>
+        <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+          <div className="flex gap-3">
+            <Button variant="secondary" className="flex-1" onClick={handleSkipPayment} disabled={paying}>Skip</Button>
+            <Button className="flex-1 shadow-sm" onClick={handleRecordPayment} disabled={paying || !payForm.amount}>
+              {paying ? 'Recording…' : 'Record Payment'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal open={open} onClose={closeModal} title={editingId ? 'Edit Bill' : 'Add Recurring Bill'}>
         <div className="space-y-5 pb-4">

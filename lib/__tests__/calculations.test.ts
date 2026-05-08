@@ -8,8 +8,9 @@ import {
   calcGoalProgress,
   applyExpenseBalance, applyIncomeBalance, applyTransferFromBalance, applyTransferToBalance,
   reverseExpenseBalance, reverseIncomeBalance, reverseTransferFromBalance, reverseTransferToBalance,
+  billToTransactionDefaults,
 } from '@/lib/calculations';
-import type { Account, Transaction } from '@/types';
+import type { Account, Transaction, Bill } from '@/types';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -455,5 +456,72 @@ describe('reverseTransferToBalance', () => {
     // This is a known limitation when the original payment was clamped by Math.max(0,...).
     const result = reverseTransferToBalance(0, 100, true);
     expect(result).toBe(100); // documents actual behavior (not ideal, but expected)
+  });
+});
+
+// ── billToTransactionDefaults ─────────────────────────────────────────────────
+
+function makeBill(overrides: Partial<Bill> = {}): Bill {
+  return {
+    id: 'bill_1', name: 'Netflix', amount: 15.99,
+    frequency: 'monthly', nextDue: '2026-06-01',
+    account: 'acc_1', category: 'Bills', isActive: true,
+    ...overrides,
+  };
+}
+
+describe('billToTransactionDefaults', () => {
+  it('maps bill fields to transaction defaults correctly', () => {
+    const result = billToTransactionDefaults(makeBill(), '2026-05-08');
+    expect(result).toEqual({
+      date: '2026-05-08',
+      description: 'Netflix',
+      amount: 15.99,
+      type: 'expense',
+      category: 'Bills',
+      account: 'acc_1',
+    });
+  });
+
+  it('type is always expense regardless of bill category', () => {
+    const result = billToTransactionDefaults(makeBill({ category: 'Transportation' }), '2026-05-08');
+    expect(result.type).toBe('expense');
+  });
+
+  it('uses the provided date, not the bill nextDue', () => {
+    const result = billToTransactionDefaults(makeBill({ nextDue: '2026-06-15' }), '2026-05-08');
+    expect(result.date).toBe('2026-05-08');
+  });
+
+  it('missing account falls back to empty string', () => {
+    const result = billToTransactionDefaults(makeBill({ account: '' }), '2026-05-08');
+    expect(result.account).toBe('');
+  });
+
+  it('undefined account falls back to empty string', () => {
+    const bill = makeBill();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (bill as any).account = undefined;
+    const result = billToTransactionDefaults(bill, '2026-05-08');
+    expect(result.account).toBe('');
+  });
+
+  it('preserves bill name as description', () => {
+    const result = billToTransactionDefaults(makeBill({ name: 'Rent Payment' }), '2026-05-08');
+    expect(result.description).toBe('Rent Payment');
+  });
+
+  it('preserves bill amount exactly', () => {
+    const result = billToTransactionDefaults(makeBill({ amount: 1234.56 }), '2026-05-08');
+    expect(result.amount).toBe(1234.56);
+  });
+
+  it('works for all bill frequencies (amount is frequency-agnostic)', () => {
+    const frequencies: Bill['frequency'][] = ['weekly', 'biweekly', 'monthly', 'quarterly', 'yearly'];
+    for (const frequency of frequencies) {
+      const result = billToTransactionDefaults(makeBill({ frequency, amount: 50 }), '2026-05-08');
+      expect(result.amount).toBe(50);
+      expect(result.type).toBe('expense');
+    }
   });
 });

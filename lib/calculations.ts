@@ -1,4 +1,4 @@
-import type { Account, Transaction } from '@/types';
+import type { Account, Transaction, Bill } from '@/types';
 
 // ── Net Worth ─────────────────────────────────────────────────────────────────
 
@@ -160,4 +160,17 @@ export function reverseTransferFromBalance(balance: number, amount: number): num
 
 export function reverseTransferToBalance(balance: number, amount: number, isDebt: boolean): number {
   return isDebt ? balance + amount : balance - amount;
+}
+
+// ── Bill helpers ──────────────────────────────────────────────────────────────
+
+export function billToTransactionDefaults(bill: Bill, date: string): Omit<Transaction, 'id'> {
+  return {
+    date,
+    description: bill.name,
+    amount: bill.amount,
+    type: 'expense',
+    category: bill.category,
+    account: bill.account ?? '',
+  };
 }
