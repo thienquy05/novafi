@@ -30,9 +30,10 @@ export async function POST(req: NextRequest) {
   if (body.type === 'expense') {
     const account = accounts.find((a) => a.id === body.account);
     if (account) {
+      const isDebt = account.type === 'credit' || account.type === 'loan';
       await upsertAccount(session.accessToken, session.spreadsheetId, {
         ...account,
-        balance: account.balance - body.amount,
+        balance: isDebt ? account.balance + body.amount : account.balance - body.amount,
       });
     }
   } else if (body.type === 'income') {
@@ -84,7 +85,10 @@ export async function PUT(req: NextRequest) {
   // Reverse original balance effects
   if (original.type === 'expense') {
     const acc = findAcc(original.account);
-    if (acc) await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: acc.balance + original.amount });
+    if (acc) {
+      const isDebt = acc.type === 'credit' || acc.type === 'loan';
+      await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: isDebt ? acc.balance - original.amount : acc.balance + original.amount });
+    }
   } else if (original.type === 'income') {
     const acc = findAcc(original.account);
     if (acc) await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: acc.balance - original.amount });
@@ -108,7 +112,10 @@ export async function PUT(req: NextRequest) {
   // Apply new balance effects
   if (updated.type === 'expense') {
     const acc = findFresh(updated.account);
-    if (acc) await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: acc.balance - updated.amount });
+    if (acc) {
+      const isDebt = acc.type === 'credit' || acc.type === 'loan';
+      await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: isDebt ? acc.balance + updated.amount : acc.balance - updated.amount });
+    }
   } else if (updated.type === 'income') {
     const acc = findFresh(updated.account);
     if (acc) await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: acc.balance + updated.amount });
@@ -146,7 +153,10 @@ export async function DELETE(req: NextRequest) {
     const findAcc = (accId: string) => accounts.find((a) => a.id === accId);
     if (tx.type === 'expense') {
       const acc = findAcc(tx.account);
-      if (acc) await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: acc.balance + tx.amount });
+      if (acc) {
+        const isDebt = acc.type === 'credit' || acc.type === 'loan';
+        await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: isDebt ? acc.balance - tx.amount : acc.balance + tx.amount });
+      }
     } else if (tx.type === 'income') {
       const acc = findAcc(tx.account);
       if (acc) await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: acc.balance - tx.amount });

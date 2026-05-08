@@ -670,6 +670,25 @@ Redesigned `MobileNav` in `components/Sidebar.tsx`:
 
 ---
 
+## Credit Card Expense Formula Fix — May 8, 2026
+
+### Problem
+Expense transactions on credit/loan accounts were reducing the owed balance instead of increasing it. The code applied `balance - amount` for all account types, which is correct for checking/savings (draw down funds) but wrong for credit/loan (spending increases what you owe).
+
+### Root cause
+`app/api/transactions/route.ts` — three handlers (POST, PUT, DELETE) treated all account types identically for expense transactions.
+
+### Fix
+Added `isDebt = account.type === 'credit' || account.type === 'loan'` check in all four expense-related balance mutations:
+- **POST create expense**: `isDebt ? balance + amount : balance - amount`
+- **PUT reverse original expense**: `isDebt ? balance - amount : balance + amount`
+- **PUT apply new expense**: `isDebt ? balance + amount : balance - amount`
+- **DELETE reverse expense**: `isDebt ? balance - amount : balance + amount`
+
+Transfer (payoff) logic was already correct — only expense handling was wrong.
+
+---
+
 ## Potential Future Enhancements
 | Priority | Task |
 |----------|------|
