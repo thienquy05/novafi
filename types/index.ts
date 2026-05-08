@@ -13,6 +13,7 @@ export interface TaxSettings {
   ficaSsWageBase: number;
   ficaMedicareRate: number;
   useFederalBrackets: boolean; // when true, uses 2026 IRS progressive brackets instead of federalRate
+  excludeLoansFromNetWorth: boolean; // when true, loan balances are excluded from net worth headline
   customExpenseCategories: string[];
   customIncomeCategories: string[];
   hiddenExpenseCategories: string[];
@@ -46,6 +47,7 @@ export interface PaycheckEntry {
   hsa: number;
   netAmount: number;
   notes: string;
+  gratuityAmount: number;
 }
 
 export interface Transaction {

@@ -47,6 +47,7 @@ export async function getSettings(
     ficaSsWageBase: Number(get('fica_ss_wage_base', '176100')),
     ficaMedicareRate: Number(get('fica_medicare_rate', '1.45')),
     useFederalBrackets: get('use_federal_brackets', 'false') === 'true',
+    excludeLoansFromNetWorth: get('exclude_loans_from_networth', 'false') === 'true',
     customExpenseCategories: get('custom_expense_categories', '').split('|').filter(Boolean),
     customIncomeCategories: get('custom_income_categories', '').split('|').filter(Boolean),
     hiddenExpenseCategories: get('hidden_expense_categories', '').split('|').filter(Boolean),
@@ -73,6 +74,7 @@ export async function saveSettings(
     ['fica_ss_wage_base', String(settings.ficaSsWageBase)],
     ['fica_medicare_rate', String(settings.ficaMedicareRate)],
     ['use_federal_brackets', settings.useFederalBrackets ? 'true' : 'false'],
+    ['exclude_loans_from_networth', settings.excludeLoansFromNetWorth ? 'true' : 'false'],
     ['custom_expense_categories', (settings.customExpenseCategories ?? []).join('|')],
     ['custom_income_categories', (settings.customIncomeCategories ?? []).join('|')],
     ['hidden_expense_categories', (settings.hiddenExpenseCategories ?? []).join('|')],
@@ -95,7 +97,7 @@ export async function getPaychecks(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Paychecks!A2:J1000',
+    range: 'Paychecks!A2:K1000',
   });
   return (res.data.values ?? []).map(rowToPaycheck);
 }
@@ -112,6 +114,7 @@ function rowToPaycheck(r: string[]): PaycheckEntry {
     hsa: Number(r[7] ?? 0),
     netAmount: Number(r[8] ?? 0),
     notes: r[9] ?? '',
+    gratuityAmount: Number(r[10] ?? 0),
   };
 }
 
@@ -138,6 +141,7 @@ export async function addPaycheck(
         entry.hsa,
         entry.netAmount,
         entry.notes,
+        entry.gratuityAmount ?? 0,
       ]],
     },
   });
@@ -148,7 +152,7 @@ export async function deletePaycheck(
   spreadsheetId: string,
   id: string
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Paychecks', id, 'J');
+  await deleteRowById(accessToken, spreadsheetId, 'Paychecks', id, 'K');
 }
 
 // ── Transactions ──────────────────────────────────────────────────────────────
@@ -614,7 +618,7 @@ export async function batchGetDashboardData(
 }> {
   const sheets = getSheetsClient(accessToken);
   const ranges = [
-    'Paychecks!A2:J1000',
+    'Paychecks!A2:K1000',
     'Transactions!A2:H1000',
     'Accounts!A2:H200',
     'Bills!A2:H200',
@@ -635,6 +639,7 @@ export async function batchGetDashboardData(
     hsa: Number(r[7] ?? 0),
     netAmount: Number(r[8] ?? 0),
     notes: r[9] ?? '',
+    gratuityAmount: Number(r[10] ?? 0),
   }));
   const transactions: Transaction[] = (vr[1]?.values ?? []).map((r) => ({
     id: r[0] ?? '',

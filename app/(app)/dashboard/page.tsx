@@ -1,5 +1,5 @@
 import { auth } from '@/lib/auth';
-import { batchGetDashboardData, getNetWorthHistory, appendNetWorthSnapshot } from '@/lib/sheets';
+import { batchGetDashboardData, getNetWorthHistory, appendNetWorthSnapshot, getSettings } from '@/lib/sheets';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { TrendingUp, TrendingDown, DollarSign, Calendar, PiggyBank, ArrowUpRight, Wallet, BarChart3, ArrowLeftRight } from 'lucide-react';
@@ -26,7 +26,8 @@ export default async function DashboardPage() {
   const dashKey = `dashboard:${session.spreadsheetId}`;
   const nwhKey  = `nwh:${session.spreadsheetId}`;
 
-  const [dashData, netWorthHistory] = await Promise.all([
+  const settingsKey = `settings:${session.spreadsheetId}`;
+  const [dashData, netWorthHistory, settings] = await Promise.all([
     (async () => {
       const cached = getCache<Awaited<ReturnType<typeof batchGetDashboardData>>>(dashKey);
       if (cached) return cached;
@@ -39,6 +40,13 @@ export default async function DashboardPage() {
       if (cached) return cached;
       const fresh = await getNetWorthHistory(session.accessToken, session.spreadsheetId);
       setCache(nwhKey, fresh, 45_000);
+      return fresh;
+    })(),
+    (async () => {
+      const cached = getCache<Awaited<ReturnType<typeof getSettings>>>(settingsKey);
+      if (cached) return cached;
+      const fresh = await getSettings(session.accessToken, session.spreadsheetId);
+      setCache(settingsKey, fresh, 45_000);
       return fresh;
     })(),
   ]);
@@ -66,11 +74,17 @@ export default async function DashboardPage() {
   const daysLeft = daysInMonth - daysElapsed;
 
   // Net worth
-  const netWorth = accounts.reduce((sum, a) => {
+  const traditionalNetWorth = accounts.reduce((sum, a) => {
     return sum + (a.type === 'credit' || a.type === 'loan' ? -a.balance : a.balance);
   }, 0);
+  const liquidNetWorth = accounts.reduce((sum, a) => {
+    return sum + (a.type === 'credit' ? -a.balance : a.type === 'loan' ? 0 : a.balance);
+  }, 0);
+  const excludeLoans = settings.excludeLoansFromNetWorth;
+  const netWorth = excludeLoans ? liquidNetWorth : traditionalNetWorth;
   const totalAssets = accounts.filter((a) => a.type !== 'credit' && a.type !== 'loan').reduce((s, a) => s + a.balance, 0);
   const totalDebt = accounts.filter((a) => (a.type === 'credit' || a.type === 'loan') && a.balance > 0).reduce((s, a) => s + a.balance, 0);
+  const totalLoanDebt = accounts.filter((a) => a.type === 'loan' && a.balance > 0).reduce((s, a) => s + a.balance, 0);
   const totalSaved = accounts.filter((a) => a.type === 'savings').reduce((s, a) => s + a.balance, 0);
 
   // Net worth snapshot
@@ -212,7 +226,7 @@ export default async function DashboardPage() {
 
   const stats = [
     {
-      label: 'Net Worth',
+      label: excludeLoans ? 'Liquid Net Worth' : 'Net Worth',
       value: formatCurrency(netWorth),
       icon: Wallet,
       color: netWorth >= 0 ? 'text-emerald-600' : 'text-rose-600',
@@ -220,6 +234,7 @@ export default async function DashboardPage() {
       border: netWorth >= 0 ? 'border-emerald-100' : 'border-rose-100',
       delta: netWorthDelta,
       positiveIsGood: true,
+      annotation: excludeLoans && totalLoanDebt > 0 ? `Loans excl. · see Liabilities` : null,
     },
     {
       label: 'Month Income',
@@ -230,6 +245,7 @@ export default async function DashboardPage() {
       border: 'border-emerald-100',
       delta: incomeDelta,
       positiveIsGood: true,
+      annotation: null,
     },
     {
       label: 'Month Spending',
@@ -240,6 +256,7 @@ export default async function DashboardPage() {
       border: 'border-rose-100',
       delta: spendingDelta,
       positiveIsGood: false,
+      annotation: null,
     },
     {
       label: 'Safe to Spend',
@@ -250,6 +267,7 @@ export default async function DashboardPage() {
       border: safeToSpend > 0 ? 'border-indigo-100' : 'border-rose-100',
       delta: null,
       positiveIsGood: true,
+      annotation: null,
     },
   ];
 
@@ -282,7 +300,7 @@ export default async function DashboardPage() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
-        {stats.map(({ label, value, icon: Icon, color, bg, border, delta, positiveIsGood }) => (
+        {stats.map(({ label, value, icon: Icon, color, bg, border, delta, positiveIsGood, annotation }) => (
           <Card key={label} className={`border ${border} hover:border-slate-300`}>
             <div className="flex items-center gap-3 mb-3">
               <div className={`p-2.5 rounded-xl ${bg}`}>
@@ -298,6 +316,9 @@ export default async function DashboardPage() {
                 {delta > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
                 {Math.abs(delta).toFixed(0)}% vs last mo
               </p>
+            )}
+            {annotation && (
+              <p className="text-xs font-medium text-slate-400 mt-1.5">{annotation}</p>
             )}
           </Card>
         ))}
