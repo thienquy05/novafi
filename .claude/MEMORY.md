@@ -689,6 +689,52 @@ Transfer (payoff) logic was already correct — only expense handling was wrong.
 
 ---
 
+## Liquid Net Worth Toggle — May 7, 2026
+
+### Problem
+Two large loan accounts made the dashboard net worth headline permanently negative, which was psychologically misleading. Safe to spend was already loan-independent (no change needed there).
+
+### Solution
+- `types/index.ts` — Added `excludeLoansFromNetWorth: boolean` to `TaxSettings`
+- `lib/utils.ts` — Added `excludeLoansFromNetWorth: false` to `DEFAULT_TAX_SETTINGS`
+- `lib/sheets.ts` — `getSettings` parses `exclude_loans_from_networth` key; `saveSettings` serializes it
+- `app/(app)/settings/page.tsx` — Added "Dashboard Preferences" card (first card) with a toggle: "Show Liquid Net Worth"
+- `app/(app)/dashboard/page.tsx` — Fetches settings via `getSettings` (cached 45s); computes both `traditionalNetWorth` (assets − credit − loans) and `liquidNetWorth` (assets − credit only); uses the appropriate one based on `excludeLoansFromNetWorth`; card title becomes "Liquid Net Worth" when on; annotation "Loans excl. · see Liabilities" shown when toggle is on and loan debt > 0
+
+### Key formulas
+- Traditional: `sum + (credit|loan ? -balance : balance)`
+- Liquid: `sum + (credit ? -balance : loan ? 0 : balance)`
+
+---
+
+## Gratuity (Non-Taxable Income) in Paycheck Flow — May 7, 2026
+
+### Problem
+No way to log tips/gratuity income that is non-taxable. User wanted it integrated into the paycheck form, not as a separate flow.
+
+### Solution
+- `types/index.ts` — Added `gratuityAmount: number` to `PaycheckEntry`
+- `lib/sheets.ts`:
+  - `getPaychecks` range updated `J1000` → `K1000`
+  - `rowToPaycheck` parses `r[10]` as `gratuityAmount` (defaults 0 for old rows)
+  - `addPaycheck` writes `gratuityAmount` to column K
+  - `deletePaycheck` last column updated `'J'` → `'K'`
+  - `batchGetDashboardData` range updated `J1000` → `K1000`; inline mapper adds `gratuityAmount: Number(r[10] ?? 0)`
+- `app/api/paychecks/route.ts` — No changes needed; body passes through as `PaycheckEntry`
+- `app/(app)/paychecks/page.tsx`:
+  - `EMPTY_FORM` — added `gratuityAmount: ''`
+  - `handleSave` — reads gratuity, includes in `PaycheckEntry`, adds it to income transaction amount (`netPaycheck + gratuity`)
+  - YTD summary changed from 3-card (`grid-cols-1 md:grid-cols-3`) to 4-card (`grid-cols-2 md:grid-cols-4`); added YTD Gratuity (sky-600)
+  - Modal form — added "Gratuity (optional, non-taxable)" input below gross amount; label on gross updated to "Gross Amount (taxable)"
+  - Preview breakdown — when gratuity > 0: shows "Net Paycheck", "+ Gratuity (non-taxable)", "= Total Take-Home"; without gratuity: unchanged "Net Take-Home" line
+  - Paycheck list rows — shows "Gratuity" column when `gratuityAmount > 0`; label changes from "Net" → "Total"; value shows `netAmount + gratuityAmount`
+
+### Formula
+`incomeTransaction.amount = netPaycheck + gratuityAmount`
+Tax calculated only on `grossAmount` (taxable); gratuity bypasses `calcPaycheckTax` entirely.
+
+---
+
 ## Potential Future Enhancements
 | Priority | Task |
 |----------|------|
