@@ -661,8 +661,10 @@ export function GoalsSummary({ data }: { data: GoalData[] }) {
   return (
     <div className="space-y-4">
       {data.slice(0, 3).map((g, i) => {
-        const pct = g.target > 0 ? Math.min(100, (g.current / g.target) * 100) : 0;
+        const rawPct = g.target > 0 ? (g.current / g.target) * 100 : 0;
+        const pct = Math.max(-100, Math.min(100, rawPct));
         const achieved = g.current >= g.target;
+        const negative = g.current < 0;
 
         // On-track projection based on deadline
         const now = new Date();
@@ -688,21 +690,31 @@ export function GoalsSummary({ data }: { data: GoalData[] }) {
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-sm font-bold text-slate-900 truncate">{g.name}</span>
-                <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg shrink-0 ml-2 ${achieved ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}`}>
+                <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg shrink-0 ml-2 ${achieved ? 'bg-emerald-100 text-emerald-700' : negative ? 'bg-rose-100 text-rose-700' : 'bg-indigo-100 text-indigo-700'}`}>
                   {pct.toFixed(0)}%
                 </span>
               </div>
-              <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${pct}%` }}
-                  transition={{ duration: 1, ease: 'easeOut' }}
-                  className={`h-full rounded-full ${achieved ? 'bg-emerald-500' : 'bg-indigo-500'}`}
-                />
+              <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden relative">
+                {negative ? (
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${Math.min(100, Math.abs(pct))}%` }}
+                    transition={{ duration: 1, ease: 'easeOut' }}
+                    className="absolute right-0 top-0 h-full rounded-full bg-rose-500"
+                    aria-label="Deficit"
+                  />
+                ) : (
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${Math.max(0, pct)}%` }}
+                    transition={{ duration: 1, ease: 'easeOut' }}
+                    className={`h-full rounded-full ${achieved ? 'bg-emerald-500' : 'bg-indigo-500'}`}
+                  />
+                )}
               </div>
               <div className="flex items-center justify-between mt-1.5">
                 <p className="text-xs font-bold text-slate-500">
-                  <span className="text-slate-700">{formatCurrency(g.current)}</span> / {formatCurrency(g.target)}
+                  <span className={negative ? 'text-rose-600' : 'text-slate-700'}>{formatCurrency(g.current)}</span> / {formatCurrency(g.target)}
                 </p>
                 {monthlyNeeded && !achieved && (
                   <p className="text-xs font-bold text-slate-400">{formatCurrency(monthlyNeeded)}/mo needed</p>

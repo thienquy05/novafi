@@ -441,7 +441,9 @@ export default function PlanningPage() {
                     ? accounts.find((a) => a.id === goal.linkedAccountId)
                     : null;
                   const current = linked ? linked.balance : goal.currentAmount;
-                  const pct = goal.targetAmount > 0 ? Math.min(100, (current / goal.targetAmount) * 100) : 0;
+                  // Raw % can go negative when a linked account is overdrawn — keep the sign for display.
+                  const rawPct = goal.targetAmount > 0 ? (current / goal.targetAmount) * 100 : 0;
+                  const pct = Math.max(-100, Math.min(100, rawPct));
                   const remaining = goal.targetAmount - current;
                   const achieved = current >= goal.targetAmount;
                   const daysToDeadline = goal.deadline
@@ -748,21 +750,30 @@ function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadl
           </div>
         </div>
 
-        <div className="w-full bg-slate-100 rounded-full h-2.5 mb-2 overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-700 ${achieved ? 'bg-emerald-500' : 'bg-indigo-500'}`}
-            style={{ width: `${pct}%` }}
-          />
+        <div className="w-full bg-slate-100 rounded-full h-2.5 mb-2 overflow-hidden relative">
+          {current < 0 ? (
+            // Inverted red bar: anchored to the right, width proportional to how far below zero.
+            <div
+              className="absolute right-0 top-0 h-full rounded-full transition-all duration-700 bg-rose-500"
+              style={{ width: `${Math.min(100, Math.abs(pct))}%` }}
+              aria-label="Deficit"
+            />
+          ) : (
+            <div
+              className={`h-full rounded-full transition-all duration-700 ${achieved ? 'bg-emerald-500' : 'bg-indigo-500'}`}
+              style={{ width: `${Math.max(0, pct)}%` }}
+            />
+          )}
         </div>
 
         <div className="flex items-center justify-between">
           <div className="flex items-baseline gap-1.5">
-            <span className={`text-base font-extrabold ${achieved ? 'text-emerald-600' : 'text-slate-900'}`}>
+            <span className={`text-base font-extrabold ${achieved ? 'text-emerald-600' : current < 0 ? 'text-rose-600' : 'text-slate-900'}`}>
               {formatCurrency(current)}
             </span>
             <span className="text-xs font-bold text-slate-400">/ {formatCurrency(goal.targetAmount)}</span>
           </div>
-          <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg ${achieved ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-50 text-indigo-700'}`}>
+          <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg ${achieved ? 'bg-emerald-100 text-emerald-700' : current < 0 ? 'bg-rose-50 text-rose-700' : 'bg-indigo-50 text-indigo-700'}`}>
             {pct.toFixed(0)}%
           </span>
         </div>
