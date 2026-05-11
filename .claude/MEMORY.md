@@ -80,6 +80,21 @@ Replaces the unflattering `-$0.00` red display on credit/loan cards with a celeb
 
 ---
 
+## 2026-05-11 — Negative sign wrapping fix (PR: claude/negative-sign-flex)
+
+The `-` of a `-$X.XX` amount was wrapping onto its own line when summary cards / table cells became too narrow (the user's screenshots show this on the transactions Net card and on the reports monthly Saved column). Fix uses **`FitText`** + `min-w-0` + `whitespace-nowrap` so the amount stays on one line and auto-shrinks within the container.
+
+### Strategy
+- **Cards (transactions, reports, bills summary)** — swap fixed `text-xl`/`text-2xl` `<p>` for `<FitText>` which sets `whitespace-nowrap` + `overflow-hidden` and binary-shrinks font down to `minSize` to fit. Adds `min-w-0` on parent so flex/grid items can shrink below content width.
+- **Tables (reports monthly breakdown)** — add `whitespace-nowrap` to each numeric `<td>`; the outer `overflow-x-auto` already provides horizontal scroll fallback.
+
+### Files
+- `app/(app)/transactions/page.tsx` — Income/Spending/Net summary cards now use `FitText`; imported `FitText`
+- `app/(app)/reports/page.tsx` — 4-card year summary uses `FitText`; monthly breakdown table cells get `whitespace-nowrap`; imported `FitText`
+- `app/(app)/bills/page.tsx` — 3-card Monthly/Active/Overdue summary uses `FitText`; imported `FitText`
+
+---
+
 ## (Legacy) Last Updated: May 6, 2026
 
 ### Stack

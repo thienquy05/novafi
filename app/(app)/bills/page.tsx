@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { BillsSkeleton } from '@/components/ui/Skeleton';
+import { FitText } from '@/components/ui/FitText';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
 import { billToTransactionDefaults } from '@/lib/calculations';
 import type { Bill, Account, PaycheckEntry, Transaction } from '@/types';
@@ -494,11 +495,17 @@ export default function BillsPage() {
       </div>
 
       <div className="grid grid-cols-3 gap-3">
-        <Card className="p-4 sm:p-5"><p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Monthly</p><p className="text-xl md:text-2xl font-extrabold text-slate-900 mt-1.5 tracking-tight">{formatCurrency(monthlyTotal)}</p></Card>
-        <Card className="p-4 sm:p-5"><p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Active</p><p className="text-xl md:text-2xl font-extrabold text-indigo-600 mt-1.5 tracking-tight">{activeBills.length}</p></Card>
-        <Card className={`p-4 sm:p-5 ${overdueBills.length > 0 ? 'border-rose-200' : upcomingCount > 0 ? 'border-amber-200' : ''}`}>
+        <Card className="p-4 sm:p-5 min-w-0">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Monthly</p>
+          <FitText maxSize={24} minSize={13} className="font-extrabold text-slate-900 mt-1.5">{formatCurrency(monthlyTotal)}</FitText>
+        </Card>
+        <Card className="p-4 sm:p-5 min-w-0">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Active</p>
+          <FitText maxSize={24} minSize={13} className="font-extrabold text-indigo-600 mt-1.5">{String(activeBills.length)}</FitText>
+        </Card>
+        <Card className={`p-4 sm:p-5 min-w-0 ${overdueBills.length > 0 ? 'border-rose-200' : upcomingCount > 0 ? 'border-amber-200' : ''}`}>
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{overdueBills.length > 0 ? 'Overdue' : 'Due Soon'}</p>
-          <p className={`text-xl md:text-2xl font-extrabold mt-1.5 tracking-tight ${overdueBills.length > 0 ? 'text-rose-600' : upcomingCount > 0 ? 'text-amber-600' : 'text-slate-400'}`}>{overdueBills.length > 0 ? overdueBills.length : upcomingCount}</p>
+          <FitText maxSize={24} minSize={13} className={`font-extrabold mt-1.5 ${overdueBills.length > 0 ? 'text-rose-600' : upcomingCount > 0 ? 'text-amber-600' : 'text-slate-400'}`}>{String(overdueBills.length > 0 ? overdueBills.length : upcomingCount)}</FitText>
         </Card>
       </div>
 
