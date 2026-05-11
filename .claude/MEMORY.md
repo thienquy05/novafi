@@ -6,7 +6,27 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ## Current Version — NovaFi Web App (Next.js + Google Sheets)
 
-**Last Updated:** May 6, 2026
+**Last Updated:** May 11, 2026
+
+---
+
+## 2026-05-11 — Paid-off credit card celebration (PR: claude/credit-card-paid-off)
+
+Replaces the unflattering `-$0.00` red display on credit/loan cards with a celebratory paid-off badge.
+
+### Behavior
+- `balance < 0` — still shows green `+$X (credit)` (unchanged)
+- `balance === 0` — **NEW** `<PaidOffBadge>`: emerald `$0.00` in `font-black` with checkmark, brief one-shot confetti burst (14 particles, deterministic trajectories), session-storage gated per-account so it doesn't replay on every list refresh
+- `balance > 0` — still shows red `-$X owed` (unchanged)
+
+### Files
+- `app/(app)/accounts/page.tsx`
+  - new branch in display logic (line ~226): `balance === 0` → `<PaidOffBadge accountId={...} />`
+  - imports: `useRef`, `useMemo`, `motion`, `AnimatePresence`
+  - **new local component `PaidOffBadge`** at bottom of file:
+    - spring-scale entry on the `$0.00` text
+    - confetti particles use deterministic `(i*7)%14` jitter + `(i%4)*0.08` duration variance (pure during render — passes `react-hooks/purity` lint)
+    - `sessionStorage` key `paidoff-confetti:${accountId}` ensures one burst per account per browser session
 
 ### Stack
 | Package | Purpose |
