@@ -1,6 +1,7 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Plus, Trash2, CreditCard, Landmark, PiggyBank, TrendingUp, Pencil, CheckCircle2, RefreshCw, AlertCircle } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -224,6 +225,8 @@ export default function AccountsPage() {
                             {type === 'credit' || type === 'loan' ? (
                               account.balance < 0 ? (
                                 <><p className="text-lg font-extrabold text-emerald-600">+{formatCurrency(Math.abs(account.balance))}</p><p className="text-xs font-bold text-emerald-500">credit (bank owes you)</p></>
+                              ) : account.balance === 0 ? (
+                                <PaidOffBadge accountId={account.id} />
                               ) : (
                                 <><p className="text-lg font-extrabold text-rose-600">-{formatCurrency(account.balance)}</p><p className="text-xs font-bold text-slate-400">owed</p></>
                               )
@@ -270,6 +273,83 @@ export default function AccountsPage() {
           </div>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+// ── Paid-off credit card celebration badge ───────────────────────────────────
+//
+// Shown when a credit/loan account's balance reaches exactly zero.
+// Replaces the previous "-$0.00" treatment with a celebratory $0.00 badge:
+//   • emerald-600 colour + check icon
+//   • brief confetti burst on first appearance (per session, per account)
+//   • subtle pulse + scale-in entry
+
+const CONFETTI_COLORS = ['#10b981', '#34d399', '#6ee7b7', '#fbbf24', '#f472b6', '#60a5fa'];
+
+function PaidOffBadge({ accountId }: { accountId: string }) {
+  // Confetti fires once per account per session (sessionStorage gate) so the
+  // animation doesn't replay on every re-render or list refresh.
+  const sessionKey = `paidoff-confetti:${accountId}`;
+  const fireRef = useRef<boolean>(false);
+  const [showConfetti, setShowConfetti] = useState(false);
+
+  // Pre-compute particle trajectories so the values stay stable across re-renders.
+  const particles = useMemo(() => {
+    const count = 14;
+    return Array.from({ length: count }, (_, i) => {
+      const angle = (i / count) * Math.PI * 2;
+      const distance = 36 + ((i * 7) % 14); // deterministic jitter
+      return {
+        dx: Math.cos(angle) * distance,
+        dy: Math.sin(angle) * distance,
+        duration: 0.9 + ((i % 4) * 0.08),
+        color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+      };
+    });
+  }, []);
+
+  useEffect(() => {
+    if (fireRef.current) return;
+    fireRef.current = true;
+    if (typeof window === 'undefined') return;
+    if (sessionStorage.getItem(sessionKey)) return;
+    sessionStorage.setItem(sessionKey, '1');
+    setShowConfetti(true);
+    const t = setTimeout(() => setShowConfetti(false), 1400);
+    return () => clearTimeout(t);
+  }, [sessionKey]);
+
+  return (
+    <div className="relative inline-flex flex-col items-end">
+      <motion.p
+        initial={{ scale: 0.7, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ type: 'spring', stiffness: 320, damping: 18 }}
+        className="text-xl font-black text-emerald-600 inline-flex items-center gap-1.5 whitespace-nowrap"
+      >
+        <CheckCircle2 className="w-5 h-5 shrink-0" aria-hidden />
+        $0.00
+      </motion.p>
+      <p className="text-xs font-bold text-emerald-500 mt-0.5">paid off</p>
+
+      <AnimatePresence>
+        {showConfetti && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden>
+            {particles.map((p, i) => (
+              <motion.span
+                key={i}
+                initial={{ x: 0, y: 0, opacity: 1, scale: 0.6 }}
+                animate={{ x: p.dx, y: p.dy, opacity: 0, scale: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: p.duration, ease: 'easeOut' }}
+                className="absolute w-1.5 h-1.5 rounded-full"
+                style={{ backgroundColor: p.color }}
+              />
+            ))}
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
