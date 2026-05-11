@@ -5,7 +5,10 @@ import {
   calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
   calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, pctChange as calcPctChange,
   normalizeMonthlyBudget, calcAvgMonthlyExpense, calcEmergencyFundMonths,
-  calcSavingsRateScore, calcEmergencyScore, calcBudgetScore, calcDebtScore,
+  calcSavingsRateScore, calcEmergencyScore, calcBudgetScore,
+  calcDebtToIncomeScore, calcDebtToIncomeRatio,
+  calcNetWorthTrendScore, calcAvgMomPct,
+  calcSpendingVolatilityScore, calcCoefficientOfVariation,
 } from '@/lib/calculations';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { TrendingUp, TrendingDown, Calendar, PiggyBank, ArrowUpRight, Wallet, BarChart3, ArrowLeftRight } from 'lucide-react';
@@ -15,6 +18,7 @@ import { CategoryIconBadge } from '@/components/CategoryIcon';
 import type { NetWorthPoint } from './DashboardCharts';
 import { getCache, setCache } from '@/lib/cache';
 import { FitText } from '@/components/ui/FitText';
+import { HelpHint } from '@/components/ui/HelpHint';
 
 export const dynamic = 'force-dynamic';
 
@@ -188,13 +192,29 @@ export default async function DashboardPage() {
   const avgMonthlyExpense = calcAvgMonthlyExpense(last3MonthsExpenses);
   const emergencyFundMonths = calcEmergencyFundMonths(liquidSavings, avgMonthlyExpense);
 
-  // Financial health score
-  const debtRatio = totalAssets > 0 ? totalDebt / totalAssets : 0;
+  // Financial health score (6-factor weighted composite, 100 pts total)
+  const last3MonthsIncome = Array.from({ length: 3 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (i + 1), 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    return calcMonthIncome(transactions, key);
+  });
+  const avgMonthlyIncome = calcAvgMonthlyExpense(last3MonthsIncome); // reuse arithmetic mean helper
+  const dti = calcDebtToIncomeRatio(totalDebt, avgMonthlyIncome);
+
+  // Net worth trend: avg MoM % across last up-to-4 snapshots
+  const recentNetWorth = netWorthPoints.slice(-4).map((p) => p.netWorth);
+  const netWorthTrendPct = calcAvgMomPct(recentNetWorth);
+
+  // Spending stability: coefficient of variation of last 3 months' expenses
+  const spendingCv = calcCoefficientOfVariation(last3MonthsExpenses);
+
   const savingsRateScore = calcSavingsRateScore(savingsRate);
   const emergencyScore = calcEmergencyScore(emergencyFundMonths);
   const budgetScore = calcBudgetScore(budgets.length, overBudgetCount);
-  const debtScore = calcDebtScore(debtRatio);
-  const healthScore = savingsRateScore + emergencyScore + budgetScore + debtScore;
+  const dtiScore = calcDebtToIncomeScore(dti);
+  const trendScore = calcNetWorthTrendScore(netWorthTrendPct);
+  const volatilityScore = calcSpendingVolatilityScore(spendingCv);
+  const healthScore = savingsRateScore + emergencyScore + budgetScore + dtiScore + trendScore + volatilityScore;
 
   // Goals summary
   const goalData = goals.map((g) => {
@@ -393,7 +413,17 @@ export default async function DashboardPage() {
           emergencyFundMonths,
           overBudgetCount,
           budgetCount: budgets.length,
-          debtRatio,
+          dti,
+          netWorthTrendPct,
+          spendingCv,
+          breakdown: {
+            savings: savingsRateScore,
+            emergency: emergencyScore,
+            budget: budgetScore,
+            dti: dtiScore,
+            trend: trendScore,
+            volatility: volatilityScore,
+          },
         }} />
       </div>
 
@@ -406,6 +436,25 @@ export default async function DashboardPage() {
                 <BarChart3 className="w-5 h-5 text-indigo-600" />
               </div>
               <CardTitle>Budget Progress</CardTitle>
+              <HelpHint label="What do these badges mean?" align="left">
+                <p className="font-bold mb-2">Reading the badges</p>
+                <ul className="space-y-1.5 list-none">
+                  <li>
+                    <span className="font-bold text-amber-300">~$X overshoot</span> — at your current daily pace,
+                    you&apos;re projected to spend $X over the budget by month-end.
+                  </li>
+                  <li>
+                    <span className="font-bold text-emerald-300">On pace</span> — pace stays inside the cap if today&apos;s rate holds.
+                  </li>
+                  <li>
+                    <span className="font-bold text-rose-300">$X over</span> — you&apos;ve already exceeded the budget this month.
+                  </li>
+                  <li>
+                    <span className="font-bold text-slate-300">+$X vs last mo</span> — month-over-month change in spending.
+                  </li>
+                </ul>
+                <p className="mt-2 text-slate-300">Projection = (spent ÷ days elapsed) × days in month.</p>
+              </HelpHint>
             </div>
             <a href="/planning" className="text-xs font-bold text-indigo-600 hover:text-indigo-500 transition-colors bg-indigo-50 px-3 py-1.5 rounded-lg">Manage</a>
           </CardHeader>

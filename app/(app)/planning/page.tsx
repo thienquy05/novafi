@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap, RefreshCw, AlertCircle, GripVertical } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { HelpHint } from '@/components/ui/HelpHint';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
@@ -314,7 +315,28 @@ export default function PlanningPage() {
           {/* ── BUDGETS ──────────────────────────────────────────────────── */}
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-slate-900">Budgets</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-slate-900">Budgets</h2>
+                <HelpHint label="What do these badges mean?" align="left">
+                  <p className="font-bold mb-2">Reading the badges</p>
+                  <ul className="space-y-1.5 list-none">
+                    <li>
+                      <span className="font-bold text-amber-300">~$X overshoot</span> — at your current daily pace,
+                      you&apos;re projected to spend $X over the budget by month-end.
+                    </li>
+                    <li>
+                      <span className="font-bold text-emerald-300">On pace</span> — pace stays inside the cap if today&apos;s rate holds.
+                    </li>
+                    <li>
+                      <span className="font-bold text-rose-300">$X over</span> — you&apos;ve already exceeded the budget this month.
+                    </li>
+                    <li>
+                      <span className="font-bold text-slate-300">+$X vs last mo</span> — month-over-month change in spending.
+                    </li>
+                  </ul>
+                  <p className="mt-2 text-slate-300">Projection = (spent ÷ days elapsed) × days in month.</p>
+                </HelpHint>
+              </div>
               <Button size="sm" onClick={openAddBudget} className="shadow-sm">
                 <Plus className="w-4 h-4" /> Set Budget
               </Button>
@@ -419,7 +441,9 @@ export default function PlanningPage() {
                     ? accounts.find((a) => a.id === goal.linkedAccountId)
                     : null;
                   const current = linked ? linked.balance : goal.currentAmount;
-                  const pct = goal.targetAmount > 0 ? Math.min(100, (current / goal.targetAmount) * 100) : 0;
+                  // Raw % can go negative when a linked account is overdrawn — keep the sign for display.
+                  const rawPct = goal.targetAmount > 0 ? (current / goal.targetAmount) * 100 : 0;
+                  const pct = Math.max(-100, Math.min(100, rawPct));
                   const remaining = goal.targetAmount - current;
                   const achieved = current >= goal.targetAmount;
                   const daysToDeadline = goal.deadline
@@ -726,21 +750,30 @@ function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadl
           </div>
         </div>
 
-        <div className="w-full bg-slate-100 rounded-full h-2.5 mb-2 overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-700 ${achieved ? 'bg-emerald-500' : 'bg-indigo-500'}`}
-            style={{ width: `${pct}%` }}
-          />
+        <div className="w-full bg-slate-100 rounded-full h-2.5 mb-2 overflow-hidden relative">
+          {current < 0 ? (
+            // Inverted red bar: anchored to the right, width proportional to how far below zero.
+            <div
+              className="absolute right-0 top-0 h-full rounded-full transition-all duration-700 bg-rose-500"
+              style={{ width: `${Math.min(100, Math.abs(pct))}%` }}
+              aria-label="Deficit"
+            />
+          ) : (
+            <div
+              className={`h-full rounded-full transition-all duration-700 ${achieved ? 'bg-emerald-500' : 'bg-indigo-500'}`}
+              style={{ width: `${Math.max(0, pct)}%` }}
+            />
+          )}
         </div>
 
         <div className="flex items-center justify-between">
           <div className="flex items-baseline gap-1.5">
-            <span className={`text-base font-extrabold ${achieved ? 'text-emerald-600' : 'text-slate-900'}`}>
+            <span className={`text-base font-extrabold ${achieved ? 'text-emerald-600' : current < 0 ? 'text-rose-600' : 'text-slate-900'}`}>
               {formatCurrency(current)}
             </span>
             <span className="text-xs font-bold text-slate-400">/ {formatCurrency(goal.targetAmount)}</span>
           </div>
-          <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg ${achieved ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-50 text-indigo-700'}`}>
+          <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg ${achieved ? 'bg-emerald-100 text-emerald-700' : current < 0 ? 'bg-rose-50 text-rose-700' : 'bg-indigo-50 text-indigo-700'}`}>
             {pct.toFixed(0)}%
           </span>
         </div>

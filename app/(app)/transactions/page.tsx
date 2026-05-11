@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { TransactionsSkeleton } from '@/components/ui/Skeleton';
+import { FitText } from '@/components/ui/FitText';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
 import { EXPENSE_CATEGORIES } from '@/types';
 import type { Transaction, Account } from '@/types';
@@ -260,9 +261,18 @@ export default function TransactionsPage() {
       </div>
 
       <div className="grid grid-cols-3 gap-3">
-        <Card className="p-4 sm:p-5"><p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Income</p><p className="text-xl font-extrabold text-emerald-600 mt-1.5 tracking-tight">{formatCurrency(totalIncome)}</p></Card>
-        <Card className="p-4 sm:p-5"><p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Spending</p><p className="text-xl font-extrabold text-rose-600 mt-1.5 tracking-tight">{formatCurrency(totalExpense)}</p></Card>
-        <Card className="p-4 sm:p-5 border-indigo-100"><p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Net</p><p className={`text-xl font-extrabold mt-1.5 tracking-tight ${totalIncome - totalExpense >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(totalIncome - totalExpense)}</p></Card>
+        <Card className="p-4 sm:p-5 min-w-0">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Income</p>
+          <FitText maxSize={20} minSize={12} className="font-extrabold text-emerald-600 mt-1.5">{formatCurrency(totalIncome)}</FitText>
+        </Card>
+        <Card className="p-4 sm:p-5 min-w-0">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Spending</p>
+          <FitText maxSize={20} minSize={12} className="font-extrabold text-rose-600 mt-1.5">{formatCurrency(totalExpense)}</FitText>
+        </Card>
+        <Card className="p-4 sm:p-5 min-w-0 border-indigo-100">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Net</p>
+          <FitText maxSize={20} minSize={12} className={`font-extrabold mt-1.5 ${totalIncome - totalExpense >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(totalIncome - totalExpense)}</FitText>
+        </Card>
       </div>
 
       {/* Filters + view toggle */}

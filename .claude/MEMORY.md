@@ -10,6 +10,142 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-05-11 — Financial Health Score rebuild (PR: claude/health-score-rebuild)
+
+Replaced 4-factor (savings 25 / emergency 25 / budget 25 / debt-to-asset 25) composite with **6-factor weighted** model so a single distorted ratio (e.g. debt/asset 2672% when assets ≈ 0) can no longer sink the entire score.
+
+New weights (total 100):
+
+| Factor | Max | Replaces |
+|---|---|---|
+| Savings Rate | 25 | re-bucketed (8 tiers: 0/4/9/14/18/22/25) |
+| Emergency Fund | 20 | re-bucketed (7 tiers: 0/3/6/9/13/16/20) |
+| Budget Adherence | 15 | now adherence-ratio based, neutral 7 when no budgets |
+| **Debt-to-Income** | 20 | replaces debt-to-asset (totalDebt ÷ avgMonthlyIncome×12) |
+| **Net Worth Trend** | 10 | NEW — avg MoM % across up-to-4 latest snapshots |
+| **Spending Stability** | 10 | NEW — coefficient of variation of last 3-mo expenses |
+
+### Files
+- `lib/calculations.ts`:
+  - Re-bucketed `calcSavingsRateScore`, `calcEmergencyScore`, `calcBudgetScore`
+  - **Added** `calcDebtToIncomeScore`, `calcDebtToIncomeRatio`
+  - **Added** `calcNetWorthTrendScore`, `calcAvgMomPct` (null when <2 snapshots; skips zero-base points)
+  - **Added** `calcSpendingVolatilityScore`, `calcCoefficientOfVariation` (population stddev / mean; null when mean ≤ 0)
+  - Kept legacy `calcDebtScore` (debt-to-asset) marked legacy for back-compat
+  - `calcHealthGrade` thresholds unchanged (85/70/55/40)
+- `app/(app)/dashboard/page.tsx`:
+  - Compute `avgMonthlyIncome` (3-mo mean), `dti`, `netWorthTrendPct` (slices last 4 of `netWorthPoints`), `spendingCv`
+  - Sum 6 component scores into `healthScore`
+  - Pass `dti`, `netWorthTrendPct`, `spendingCv`, `breakdown {...}` to `FinancialHealthScore`
+- `app/(app)/dashboard/DashboardCharts.tsx`:
+  - `HealthScoreData` — removed `debtRatio`; added `dti`, `netWorthTrendPct`, `spendingCv`, `breakdown`
+  - `FinancialHealthScore` — 6 rows; new formatters: `fmtDti` (None/%/×), `fmtTrend` (+/-X%/mo), `fmtCv` (±X%)
+  - Subtitle: "4-factor" → "6-factor composite score"
+- `lib/__tests__/calculations.test.ts` — updated existing score tests for new tier values; added 60+ new tests for the 6 new helpers
+- All 182 tests pass; tsc clean.
+
+---
+
+## 2026-05-11 — Budget overshoot help tooltip (PR: claude/budget-overshoot-help)
+
+Adds a reusable inline help tooltip (`HelpHint`) explaining what each budget badge means. The overshoot math itself was already correct — users were just confused by the terminology.
+
+### Files
+- **NEW** `components/ui/HelpHint.tsx` — click-toggle popover with outside-click and Escape dismissal; framer-motion fade; right/left align; accessible (`aria-label`, `aria-expanded`, role="tooltip")
+- `app/(app)/dashboard/page.tsx` — `<HelpHint>` next to "Budget Progress" CardTitle (align="left")
+- `app/(app)/planning/page.tsx` — same `<HelpHint>` next to "Budgets" section header
+
+### Tooltip contents
+Explains the four badge variants (`~$X overshoot`, `On pace`, `$X over`, `+$X vs last mo`) plus the projection formula: `projection = (spent ÷ days elapsed) × days in month`.
+
+---
+
+## 2026-05-11 — Paid-off credit card celebration (PR: claude/credit-card-paid-off)
+
+Replaces the unflattering `-$0.00` red display on credit/loan cards with a celebratory paid-off badge.
+
+### Behavior
+- `balance < 0` — still shows green `+$X (credit)` (unchanged)
+- `balance === 0` — **NEW** `<PaidOffBadge>`: emerald `$0.00` in `font-black` with checkmark, brief one-shot confetti burst (14 particles, deterministic trajectories), session-storage gated per-account so it doesn't replay on every list refresh
+- `balance > 0` — still shows red `-$X owed` (unchanged)
+
+### Files
+- `app/(app)/accounts/page.tsx`
+  - new branch in display logic (line ~226): `balance === 0` → `<PaidOffBadge accountId={...} />`
+  - imports: `useRef`, `useMemo`, `motion`, `AnimatePresence`
+  - **new local component `PaidOffBadge`** at bottom of file:
+    - spring-scale entry on the `$0.00` text
+    - confetti particles use deterministic `(i*7)%14` jitter + `(i%4)*0.08` duration variance (pure during render — passes `react-hooks/purity` lint)
+    - `sessionStorage` key `paidoff-confetti:${accountId}` ensures one burst per account per browser session
+
+---
+
+## 2026-05-11 — Negative sign wrapping fix (PR: claude/negative-sign-flex)
+
+The `-` of a `-$X.XX` amount was wrapping onto its own line when summary cards / table cells became too narrow (the user's screenshots show this on the transactions Net card and on the reports monthly Saved column). Fix uses **`FitText`** + `min-w-0` + `whitespace-nowrap` so the amount stays on one line and auto-shrinks within the container.
+
+### Strategy
+- **Cards (transactions, reports, bills summary)** — swap fixed `text-xl`/`text-2xl` `<p>` for `<FitText>` which sets `whitespace-nowrap` + `overflow-hidden` and binary-shrinks font down to `minSize` to fit. Adds `min-w-0` on parent so flex/grid items can shrink below content width.
+- **Tables (reports monthly breakdown)** — add `whitespace-nowrap` to each numeric `<td>`; the outer `overflow-x-auto` already provides horizontal scroll fallback.
+
+### Files
+- `app/(app)/transactions/page.tsx` — Income/Spending/Net summary cards now use `FitText`; imported `FitText`
+- `app/(app)/reports/page.tsx` — 4-card year summary uses `FitText`; monthly breakdown table cells get `whitespace-nowrap`; imported `FitText`
+- `app/(app)/bills/page.tsx` — 3-card Monthly/Active/Overdue summary uses `FitText`; imported `FitText`
+
+---
+
+## 2026-05-11 — Inverted red fill for negative savings goal bars (PR: claude/savings-negative-bar)
+
+Savings goals linked to an overdrawn account previously showed a fully-empty (or zero-width) bar — visually identical to a 0% goal — even though the underlying balance was deeply negative. Fix: when `current < 0`, render an **inverted right-anchored rose-500 bar** with width proportional to the deficit (`min(100, |current/target|*100)%`).
+
+### Visual logic
+- `current >= target` (achieved) — full emerald bar, left-to-right (unchanged)
+- `0 ≤ current < target` — partial indigo bar, left-to-right (unchanged)
+- `current < 0` — **NEW** rose bar anchored to RIGHT, width `min(100, |pct|)`, deficit label
+- Percentage badge becomes `bg-rose-50 text-rose-700` when negative
+- Current-amount text becomes `text-rose-600` when negative
+
+### Files
+- `app/(app)/planning/page.tsx`
+  - `goal.map(...)` block: replaced `Math.min(100, ...)` with `Math.max(-100, Math.min(100, ...))` so `pct` keeps its sign
+  - `GoalItem` bar: conditional render, absolute right-anchored rose div for the negative branch
+- `app/(app)/dashboard/DashboardCharts.tsx` — same treatment in `GoalsSummary`; uses framer-motion `motion.div` for animated entry
+- `app/(app)/savings/page.tsx` — same treatment in inline goals grid
+
+---
+
+## 2026-05-11 — Paycheck tips: total-first input flow (PR: claude/paycheck-tips-flow)
+
+Flips the paycheck input semantics so users enter the **total amount they received** (which includes tips), then list the tips separately. Tips are subtracted to derive the taxable wage base — the underlying tax math is unchanged.
+
+### Old flow (deprecated)
+1. User enters `grossAmount` (taxable only)
+2. User enters `gratuityAmount` (non-taxable, added on top)
+3. Display: Net = `(gross - taxes) + tips`
+
+### New flow
+1. User enters `totalAmount` (full check, including tips)
+2. User enters `gratuityAmount` (optional)
+3. `taxableGross = max(0, total - tips)` — fed into `calcPaycheckTax`
+4. Display: Net = `(taxableGross - taxes) + tips` = `total - taxes`
+
+### Data model
+- **No schema changes.** `PaycheckEntry.grossAmount` still stores the taxable portion. Existing YTD wage-base lookups (`paychecks[].grossAmount`) keep working identically.
+- The income transaction amount remains `preview.netPaycheck + gratuity` (mathematically equivalent to `total - taxes`).
+
+### Files
+- `app/(app)/paychecks/page.tsx`
+  - Form field renamed: `grossAmount` → `totalAmount`
+  - `useEffect` preview now computes `taxableGross = max(0, total - tips)` and passes to `calcPaycheckTax`
+  - Input labels: "Gross Amount (taxable)" → "Total Amount (incl. tips)"; "Gratuity" → "Tips / Gratuity"
+  - Added helper text under the tips field
+  - Preview header now shows: Total → less Tips → Taxable Wages → deductions → Net of wages → add Tips → Total Take-Home
+  - List row column "Gross" → "Wages", "Gratuity" → "Tips"
+  - YTD summary card labels: "YTD Gross" → "YTD Taxable Wages", "YTD Gratuity" → "YTD Tips"; "YTD Net (take-home)" now includes tips so the user sees actual cash received
+
+---
+
 ## 2026-05-11 — Menu Order: mobile-only customization (PR: claude/menu-order-mobile)
 
 The desktop version doesn't need menu reordering. The Settings page "Menu Order" card was specifically wired to the desktop sidebar (via `novafi_nav_order` localStorage key); mobile already had its own separate customize sheet inside `MobileNav` (via `novafi_mobile_nav_order`). This PR removes the now-unused desktop machinery so customization is **mobile-only**, accessed via the existing `Customize` sheet at the bottom of the mobile nav.
@@ -26,6 +162,10 @@ The desktop version doesn't need menu reordering. The Settings page "Menu Order"
 
 ### What's preserved
 - **`MobileNav`** in `components/Sidebar.tsx` keeps its `MOBILE_NAV_ORDER_KEY = 'novafi_mobile_nav_order'`, customize sheet, up/down move arrows, and reset button — fully intact.
+
+---
+
+## (Legacy) Last Updated: May 6, 2026
 
 ### Stack
 | Package | Purpose |

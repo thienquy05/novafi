@@ -43,7 +43,21 @@ export type HealthScoreData = {
   emergencyFundMonths: number;
   overBudgetCount: number;
   budgetCount: number;
-  debtRatio: number;
+  /** Debt-to-Income ratio (total debt ÷ annualized monthly income). */
+  dti: number;
+  /** Avg MoM net worth growth % over recent snapshots. null = insufficient history. */
+  netWorthTrendPct: number | null;
+  /** Spending coefficient of variation over the last 3 months. null = insufficient data. */
+  spendingCv: number | null;
+  /** Per-component breakdown so the card can show actual point values. */
+  breakdown: {
+    savings: number;
+    emergency: number;
+    budget: number;
+    dti: number;
+    trend: number;
+    volatility: number;
+  };
 };
 
 function CustomTooltip({ active, payload }: { active?: boolean; payload?: { name: string; value: number }[] }) {
@@ -550,7 +564,10 @@ export function EmergencyFundWidget({
 // ── Financial Health Score ─────────────────────────────────────────────────────
 
 export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
-  const { score, savingsRate, emergencyFundMonths, overBudgetCount, budgetCount, debtRatio } = data;
+  const {
+    score, savingsRate, emergencyFundMonths, overBudgetCount, budgetCount,
+    dti, netWorthTrendPct, spendingCv, breakdown,
+  } = data;
 
   type Grade = 'A' | 'B' | 'C' | 'D' | 'F';
   const grade: Grade = score >= 85 ? 'A' : score >= 70 ? 'B' : score >= 55 ? 'C' : score >= 40 ? 'D' : 'F';
@@ -563,31 +580,27 @@ export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
   };
   const ringColor = score >= 85 ? '#10b981' : score >= 70 ? '#6366f1' : score >= 55 ? '#f59e0b' : score >= 40 ? '#f97316' : '#f43f5e';
 
+  const fmtDti = (r: number) => {
+    if (!isFinite(r)) return 'n/a';
+    if (r === 0) return 'None';
+    if (r >= 10) return `${r.toFixed(1)}×`;
+    return `${(r * 100).toFixed(0)}%`;
+  };
+  const fmtTrend = (p: number | null) => p === null ? 'n/a' : `${p >= 0 ? '+' : ''}${p.toFixed(1)}%/mo`;
+  const fmtCv = (c: number | null) => c === null ? 'n/a' : `±${(c * 100).toFixed(0)}%`;
+
   const components = [
-    {
-      label: 'Savings Rate',
-      detail: `${savingsRate.toFixed(0)}%`,
-      score: Math.round(savingsRate >= 20 ? 25 : savingsRate >= 10 ? 17 : savingsRate >= 5 ? 10 : savingsRate > 0 ? 5 : 0),
-      max: 25,
-    },
-    {
-      label: 'Emergency Fund',
-      detail: `${emergencyFundMonths.toFixed(1)} mo`,
-      score: Math.round(emergencyFundMonths >= 6 ? 25 : emergencyFundMonths >= 3 ? 18 : emergencyFundMonths >= 1 ? 10 : emergencyFundMonths >= 0.5 ? 5 : 0),
-      max: 25,
-    },
+    { label: 'Savings Rate',  detail: `${savingsRate.toFixed(0)}%`, score: breakdown.savings, max: 25 },
+    { label: 'Emergency Fund', detail: `${emergencyFundMonths.toFixed(1)} mo`, score: breakdown.emergency, max: 20 },
     {
       label: 'Budget Control',
       detail: budgetCount === 0 ? 'No budgets' : overBudgetCount === 0 ? 'On track' : `${overBudgetCount} over`,
-      score: budgetCount === 0 ? 12 : Math.max(0, Math.round(25 - overBudgetCount * 6)),
-      max: 25,
+      score: breakdown.budget,
+      max: 15,
     },
-    {
-      label: 'Debt Ratio',
-      detail: `${(debtRatio * 100).toFixed(0)}%`,
-      score: Math.round(debtRatio <= 0.1 ? 25 : debtRatio <= 0.3 ? 20 : debtRatio <= 0.5 ? 15 : debtRatio <= 0.75 ? 10 : 5),
-      max: 25,
-    },
+    { label: 'Debt-to-Income', detail: fmtDti(dti),      score: breakdown.dti,        max: 20 },
+    { label: 'Net Worth Trend', detail: fmtTrend(netWorthTrendPct), score: breakdown.trend, max: 10 },
+    { label: 'Spending Stability', detail: fmtCv(spendingCv), score: breakdown.volatility, max: 10 },
   ];
 
   return (
@@ -595,7 +608,7 @@ export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
       <div className="flex items-center justify-between">
         <div>
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Financial Health</p>
-          <p className="text-slate-500 text-xs font-medium mt-0.5">4-factor composite score</p>
+          <p className="text-slate-500 text-xs font-medium mt-0.5">6-factor composite score</p>
         </div>
         <div className="text-center">
           <div
@@ -648,8 +661,10 @@ export function GoalsSummary({ data }: { data: GoalData[] }) {
   return (
     <div className="space-y-4">
       {data.slice(0, 3).map((g, i) => {
-        const pct = g.target > 0 ? Math.min(100, (g.current / g.target) * 100) : 0;
+        const rawPct = g.target > 0 ? (g.current / g.target) * 100 : 0;
+        const pct = Math.max(-100, Math.min(100, rawPct));
         const achieved = g.current >= g.target;
+        const negative = g.current < 0;
 
         // On-track projection based on deadline
         const now = new Date();
@@ -675,21 +690,31 @@ export function GoalsSummary({ data }: { data: GoalData[] }) {
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-sm font-bold text-slate-900 truncate">{g.name}</span>
-                <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg shrink-0 ml-2 ${achieved ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}`}>
+                <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg shrink-0 ml-2 ${achieved ? 'bg-emerald-100 text-emerald-700' : negative ? 'bg-rose-100 text-rose-700' : 'bg-indigo-100 text-indigo-700'}`}>
                   {pct.toFixed(0)}%
                 </span>
               </div>
-              <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${pct}%` }}
-                  transition={{ duration: 1, ease: 'easeOut' }}
-                  className={`h-full rounded-full ${achieved ? 'bg-emerald-500' : 'bg-indigo-500'}`}
-                />
+              <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden relative">
+                {negative ? (
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${Math.min(100, Math.abs(pct))}%` }}
+                    transition={{ duration: 1, ease: 'easeOut' }}
+                    className="absolute right-0 top-0 h-full rounded-full bg-rose-500"
+                    aria-label="Deficit"
+                  />
+                ) : (
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${Math.max(0, pct)}%` }}
+                    transition={{ duration: 1, ease: 'easeOut' }}
+                    className={`h-full rounded-full ${achieved ? 'bg-emerald-500' : 'bg-indigo-500'}`}
+                  />
+                )}
               </div>
               <div className="flex items-center justify-between mt-1.5">
                 <p className="text-xs font-bold text-slate-500">
-                  <span className="text-slate-700">{formatCurrency(g.current)}</span> / {formatCurrency(g.target)}
+                  <span className={negative ? 'text-rose-600' : 'text-slate-700'}>{formatCurrency(g.current)}</span> / {formatCurrency(g.target)}
                 </p>
                 {monthlyNeeded && !achieved && (
                   <p className="text-xs font-bold text-slate-400">{formatCurrency(monthlyNeeded)}/mo needed</p>
