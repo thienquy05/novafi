@@ -5,6 +5,9 @@ import {
   normalizeMonthlyBudget,
   calcAvgMonthlyExpense, calcEmergencyFundMonths,
   calcSavingsRateScore, calcEmergencyScore, calcBudgetScore, calcDebtScore, calcHealthGrade,
+  calcDebtToIncomeScore, calcDebtToIncomeRatio,
+  calcNetWorthTrendScore, calcAvgMomPct,
+  calcSpendingVolatilityScore, calcCoefficientOfVariation,
   calcGoalProgress,
   applyExpenseBalance, applyIncomeBalance, applyTransferFromBalance, applyTransferToBalance,
   reverseExpenseBalance, reverseIncomeBalance, reverseTransferFromBalance, reverseTransferToBalance,
@@ -300,50 +303,137 @@ describe('calcEmergencyFundMonths', () => {
 // ── Health Score Components ───────────────────────────────────────────────────
 
 describe('calcSavingsRateScore', () => {
-  it('≥20% → 25', () => { expect(calcSavingsRateScore(20)).toBe(25); });
-  it('25% → 25', () => { expect(calcSavingsRateScore(25)).toBe(25); });
-  it('19.9% → 17', () => { expect(calcSavingsRateScore(19.9)).toBe(17); });
-  it('10% → 17', () => { expect(calcSavingsRateScore(10)).toBe(17); });
-  it('9.9% → 10', () => { expect(calcSavingsRateScore(9.9)).toBe(10); });
-  it('5% → 10', () => { expect(calcSavingsRateScore(5)).toBe(10); });
-  it('4.9% → 5', () => { expect(calcSavingsRateScore(4.9)).toBe(5); });
-  it('0.1% → 5', () => { expect(calcSavingsRateScore(0.1)).toBe(5); });
+  it('≥25% → 25 (max)', () => { expect(calcSavingsRateScore(25)).toBe(25); });
+  it('30% → 25', () => { expect(calcSavingsRateScore(30)).toBe(25); });
+  it('20% → 22', () => { expect(calcSavingsRateScore(20)).toBe(22); });
+  it('15% → 18', () => { expect(calcSavingsRateScore(15)).toBe(18); });
+  it('10% → 14', () => { expect(calcSavingsRateScore(10)).toBe(14); });
+  it('5% → 9', () => { expect(calcSavingsRateScore(5)).toBe(9); });
+  it('0.1% → 4', () => { expect(calcSavingsRateScore(0.1)).toBe(4); });
   it('0% → 0', () => { expect(calcSavingsRateScore(0)).toBe(0); });
 });
 
 describe('calcEmergencyScore', () => {
-  it('≥6 months → 25', () => { expect(calcEmergencyScore(6)).toBe(25); });
-  it('10 months → 25', () => { expect(calcEmergencyScore(10)).toBe(25); });
-  it('5.9 months → 18', () => { expect(calcEmergencyScore(5.9)).toBe(18); });
-  it('3 months → 18', () => { expect(calcEmergencyScore(3)).toBe(18); });
-  it('2.9 months → 10', () => { expect(calcEmergencyScore(2.9)).toBe(10); });
-  it('1 month → 10', () => { expect(calcEmergencyScore(1)).toBe(10); });
-  it('0.9 months → 5', () => { expect(calcEmergencyScore(0.9)).toBe(5); });
-  it('0.5 months → 5', () => { expect(calcEmergencyScore(0.5)).toBe(5); });
+  it('≥6 months → 20 (max)', () => { expect(calcEmergencyScore(6)).toBe(20); });
+  it('10 months → 20', () => { expect(calcEmergencyScore(10)).toBe(20); });
+  it('4 months → 16', () => { expect(calcEmergencyScore(4)).toBe(16); });
+  it('3 months → 13', () => { expect(calcEmergencyScore(3)).toBe(13); });
+  it('2 months → 9', () => { expect(calcEmergencyScore(2)).toBe(9); });
+  it('1 month → 6', () => { expect(calcEmergencyScore(1)).toBe(6); });
+  it('0.5 months → 3', () => { expect(calcEmergencyScore(0.5)).toBe(3); });
   it('0.4 months → 0', () => { expect(calcEmergencyScore(0.4)).toBe(0); });
   it('0 months → 0', () => { expect(calcEmergencyScore(0)).toBe(0); });
 });
 
 describe('calcBudgetScore', () => {
-  it('no budgets → 12', () => { expect(calcBudgetScore(0, 0)).toBe(12); });
-  it('3 budgets, 0 over → 25', () => { expect(calcBudgetScore(3, 0)).toBe(25); });
-  it('3 budgets, 1 over → 19', () => { expect(calcBudgetScore(3, 1)).toBe(19); });
-  it('3 budgets, 4 over → 1', () => { expect(calcBudgetScore(3, 4)).toBe(1); });
-  it('3 budgets, 5 over → 0 (floored)', () => { expect(calcBudgetScore(3, 5)).toBe(0); });
-  it('3 budgets, 10 over → 0 (not negative)', () => { expect(calcBudgetScore(3, 10)).toBe(0); });
+  it('no budgets → 7 (neutral)', () => { expect(calcBudgetScore(0, 0)).toBe(7); });
+  it('3 budgets, 0 over → 15 (max)', () => { expect(calcBudgetScore(3, 0)).toBe(15); });
+  it('5 budgets, 1 over (80% adherence) → 12', () => { expect(calcBudgetScore(5, 1)).toBe(12); });
+  it('5 budgets, 2 over (60% adherence) → 9', () => { expect(calcBudgetScore(5, 2)).toBe(9); });
+  it('5 budgets, 3 over (40% adherence) → 6', () => { expect(calcBudgetScore(5, 3)).toBe(6); });
+  it('5 budgets, 4 over (20% adherence) → 3', () => { expect(calcBudgetScore(5, 4)).toBe(3); });
+  it('5 budgets, 5 over (0% adherence) → 0', () => { expect(calcBudgetScore(5, 5)).toBe(0); });
 });
 
-describe('calcDebtScore', () => {
+// Legacy debt-to-asset score retained for back-compat — kept for old callers.
+describe('calcDebtScore (legacy debt-to-asset)', () => {
   it('ratio 0 → 25', () => { expect(calcDebtScore(0)).toBe(25); });
   it('ratio 0.1 → 25', () => { expect(calcDebtScore(0.1)).toBe(25); });
-  it('ratio 0.11 → 20', () => { expect(calcDebtScore(0.11)).toBe(20); });
   it('ratio 0.3 → 20', () => { expect(calcDebtScore(0.3)).toBe(20); });
-  it('ratio 0.31 → 15', () => { expect(calcDebtScore(0.31)).toBe(15); });
   it('ratio 0.5 → 15', () => { expect(calcDebtScore(0.5)).toBe(15); });
-  it('ratio 0.51 → 10', () => { expect(calcDebtScore(0.51)).toBe(10); });
   it('ratio 0.75 → 10', () => { expect(calcDebtScore(0.75)).toBe(10); });
-  it('ratio 0.76 → 5', () => { expect(calcDebtScore(0.76)).toBe(5); });
   it('ratio 1.0 → 5', () => { expect(calcDebtScore(1.0)).toBe(5); });
+});
+
+describe('calcDebtToIncomeRatio', () => {
+  it('no debt → 0', () => { expect(calcDebtToIncomeRatio(0, 5000)).toBe(0); });
+  it('$60k debt vs $5k/mo income → 1.0', () => {
+    expect(calcDebtToIncomeRatio(60000, 5000)).toBeCloseTo(1.0, 4);
+  });
+  it('$18k debt vs $5k/mo income → 0.3', () => {
+    expect(calcDebtToIncomeRatio(18000, 5000)).toBeCloseTo(0.3, 4);
+  });
+  it('debt with no income → Infinity', () => {
+    expect(calcDebtToIncomeRatio(10000, 0)).toBe(Infinity);
+  });
+  it('no debt and no income → 0', () => {
+    expect(calcDebtToIncomeRatio(0, 0)).toBe(0);
+  });
+});
+
+describe('calcDebtToIncomeScore', () => {
+  it('0 dti → 20 (max)', () => { expect(calcDebtToIncomeScore(0)).toBe(20); });
+  it('0.36 dti → 18 (healthy)', () => { expect(calcDebtToIncomeScore(0.36)).toBe(18); });
+  it('0.6 dti → 15', () => { expect(calcDebtToIncomeScore(0.6)).toBe(15); });
+  it('1.0 dti → 12', () => { expect(calcDebtToIncomeScore(1.0)).toBe(12); });
+  it('1.5 dti → 9', () => { expect(calcDebtToIncomeScore(1.5)).toBe(9); });
+  it('2.0 dti → 6', () => { expect(calcDebtToIncomeScore(2.0)).toBe(6); });
+  it('3.0 dti → 3', () => { expect(calcDebtToIncomeScore(3.0)).toBe(3); });
+  it('5.0 dti → 0 (critical)', () => { expect(calcDebtToIncomeScore(5.0)).toBe(0); });
+  it('Infinity dti → 0', () => { expect(calcDebtToIncomeScore(Infinity)).toBe(0); });
+});
+
+describe('calcAvgMomPct', () => {
+  it('returns null when < 2 snapshots', () => {
+    expect(calcAvgMomPct([1000])).toBeNull();
+    expect(calcAvgMomPct([])).toBeNull();
+  });
+  it('+10% between two snapshots', () => {
+    expect(calcAvgMomPct([1000, 1100])).toBeCloseTo(10, 4);
+  });
+  it('averages multiple MoM changes', () => {
+    // 1000→1100 (+10%), 1100→1210 (+10%) → avg 10%
+    expect(calcAvgMomPct([1000, 1100, 1210])).toBeCloseTo(10, 4);
+  });
+  it('negative growth', () => {
+    expect(calcAvgMomPct([1000, 900])).toBeCloseTo(-10, 4);
+  });
+  it('skips zero-base points (undefined growth)', () => {
+    expect(calcAvgMomPct([0, 100, 110])).toBeCloseTo(10, 4);
+  });
+  it('all-zero series → null', () => {
+    expect(calcAvgMomPct([0, 0])).toBeNull();
+  });
+});
+
+describe('calcNetWorthTrendScore', () => {
+  it('null history → 5 (neutral)', () => { expect(calcNetWorthTrendScore(null)).toBe(5); });
+  it('+3%/mo → 10', () => { expect(calcNetWorthTrendScore(3)).toBe(10); });
+  it('+1.5%/mo → 8', () => { expect(calcNetWorthTrendScore(1.5)).toBe(8); });
+  it('+0.5%/mo → 6', () => { expect(calcNetWorthTrendScore(0.5)).toBe(6); });
+  it('flat 0%/mo → 5', () => { expect(calcNetWorthTrendScore(0)).toBe(5); });
+  it('-0.5%/mo → 3', () => { expect(calcNetWorthTrendScore(-0.5)).toBe(3); });
+  it('-2%/mo → 1', () => { expect(calcNetWorthTrendScore(-2)).toBe(1); });
+  it('-5%/mo → 0', () => { expect(calcNetWorthTrendScore(-5)).toBe(0); });
+});
+
+describe('calcCoefficientOfVariation', () => {
+  it('< 2 values → null', () => {
+    expect(calcCoefficientOfVariation([])).toBeNull();
+    expect(calcCoefficientOfVariation([1000])).toBeNull();
+  });
+  it('mean ≤ 0 → null', () => {
+    expect(calcCoefficientOfVariation([0, 0])).toBeNull();
+  });
+  it('identical values → 0 CV', () => {
+    expect(calcCoefficientOfVariation([1000, 1000, 1000])).toBeCloseTo(0, 4);
+  });
+  it('moderate variation', () => {
+    // values: 800, 1000, 1200 → mean 1000, popStd ≈ 163.3 → CV ≈ 0.163
+    const cv = calcCoefficientOfVariation([800, 1000, 1200])!;
+    expect(cv).toBeCloseTo(0.163, 2);
+  });
+});
+
+describe('calcSpendingVolatilityScore', () => {
+  it('null cv → 5 (neutral)', () => { expect(calcSpendingVolatilityScore(null)).toBe(5); });
+  it('cv 0 → 10', () => { expect(calcSpendingVolatilityScore(0)).toBe(10); });
+  it('cv 0.1 → 10', () => { expect(calcSpendingVolatilityScore(0.1)).toBe(10); });
+  it('cv 0.2 → 8', () => { expect(calcSpendingVolatilityScore(0.2)).toBe(8); });
+  it('cv 0.3 → 6', () => { expect(calcSpendingVolatilityScore(0.3)).toBe(6); });
+  it('cv 0.5 → 4', () => { expect(calcSpendingVolatilityScore(0.5)).toBe(4); });
+  it('cv 0.75 → 2', () => { expect(calcSpendingVolatilityScore(0.75)).toBe(2); });
+  it('cv 1.0 → 0', () => { expect(calcSpendingVolatilityScore(1.0)).toBe(0); });
 });
 
 describe('calcHealthGrade', () => {
