@@ -82,28 +82,10 @@ const NAV = [
   { href: '/settings', label: 'Settings', icon: Settings, badgeKey: null },
 ];
 
-const NAV_ORDER_KEY = 'novafi_nav_order';
-
-function getSortedNav() {
-  if (typeof window === 'undefined') return NAV;
-  try {
-    const raw = localStorage.getItem(NAV_ORDER_KEY);
-    if (!raw) return NAV;
-    const order: string[] = JSON.parse(raw);
-    const sorted = order.map((href) => NAV.find((n) => n.href === href)).filter(Boolean) as typeof NAV;
-    const missing = NAV.filter((n) => !order.includes(n.href));
-    return [...sorted, ...missing];
-  } catch {
-    return NAV;
-  }
-}
-
 export function Sidebar() {
   const path = usePathname();
   const badges = useBadges();
-  const [sortedNav, setSortedNav] = useState(NAV);
-
-  useEffect(() => { setSortedNav(getSortedNav()); }, []);
+  // Desktop sidebar uses the fixed default NAV order — menu reordering is mobile-only.
 
   return (
     <aside className="hidden md:flex flex-col w-64 min-h-screen bg-white/80 backdrop-blur-xl border-r border-slate-200 px-4 py-8 shrink-0 relative z-50">
@@ -121,7 +103,7 @@ export function Sidebar() {
 
       {/* Nav */}
       <nav className="flex flex-col gap-1.5 flex-1">
-        {sortedNav.map(({ href, label, icon: Icon, badgeKey }) => {
+        {NAV.map(({ href, label, icon: Icon, badgeKey }) => {
           const active = path === href || path.startsWith(href + '/');
           const badgeCount = badgeKey ? badges[badgeKey] : 0;
           return (

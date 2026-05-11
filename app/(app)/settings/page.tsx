@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Save, RotateCcw, ExternalLink, Plus, X, GripVertical, LayoutDashboard, Landmark, DollarSign, ArrowLeftRight, PiggyBank, Calendar, BarChart3, FileText, Settings as SettingsIcon, Info } from 'lucide-react';
+import { Save, RotateCcw, ExternalLink, Plus, X, Info } from 'lucide-react';
 import { BRACKETS_2026, STANDARD_DEDUCTION_2026 } from '@/lib/tax';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -10,59 +10,6 @@ import { DEFAULT_TAX_SETTINGS } from '@/lib/utils';
 import type { TaxSettings } from '@/types';
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '@/types';
 import { invalidateCategoriesCache } from '@/hooks/useCategories';
-import { Reorder, useDragControls } from 'framer-motion';
-
-const NAV_ITEMS = [
-  { href: '/dashboard',    label: 'Dashboard',    Icon: LayoutDashboard },
-  { href: '/accounts',     label: 'Accounts',     Icon: Landmark },
-  { href: '/paychecks',    label: 'Paychecks',    Icon: DollarSign },
-  { href: '/transactions', label: 'Transactions', Icon: ArrowLeftRight },
-  { href: '/savings',      label: 'Savings',      Icon: PiggyBank },
-  { href: '/bills',        label: 'Bills',        Icon: Calendar },
-  { href: '/planning',     label: 'Planning',     Icon: BarChart3 },
-  { href: '/reports',      label: 'Reports',      Icon: FileText },
-  { href: '/settings',     label: 'Settings',     Icon: SettingsIcon },
-];
-
-const NAV_ORDER_KEY = 'novafi_nav_order';
-
-function getStoredNavOrder(): string[] {
-  if (typeof window === 'undefined') return NAV_ITEMS.map((n) => n.href);
-  try {
-    const raw = localStorage.getItem(NAV_ORDER_KEY);
-    if (!raw) return NAV_ITEMS.map((n) => n.href);
-    const parsed: string[] = JSON.parse(raw);
-    // Ensure all hrefs are present (in case new ones were added)
-    const missing = NAV_ITEMS.map((n) => n.href).filter((h) => !parsed.includes(h));
-    return [...parsed, ...missing];
-  } catch {
-    return NAV_ITEMS.map((n) => n.href);
-  }
-}
-
-function NavReorderItem({ item, onPointerDown }: { item: typeof NAV_ITEMS[0]; onPointerDown: (e: React.PointerEvent) => void }) {
-  return (
-    <div className="flex items-center gap-3 px-3 py-3 rounded-xl bg-white border border-slate-100 shadow-sm">
-      <button
-        className="touch-none cursor-grab active:cursor-grabbing text-slate-300 shrink-0"
-        onPointerDown={onPointerDown}
-      >
-        <GripVertical className="w-4 h-4" />
-      </button>
-      <item.Icon className="w-4 h-4 text-slate-500 shrink-0" />
-      <span className="text-sm font-semibold text-slate-700">{item.label}</span>
-    </div>
-  );
-}
-
-function NavReorderRow({ item }: { item: typeof NAV_ITEMS[0] }) {
-  const controls = useDragControls();
-  return (
-    <Reorder.Item value={item} dragListener={false} dragControls={controls} className="list-none">
-      <NavReorderItem item={item} onPointerDown={(e) => controls.start(e)} />
-    </Reorder.Item>
-  );
-}
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<TaxSettings | null>(null);
@@ -71,7 +18,6 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [newExpCat, setNewExpCat] = useState('');
   const [newIncCat, setNewIncCat] = useState('');
-  const [navOrder, setNavOrder] = useState<typeof NAV_ITEMS>([]);
 
   useEffect(() => {
     fetch('/api/settings')
@@ -86,9 +32,6 @@ export default function SettingsPage() {
         });
         setLoading(false);
       });
-
-    const order = getStoredNavOrder();
-    setNavOrder(order.map((href) => NAV_ITEMS.find((n) => n.href === href)!).filter(Boolean));
   }, []);
 
   function update<K extends keyof TaxSettings>(key: K, value: TaxSettings[K]) {
@@ -103,7 +46,6 @@ export default function SettingsPage() {
       body: JSON.stringify(settings),
       headers: { 'Content-Type': 'application/json' },
     });
-    localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(navOrder.map((n) => n.href)));
     invalidateCategoriesCache();
     setSaving(false);
     setSaved(true);
@@ -532,24 +474,6 @@ export default function SettingsPage() {
               </div>
             </div>
           </div>
-          <p className="text-xs font-medium text-slate-400 mt-4">Changes take effect after clicking Save above.</p>
-        </Card>
-
-        {/* Menu Order */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Menu Order</CardTitle>
-          </CardHeader>
-          <p className="text-sm font-medium text-slate-500 mb-4">
-            Drag to reorder how pages appear in the sidebar and mobile navigation.
-          </p>
-          {navOrder.length > 0 && (
-            <Reorder.Group axis="y" values={navOrder} onReorder={setNavOrder} className="space-y-2 list-none">
-              {navOrder.map((item) => (
-                <NavReorderRow key={item.href} item={item} />
-              ))}
-            </Reorder.Group>
-          )}
           <p className="text-xs font-medium text-slate-400 mt-4">Changes take effect after clicking Save above.</p>
         </Card>
 
