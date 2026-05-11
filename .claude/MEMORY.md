@@ -6,7 +6,21 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ## Current Version — NovaFi Web App (Next.js + Google Sheets)
 
-**Last Updated:** May 6, 2026
+**Last Updated:** May 11, 2026
+
+---
+
+## 2026-05-11 — Budget overshoot help tooltip (PR: claude/budget-overshoot-help)
+
+Adds a reusable inline help tooltip (`HelpHint`) explaining what each budget badge means. The overshoot math itself was already correct — users were just confused by the terminology.
+
+### Files
+- **NEW** `components/ui/HelpHint.tsx` — click-toggle popover with outside-click and Escape dismissal; framer-motion fade; right/left align; accessible (`aria-label`, `aria-expanded`, role="tooltip")
+- `app/(app)/dashboard/page.tsx` — `<HelpHint>` next to "Budget Progress" CardTitle (align="left")
+- `app/(app)/planning/page.tsx` — same `<HelpHint>` next to "Budgets" section header
+
+### Tooltip contents
+Explains the four badge variants (`~$X overshoot`, `On pace`, `$X over`, `+$X vs last mo`) plus the projection formula: `projection = (spent ÷ days elapsed) × days in month`.
 
 ### Stack
 | Package | Purpose |
