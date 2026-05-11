@@ -6,7 +6,47 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ## Current Version — NovaFi Web App (Next.js + Google Sheets)
 
-**Last Updated:** May 6, 2026
+**Last Updated:** May 11, 2026
+
+---
+
+## 2026-05-11 — Financial Health Score rebuild (PR: claude/health-score-rebuild)
+
+Replaced 4-factor (savings 25 / emergency 25 / budget 25 / debt-to-asset 25) composite with **6-factor weighted** model so a single distorted ratio (e.g. debt/asset 2672% when assets ≈ 0) can no longer sink the entire score.
+
+New weights (total 100):
+
+| Factor | Max | Replaces |
+|---|---|---|
+| Savings Rate | 25 | re-bucketed (8 tiers: 0/4/9/14/18/22/25) |
+| Emergency Fund | 20 | re-bucketed (7 tiers: 0/3/6/9/13/16/20) |
+| Budget Adherence | 15 | now adherence-ratio based, neutral 7 when no budgets |
+| **Debt-to-Income** | 20 | replaces debt-to-asset (totalDebt ÷ avgMonthlyIncome×12) |
+| **Net Worth Trend** | 10 | NEW — avg MoM % across up-to-4 latest snapshots |
+| **Spending Stability** | 10 | NEW — coefficient of variation of last 3-mo expenses |
+
+### Files
+- `lib/calculations.ts`:
+  - Re-bucketed `calcSavingsRateScore`, `calcEmergencyScore`, `calcBudgetScore`
+  - **Added** `calcDebtToIncomeScore`, `calcDebtToIncomeRatio`
+  - **Added** `calcNetWorthTrendScore`, `calcAvgMomPct` (null when <2 snapshots; skips zero-base points)
+  - **Added** `calcSpendingVolatilityScore`, `calcCoefficientOfVariation` (population stddev / mean; null when mean ≤ 0)
+  - Kept legacy `calcDebtScore` (debt-to-asset) marked legacy for back-compat
+  - `calcHealthGrade` thresholds unchanged (85/70/55/40)
+- `app/(app)/dashboard/page.tsx`:
+  - Compute `avgMonthlyIncome` (3-mo mean), `dti`, `netWorthTrendPct` (slices last 4 of `netWorthPoints`), `spendingCv`
+  - Sum 6 component scores into `healthScore`
+  - Pass `dti`, `netWorthTrendPct`, `spendingCv`, `breakdown {...}` to `FinancialHealthScore`
+- `app/(app)/dashboard/DashboardCharts.tsx`:
+  - `HealthScoreData` — removed `debtRatio`; added `dti`, `netWorthTrendPct`, `spendingCv`, `breakdown`
+  - `FinancialHealthScore` — 6 rows; new formatters: `fmtDti` (None/%/×), `fmtTrend` (+/-X%/mo), `fmtCv` (±X%)
+  - Subtitle: "4-factor" → "6-factor composite score"
+- `lib/__tests__/calculations.test.ts` — updated existing score tests for new tier values; added 60+ new tests for the 6 new helpers
+- All 182 tests pass; tsc clean.
+
+---
+
+## (Legacy) Last Updated: May 6, 2026
 
 ### Stack
 | Package | Purpose |
