@@ -18,6 +18,7 @@ import { CategoryIconBadge } from '@/components/CategoryIcon';
 import type { NetWorthPoint } from './DashboardCharts';
 import { getCache, setCache } from '@/lib/cache';
 import { FitText } from '@/components/ui/FitText';
+import { HelpHint } from '@/components/ui/HelpHint';
 
 export const dynamic = 'force-dynamic';
 
@@ -435,6 +436,25 @@ export default async function DashboardPage() {
                 <BarChart3 className="w-5 h-5 text-indigo-600" />
               </div>
               <CardTitle>Budget Progress</CardTitle>
+              <HelpHint label="What do these badges mean?" align="left">
+                <p className="font-bold mb-2">Reading the badges</p>
+                <ul className="space-y-1.5 list-none">
+                  <li>
+                    <span className="font-bold text-amber-300">~$X overshoot</span> — at your current daily pace,
+                    you&apos;re projected to spend $X over the budget by month-end.
+                  </li>
+                  <li>
+                    <span className="font-bold text-emerald-300">On pace</span> — pace stays inside the cap if today&apos;s rate holds.
+                  </li>
+                  <li>
+                    <span className="font-bold text-rose-300">$X over</span> — you&apos;ve already exceeded the budget this month.
+                  </li>
+                  <li>
+                    <span className="font-bold text-slate-300">+$X vs last mo</span> — month-over-month change in spending.
+                  </li>
+                </ul>
+                <p className="mt-2 text-slate-300">Projection = (spent ÷ days elapsed) × days in month.</p>
+              </HelpHint>
             </div>
             <a href="/planning" className="text-xs font-bold text-indigo-600 hover:text-indigo-500 transition-colors bg-indigo-50 px-3 py-1.5 rounded-lg">Manage</a>
           </CardHeader>
