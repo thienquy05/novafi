@@ -12,7 +12,9 @@ import type { PaycheckEntry, TaxSettings, Account } from '@/types';
 
 const EMPTY_FORM = {
   date: today(),
-  grossAmount: '',
+  // Total paycheck amount the user receives (taxable wages + tips combined).
+  totalAmount: '',
+  // Tips/gratuity portion — subtracted from total to derive the taxable wage base.
   gratuityAmount: '',
   checkingAccountId: '',
 };
@@ -51,16 +53,21 @@ export default function PaychecksPage() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    if (!settings || !form.grossAmount) { setPreview(null); return; }
-    const gross = parseFloat(form.grossAmount);
-    if (isNaN(gross) || gross <= 0) { setPreview(null); return; }
+    if (!settings || !form.totalAmount) { setPreview(null); return; }
+    const total = parseFloat(form.totalAmount);
+    if (isNaN(total) || total <= 0) { setPreview(null); return; }
+
+    // Tips are non-taxable: peel them off to get the wage base used for federal/state/FICA.
+    const tips = parseFloat(form.gratuityAmount) || 0;
+    const taxableGross = Math.max(0, total - tips);
+    if (taxableGross <= 0) { setPreview(null); return; }
 
     const ytdGross = paychecks
       .filter((p) => new Date(p.date).getFullYear() === new Date(form.date).getFullYear())
       .reduce((s, p) => s + p.grossAmount, 0);
 
-    setPreview(calcPaycheckTax(gross, settings, ytdGross));
-  }, [form.grossAmount, form.date, settings, paychecks]);
+    setPreview(calcPaycheckTax(taxableGross, settings, ytdGross));
+  }, [form.totalAmount, form.gratuityAmount, form.date, settings, paychecks]);
 
   async function handleSave() {
     if (!settings || !preview) return;
@@ -144,10 +151,10 @@ export default function PaychecksPage() {
       {/* YTD Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'YTD Gross', value: ytdGross, color: 'text-slate-900' },
-          { label: 'YTD Net (take-home)', value: ytdNet, color: 'text-emerald-600' },
+          { label: 'YTD Taxable Wages', value: ytdGross, color: 'text-slate-900' },
+          { label: 'YTD Net (take-home)', value: ytdNet + ytdGratuity, color: 'text-emerald-600' },
           { label: 'YTD Taxes & Deductions', value: ytdGross - ytdNet, color: 'text-rose-600' },
-          { label: 'YTD Gratuity', value: ytdGratuity, color: 'text-sky-600' },
+          { label: 'YTD Tips', value: ytdGratuity, color: 'text-sky-600' },
         ].map(({ label, value, color }) => (
           <Card key={label}>
             <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{label}</p>
@@ -187,7 +194,7 @@ export default function PaychecksPage() {
               </div>
               <div className="grid grid-cols-2 md:flex md:items-center gap-4 md:gap-8 text-left md:text-right w-full md:w-auto">
                 <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Gross</p>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Wages</p>
                   <p className="text-sm font-extrabold text-slate-700 mt-1">{formatCurrency(p.grossAmount)}</p>
                 </div>
                 <div>
@@ -202,7 +209,7 @@ export default function PaychecksPage() {
                 </div>
                 {(p.gratuityAmount ?? 0) > 0 && (
                   <div>
-                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Gratuity</p>
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Tips</p>
                     <p className="text-sm font-extrabold text-sky-600 mt-1">+{formatCurrency(p.gratuityAmount)}</p>
                   </div>
                 )}
@@ -239,17 +246,17 @@ export default function PaychecksPage() {
               onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
             />
             <Input
-              label="Gross Amount (taxable)"
+              label="Total Amount (incl. tips)"
               type="number"
               min="0"
               step="0.01"
-              placeholder="e.g. 3500.00"
-              value={form.grossAmount}
-              onChange={(e) => setForm((f) => ({ ...f, grossAmount: e.target.value }))}
+              placeholder="e.g. 3650.00"
+              value={form.totalAmount}
+              onChange={(e) => setForm((f) => ({ ...f, totalAmount: e.target.value }))}
             />
           </div>
           <Input
-            label="Gratuity (optional, non-taxable)"
+            label="Tips / Gratuity (optional, non-taxable)"
             type="number"
             min="0"
             step="0.01"
@@ -257,6 +264,9 @@ export default function PaychecksPage() {
             value={form.gratuityAmount}
             onChange={(e) => setForm((f) => ({ ...f, gratuityAmount: e.target.value }))}
           />
+          <p className="text-xs font-medium text-slate-500 -mt-3 px-1">
+            Enter the full amount you received. If part of it is non-taxable tips, list it separately so tax is only applied to the wage portion.
+          </p>
           {checkingAccounts.length > 0 && (
             <Select
               label="Deposit to Checking Account"
@@ -270,8 +280,24 @@ export default function PaychecksPage() {
           {preview && (
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-5 space-y-3 shadow-sm">
               <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 border-b border-slate-200 pb-2">Estimated Breakdown</p>
+              {(() => {
+                const total = parseFloat(form.totalAmount) || 0;
+                const tips = parseFloat(form.gratuityAmount) || 0;
+                return tips > 0 ? (
+                  <>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-600 font-medium">Total Amount</span>
+                      <span className="text-slate-900 font-extrabold">{formatCurrency(total)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-600 font-medium">Less: Tips (non-taxable)</span>
+                      <span className="text-sky-600 font-bold">-{formatCurrency(tips)}</span>
+                    </div>
+                  </>
+                ) : null;
+              })()}
               {[
-                { label: 'Gross Pay (taxable)', value: preview.grossPaycheck, cls: 'text-slate-900 font-extrabold' },
+                { label: 'Taxable Wages', value: preview.grossPaycheck, cls: 'text-slate-900 font-extrabold' },
                 { label: `401(k) (${settings?.k401Pct}%)`, value: -preview.k401, cls: 'text-indigo-600 font-bold' },
                 { label: 'HSA', value: -preview.hsa, cls: 'text-indigo-600 font-bold' },
                 {
@@ -295,11 +321,11 @@ export default function PaychecksPage() {
                 return gratuity > 0 ? (
                   <>
                     <div className="border-t border-slate-200 pt-3 mt-1 flex justify-between text-sm">
-                      <span className="text-slate-600 font-medium">Net Paycheck</span>
+                      <span className="text-slate-600 font-medium">Net of taxable wages</span>
                       <span className="text-slate-700 font-bold">{formatCurrency(preview.netPaycheck)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-slate-600 font-medium">Gratuity (non-taxable)</span>
+                      <span className="text-slate-600 font-medium">Add back: Tips</span>
                       <span className="text-sky-600 font-bold">+{formatCurrency(gratuity)}</span>
                     </div>
                     <div className="border-t border-slate-200 pt-3 mt-1 flex justify-between items-center">

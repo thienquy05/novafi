@@ -6,7 +6,38 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ## Current Version — NovaFi Web App (Next.js + Google Sheets)
 
-**Last Updated:** May 6, 2026
+**Last Updated:** May 11, 2026
+
+---
+
+## 2026-05-11 — Paycheck tips: total-first input flow (PR: claude/paycheck-tips-flow)
+
+Flips the paycheck input semantics so users enter the **total amount they received** (which includes tips), then list the tips separately. Tips are subtracted to derive the taxable wage base — the underlying tax math is unchanged.
+
+### Old flow (deprecated)
+1. User enters `grossAmount` (taxable only)
+2. User enters `gratuityAmount` (non-taxable, added on top)
+3. Display: Net = `(gross - taxes) + tips`
+
+### New flow
+1. User enters `totalAmount` (full check, including tips)
+2. User enters `gratuityAmount` (optional)
+3. `taxableGross = max(0, total - tips)` — fed into `calcPaycheckTax`
+4. Display: Net = `(taxableGross - taxes) + tips` = `total - taxes`
+
+### Data model
+- **No schema changes.** `PaycheckEntry.grossAmount` still stores the taxable portion. Existing YTD wage-base lookups (`paychecks[].grossAmount`) keep working identically.
+- The income transaction amount remains `preview.netPaycheck + gratuity` (mathematically equivalent to `total - taxes`).
+
+### Files
+- `app/(app)/paychecks/page.tsx`
+  - Form field renamed: `grossAmount` → `totalAmount`
+  - `useEffect` preview now computes `taxableGross = max(0, total - tips)` and passes to `calcPaycheckTax`
+  - Input labels: "Gross Amount (taxable)" → "Total Amount (incl. tips)"; "Gratuity" → "Tips / Gratuity"
+  - Added helper text under the tips field
+  - Preview header now shows: Total → less Tips → Taxable Wages → deductions → Net of wages → add Tips → Total Take-Home
+  - List row column "Gross" → "Wages", "Gratuity" → "Tips"
+  - YTD summary card labels: "YTD Gross" → "YTD Taxable Wages", "YTD Gratuity" → "YTD Tips"; "YTD Net (take-home)" now includes tips so the user sees actual cash received
 
 ### Stack
 | Package | Purpose |
