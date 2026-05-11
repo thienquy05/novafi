@@ -5,7 +5,10 @@ import {
   calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
   calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, pctChange as calcPctChange,
   normalizeMonthlyBudget, calcAvgMonthlyExpense, calcEmergencyFundMonths,
-  calcSavingsRateScore, calcEmergencyScore, calcBudgetScore, calcDebtScore,
+  calcSavingsRateScore, calcEmergencyScore, calcBudgetScore,
+  calcDebtToIncomeScore, calcDebtToIncomeRatio,
+  calcNetWorthTrendScore, calcAvgMomPct,
+  calcSpendingVolatilityScore, calcCoefficientOfVariation,
 } from '@/lib/calculations';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { TrendingUp, TrendingDown, Calendar, PiggyBank, ArrowUpRight, Wallet, BarChart3, ArrowLeftRight } from 'lucide-react';
@@ -188,13 +191,29 @@ export default async function DashboardPage() {
   const avgMonthlyExpense = calcAvgMonthlyExpense(last3MonthsExpenses);
   const emergencyFundMonths = calcEmergencyFundMonths(liquidSavings, avgMonthlyExpense);
 
-  // Financial health score
-  const debtRatio = totalAssets > 0 ? totalDebt / totalAssets : 0;
+  // Financial health score (6-factor weighted composite, 100 pts total)
+  const last3MonthsIncome = Array.from({ length: 3 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (i + 1), 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    return calcMonthIncome(transactions, key);
+  });
+  const avgMonthlyIncome = calcAvgMonthlyExpense(last3MonthsIncome); // reuse arithmetic mean helper
+  const dti = calcDebtToIncomeRatio(totalDebt, avgMonthlyIncome);
+
+  // Net worth trend: avg MoM % across last up-to-4 snapshots
+  const recentNetWorth = netWorthPoints.slice(-4).map((p) => p.netWorth);
+  const netWorthTrendPct = calcAvgMomPct(recentNetWorth);
+
+  // Spending stability: coefficient of variation of last 3 months' expenses
+  const spendingCv = calcCoefficientOfVariation(last3MonthsExpenses);
+
   const savingsRateScore = calcSavingsRateScore(savingsRate);
   const emergencyScore = calcEmergencyScore(emergencyFundMonths);
   const budgetScore = calcBudgetScore(budgets.length, overBudgetCount);
-  const debtScore = calcDebtScore(debtRatio);
-  const healthScore = savingsRateScore + emergencyScore + budgetScore + debtScore;
+  const dtiScore = calcDebtToIncomeScore(dti);
+  const trendScore = calcNetWorthTrendScore(netWorthTrendPct);
+  const volatilityScore = calcSpendingVolatilityScore(spendingCv);
+  const healthScore = savingsRateScore + emergencyScore + budgetScore + dtiScore + trendScore + volatilityScore;
 
   // Goals summary
   const goalData = goals.map((g) => {
@@ -393,7 +412,17 @@ export default async function DashboardPage() {
           emergencyFundMonths,
           overBudgetCount,
           budgetCount: budgets.length,
-          debtRatio,
+          dti,
+          netWorthTrendPct,
+          spendingCv,
+          breakdown: {
+            savings: savingsRateScore,
+            emergency: emergencyScore,
+            budget: budgetScore,
+            dti: dtiScore,
+            trend: trendScore,
+            volatility: volatilityScore,
+          },
         }} />
       </div>
 
