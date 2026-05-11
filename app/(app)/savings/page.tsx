@@ -169,8 +169,10 @@ export default function SavingsPage() {
                 {goals.map((g) => {
                   const linked = g.linkedAccountId ? accounts.find((a) => a.id === g.linkedAccountId) : null;
                   const current = linked ? linked.balance : g.currentAmount;
-                  const pct = Math.min(100, (current / g.targetAmount) * 100);
+                  const rawPct = g.targetAmount > 0 ? (current / g.targetAmount) * 100 : 0;
+                  const pct = Math.max(-100, Math.min(100, rawPct));
                   const remaining = g.targetAmount - current;
+                  const negative = current < 0;
                   return (
                     <Card key={g.id} className="hover:shadow-md transition-all">
                       <div className="flex items-start justify-between mb-4">
@@ -182,16 +184,24 @@ export default function SavingsPage() {
                             <p className="text-sm font-medium text-slate-500 mt-1">By {formatDate(g.deadline)}</p>
                           )}
                         </div>
-                        <span className="text-sm font-extrabold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-lg">{pct.toFixed(0)}%</span>
+                        <span className={`text-sm font-extrabold px-2.5 py-1 rounded-lg ${negative ? 'text-rose-700 bg-rose-50' : 'text-indigo-600 bg-indigo-50'}`}>{pct.toFixed(0)}%</span>
                       </div>
-                      <div className="w-full bg-slate-100 rounded-full h-2.5 mb-3 overflow-hidden">
-                        <div
-                          className="bg-indigo-500 h-full rounded-full transition-all duration-500"
-                          style={{ width: `${pct}%` }}
-                        />
+                      <div className="w-full bg-slate-100 rounded-full h-2.5 mb-3 overflow-hidden relative">
+                        {negative ? (
+                          <div
+                            className="absolute right-0 top-0 bg-rose-500 h-full rounded-full transition-all duration-500"
+                            style={{ width: `${Math.min(100, Math.abs(pct))}%` }}
+                            aria-label="Deficit"
+                          />
+                        ) : (
+                          <div
+                            className="bg-indigo-500 h-full rounded-full transition-all duration-500"
+                            style={{ width: `${Math.max(0, pct)}%` }}
+                          />
+                        )}
                       </div>
                       <div className="flex justify-between text-sm font-bold text-slate-500">
-                        <span className="text-slate-700">{formatCurrency(current)} saved</span>
+                        <span className={negative ? 'text-rose-600' : 'text-slate-700'}>{formatCurrency(current)} saved</span>
                         <span>{formatCurrency(remaining)} to go</span>
                       </div>
                     </Card>

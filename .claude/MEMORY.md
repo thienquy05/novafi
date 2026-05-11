@@ -6,7 +6,27 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ## Current Version — NovaFi Web App (Next.js + Google Sheets)
 
-**Last Updated:** May 6, 2026
+**Last Updated:** May 11, 2026
+
+---
+
+## 2026-05-11 — Inverted red fill for negative savings goal bars (PR: claude/savings-negative-bar)
+
+Savings goals linked to an overdrawn account previously showed a fully-empty (or zero-width) bar — visually identical to a 0% goal — even though the underlying balance was deeply negative. Fix: when `current < 0`, render an **inverted right-anchored rose-500 bar** with width proportional to the deficit (`min(100, |current/target|*100)%`).
+
+### Visual logic
+- `current >= target` (achieved) — full emerald bar, left-to-right (unchanged)
+- `0 ≤ current < target` — partial indigo bar, left-to-right (unchanged)
+- `current < 0` — **NEW** rose bar anchored to RIGHT, width `min(100, |pct|)`, deficit label
+- Percentage badge becomes `bg-rose-50 text-rose-700` when negative
+- Current-amount text becomes `text-rose-600` when negative
+
+### Files
+- `app/(app)/planning/page.tsx`
+  - `goal.map(...)` block: replaced `Math.min(100, ...)` with `Math.max(-100, Math.min(100, ...))` so `pct` keeps its sign
+  - `GoalItem` bar: conditional render, absolute right-anchored rose div for the negative branch
+- `app/(app)/dashboard/DashboardCharts.tsx` — same treatment in `GoalsSummary`; uses framer-motion `motion.div` for animated entry
+- `app/(app)/savings/page.tsx` — same treatment in inline goals grid
 
 ### Stack
 | Package | Purpose |
