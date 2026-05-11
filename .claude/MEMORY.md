@@ -6,7 +6,26 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ## Current Version — NovaFi Web App (Next.js + Google Sheets)
 
-**Last Updated:** May 6, 2026
+**Last Updated:** May 11, 2026
+
+---
+
+## 2026-05-11 — Menu Order: mobile-only customization (PR: claude/menu-order-mobile)
+
+The desktop version doesn't need menu reordering. The Settings page "Menu Order" card was specifically wired to the desktop sidebar (via `novafi_nav_order` localStorage key); mobile already had its own separate customize sheet inside `MobileNav` (via `novafi_mobile_nav_order`). This PR removes the now-unused desktop machinery so customization is **mobile-only**, accessed via the existing `Customize` sheet at the bottom of the mobile nav.
+
+### Changes
+- **`components/Sidebar.tsx` (desktop `Sidebar`)**
+  - Reads from fixed `NAV` array instead of `getSortedNav()`
+  - Removed `getSortedNav()`, `NAV_ORDER_KEY`, `useState`/`useEffect` for sortedNav
+- **`app/(app)/settings/page.tsx`**
+  - Removed the entire "Menu Order" Card from the rendered settings page
+  - Removed `NAV_ITEMS`, `NAV_ORDER_KEY`, `getStoredNavOrder()`, `NavReorderItem`, `NavReorderRow` helpers
+  - Removed `navOrder` state and its persistence on save
+  - Dropped now-unused imports: `GripVertical`, `LayoutDashboard`, `Landmark`, `DollarSign`, `ArrowLeftRight`, `PiggyBank`, `Calendar`, `BarChart3`, `FileText`, `Settings as SettingsIcon`, `Reorder`, `useDragControls`
+
+### What's preserved
+- **`MobileNav`** in `components/Sidebar.tsx` keeps its `MOBILE_NAV_ORDER_KEY = 'novafi_mobile_nav_order'`, customize sheet, up/down move arrows, and reset button — fully intact.
 
 ### Stack
 | Package | Purpose |
