@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap, RefreshCw, AlertCircle, GripVertical } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { HelpHint } from '@/components/ui/HelpHint';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
@@ -314,7 +315,28 @@ export default function PlanningPage() {
           {/* ── BUDGETS ──────────────────────────────────────────────────── */}
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-slate-900">Budgets</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-slate-900">Budgets</h2>
+                <HelpHint label="What do these badges mean?" align="left">
+                  <p className="font-bold mb-2">Reading the badges</p>
+                  <ul className="space-y-1.5 list-none">
+                    <li>
+                      <span className="font-bold text-amber-300">~$X overshoot</span> — at your current daily pace,
+                      you&apos;re projected to spend $X over the budget by month-end.
+                    </li>
+                    <li>
+                      <span className="font-bold text-emerald-300">On pace</span> — pace stays inside the cap if today&apos;s rate holds.
+                    </li>
+                    <li>
+                      <span className="font-bold text-rose-300">$X over</span> — you&apos;ve already exceeded the budget this month.
+                    </li>
+                    <li>
+                      <span className="font-bold text-slate-300">+$X vs last mo</span> — month-over-month change in spending.
+                    </li>
+                  </ul>
+                  <p className="mt-2 text-slate-300">Projection = (spent ÷ days elapsed) × days in month.</p>
+                </HelpHint>
+              </div>
               <Button size="sm" onClick={openAddBudget} className="shadow-sm">
                 <Plus className="w-4 h-4" /> Set Budget
               </Button>

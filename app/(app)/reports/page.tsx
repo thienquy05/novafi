@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, AlertCircle, BarChart3, TrendingUp, TrendingDown, DollarSign, Calendar } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { FitText } from '@/components/ui/FitText';
 import { formatCurrency } from '@/lib/utils';
 import type { Transaction } from '@/types';
 import {
@@ -145,33 +146,33 @@ export default function ReportsPage() {
         <>
           {/* Summary stats */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <Card className="border-emerald-100">
+            <Card className="border-emerald-100 min-w-0">
               <div className="flex items-center gap-3 mb-2">
                 <div className="p-2 rounded-xl bg-emerald-50"><TrendingUp className="w-4 h-4 text-emerald-600" /></div>
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Income</p>
               </div>
-              <p className="text-2xl font-extrabold text-emerald-600 tracking-tight">{formatCurrency(yearIncome)}</p>
+              <FitText maxSize={24} minSize={13} className="font-extrabold text-emerald-600">{formatCurrency(yearIncome)}</FitText>
             </Card>
-            <Card className="border-rose-100">
+            <Card className="border-rose-100 min-w-0">
               <div className="flex items-center gap-3 mb-2">
                 <div className="p-2 rounded-xl bg-rose-50"><TrendingDown className="w-4 h-4 text-rose-600" /></div>
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Spent</p>
               </div>
-              <p className="text-2xl font-extrabold text-rose-600 tracking-tight">{formatCurrency(yearExpense)}</p>
+              <FitText maxSize={24} minSize={13} className="font-extrabold text-rose-600">{formatCurrency(yearExpense)}</FitText>
             </Card>
-            <Card className={yearSavings >= 0 ? 'border-indigo-100' : 'border-rose-100'}>
+            <Card className={`min-w-0 ${yearSavings >= 0 ? 'border-indigo-100' : 'border-rose-100'}`}>
               <div className="flex items-center gap-3 mb-2">
                 <div className={`p-2 rounded-xl ${yearSavings >= 0 ? 'bg-indigo-50' : 'bg-rose-50'}`}><DollarSign className={`w-4 h-4 ${yearSavings >= 0 ? 'text-indigo-600' : 'text-rose-600'}`} /></div>
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Net Saved</p>
               </div>
-              <p className={`text-2xl font-extrabold tracking-tight ${yearSavings >= 0 ? 'text-indigo-600' : 'text-rose-600'}`}>{formatCurrency(yearSavings)}</p>
+              <FitText maxSize={24} minSize={13} className={`font-extrabold ${yearSavings >= 0 ? 'text-indigo-600' : 'text-rose-600'}`}>{formatCurrency(yearSavings)}</FitText>
             </Card>
-            <Card>
+            <Card className="min-w-0">
               <div className="flex items-center gap-3 mb-2">
                 <div className="p-2 rounded-xl bg-purple-50"><BarChart3 className="w-4 h-4 text-purple-600" /></div>
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Savings Rate</p>
               </div>
-              <p className={`text-2xl font-extrabold tracking-tight ${savingsRate >= 20 ? 'text-emerald-600' : savingsRate >= 10 ? 'text-indigo-600' : 'text-rose-600'}`}>{savingsRate.toFixed(1)}%</p>
+              <FitText maxSize={24} minSize={13} className={`font-extrabold ${savingsRate >= 20 ? 'text-emerald-600' : savingsRate >= 10 ? 'text-indigo-600' : 'text-rose-600'}`}>{`${savingsRate.toFixed(1)}%`}</FitText>
             </Card>
           </div>
 
@@ -297,20 +298,20 @@ export default function ReportsPage() {
                     const hasData = m.income > 0 || m.expenses > 0;
                     return (
                       <tr key={m.month} className={`border-b border-slate-50 hover:bg-slate-50 transition-colors ${!hasData ? 'opacity-30' : ''}`}>
-                        <td className="py-2.5 px-3 font-bold text-slate-700">{m.month}</td>
-                        <td className="py-2.5 px-3 text-right font-bold text-emerald-600">{m.income > 0 ? formatCurrency(m.income) : '—'}</td>
-                        <td className="py-2.5 px-3 text-right font-bold text-rose-600">{m.expenses > 0 ? formatCurrency(m.expenses) : '—'}</td>
-                        <td className={`py-2.5 px-3 text-right font-extrabold ${!hasData ? 'text-slate-300' : saved >= 0 ? 'text-indigo-600' : 'text-rose-600'}`}>
+                        <td className="py-2.5 px-3 font-bold text-slate-700 whitespace-nowrap">{m.month}</td>
+                        <td className="py-2.5 px-3 text-right font-bold text-emerald-600 whitespace-nowrap">{m.income > 0 ? formatCurrency(m.income) : '—'}</td>
+                        <td className="py-2.5 px-3 text-right font-bold text-rose-600 whitespace-nowrap">{m.expenses > 0 ? formatCurrency(m.expenses) : '—'}</td>
+                        <td className={`py-2.5 px-3 text-right font-extrabold whitespace-nowrap ${!hasData ? 'text-slate-300' : saved >= 0 ? 'text-indigo-600' : 'text-rose-600'}`}>
                           {hasData ? formatCurrency(saved) : '—'}
                         </td>
                       </tr>
                     );
                   })}
                   <tr className="border-t-2 border-slate-200 bg-slate-50">
-                    <td className="py-2.5 px-3 font-extrabold text-slate-900">Total</td>
-                    <td className="py-2.5 px-3 text-right font-extrabold text-emerald-700">{formatCurrency(yearIncome)}</td>
-                    <td className="py-2.5 px-3 text-right font-extrabold text-rose-700">{formatCurrency(yearExpense)}</td>
-                    <td className={`py-2.5 px-3 text-right font-extrabold ${yearSavings >= 0 ? 'text-indigo-700' : 'text-rose-700'}`}>{formatCurrency(yearSavings)}</td>
+                    <td className="py-2.5 px-3 font-extrabold text-slate-900 whitespace-nowrap">Total</td>
+                    <td className="py-2.5 px-3 text-right font-extrabold text-emerald-700 whitespace-nowrap">{formatCurrency(yearIncome)}</td>
+                    <td className="py-2.5 px-3 text-right font-extrabold text-rose-700 whitespace-nowrap">{formatCurrency(yearExpense)}</td>
+                    <td className={`py-2.5 px-3 text-right font-extrabold whitespace-nowrap ${yearSavings >= 0 ? 'text-indigo-700' : 'text-rose-700'}`}>{formatCurrency(yearSavings)}</td>
                   </tr>
                 </tbody>
               </table>
