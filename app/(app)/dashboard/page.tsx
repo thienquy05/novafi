@@ -1,3 +1,4 @@
+import { cookies } from 'next/headers';
 import { auth } from '@/lib/auth';
 import { batchGetDashboardData, getNetWorthHistory, appendNetWorthSnapshot, getSettings } from '@/lib/sheets';
 import { formatCurrency, formatDate } from '@/lib/utils';
@@ -19,6 +20,8 @@ import type { NetWorthPoint } from './DashboardCharts';
 import { getCache, setCache } from '@/lib/cache';
 import { FitText } from '@/components/ui/FitText';
 import { HelpHint } from '@/components/ui/HelpHint';
+import { t } from '@/lib/i18n';
+import type { Language } from '@/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,6 +31,9 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 export default async function DashboardPage() {
   const session = await auth();
   if (!session?.accessToken || !session.spreadsheetId) return null;
+
+  const jar = await cookies();
+  const lang: Language = jar.get('nf_lang')?.value === 'vi' ? 'vi' : 'en';
 
   const dashKey = `dashboard:${session.spreadsheetId}`;
   const nwhKey  = `nwh:${session.spreadsheetId}`;
@@ -63,14 +69,14 @@ export default async function DashboardPage() {
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
   // This month
-  const monthTx = transactions.filter((t) => t.date.startsWith(thisMonth));
+  const monthTx = transactions.filter((tx) => tx.date.startsWith(thisMonth));
   const monthIncome = calcMonthIncome(transactions, thisMonth);
   const monthSpending = calcMonthExpense(transactions, thisMonth);
 
   // Previous month
   const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const prevMonthKey = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
-  const prevMonthTx = transactions.filter((t) => t.date.startsWith(prevMonthKey));
+  const prevMonthTx = transactions.filter((tx) => tx.date.startsWith(prevMonthKey));
   const prevMonthIncome = calcMonthIncome(transactions, prevMonthKey);
   const prevMonthSpending = calcMonthExpense(transactions, prevMonthKey);
 
@@ -148,8 +154,8 @@ export default async function DashboardPage() {
 
   // Spending by category this month
   const categorySpend: Record<string, number> = {};
-  monthTx.filter((t) => t.type === 'expense').forEach((t) => {
-    categorySpend[t.category] = (categorySpend[t.category] ?? 0) + t.amount;
+  monthTx.filter((tx) => tx.type === 'expense').forEach((tx) => {
+    categorySpend[tx.category] = (categorySpend[tx.category] ?? 0) + tx.amount;
   });
   const categoryData = Object.entries(categorySpend)
     .sort((a, b) => b[1] - a[1])
@@ -159,24 +165,24 @@ export default async function DashboardPage() {
   const monthlyData = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const mTx = transactions.filter((t) => t.date.startsWith(key));
+    const mTx = transactions.filter((tx) => tx.date.startsWith(key));
     return {
       month: MONTH_NAMES[d.getMonth()],
-      income: mTx.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0),
-      expenses: mTx.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0),
+      income: mTx.filter((tx) => tx.type === 'income').reduce((s, tx) => s + tx.amount, 0),
+      expenses: mTx.filter((tx) => tx.type === 'expense').reduce((s, tx) => s + tx.amount, 0),
     };
   });
 
   // Budget vs actual this month + prev month MoM
   const prevMonthCategorySpend: Record<string, number> = {};
-  prevMonthTx.filter((t) => t.type === 'expense').forEach((t) => {
-    prevMonthCategorySpend[t.category] = (prevMonthCategorySpend[t.category] ?? 0) + t.amount;
+  prevMonthTx.filter((tx) => tx.type === 'expense').forEach((tx) => {
+    prevMonthCategorySpend[tx.category] = (prevMonthCategorySpend[tx.category] ?? 0) + tx.amount;
   });
 
   const budgetData = budgets.map((b) => {
     const spent = monthTx
-      .filter((t) => t.type === 'expense' && t.category === b.category)
-      .reduce((s, t) => s + t.amount, 0);
+      .filter((tx) => tx.type === 'expense' && tx.category === b.category)
+      .reduce((s, tx) => s + tx.amount, 0);
     const budget = normalizeMonthlyBudget(b.amount, b.period);
     return { category: b.category, budget, spent, prevMonthSpent: prevMonthCategorySpend[b.category] ?? 0 };
   });
@@ -236,7 +242,7 @@ export default async function DashboardPage() {
 
   const stats = [
     {
-      label: excludeLoans ? 'Liquid Net Worth' : 'Net Worth',
+      label: excludeLoans ? t('dashboard.liquidNetWorth', lang) : t('dashboard.netWorth', lang),
       value: formatCurrency(netWorth),
       icon: Wallet,
       color: netWorth >= 0 ? 'text-emerald-600' : 'text-rose-600',
@@ -244,10 +250,10 @@ export default async function DashboardPage() {
       border: netWorth >= 0 ? 'border-emerald-100' : 'border-rose-100',
       delta: netWorthDelta,
       positiveIsGood: true,
-      annotation: excludeLoans && totalLoanDebt > 0 ? `Loans excl. · see Liabilities` : null,
+      annotation: excludeLoans && totalLoanDebt > 0 ? t('dashboard.loansExcl', lang) : null,
     },
     {
-      label: 'Month Income',
+      label: t('dashboard.monthIncome', lang),
       value: formatCurrency(monthIncome),
       icon: ArrowUpRight,
       color: 'text-emerald-600',
@@ -258,7 +264,7 @@ export default async function DashboardPage() {
       annotation: null,
     },
     {
-      label: 'Month Spending',
+      label: t('dashboard.monthSpending', lang),
       value: formatCurrency(monthSpending),
       icon: TrendingDown,
       color: 'text-rose-600',
@@ -269,7 +275,7 @@ export default async function DashboardPage() {
       annotation: null,
     },
     {
-      label: 'Safe to Spend',
+      label: t('dashboard.safeToSpend', lang),
       value: formatCurrency(safeToSpend),
       icon: PiggyBank,
       color: safeToSpend > 0 ? 'text-indigo-600' : 'text-rose-600',
@@ -287,10 +293,10 @@ export default async function DashboardPage() {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div className="space-y-1">
           <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900">
-            Hey, {session.user?.name?.split(' ')[0]} 👋
+            {t('dashboard.greeting', lang, { name: session.user?.name?.split(' ')[0] ?? '' })}
           </h1>
           <p className="text-slate-500 text-sm md:text-base font-medium">
-            {MONTH_NAMES[now.getMonth()]} {now.getFullYear()} · {daysLeft} days left this month
+            {t('dashboard.monthSummary', lang, { month: MONTH_NAMES[now.getMonth()], year: now.getFullYear(), daysLeft })}
           </p>
         </div>
         <div className="hidden md:block">
@@ -324,7 +330,7 @@ export default async function DashboardPage() {
                 (positiveIsGood ? delta > 0 : delta < 0) ? 'text-emerald-600' : 'text-rose-600'
               }`}>
                 {delta > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                {Math.abs(delta).toFixed(0)}% vs last mo
+                {Math.abs(delta).toFixed(0)}{t('dashboard.vsLastMonth', lang)}
               </p>
             )}
             {annotation && (
@@ -337,19 +343,19 @@ export default async function DashboardPage() {
       {/* Assets / Liabilities / Savings / Emergency Fund */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-white rounded-2xl border border-emerald-100 p-4">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Assets</p>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('common.assets', lang)}</p>
           <FitText maxSize={18} minSize={11} className="font-extrabold text-emerald-600 mt-1">{formatCurrency(totalAssets)}</FitText>
         </div>
         <div className="bg-white rounded-2xl border border-rose-100 p-4">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Liabilities</p>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('common.liabilities', lang)}</p>
           <FitText maxSize={18} minSize={11} className="font-extrabold text-rose-600 mt-1">{totalDebt > 0 ? `-${formatCurrency(totalDebt)}` : formatCurrency(0)}</FitText>
         </div>
         <div className="bg-white rounded-2xl border border-slate-100 p-4">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Savings</p>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('dashboard.savings', lang)}</p>
           <FitText maxSize={18} minSize={11} className="font-extrabold text-purple-600 mt-1">{formatCurrency(totalSaved)}</FitText>
         </div>
         <div className="bg-white rounded-2xl border border-slate-100 p-4">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Emergency</p>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('dashboard.emergency', lang)}</p>
           <p className={`text-lg font-extrabold mt-1 tracking-tight ${emergencyFundMonths >= 6 ? 'text-emerald-600' : emergencyFundMonths >= 3 ? 'text-indigo-600' : emergencyFundMonths >= 1 ? 'text-amber-600' : 'text-rose-600'}`}>
             {emergencyFundMonths.toFixed(1)} <span className="text-sm font-bold text-slate-400">mo</span>
           </p>
@@ -364,8 +370,8 @@ export default async function DashboardPage() {
               <TrendingUp className="w-5 h-5 text-emerald-600" />
             </div>
             <div>
-              <CardTitle>Net Worth Trend</CardTitle>
-              <p className="text-xs font-medium text-slate-500 mt-0.5">Monthly snapshot</p>
+              <CardTitle>{t('dashboard.netWorthTrend', lang)}</CardTitle>
+              <p className="text-xs font-medium text-slate-500 mt-0.5">{t('dashboard.monthlySnapshot', lang)}</p>
             </div>
           </div>
         </CardHeader>
@@ -379,8 +385,8 @@ export default async function DashboardPage() {
         <Card className="min-h-[380px] flex flex-col">
           <CardHeader>
             <div>
-              <CardTitle>Spending This Month</CardTitle>
-              <p className="text-xs font-medium text-slate-500 mt-1">Where your money went</p>
+              <CardTitle>{t('dashboard.spendingThisMonth', lang)}</CardTitle>
+              <p className="text-xs font-medium text-slate-500 mt-1">{t('dashboard.whereMoneyWent', lang)}</p>
             </div>
             <div className="text-right">
               <span className="text-xl font-extrabold text-slate-900">{formatCurrency(monthSpending)}</span>
@@ -394,8 +400,8 @@ export default async function DashboardPage() {
         <Card className="min-h-[380px] flex flex-col">
           <CardHeader>
             <div>
-              <CardTitle>Cash Flow</CardTitle>
-              <p className="text-xs font-medium text-slate-500 mt-1">Income vs Expenses — 6 months</p>
+              <CardTitle>{t('dashboard.cashFlow', lang)}</CardTitle>
+              <p className="text-xs font-medium text-slate-500 mt-1">{t('dashboard.cashFlowSubtitle', lang)}</p>
             </div>
           </CardHeader>
           <div className="flex-1">
@@ -435,7 +441,7 @@ export default async function DashboardPage() {
               <div className="p-2 rounded-xl bg-indigo-50 border border-indigo-100">
                 <BarChart3 className="w-5 h-5 text-indigo-600" />
               </div>
-              <CardTitle>Budget Progress</CardTitle>
+              <CardTitle>{t('dashboard.budgetProgress', lang)}</CardTitle>
               <HelpHint label="What do these badges mean?" align="left">
                 <p className="font-bold mb-2">Reading the badges</p>
                 <ul className="space-y-1.5 list-none">
@@ -456,7 +462,7 @@ export default async function DashboardPage() {
                 <p className="mt-2 text-slate-300">Projection = (spent ÷ days elapsed) × days in month.</p>
               </HelpHint>
             </div>
-            <a href="/planning" className="text-xs font-bold text-indigo-600 hover:text-indigo-500 transition-colors bg-indigo-50 px-3 py-1.5 rounded-lg">Manage</a>
+            <a href="/planning" className="text-xs font-bold text-indigo-600 hover:text-indigo-500 transition-colors bg-indigo-50 px-3 py-1.5 rounded-lg">{t('common.manage', lang)}</a>
           </CardHeader>
           <div className="mt-4">
             <BudgetBars data={budgetData} daysLeft={daysLeft} daysElapsed={daysElapsed} showMoM />
@@ -469,9 +475,9 @@ export default async function DashboardPage() {
               <div className="p-2 rounded-xl bg-purple-50 border border-purple-100">
                 <PiggyBank className="w-5 h-5 text-purple-600" />
               </div>
-              <CardTitle>Savings Goals</CardTitle>
+              <CardTitle>{t('dashboard.savingsGoals', lang)}</CardTitle>
             </div>
-            <a href="/planning" className="text-xs font-bold text-purple-600 hover:text-purple-500 transition-colors bg-purple-50 px-3 py-1.5 rounded-lg">Manage</a>
+            <a href="/planning" className="text-xs font-bold text-purple-600 hover:text-purple-500 transition-colors bg-purple-50 px-3 py-1.5 rounded-lg">{t('common.manage', lang)}</a>
           </CardHeader>
           <div className="mt-4">
             <GoalsSummary data={goalData} />
@@ -489,11 +495,11 @@ export default async function DashboardPage() {
                 <Calendar className="w-5 h-5 text-amber-600" />
               </div>
               <div>
-                <CardTitle>Due Soon</CardTitle>
-                <p className="text-xs font-medium text-slate-500 mt-0.5">Next 14 days</p>
+                <CardTitle>{t('dashboard.dueSoon', lang)}</CardTitle>
+                <p className="text-xs font-medium text-slate-500 mt-0.5">{t('dashboard.next14Days', lang)}</p>
               </div>
             </div>
-            <a href="/bills" className="text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors">View All →</a>
+            <a href="/bills" className="text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors">{t('common.viewAll', lang)}</a>
           </CardHeader>
           <div className="mt-2">
             {upcomingBills.length === 0 ? (
@@ -502,8 +508,8 @@ export default async function DashboardPage() {
                   <Calendar className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="text-sm text-slate-900 font-bold">No upcoming bills</p>
-                  <p className="text-xs text-slate-500 mt-0.5 font-medium">You&apos;re all caught up</p>
+                  <p className="text-sm text-slate-900 font-bold">{t('dashboard.noUpcomingBills', lang)}</p>
+                  <p className="text-xs text-slate-500 mt-0.5 font-medium">{t('dashboard.allCaughtUp', lang)}</p>
                 </div>
               </div>
             ) : (
@@ -522,7 +528,7 @@ export default async function DashboardPage() {
                         <div>
                           <p className="text-sm text-slate-900 font-bold">{bill.name}</p>
                           <p className="text-xs font-medium text-slate-500 mt-0.5">
-                            {daysUntil === 0 ? 'Due Today' : `${daysUntil}d`} · {formatDate(bill.nextDue)}
+                            {daysUntil === 0 ? t('dashboard.dueToday', lang) : `${daysUntil}d`} · {formatDate(bill.nextDue)}
                           </p>
                         </div>
                       </div>
@@ -544,9 +550,9 @@ export default async function DashboardPage() {
               <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-100">
                 <ArrowLeftRight className="w-5 h-5 text-emerald-600" />
               </div>
-              <CardTitle>Recent</CardTitle>
+              <CardTitle>{t('dashboard.recent', lang)}</CardTitle>
             </div>
-            <a href="/transactions" className="text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors">View All →</a>
+            <a href="/transactions" className="text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors">{t('common.viewAll', lang)}</a>
           </CardHeader>
           <div className="mt-2">
             {recentTx.length === 0 ? (
@@ -555,8 +561,8 @@ export default async function DashboardPage() {
                   <ArrowLeftRight className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="text-sm text-slate-900 font-bold">No transactions yet</p>
-                  <p className="text-xs text-slate-500 mt-0.5 font-medium">Add one to get started</p>
+                  <p className="text-sm text-slate-900 font-bold">{t('dashboard.noTransactions', lang)}</p>
+                  <p className="text-xs text-slate-500 mt-0.5 font-medium">{t('dashboard.addOneToStart', lang)}</p>
                 </div>
               </div>
             ) : (

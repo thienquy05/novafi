@@ -10,6 +10,52 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-05-12 — Vietnamese language support (PR: claude/add-vietnamese-language-b0FQq)
+
+Full i18n implementation with no new npm dependencies. Lightweight React Context + JSON dictionaries approach.
+
+### Architecture
+- **`/locales/en.json`** + **`/locales/vi.json`** — all UI strings as nested JSON (namespaces: nav, common, login, apiError, dashboard, charts, quickAdd, transactions, paychecks, bills, accounts, savings, planning, reports, settings, categories)
+- **`/lib/i18n/index.ts`** — server-side `t(key, lang, params?)` function with `{placeholder}` interpolation; used in server components
+- **`/lib/i18n/context.tsx`** — `LanguageProvider` + `useTranslation()` hook; client components use `const { t, lang, setLang } = useTranslation()`
+- **Persistence**: cookie `nf_lang` (server-readable, 1-year max-age) + localStorage `nf_lang` (instant client paint) + `TaxSettings.language` in Google Sheets (cross-device sync)
+- **SSR**: `app/layout.tsx` reads `nf_lang` cookie → sets `<html lang="...">` + passes `initialLang` to `SessionProvider`
+- **Category display**: stored values stay English; display uses `t(\`categories.${category}\`)`
+- **Number/date formatting**: kept as en-US throughout
+
+### Files changed
+- **`types/index.ts`** — Added `Language = 'en' | 'vi'` type; added `language: Language` to `TaxSettings`
+- **`lib/utils.ts`** — Added `language: 'en' as const` to `DEFAULT_TAX_SETTINGS`
+- **`lib/sheets.ts`** — `getSettings()` reads `language` key (fallback `'en'`); `saveSettings()` writes `['language', settings.language]`
+- **`lib/i18n/index.ts`** — NEW: server-side translation helper
+- **`lib/i18n/context.tsx`** — NEW: LanguageProvider + useTranslation hook with cookie/localStorage sync
+- **`locales/en.json`** — NEW: all English strings
+- **`locales/vi.json`** — NEW: all Vietnamese strings with proper diacritics; finance terms translated literally; untranslatable terms (401k, HSA, IRA, FICA, SS) kept in English
+- **`app/layout.tsx`** — async, reads `nf_lang` cookie, sets `html lang`, passes `initialLang` to SessionProvider
+- **`components/SessionProvider.tsx`** — wraps with `LanguageProvider` accepting `initialLang`
+- **`app/page.tsx`** — login page translated (server component, reads cookie)
+- **`app/(app)/layout.tsx`** — API error screen translated (server component)
+- **`components/Sidebar.tsx`** — desktop + mobile nav + customize sheet translated
+- **`app/(app)/dashboard/QuickAddTransaction.tsx`** — translated
+- **`app/(app)/settings/page.tsx`** — added "Language & Region" card at top with EN/VI switcher; all settings strings translated; `setLang()` called on switch (immediate cookie+localStorage update); language synced from server settings on load
+- **`app/(app)/dashboard/page.tsx`** — translated (server component)
+- **`app/(app)/dashboard/DashboardCharts.tsx`** — translated (client component)
+- **`app/(app)/transactions/page.tsx`** — translated
+- **`app/(app)/paychecks/page.tsx`** — translated
+- **`app/(app)/bills/page.tsx`** — translated
+- **`app/(app)/accounts/page.tsx`** — translated
+- **`app/(app)/savings/page.tsx`** — translated
+- **`app/(app)/planning/page.tsx`** — translated
+- **`app/(app)/reports/page.tsx`** — translated
+
+### Language switching flow
+1. User picks EN/VI in Settings → `setLang()` sets cookie + localStorage immediately
+2. Settings save → `language` written to Google Sheets
+3. Next visit → `app/layout.tsx` reads cookie → correct `html lang` + `initialLang` for LanguageProvider
+4. On settings load → if `s.language !== lang`, reconcile (cross-device sync)
+
+---
+
 ## 2026-05-11 — Financial Health Score rebuild (PR: claude/health-score-rebuild)
 
 Replaced 4-factor (savings 25 / emergency 25 / budget 25 / debt-to-asset 25) composite with **6-factor weighted** model so a single distorted ratio (e.g. debt/asset 2672% when assets ≈ 0) can no longer sink the entire score.

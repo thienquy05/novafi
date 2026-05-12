@@ -16,6 +16,7 @@ import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { useCategories } from '@/hooks/useCategories';
+import { useTranslation } from '@/lib/i18n/context';
 
 // ── Recurring template helpers (localStorage) ─────────────────────────────────
 
@@ -108,6 +109,7 @@ export default function TransactionsPage() {
   const [showTemplates, setShowTemplates] = useState(false);
   const toast = useToast();
   const { expenseCategories, incomeCategories } = useCategories();
+  const { t } = useTranslation();
 
   const load = useCallback(async () => {
     setError(false);
@@ -130,10 +132,10 @@ export default function TransactionsPage() {
   const { pullY, refreshing } = usePullToRefresh(load);
 
   const categories = form.type === 'expense' ? expenseCategories : form.type === 'income' ? incomeCategories : [...EXPENSE_CATEGORIES];
-  const filtered = transactions.filter((t) => {
-    const matchSearch = !search || t.description.toLowerCase().includes(search.toLowerCase()) || t.category.toLowerCase().includes(search.toLowerCase());
-    const matchFilter = filter === 'all' || t.type === filter;
-    const matchCategory = !categoryFilter || t.category === categoryFilter;
+  const filtered = transactions.filter((tx) => {
+    const matchSearch = !search || tx.description.toLowerCase().includes(search.toLowerCase()) || tx.category.toLowerCase().includes(search.toLowerCase());
+    const matchFilter = filter === 'all' || tx.type === filter;
+    const matchCategory = !categoryFilter || tx.category === categoryFilter;
     return matchSearch && matchFilter && matchCategory;
   });
 
@@ -150,8 +152,8 @@ export default function TransactionsPage() {
     setForm((f) => ({ ...f, type, category: newCategory }));
   }
 
-  function applyTemplate(t: Template) {
-    setForm({ date: today(), description: t.description, amount: String(t.amount), type: t.type, category: t.category, account: t.account, toAccount: '' });
+  function applyTemplate(tpl: Template) {
+    setForm({ date: today(), description: tpl.description, amount: String(tpl.amount), type: tpl.type, category: tpl.category, account: tpl.account, toAccount: '' });
     setShowTemplates(false);
     setOpen(true);
   }
@@ -163,7 +165,7 @@ export default function TransactionsPage() {
     const updated = [...templates.filter((t) => t.description !== tpl.description || t.category !== tpl.category), tpl];
     saveTemplates(updated);
     setTemplates(updated);
-    toast('Template saved', 'success');
+    toast(t('transactions.toastTemplateSaved'), 'success');
   }
 
   function deleteTemplate(id: string) {
@@ -187,7 +189,7 @@ export default function TransactionsPage() {
     };
 
     if (editTarget) {
-      setTransactions((prev) => prev.map((t) => t.id === editTarget.id ? updated : t));
+      setTransactions((prev) => prev.map((tx) => tx.id === editTarget.id ? updated : tx));
     } else {
       setTransactions((prev) => [updated, ...prev].sort((a, b) => b.date.localeCompare(a.date)));
     }
@@ -200,10 +202,10 @@ export default function TransactionsPage() {
         headers: { 'Content-Type': 'application/json' },
       });
       if (!res.ok) throw new Error();
-      toast(editTarget ? 'Transaction updated' : 'Transaction added', 'success');
+      toast(editTarget ? t('transactions.toastUpdated') : t('transactions.toastAdded'), 'success');
       load();
     } catch {
-      toast('Failed to save transaction', 'error');
+      toast(t('transactions.toastFailedSave'), 'error');
       await load();
     } finally {
       setSaving(false);
@@ -211,23 +213,30 @@ export default function TransactionsPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this transaction?')) return;
+    if (!confirm(t('transactions.confirmDelete'))) return;
     const prev = transactions;
-    setTransactions((t) => t.filter((tx) => tx.id !== id));
+    setTransactions((txs) => txs.filter((tx) => tx.id !== id));
     try {
       const res = await fetch('/api/transactions', { method: 'DELETE', body: JSON.stringify({ id }), headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error();
-      toast('Transaction deleted', 'success');
+      toast(t('transactions.toastDeleted'), 'success');
     } catch {
       setTransactions(prev);
-      toast('Failed to delete transaction', 'error');
+      toast(t('transactions.toastFailedDelete'), 'error');
     }
   }
 
-  const totalIncome = filtered.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-  const totalExpense = filtered.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+  const totalIncome = filtered.filter((tx) => tx.type === 'income').reduce((s, tx) => s + tx.amount, 0);
+  const totalExpense = filtered.filter((tx) => tx.type === 'expense').reduce((s, tx) => s + tx.amount, 0);
   const accountName = (id: string) => accounts.find((a) => a.id === id)?.name ?? id;
   const merchantRows = buildMerchantRows(filtered);
+
+  const filterLabels: Record<string, string> = {
+    all: t('common.all'),
+    income: t('common.income'),
+    expense: t('common.expenses'),
+    transfer: t('common.transfers'),
+  };
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
@@ -242,35 +251,35 @@ export default function TransactionsPage() {
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900">Transactions</h1>
-          <p className="text-slate-500 text-sm font-medium mt-1">All income and expenses</p>
+          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900">{t('transactions.title')}</h1>
+          <p className="text-slate-500 text-sm font-medium mt-1">{t('transactions.subtitle')}</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           {templates.length > 0 && (
             <Button variant="secondary" className="shadow-sm" onClick={() => setShowTemplates(true)}>
               <BookmarkCheck className="w-4 h-4" />
-              Templates
+              {t('transactions.templates')}
             </Button>
           )}
           <Button variant="secondary" className="shadow-sm" onClick={() => exportCSV(filtered, accountName)}>
             <Download className="w-4 h-4" />
-            Export CSV
+            {t('transactions.exportCsv')}
           </Button>
-          <Button onClick={openAdd} className="shadow-sm"><Plus className="w-5 h-5" />Add Transaction</Button>
+          <Button onClick={openAdd} className="shadow-sm"><Plus className="w-5 h-5" />{t('transactions.addTransaction')}</Button>
         </div>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
         <Card className="p-4 sm:p-5 min-w-0">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Income</p>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('common.income')}</p>
           <FitText maxSize={20} minSize={12} className="font-extrabold text-emerald-600 mt-1.5">{formatCurrency(totalIncome)}</FitText>
         </Card>
         <Card className="p-4 sm:p-5 min-w-0">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Spending</p>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('transactions.spending')}</p>
           <FitText maxSize={20} minSize={12} className="font-extrabold text-rose-600 mt-1.5">{formatCurrency(totalExpense)}</FitText>
         </Card>
         <Card className="p-4 sm:p-5 min-w-0 border-indigo-100">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Net</p>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('common.net')}</p>
           <FitText maxSize={20} minSize={12} className={`font-extrabold mt-1.5 ${totalIncome - totalExpense >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(totalIncome - totalExpense)}</FitText>
         </Card>
       </div>
@@ -285,7 +294,7 @@ export default function TransactionsPage() {
           <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
             {(['all', 'income', 'expense', 'transfer'] as const).map((f) => (
               <button key={f} onClick={() => setFilter(f)} className={`px-4 h-11 rounded-2xl text-sm font-bold transition-all duration-200 whitespace-nowrap ${filter === f ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-slate-200'}`}>
-                {f.charAt(0).toUpperCase() + f.slice(1)}
+                {filterLabels[f]}
               </button>
             ))}
             {/* View toggle */}
@@ -300,7 +309,7 @@ export default function TransactionsPage() {
           </div>
         </div>
         <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
-          <button onClick={() => setCategoryFilter('')} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${!categoryFilter ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'}`}>All</button>
+          <button onClick={() => setCategoryFilter('')} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${!categoryFilter ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'}`}>{t('common.all')}</button>
           {expenseCategories.map((c) => (
             <button key={c} onClick={() => setCategoryFilter(categoryFilter === c ? '' : c)} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${categoryFilter === c ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'}`}>{c}</button>
           ))}
@@ -312,19 +321,19 @@ export default function TransactionsPage() {
       ) : error ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <div className="w-14 h-14 rounded-full bg-rose-50 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-rose-400" /></div>
-          <p className="text-slate-700 font-bold text-base mb-1">Couldn&apos;t load transactions</p>
-          <p className="text-slate-500 text-sm mb-6">Check your connection and try again.</p>
-          <Button variant="secondary" onClick={load}>Try Again</Button>
+          <p className="text-slate-700 font-bold text-base mb-1">{t('transactions.errorTitle')}</p>
+          <p className="text-slate-500 text-sm mb-6">{t('transactions.errorBody')}</p>
+          <Button variant="secondary" onClick={load}>{t('common.tryAgain')}</Button>
         </div>
       ) : filtered.length === 0 ? (
         <Card className="text-center py-16 bg-slate-50 border-slate-100">
           <p className="text-slate-500 font-bold">No transactions found.</p>
-          {transactions.length === 0 && <Button onClick={openAdd} className="mt-4 shadow-sm">Add Your First Transaction</Button>}
+          {transactions.length === 0 && <Button onClick={openAdd} className="mt-4 shadow-sm">{t('transactions.addTransaction')}</Button>}
         </Card>
       ) : viewMode === 'merchant' ? (
         /* ── Merchant View ─────────────────────────────────────────────── */
         <div className="space-y-2">
-          <p className="text-xs font-bold text-slate-400 px-1">{merchantRows.length} merchants · sorted by total</p>
+          <p className="text-xs font-bold text-slate-400 px-1">{t('transactions.merchantCount', { n: merchantRows.length })}</p>
           {merchantRows.map((row) => {
             const isExpanded = expandedMerchant === row.merchant;
             return (
@@ -336,8 +345,8 @@ export default function TransactionsPage() {
                   <div className="flex items-center gap-3">
                     <CategoryIconBadge category={row.transactions[0]?.category ?? ''} type={row.transactions[0]?.type ?? 'expense'} className="w-10 h-10 rounded-xl" />
                     <div>
-                      <p className="text-sm font-bold text-slate-900">{row.merchant || '(no description)'}</p>
-                      <p className="text-xs font-medium text-slate-500 mt-0.5">{row.count} transaction{row.count !== 1 ? 's' : ''} · last {formatDate(row.lastDate)}</p>
+                      <p className="text-sm font-bold text-slate-900">{row.merchant || t('transactions.noDescription')}</p>
+                      <p className="text-xs font-medium text-slate-500 mt-0.5">{t('transactions.transactionCount', { n: row.count, date: formatDate(row.lastDate) })}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -399,37 +408,37 @@ export default function TransactionsPage() {
       )}
 
       {/* ── Add/Edit Transaction Modal ───────────────────────────────────── */}
-      <Modal open={open} onClose={closeModal} title={editTarget ? 'Edit Transaction' : 'New Transaction'}>
+      <Modal open={open} onClose={closeModal} title={editTarget ? t('transactions.editTransaction') : t('transactions.newTransaction')}>
         <div className="space-y-4 pb-4">
           <div className="flex p-1.5 rounded-2xl bg-slate-100">
-            {(['expense', 'income', 'transfer'] as const).map((t) => (
-              <button key={t} onClick={() => handleTypeChange(t)} className={`flex-1 py-2.5 text-sm font-bold rounded-xl transition-all duration-200 ${form.type === t ? t === 'expense' ? 'bg-white text-rose-600 shadow-sm' : t === 'income' ? 'bg-white text-emerald-600 shadow-sm' : 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                {t.charAt(0).toUpperCase() + t.slice(1)}
+            {(['expense', 'income', 'transfer'] as const).map((tp) => (
+              <button key={tp} onClick={() => handleTypeChange(tp)} className={`flex-1 py-2.5 text-sm font-bold rounded-xl transition-all duration-200 ${form.type === tp ? tp === 'expense' ? 'bg-white text-rose-600 shadow-sm' : tp === 'income' ? 'bg-white text-emerald-600 shadow-sm' : 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                {tp.charAt(0).toUpperCase() + tp.slice(1)}
               </button>
             ))}
           </div>
           <div>
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Amount ($)</label>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">{t('common.amountUsd')}</label>
             <div className="relative flex items-center">
               <span className="absolute left-4 text-2xl font-bold text-slate-400 pointer-events-none select-none">$</span>
               <input type="number" inputMode="decimal" min="0" step="0.01" placeholder="0.00" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} className="w-full pl-10 pr-4 py-3.5 text-2xl font-extrabold text-slate-900 placeholder-slate-300 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Input label="Date" type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
-            <Input label="Description" placeholder="e.g. Netflix" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
+            <Input label={t('common.date')} type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
+            <Input label={t('common.description')} placeholder="e.g. Netflix" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {form.type !== 'transfer' && (
-              <Select label="Category" value={form.category} options={categories.map((c) => ({ value: c, label: c }))} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} />
+              <Select label={t('common.category')} value={form.category} options={categories.map((c) => ({ value: c, label: c }))} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} />
             )}
-            <Select label={form.type === 'transfer' ? 'From Account' : 'Account'} value={form.account}
-              options={[{ value: '', label: '— None —' }, ...accounts.map((a) => ({ value: a.id, label: a.type === 'credit' || a.type === 'loan' ? `${a.name} (owed: ${formatCurrency(a.balance)})` : `${a.name} (${formatCurrency(a.balance)})` }))]}
+            <Select label={form.type === 'transfer' ? t('transactions.fromAccount') : t('common.account')} value={form.account}
+              options={[{ value: '', label: t('common.nonePlaceholder') }, ...accounts.map((a) => ({ value: a.id, label: a.type === 'credit' || a.type === 'loan' ? `${a.name} (owed: ${formatCurrency(a.balance)})` : `${a.name} (${formatCurrency(a.balance)})` }))]}
               onChange={(e) => setForm((f) => ({ ...f, account: e.target.value }))} />
           </div>
           {form.type === 'transfer' && (
-            <Select label="To Account" value={form.toAccount}
-              options={[{ value: '', label: '— None —' }, ...accounts.filter((a) => a.id !== form.account).map((a) => ({ value: a.id, label: a.type === 'credit' || a.type === 'loan' ? `${a.name} · Pay off (owed: ${formatCurrency(a.balance)})` : `${a.name} (${formatCurrency(a.balance)})` }))]}
+            <Select label={t('transactions.toAccount')} value={form.toAccount}
+              options={[{ value: '', label: t('common.nonePlaceholder') }, ...accounts.filter((a) => a.id !== form.account).map((a) => ({ value: a.id, label: a.type === 'credit' || a.type === 'loan' ? `${a.name} · Pay off (owed: ${formatCurrency(a.balance)})` : `${a.name} (${formatCurrency(a.balance)})` }))]}
               onChange={(e) => setForm((f) => ({ ...f, toAccount: e.target.value }))} />
           )}
           {form.type === 'transfer' && form.toAccount && (() => {
@@ -451,32 +460,32 @@ export default function TransactionsPage() {
               className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-700 transition-colors"
             >
               <Bookmark className="w-3.5 h-3.5" />
-              Save as recurring template
+              {t('transactions.saveAsTemplate')}
             </button>
           )}
         </div>
         <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">
-            <Button variant="secondary" className="flex-1" onClick={closeModal}>Cancel</Button>
-            <Button className="flex-1" onClick={handleSave} disabled={saving || !form.amount}>{saving ? 'Saving…' : editTarget ? 'Save Changes' : 'Add Transaction'}</Button>
+            <Button variant="secondary" className="flex-1" onClick={closeModal}>{t('common.cancel')}</Button>
+            <Button className="flex-1" onClick={handleSave} disabled={saving || !form.amount}>{saving ? t('common.saving') : editTarget ? t('transactions.saveChanges') : t('transactions.addTransaction')}</Button>
           </div>
         </div>
       </Modal>
 
       {/* ── Templates Modal ──────────────────────────────────────────────── */}
-      <Modal open={showTemplates} onClose={() => setShowTemplates(false)} title="Recurring Templates">
+      <Modal open={showTemplates} onClose={() => setShowTemplates(false)} title={t('transactions.recurringTemplates')}>
         <div className="space-y-2 pb-4">
           {templates.length === 0 ? (
-            <div className="text-center py-8 text-slate-500 font-medium text-sm">No templates saved yet.<br />Use &quot;Save as recurring template&quot; when adding a transaction.</div>
-          ) : templates.map((t) => (
-            <div key={t.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 border border-slate-100 hover:border-slate-200 transition-colors">
+            <div className="text-center py-8 text-slate-500 font-medium text-sm">{t('transactions.noTemplates')}<br />Use &quot;{t('transactions.saveAsTemplate')}&quot; when adding a transaction.</div>
+          ) : templates.map((tpl) => (
+            <div key={tpl.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 border border-slate-100 hover:border-slate-200 transition-colors">
               <div>
-                <p className="text-sm font-bold text-slate-900">{t.description || t.category}</p>
-                <p className="text-xs font-medium text-slate-500 mt-0.5">{t.category} · {formatCurrency(t.amount)}</p>
+                <p className="text-sm font-bold text-slate-900">{tpl.description || tpl.category}</p>
+                <p className="text-xs font-medium text-slate-500 mt-0.5">{tpl.category} · {formatCurrency(tpl.amount)}</p>
               </div>
               <div className="flex items-center gap-2">
-                <Button size="sm" className="h-8" onClick={() => applyTemplate(t)}>Use</Button>
-                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50" onClick={() => deleteTemplate(t.id)}><X className="w-3.5 h-3.5" /></Button>
+                <Button size="sm" className="h-8" onClick={() => applyTemplate(tpl)}>Use</Button>
+                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50" onClick={() => deleteTemplate(tpl.id)}><X className="w-3.5 h-3.5" /></Button>
               </div>
             </div>
           ))}

@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Save, RotateCcw, ExternalLink, Plus, X, Info } from 'lucide-react';
+import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe } from 'lucide-react';
 import { BRACKETS_2026, STANDARD_DEDUCTION_2026 } from '@/lib/tax';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -10,8 +10,10 @@ import { DEFAULT_TAX_SETTINGS } from '@/lib/utils';
 import type { TaxSettings } from '@/types';
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '@/types';
 import { invalidateCategoriesCache } from '@/hooks/useCategories';
+import { useTranslation } from '@/lib/i18n/context';
 
 export default function SettingsPage() {
+  const { t, lang, setLang } = useTranslation();
   const [settings, setSettings] = useState<TaxSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -30,12 +32,21 @@ export default function SettingsPage() {
           hiddenExpenseCategories: s.hiddenExpenseCategories ?? [],
           hiddenIncomeCategories: s.hiddenIncomeCategories ?? [],
         });
+        if (s.language && s.language !== lang) {
+          setLang(s.language);
+        }
         setLoading(false);
       });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function update<K extends keyof TaxSettings>(key: K, value: TaxSettings[K]) {
     setSettings((prev) => prev ? { ...prev, [key]: value } : prev);
+  }
+
+  function handleLangChange(newLang: 'en' | 'vi') {
+    setLang(newLang);
+    setSettings((prev) => prev ? { ...prev, language: newLang } : prev);
   }
 
   async function handleSave() {
@@ -109,12 +120,14 @@ export default function SettingsPage() {
 
   if (!settings) return null;
 
+  const currentLang = settings.language ?? lang;
+
   return (
     <div className="p-4 md:p-8 max-w-3xl mx-auto pb-24 md:pb-8">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 md:mb-8">
         <div>
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900">Settings</h1>
-          <p className="text-slate-500 text-base font-medium mt-1">Configure your payroll deductions and tax rates</p>
+          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900">{t('settings.title')}</h1>
+          <p className="text-slate-500 text-base font-medium mt-1">{t('settings.subtitle')}</p>
         </div>
         <div className="flex gap-3 w-full md:w-auto">
           <Button variant="secondary" onClick={handleReset} className="flex-1 md:flex-none shadow-sm">
@@ -124,21 +137,51 @@ export default function SettingsPage() {
           </Button>
           <Button onClick={handleSave} disabled={saving} className="flex-1 md:flex-none shadow-sm">
             <Save className="w-4 h-4" />
-            {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save'}
+            {saving ? t('common.saving') : saved ? t('settings.saved') : t('settings.saveSettings')}
           </Button>
         </div>
       </div>
 
       <div className="space-y-6">
+        {/* Language & Region */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Globe className="w-4 h-4 text-indigo-500" />
+              {t('settings.languageRegion')}
+            </CardTitle>
+          </CardHeader>
+          <div>
+            <p className="text-sm font-medium text-slate-500 mb-3">{t('settings.displayLanguage')}</p>
+            <div className="flex gap-2">
+              {(['en', 'vi'] as const).map((l) => (
+                <button
+                  key={l}
+                  type="button"
+                  onClick={() => handleLangChange(l)}
+                  className={`flex-1 py-2.5 px-4 rounded-xl text-sm font-bold border transition-all duration-200 ${
+                    currentLang === l
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                      : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'
+                  }`}
+                >
+                  {l === 'en' ? t('settings.langEn') : t('settings.langVi')}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-slate-400 mt-2">{t('common.saving').replace('…', '')} — {t('settings.saveSettings').toLowerCase()} {t('common.saving').toLowerCase().replace('…','')} across devices.</p>
+          </div>
+        </Card>
+
         {/* Dashboard Preferences */}
         <Card>
           <CardHeader>
-            <CardTitle>Dashboard Preferences</CardTitle>
+            <CardTitle>{t('settings.dashboardPreferences')}</CardTitle>
           </CardHeader>
           <div className="space-y-4">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-sm font-semibold text-slate-800">Show Liquid Net Worth</p>
+                <p className="text-sm font-semibold text-slate-800">{t('dashboard.liquidNetWorth')}</p>
                 <p className="text-xs text-slate-500 mt-0.5">Excludes long-term loan balances from the net worth headline. Full debt is still shown in the Liabilities card.</p>
               </div>
               <button
@@ -161,22 +204,22 @@ export default function SettingsPage() {
         {/* Payroll Deductions */}
         <Card>
           <CardHeader>
-            <CardTitle>Payroll & Deductions</CardTitle>
+            <CardTitle>{t('settings.payrollDeductions')}</CardTitle>
           </CardHeader>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <Select
-              label="Filing Status"
+              label={t('settings.filingStatus')}
               value={settings.filingStatus}
               options={[
-                { value: 'single', label: 'Single' },
-                { value: 'mfj', label: 'Married Filing Jointly' },
-                { value: 'mfs', label: 'Married Filing Separately' },
-                { value: 'hoh', label: 'Head of Household' },
+                { value: 'single', label: t('settings.single') },
+                { value: 'mfj',    label: t('settings.mfj') },
+                { value: 'mfs',    label: t('settings.mfs') },
+                { value: 'hoh',    label: t('settings.hoh') },
               ]}
               onChange={(e) => update('filingStatus', e.target.value as TaxSettings['filingStatus'])}
             />
             <Input
-              label="Pay Periods per Year"
+              label={t('settings.payPeriodsPerYear')}
               type="number"
               min="1"
               max="52"
@@ -184,7 +227,7 @@ export default function SettingsPage() {
               onChange={(e) => update('payPeriodsPerYear', Number(e.target.value))}
             />
             <Input
-              label="401(k) Contribution %"
+              label={t('settings.k401Contribution')}
               type="number"
               min="0"
               max="100"
@@ -193,7 +236,7 @@ export default function SettingsPage() {
               onChange={(e) => update('k401Pct', Number(e.target.value))}
             />
             <Input
-              label="HSA Annual Contribution ($)"
+              label={t('settings.hsaAnnual') + ' ($)'}
               type="number"
               min="0"
               step="50"
@@ -201,7 +244,7 @@ export default function SettingsPage() {
               onChange={(e) => update('hsaAnnual', Number(e.target.value))}
             />
             <Input
-              label="IRA Annual Contribution ($)"
+              label={t('settings.iraAnnual') + ' ($)'}
               type="number"
               min="0"
               step="50"
@@ -211,13 +254,12 @@ export default function SettingsPage() {
           </div>
         </Card>
 
-        {/* Tax Rates */}
+        {/* Federal Tax */}
         <Card>
           <CardHeader>
-            <CardTitle>Federal Tax</CardTitle>
+            <CardTitle>{t('settings.federalTax')}</CardTitle>
           </CardHeader>
 
-          {/* Progressive brackets toggle */}
           <div className="flex items-start gap-4 p-4 rounded-2xl bg-indigo-50 border border-indigo-100 mb-5">
             <button
               type="button"
@@ -229,7 +271,7 @@ export default function SettingsPage() {
               <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition-transform ${settings.useFederalBrackets ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-slate-900">Use 2026 IRS Progressive Brackets</p>
+              <p className="text-sm font-bold text-slate-900">{t('settings.useFederalBrackets')}</p>
               <p className="text-xs font-medium text-slate-500 mt-0.5">
                 {settings.useFederalBrackets
                   ? 'Federal withholding uses real IRS brackets + standard deduction for your filing status. More accurate than a flat rate.'
@@ -239,14 +281,18 @@ export default function SettingsPage() {
           </div>
 
           {settings.useFederalBrackets ? (
-            /* Bracket table view */
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <Info className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
                 <p className="text-xs font-medium text-slate-500">
                   Brackets below are for <span className="font-bold text-slate-700">{
-                    { single: 'Single', mfj: 'Married Filing Jointly', mfs: 'Married Filing Separately', hoh: 'Head of Household' }[settings.filingStatus]
-                  }</span> — update your filing status in Payroll & Deductions above.
+                    {
+                      single: t('settings.single'),
+                      mfj: t('settings.mfj'),
+                      mfs: t('settings.mfs'),
+                      hoh: t('settings.hoh'),
+                    }[settings.filingStatus]
+                  }</span> — update your filing status in {t('settings.payrollDeductions')} above.
                 </p>
               </div>
               <div className="rounded-2xl border border-slate-200 overflow-hidden mb-4">
@@ -287,24 +333,22 @@ export default function SettingsPage() {
                 <span className="text-xs text-slate-400">subtracted from your income before brackets apply</span>
               </div>
 
-              {/* Savings optimizer hint */}
               <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-100">
                 <p className="text-xs font-bold text-emerald-800 mb-1">Maximize Your Tax Savings</p>
                 <p className="text-xs font-medium text-emerald-700 leading-relaxed">
                   Pre-tax contributions to your 401(k), HSA, and IRA reduce your taxable income before brackets apply — every dollar contributed saves you money at your marginal rate.
-                  Raise your 401(k) % or HSA amount in <span className="font-bold">Payroll & Deductions</span> above and re-open a paycheck to see the difference.
+                  Raise your 401(k) % or HSA amount in <span className="font-bold">{t('settings.payrollDeductions')}</span> above and re-open a paycheck to see the difference.
                 </p>
               </div>
             </div>
           ) : (
-            /* Flat rate view */
             <div>
               <p className="text-sm font-medium text-slate-500 mb-5">
                 Enter your estimated flat federal rate. Use your marginal bracket rate (e.g. 22%) or your effective rate from last year&apos;s return.
               </p>
               <div>
                 <Input
-                  label="Federal Rate %"
+                  label={t('settings.federalRate')}
                   type="number"
                   min="0"
                   max="100"
@@ -318,10 +362,10 @@ export default function SettingsPage() {
           )}
         </Card>
 
-        {/* State & City Tax */}
+        {/* State & Local Tax */}
         <Card>
           <CardHeader>
-            <CardTitle>State & Local Tax</CardTitle>
+            <CardTitle>{t('settings.stateLocalTax')}</CardTitle>
           </CardHeader>
           <p className="text-sm font-medium text-slate-500 mb-5">
             Most states and cities use flat rates. Find your city rate on your local municipality&apos;s website.
@@ -329,7 +373,7 @@ export default function SettingsPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
               <Input
-                label="State Rate %"
+                label={t('settings.stateRate')}
                 type="number"
                 min="0"
                 max="20"
@@ -341,7 +385,7 @@ export default function SettingsPage() {
             </div>
             <div>
               <Input
-                label="City Rate %"
+                label={t('settings.cityRate')}
                 type="number"
                 min="0"
                 max="10"
@@ -357,7 +401,7 @@ export default function SettingsPage() {
         {/* FICA */}
         <Card>
           <CardHeader>
-            <CardTitle>FICA</CardTitle>
+            <CardTitle>{t('settings.fica')}</CardTitle>
           </CardHeader>
           <p className="text-sm font-medium text-slate-500 mb-5">Standard rates — only change if yours differ.</p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
@@ -391,7 +435,7 @@ export default function SettingsPage() {
         {/* Custom Categories */}
         <Card>
           <CardHeader>
-            <CardTitle>Custom Categories</CardTitle>
+            <CardTitle>{t('settings.customCategories')}</CardTitle>
           </CardHeader>
           <p className="text-sm font-medium text-slate-500 mb-5">
             Add categories beyond the defaults. They appear in all transaction, bill, and budget dropdowns.
@@ -399,7 +443,7 @@ export default function SettingsPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             {/* Expense */}
             <div>
-              <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">Expense Categories</p>
+              <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">{t('settings.expenseCategories')}</p>
               <div className="flex flex-wrap gap-2 mb-3">
                 {[...EXPENSE_CATEGORIES].filter((c) => !(settings.hiddenExpenseCategories ?? []).includes(c)).map((c) => (
                   <span key={c} className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 text-xs font-bold">
@@ -425,7 +469,7 @@ export default function SettingsPage() {
               <div className="flex gap-2">
                 <input
                   className="flex-1 h-9 px-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/10"
-                  placeholder="New category…"
+                  placeholder={t('settings.addCategory') + '…'}
                   value={newExpCat}
                   onChange={(e) => setNewExpCat(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addExpCat(); } }}
@@ -437,7 +481,7 @@ export default function SettingsPage() {
             </div>
             {/* Income */}
             <div>
-              <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">Income Categories</p>
+              <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">{t('settings.incomeCategories')}</p>
               <div className="flex flex-wrap gap-2 mb-3">
                 {[...INCOME_CATEGORIES].filter((c) => !(settings.hiddenIncomeCategories ?? []).includes(c)).map((c) => (
                   <span key={c} className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 text-xs font-bold">
@@ -463,7 +507,7 @@ export default function SettingsPage() {
               <div className="flex gap-2">
                 <input
                   className="flex-1 h-9 px-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/10"
-                  placeholder="New category…"
+                  placeholder={t('settings.addCategory') + '…'}
                   value={newIncCat}
                   onChange={(e) => setNewIncCat(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addIncCat(); } }}
@@ -474,13 +518,13 @@ export default function SettingsPage() {
               </div>
             </div>
           </div>
-          <p className="text-xs font-medium text-slate-400 mt-4">Changes take effect after clicking Save above.</p>
+          <p className="text-xs font-medium text-slate-400 mt-4">Changes take effect after clicking {t('settings.saveSettings')}.</p>
         </Card>
 
         {/* Data Storage */}
         <Card className="bg-indigo-50/50 border-indigo-100">
           <CardHeader>
-            <CardTitle className="text-indigo-900">Data Storage</CardTitle>
+            <CardTitle className="text-indigo-900">{t('settings.dataStorage')}</CardTitle>
           </CardHeader>
           <p className="text-sm font-medium text-slate-600 leading-relaxed">
             All your data is stored in a Google Sheets spreadsheet named{' '}

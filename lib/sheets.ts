@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import type {
   TaxSettings,
+  Language,
   PaycheckEntry,
   Transaction,
   Account,
@@ -52,6 +53,7 @@ export async function getSettings(
     customIncomeCategories: get('custom_income_categories', '').split('|').filter(Boolean),
     hiddenExpenseCategories: get('hidden_expense_categories', '').split('|').filter(Boolean),
     hiddenIncomeCategories: get('hidden_income_categories', '').split('|').filter(Boolean),
+    language: (get('language', 'en') as Language),
   };
 }
 
@@ -79,6 +81,7 @@ export async function saveSettings(
     ['custom_income_categories', (settings.customIncomeCategories ?? []).join('|')],
     ['hidden_expense_categories', (settings.hiddenExpenseCategories ?? []).join('|')],
     ['hidden_income_categories', (settings.hiddenIncomeCategories ?? []).join('|')],
+    ['language', settings.language ?? 'en'],
   ];
   await sheets.spreadsheets.values.update({
     spreadsheetId,

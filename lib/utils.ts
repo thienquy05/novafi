@@ -54,4 +54,5 @@ export const DEFAULT_TAX_SETTINGS = {
   customIncomeCategories: [] as string[],
   hiddenExpenseCategories: [] as string[],
   hiddenIncomeCategories: [] as string[],
+  language: 'en' as const,
 };
