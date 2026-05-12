@@ -99,8 +99,13 @@ function SubscriptionTracker({ transactions }: { transactions: Transaction[] }) 
   );
 }
 
+function parseLocalDate(dateStr: string): Date {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
 function nextDueAfter(currentDue: string, frequency: Bill['frequency']): string {
-  const d = new Date(currentDue);
+  const d = parseLocalDate(currentDue);
   switch (frequency) {
     case 'weekly': d.setDate(d.getDate() + 7); break;
     case 'biweekly': d.setDate(d.getDate() + 14); break;
@@ -108,7 +113,7 @@ function nextDueAfter(currentDue: string, frequency: Bill['frequency']): string 
     case 'quarterly': d.setMonth(d.getMonth() + 3); break;
     case 'yearly': d.setFullYear(d.getFullYear() + 1); break;
   }
-  return d.toISOString().split('T')[0];
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 const EMPTY_FORM = {
@@ -149,7 +154,7 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
 
   bills.forEach((bill) => {
     if (!bill.isActive) return;
-    const due = new Date(bill.nextDue);
+    const due = parseLocalDate(bill.nextDue);
     if (due.getFullYear() === year && due.getMonth() === month) {
       const d = due.getDate();
       if (!dayBills[d]) dayBills[d] = [];
@@ -159,7 +164,7 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
   });
 
   paychecks.forEach((p) => {
-    const d = new Date(p.date);
+    const d = parseLocalDate(p.date);
     if (d.getFullYear() === year && d.getMonth() === month) {
       const day = d.getDate();
       if (!dayPaychecks[day]) dayPaychecks[day] = [];
@@ -261,7 +266,7 @@ function BillsTimeline({ bills, nowMs }: { bills: Bill[]; nowMs: number }) {
   const dayToBills: Record<number, Bill[]> = {};
   bills.forEach((bill) => {
     if (!bill.isActive) return;
-    const due = new Date(bill.nextDue);
+    const due = parseLocalDate(bill.nextDue);
     if (due.getMonth() === month && due.getFullYear() === year) {
       const d = due.getDate();
       if (!dayToBills[d]) dayToBills[d] = [];
@@ -429,6 +434,7 @@ export default function BillsPage() {
       type: 'expense',
       category: payForm.category,
       account: payForm.account,
+      createdAt: new Date().toISOString(),
     };
     try {
       const [txRes] = await Promise.all([
@@ -485,14 +491,15 @@ export default function BillsPage() {
   }
 
   const nowMs = useMemo(() => Date.now(), [bills]);
+  const todayMidnight = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, [bills]);
   const activeBills = bills.filter((b) => b.isActive);
   const inactiveBills = bills.filter((b) => !b.isActive);
   const monthlyTotal = activeBills.reduce((s, b) => {
     const m: Record<Bill['frequency'], number> = { weekly: 52 / 12, biweekly: 26 / 12, monthly: 1, quarterly: 1 / 3, yearly: 1 / 12 };
     return s + b.amount * m[b.frequency];
   }, 0);
-  const overdueBills = activeBills.filter((b) => new Date(b.nextDue) < new Date(nowMs));
-  const upcomingCount = activeBills.filter((b) => { const diff = (new Date(b.nextDue).getTime() - nowMs) / 86400000; return diff >= 0 && diff <= 14; }).length;
+  const overdueBills = activeBills.filter((b) => parseLocalDate(b.nextDue) < todayMidnight);
+  const upcomingCount = activeBills.filter((b) => { const diff = Math.ceil((parseLocalDate(b.nextDue).getTime() - todayMidnight.getTime()) / 86400000); return diff >= 0 && diff <= 14; }).length;
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
@@ -571,8 +578,7 @@ export default function BillsPage() {
               <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">{t('bills.active')} Bills</h2>
               <div className="space-y-2.5">
                 {activeBills.map((bill) => {
-                  const dueDate = new Date(bill.nextDue);
-                  const daysUntil = Math.ceil((dueDate.getTime() - nowMs) / 86400000);
+                  const daysUntil = Math.ceil((parseLocalDate(bill.nextDue).getTime() - todayMidnight.getTime()) / 86400000);
                   const isOverdue = daysUntil < 0;
                   const isDueSoon = daysUntil >= 0 && daysUntil <= 7;
                   const accountName = accounts.find((a) => a.id === bill.account)?.name ?? bill.account;

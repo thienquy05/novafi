@@ -117,7 +117,11 @@ export default function TransactionsPage() {
       const [txRes, accRes] = await Promise.all([fetch('/api/transactions'), fetch('/api/accounts')]);
       if (!txRes.ok || !accRes.ok) throw new Error();
       const [txs, accs] = await Promise.all([txRes.json(), accRes.json()]);
-      setTransactions([...txs].sort((a: Transaction, b: Transaction) => b.date.localeCompare(a.date)));
+      setTransactions([...txs].sort((a: Transaction, b: Transaction) => {
+        const dateCmp = b.date.localeCompare(a.date);
+        if (dateCmp !== 0) return dateCmp;
+        return (b.createdAt ?? b.id).localeCompare(a.createdAt ?? a.id);
+      }));
       setAccounts(accs);
     } catch {
       setError(true);
@@ -193,12 +197,18 @@ export default function TransactionsPage() {
       category: form.category,
       account: form.account,
       toAccount: form.type === 'transfer' ? form.toAccount : undefined,
+      createdAt: editTarget?.createdAt ?? new Date().toISOString(),
     };
 
+    const txSort = (a: Transaction, b: Transaction) => {
+      const dateCmp = b.date.localeCompare(a.date);
+      if (dateCmp !== 0) return dateCmp;
+      return (b.createdAt ?? b.id).localeCompare(a.createdAt ?? a.id);
+    };
     if (editTarget) {
       setTransactions((prev) => prev.map((tx) => tx.id === editTarget.id ? updated : tx));
     } else {
-      setTransactions((prev) => [updated, ...prev].sort((a, b) => b.date.localeCompare(a.date)));
+      setTransactions((prev) => [updated, ...prev].sort(txSort));
     }
     closeModal();
 

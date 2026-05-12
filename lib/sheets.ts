@@ -167,7 +167,7 @@ export async function getTransactions(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Transactions!A2:H1000',
+    range: 'Transactions!A2:I1000',
   });
   return (res.data.values ?? []).map(rowToTransaction);
 }
@@ -182,6 +182,7 @@ function rowToTransaction(r: string[]): Transaction {
     category: r[5] ?? '',
     account: r[6] ?? '',
     toAccount: r[7] ?? '',
+    createdAt: r[8] ?? '',
   };
 }
 
@@ -197,7 +198,7 @@ export async function addTransaction(
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
-      values: [[tx.id, tx.date, tx.description, tx.amount, tx.type, tx.category, tx.account, tx.toAccount ?? '']],
+      values: [[tx.id, tx.date, tx.description, tx.amount, tx.type, tx.category, tx.account, tx.toAccount ?? '', tx.createdAt ?? '']],
     },
   });
 }
@@ -207,7 +208,7 @@ export async function deleteTransaction(
   spreadsheetId: string,
   id: string
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Transactions', id, 'H');
+  await deleteRowById(accessToken, spreadsheetId, 'Transactions', id, 'I');
 }
 
 export async function updateTransaction(
@@ -215,7 +216,7 @@ export async function updateTransaction(
   spreadsheetId: string,
   tx: Transaction
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Transactions', tx.id, 'H');
+  await deleteRowById(accessToken, spreadsheetId, 'Transactions', tx.id, 'I');
   const sheets = getSheetsClient(accessToken);
   await sheets.spreadsheets.values.append({
     spreadsheetId,
@@ -223,7 +224,7 @@ export async function updateTransaction(
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
-      values: [[tx.id, tx.date, tx.description, tx.amount, tx.type, tx.category, tx.account, tx.toAccount ?? '']],
+      values: [[tx.id, tx.date, tx.description, tx.amount, tx.type, tx.category, tx.account, tx.toAccount ?? '', tx.createdAt ?? '']],
     },
   });
 }
@@ -573,7 +574,7 @@ export async function batchGetBadgesData(
   const ranges = [
     'Bills!A2:H200',
     'Budgets!A2:D200',
-    'Transactions!A2:H1000',
+    'Transactions!A2:I1000',
   ];
   const res = await sheets.spreadsheets.values.batchGet({
     spreadsheetId,
@@ -608,6 +609,7 @@ export async function batchGetBadgesData(
     category: r[5] ?? '',
     account: r[6] ?? '',
     toAccount: r[7] ?? '',
+    createdAt: r[8] ?? '',
   }));
   return { bills, budgets, transactions };
 }
@@ -631,7 +633,7 @@ export async function batchGetDashboardData(
   const sheets = getSheetsClient(accessToken);
   const ranges = [
     'Paychecks!A2:K1000',
-    'Transactions!A2:H1000',
+    'Transactions!A2:I1000',
     'Accounts!A2:H200',
     'Bills!A2:H200',
     'Budgets!A2:D200',
@@ -668,6 +670,7 @@ export async function batchGetDashboardData(
     category: r[5] ?? '',
     account: r[6] ?? '',
     toAccount: r[7] ?? '',
+    createdAt: r[8] ?? '',
   }));
   const accounts: Account[] = (vr[2]?.values ?? []).map((r) => ({
     id: String(r[0] ?? ''),

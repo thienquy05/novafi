@@ -6,6 +6,53 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ## Current Version — NovaFi Web App (Next.js + Google Sheets)
 
+**Last Updated:** May 12, 2026
+
+---
+
+## 2026-05-12 — Fix: billing & transaction dates show 1 day early (PR #11: claude/fix-billing-date-offset)
+
+Root cause: `new Date("YYYY-MM-DD")` treats date-only strings as UTC midnight. In UTC-negative timezones, `.toLocaleDateString()` and `.getDate()` return the previous calendar day. Server components (dashboard) were unaffected because Node.js server runs in UTC. Client components (bills page, transactions) showed 1 day early.
+
+### Files
+- **`lib/utils.ts`**
+  - `formatDate(dateStr)`: changed from `new Date(dateStr).toLocaleDateString(...)` to `new Date(y, m-1, d).toLocaleDateString(...)` (local midnight, no UTC shift)
+  - `today()`: changed from `new Date().toISOString().split('T')[0]` (UTC date) to `getFullYear/getMonth/getDate` (local calendar date)
+- **`app/(app)/bills/page.tsx`**
+  - Added `parseLocalDate(dateStr)` helper: `new Date(y, m-1, d)` — used everywhere a YYYY-MM-DD string was previously passed to `new Date()`
+  - `nextDueAfter()`: uses `parseLocalDate()` + local date parts for output (no more `toISOString()` return)
+  - `CashflowCalendar`: bill/paycheck day mapping uses `parseLocalDate()`
+  - `BillsTimeline`: same
+  - `overdueBills` filter: `parseLocalDate(nextDue) < todayMidnight` (local midnight comparison)
+  - `upcomingCount` filter: same local-midnight comparison
+  - `daysUntil` per bill: `parseLocalDate(nextDue) - todayMidnight`
+  - `todayMidnight` memoized via `useMemo`
+
+---
+
+## 2026-05-12 — Feat: same-day transaction sort by creation time (PR #12: claude/fix-transaction-time-sort)
+
+Added `createdAt?: string` (ISO timestamp) as a secondary sort key so transactions added on the same calendar date appear newest-first (stacking). Time is internal only — never displayed.
+
+### Schema change
+- Google Sheets Transactions column I: `createdAt` (ISO string, optional). Existing rows without this column fall back to id-based ordering (`id` is `${Date.now()}_${random}`, so it also sorts by creation time).
+
+### Files
+- **`types/index.ts`**: added `createdAt?: string` to `Transaction`
+- **`lib/sheets.ts`**:
+  - `getTransactions` range: `A2:H1000` → `A2:I1000`
+  - `rowToTransaction`: reads `r[8]` as `createdAt`
+  - `addTransaction`, `updateTransaction`: write `createdAt` to col I
+  - `deleteTransaction`, `updateTransaction` (delete step): last col changed `H` → `I`
+  - `batchGetBadgesData`: range `H1000` → `I1000`; mapper adds `createdAt: r[8]`
+  - `batchGetDashboardData`: same range + mapper update
+- **`app/(app)/transactions/page.tsx`**: sort uses `(date desc, createdAt desc)`; new transactions include `createdAt: new Date().toISOString()`; edits preserve original `createdAt`
+- **`app/(app)/dashboard/QuickAddTransaction.tsx`**: includes `createdAt` on submit
+- **`app/(app)/bills/page.tsx`**: payment transactions include `createdAt`
+- **`app/(app)/dashboard/page.tsx`**: `recentTx` sort uses same two-key sort
+
+---
+
 **Last Updated:** May 11, 2026
 
 ---

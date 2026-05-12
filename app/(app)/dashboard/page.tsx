@@ -149,7 +149,11 @@ export default async function DashboardPage() {
 
   // Recent transactions (last 6)
   const recentTx = [...transactions]
-    .sort((a, b) => b.date.localeCompare(a.date))
+    .sort((a, b) => {
+      const dateCmp = b.date.localeCompare(a.date);
+      if (dateCmp !== 0) return dateCmp;
+      return (b.createdAt ?? b.id).localeCompare(a.createdAt ?? a.id);
+    })
     .slice(0, 6);
 
   // Spending by category this month
@@ -161,48 +165,53 @@ export default async function DashboardPage() {
     .sort((a, b) => b[1] - a[1])
     .map(([name, value]) => ({ name, value }));
 
+  // Single pass over all transactions grouped by YYYY-MM — used for monthly chart,
+  // emergency fund, health score income/expense arrays (avoids 12+ redundant scans)
+  const monthlyTotals: Record<string, { income: number; expense: number }> = {};
+  for (const tx of transactions) {
+    const key = tx.date.slice(0, 7);
+    if (!monthlyTotals[key]) monthlyTotals[key] = { income: 0, expense: 0 };
+    if (tx.type === 'income') monthlyTotals[key].income += tx.amount;
+    else if (tx.type === 'expense') monthlyTotals[key].expense += tx.amount;
+  }
+
   // Monthly income vs spending (last 6 months)
   const monthlyData = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const mTx = transactions.filter((tx) => tx.date.startsWith(key));
-    return {
-      month: MONTH_NAMES[d.getMonth()],
-      income: mTx.filter((tx) => tx.type === 'income').reduce((s, tx) => s + tx.amount, 0),
-      expenses: mTx.filter((tx) => tx.type === 'expense').reduce((s, tx) => s + tx.amount, 0),
-    };
+    const totals = monthlyTotals[key] ?? { income: 0, expense: 0 };
+    return { month: MONTH_NAMES[d.getMonth()], income: totals.income, expenses: totals.expense };
   });
 
-  // Budget vs actual this month + prev month MoM
+  // Budget vs actual this month — reuse categorySpend (already computed above)
   const prevMonthCategorySpend: Record<string, number> = {};
   prevMonthTx.filter((tx) => tx.type === 'expense').forEach((tx) => {
     prevMonthCategorySpend[tx.category] = (prevMonthCategorySpend[tx.category] ?? 0) + tx.amount;
   });
 
-  const budgetData = budgets.map((b) => {
-    const spent = monthTx
-      .filter((tx) => tx.type === 'expense' && tx.category === b.category)
-      .reduce((s, tx) => s + tx.amount, 0);
-    const budget = normalizeMonthlyBudget(b.amount, b.period);
-    return { category: b.category, budget, spent, prevMonthSpent: prevMonthCategorySpend[b.category] ?? 0 };
-  });
+  const budgetData = budgets.map((b) => ({
+    category: b.category,
+    budget: normalizeMonthlyBudget(b.amount, b.period),
+    spent: categorySpend[b.category] ?? 0,
+    prevMonthSpent: prevMonthCategorySpend[b.category] ?? 0,
+  }));
   const overBudgetCount = budgetData.filter((b) => b.spent > b.budget).length;
 
-  // Emergency fund
+  // Emergency fund — pull from precomputed monthlyTotals instead of rescanning
   const liquidSavings = calcLiquidSavings(accounts);
   const last3MonthsExpenses = Array.from({ length: 3 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (i + 1), 1);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    return calcMonthExpense(transactions, key);
+    return monthlyTotals[key]?.expense ?? 0;
   });
   const avgMonthlyExpense = calcAvgMonthlyExpense(last3MonthsExpenses);
   const emergencyFundMonths = calcEmergencyFundMonths(liquidSavings, avgMonthlyExpense);
 
-  // Financial health score (6-factor weighted composite, 100 pts total)
+  // Financial health score — income array from same precomputed map
   const last3MonthsIncome = Array.from({ length: 3 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (i + 1), 1);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    return calcMonthIncome(transactions, key);
+    return monthlyTotals[key]?.income ?? 0;
   });
   const avgMonthlyIncome = calcAvgMonthlyExpense(last3MonthsIncome); // reuse arithmetic mean helper
   const dti = calcDebtToIncomeRatio(totalDebt, avgMonthlyIncome);
