@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap, RefreshCw, AlertCircle, GripVertical } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -93,16 +93,29 @@ export default function PlanningPage() {
   const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const prevMonthKey = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
 
-  const monthExpenses = transactions.filter((tx) => tx.date.startsWith(thisMonth) && tx.type === 'expense');
-  const prevMonthExpenses = transactions.filter((tx) => tx.date.startsWith(prevMonthKey) && tx.type === 'expense');
+  const monthExpenses = useMemo(
+    () => transactions.filter((tx) => tx.date.startsWith(thisMonth) && tx.type === 'expense'),
+    [transactions, thisMonth]
+  );
+  const prevMonthExpenses = useMemo(
+    () => transactions.filter((tx) => tx.date.startsWith(prevMonthKey) && tx.type === 'expense'),
+    [transactions, prevMonthKey]
+  );
 
-  function spentForCategory(cat: string): number {
-    return monthExpenses.filter((tx) => tx.category === cat).reduce((s, tx) => s + tx.amount, 0);
-  }
+  const categorySpendMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const tx of monthExpenses) map[tx.category] = (map[tx.category] ?? 0) + tx.amount;
+    return map;
+  }, [monthExpenses]);
 
-  function prevSpentForCategory(cat: string): number {
-    return prevMonthExpenses.filter((tx) => tx.category === cat).reduce((s, tx) => s + tx.amount, 0);
-  }
+  const prevCategorySpendMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const tx of prevMonthExpenses) map[tx.category] = (map[tx.category] ?? 0) + tx.amount;
+    return map;
+  }, [prevMonthExpenses]);
+
+  function spentForCategory(cat: string): number { return categorySpendMap[cat] ?? 0; }
+  function prevSpentForCategory(cat: string): number { return prevCategorySpendMap[cat] ?? 0; }
 
   // ─── Budget CRUD ──────────────────────────────────────────────────────────
   function openAddBudget() {
@@ -258,8 +271,10 @@ export default function PlanningPage() {
   }, 0);
 
   const savingsAccounts = accounts.filter((a) => a.type === 'savings');
-  const unbudgetedWithSpending = expenseCategories.filter(
-    (c) => !budgets.some((b) => b.category === c) && monthExpenses.some((tx) => tx.category === c)
+  const budgetedCategories = useMemo(() => new Set(budgets.map((b) => b.category)), [budgets]);
+  const unbudgetedWithSpending = useMemo(
+    () => expenseCategories.filter((c) => !budgetedCategories.has(c) && (categorySpendMap[c] ?? 0) > 0),
+    [expenseCategories, budgetedCategories, categorySpendMap]
   );
 
   return (

@@ -80,53 +80,39 @@ export async function PUT(req: NextRequest) {
   const { original, updated }: { original: Transaction; updated: Transaction } = await req.json();
 
   const accounts = await getAccounts(session.accessToken, session.spreadsheetId);
-  const findAcc = (id: string) => accounts.find((a) => a.id === id);
+  // Track balance updates in-memory so we don't need a second getAccounts fetch
+  const accountMap = new Map(accounts.map((a) => [a.id, { ...a }]));
+  const upsert = async (id: string) => {
+    const a = accountMap.get(id);
+    if (a) await upsertAccount(session.accessToken, session.spreadsheetId, a);
+  };
 
   // Reverse original balance effects
   if (original.type === 'expense') {
-    const acc = findAcc(original.account);
-    if (acc) {
-      const isDebt = acc.type === 'credit' || acc.type === 'loan';
-      await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: reverseExpenseBalance(acc.balance, original.amount, isDebt) });
-    }
+    const acc = accountMap.get(original.account);
+    if (acc) { const isDebt = acc.type === 'credit' || acc.type === 'loan'; acc.balance = reverseExpenseBalance(acc.balance, original.amount, isDebt); await upsert(acc.id); }
   } else if (original.type === 'income') {
-    const acc = findAcc(original.account);
-    if (acc) await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: reverseIncomeBalance(acc.balance, original.amount) });
+    const acc = accountMap.get(original.account);
+    if (acc) { acc.balance = reverseIncomeBalance(acc.balance, original.amount); await upsert(acc.id); }
   } else if (original.type === 'transfer') {
-    const fromAcc = findAcc(original.account);
-    const toAcc = findAcc(original.toAccount ?? '');
-    if (fromAcc) await upsertAccount(session.accessToken, session.spreadsheetId, { ...fromAcc, balance: reverseTransferFromBalance(fromAcc.balance, original.amount) });
-    if (toAcc) {
-      const isDebt = toAcc.type === 'credit' || toAcc.type === 'loan';
-      await upsertAccount(session.accessToken, session.spreadsheetId, {
-        ...toAcc,
-        balance: reverseTransferToBalance(toAcc.balance, original.amount, isDebt),
-      });
-    }
+    const fromAcc = accountMap.get(original.account);
+    const toAcc = accountMap.get(original.toAccount ?? '');
+    if (fromAcc) { fromAcc.balance = reverseTransferFromBalance(fromAcc.balance, original.amount); await upsert(fromAcc.id); }
+    if (toAcc) { const isDebt = toAcc.type === 'credit' || toAcc.type === 'loan'; toAcc.balance = reverseTransferToBalance(toAcc.balance, original.amount, isDebt); await upsert(toAcc.id); }
   }
 
-  // Fetch fresh accounts after reversal
-  const fresh = await getAccounts(session.accessToken, session.spreadsheetId);
-  const findFresh = (id: string) => fresh.find((a) => a.id === id);
-
-  // Apply new balance effects
+  // Apply new balance effects using the updated in-memory map (no second Sheets fetch)
   if (updated.type === 'expense') {
-    const acc = findFresh(updated.account);
-    if (acc) {
-      const isDebt = acc.type === 'credit' || acc.type === 'loan';
-      await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: applyExpenseBalance(acc.balance, updated.amount, isDebt) });
-    }
+    const acc = accountMap.get(updated.account);
+    if (acc) { const isDebt = acc.type === 'credit' || acc.type === 'loan'; await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: applyExpenseBalance(acc.balance, updated.amount, isDebt) }); }
   } else if (updated.type === 'income') {
-    const acc = findFresh(updated.account);
+    const acc = accountMap.get(updated.account);
     if (acc) await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: applyIncomeBalance(acc.balance, updated.amount) });
   } else if (updated.type === 'transfer') {
-    const fromAcc = findFresh(updated.account);
-    const toAcc = findFresh(updated.toAccount ?? '');
+    const fromAcc = accountMap.get(updated.account);
+    const toAcc = accountMap.get(updated.toAccount ?? '');
     if (fromAcc) await upsertAccount(session.accessToken, session.spreadsheetId, { ...fromAcc, balance: applyTransferFromBalance(fromAcc.balance, updated.amount) });
-    if (toAcc) {
-      const isDebt = toAcc.type === 'credit' || toAcc.type === 'loan';
-      await upsertAccount(session.accessToken, session.spreadsheetId, { ...toAcc, balance: applyTransferToBalance(toAcc.balance, updated.amount, isDebt) });
-    }
+    if (toAcc) { const isDebt = toAcc.type === 'credit' || toAcc.type === 'loan'; await upsertAccount(session.accessToken, session.spreadsheetId, { ...toAcc, balance: applyTransferToBalance(toAcc.balance, updated.amount, isDebt) }); }
   }
 
   await updateTransaction(session.accessToken, session.spreadsheetId, updated);

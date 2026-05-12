@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { RefreshCw, AlertCircle, BarChart3, TrendingUp, TrendingDown, DollarSign, Calendar } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -55,59 +55,65 @@ export default function ReportsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Derive available years
-  const years = [...new Set(transactions.map((tx) => Number(tx.date.slice(0, 4))))].sort((a, b) => b - a);
-  if (years.length === 0) years.push(new Date().getFullYear());
+  // Derive available years (memoized so it only recalculates when transactions change)
+  const years = useMemo(() => {
+    const y = [...new Set(transactions.map((tx) => Number(tx.date.slice(0, 4))))].sort((a, b) => b - a);
+    if (y.length === 0) y.push(new Date().getFullYear());
+    return y;
+  }, [transactions]);
 
-  // Filter to selected year
-  const yearTx = transactions.filter((tx) => tx.date.startsWith(String(selectedYear)));
+  // All derived data in a single pass over the selected year's transactions
+  const reportData = useMemo(() => {
+    const yearStr = String(selectedYear);
+    const monthTotals: Array<{ income: number; expenses: number }> =
+      Array.from({ length: 12 }, () => ({ income: 0, expenses: 0 }));
+    const categorySpend: Record<string, number> = {};
+    const merchantSpend: Record<string, { total: number; count: number }> = {};
+    let yearIncome = 0, yearExpense = 0;
 
-  const yearIncome = yearTx.filter((tx) => tx.type === 'income').reduce((s, tx) => s + tx.amount, 0);
-  const yearExpense = yearTx.filter((tx) => tx.type === 'expense').reduce((s, tx) => s + tx.amount, 0);
-  const yearSavings = yearIncome - yearExpense;
-  const savingsRate = yearIncome > 0 ? (yearSavings / yearIncome) * 100 : 0;
+    for (const tx of transactions) {
+      if (!tx.date.startsWith(yearStr)) continue;
+      const monthIdx = Number(tx.date.slice(5, 7)) - 1;
+      if (tx.type === 'income') {
+        monthTotals[monthIdx].income += tx.amount;
+        yearIncome += tx.amount;
+      } else if (tx.type === 'expense') {
+        monthTotals[monthIdx].expenses += tx.amount;
+        yearExpense += tx.amount;
+        categorySpend[tx.category] = (categorySpend[tx.category] ?? 0) + tx.amount;
+        if (tx.description) {
+          const key = tx.description.toLowerCase().trim();
+          if (!merchantSpend[key]) merchantSpend[key] = { total: 0, count: 0 };
+          merchantSpend[key].total += tx.amount;
+          merchantSpend[key].count += 1;
+        }
+      }
+    }
 
-  // Monthly breakdown
-  const monthlyData = Array.from({ length: 12 }, (_, i) => {
-    const key = `${selectedYear}-${String(i + 1).padStart(2, '0')}`;
-    const mTx = yearTx.filter((tx) => tx.date.startsWith(key));
-    return {
-      month: MONTH_NAMES[i],
-      income: mTx.filter((tx) => tx.type === 'income').reduce((s, tx) => s + tx.amount, 0),
-      expenses: mTx.filter((tx) => tx.type === 'expense').reduce((s, tx) => s + tx.amount, 0),
-    };
-  });
+    const monthlyData = MONTH_NAMES.map((month, i) => ({ month, ...monthTotals[i] }));
+    const categoryData = Object.entries(categorySpend)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, value]) => ({ name, value }));
+    const topMerchants = Object.entries(merchantSpend)
+      .sort((a, b) => b[1].total - a[1].total)
+      .slice(0, 10)
+      .map(([name, { total, count }]) => ({ name, total, count }));
 
-  // Category breakdown
-  const categorySpend: Record<string, number> = {};
-  yearTx.filter((tx) => tx.type === 'expense').forEach((tx) => {
-    categorySpend[tx.category] = (categorySpend[tx.category] ?? 0) + tx.amount;
-  });
-  const categoryData = Object.entries(categorySpend)
-    .sort((a, b) => b[1] - a[1])
-    .map(([name, value]) => ({ name, value }));
+    const yearSavings = yearIncome - yearExpense;
+    const savingsRate = yearIncome > 0 ? (yearSavings / yearIncome) * 100 : 0;
 
-  // Top merchants
-  const merchantSpend: Record<string, { total: number; count: number }> = {};
-  yearTx.filter((tx) => tx.type === 'expense' && tx.description).forEach((tx) => {
-    const key = tx.description.toLowerCase().trim();
-    if (!merchantSpend[key]) merchantSpend[key] = { total: 0, count: 0 };
-    merchantSpend[key].total += tx.amount;
-    merchantSpend[key].count += 1;
-  });
-  const topMerchants = Object.entries(merchantSpend)
-    .sort((a, b) => b[1].total - a[1].total)
-    .slice(0, 10)
-    .map(([name, { total, count }]) => ({ name, total, count }));
+    const monthsWithData = monthlyData.filter((m) => m.income > 0 || m.expenses > 0);
+    const bestSavingsMonth = monthsWithData.length > 0
+      ? monthsWithData.reduce((best, m) => (m.income - m.expenses) > (best.income - best.expenses) ? m : best, monthsWithData[0])
+      : null;
+    const highestSpendMonth = monthsWithData.length > 0
+      ? monthsWithData.reduce((worst, m) => m.expenses > worst.expenses ? m : worst, monthsWithData[0])
+      : null;
 
-  // Best/worst month
-  const monthsWithData = monthlyData.filter((m) => m.income > 0 || m.expenses > 0);
-  const bestSavingsMonth = monthsWithData.length > 0
-    ? monthsWithData.reduce((best, m) => (m.income - m.expenses) > (best.income - best.expenses) ? m : best, monthsWithData[0])
-    : null;
-  const highestSpendMonth = monthsWithData.length > 0
-    ? monthsWithData.reduce((worst, m) => m.expenses > worst.expenses ? m : worst, monthsWithData[0])
-    : null;
+    return { yearIncome, yearExpense, yearSavings, savingsRate, monthlyData, categoryData, topMerchants, bestSavingsMonth, highestSpendMonth };
+  }, [transactions, selectedYear]);
+
+  const { yearIncome, yearExpense, yearSavings, savingsRate, monthlyData, categoryData, topMerchants, bestSavingsMonth, highestSpendMonth } = reportData;
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
