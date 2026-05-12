@@ -23,11 +23,12 @@ import { signOut } from 'next-auth/react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LogoMark } from './LogoMark';
+import { useTranslation } from '@/lib/i18n/context';
 
 type BadgeCounts = { overdueBills: number; overBudget: number };
 
 const BADGES_CACHE_KEY = 'nf_badges_cache';
-const BADGES_TTL_MS = 2 * 60 * 1000; // 2 minutes
+const BADGES_TTL_MS = 2 * 60 * 1000;
 
 function useBadges(): BadgeCounts {
   const [badges, setBadges] = useState<BadgeCounts>({ overdueBills: 0, overBudget: 0 });
@@ -71,21 +72,21 @@ function NavBadge({ count, tone = 'red' }: { count: number; tone?: 'red' | 'ambe
 }
 
 const NAV = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, badgeKey: null as keyof BadgeCounts | null },
-  { href: '/accounts', label: 'Accounts', icon: Landmark, badgeKey: null },
-  { href: '/paychecks', label: 'Paychecks', icon: DollarSign, badgeKey: null },
-  { href: '/transactions', label: 'Transactions', icon: ArrowLeftRight, badgeKey: null },
-  { href: '/savings', label: 'Savings', icon: PiggyBank, badgeKey: null },
-  { href: '/bills', label: 'Bills', icon: Calendar, badgeKey: 'overdueBills' as keyof BadgeCounts },
-  { href: '/planning', label: 'Planning', icon: BarChart3, badgeKey: 'overBudget' as keyof BadgeCounts },
-  { href: '/reports', label: 'Reports', icon: FileText, badgeKey: null },
-  { href: '/settings', label: 'Settings', icon: Settings, badgeKey: null },
+  { href: '/dashboard',    labelKey: 'nav.dashboard',    icon: LayoutDashboard, badgeKey: null as keyof BadgeCounts | null },
+  { href: '/accounts',     labelKey: 'nav.accounts',     icon: Landmark,        badgeKey: null },
+  { href: '/paychecks',    labelKey: 'nav.paychecks',    icon: DollarSign,      badgeKey: null },
+  { href: '/transactions', labelKey: 'nav.transactions', icon: ArrowLeftRight,  badgeKey: null },
+  { href: '/savings',      labelKey: 'nav.savings',      icon: PiggyBank,       badgeKey: null },
+  { href: '/bills',        labelKey: 'nav.bills',        icon: Calendar,        badgeKey: 'overdueBills' as keyof BadgeCounts },
+  { href: '/planning',     labelKey: 'nav.planning',     icon: BarChart3,       badgeKey: 'overBudget' as keyof BadgeCounts },
+  { href: '/reports',      labelKey: 'nav.reports',      icon: FileText,        badgeKey: null },
+  { href: '/settings',     labelKey: 'nav.settings',     icon: Settings,        badgeKey: null },
 ];
 
 export function Sidebar() {
   const path = usePathname();
   const badges = useBadges();
-  // Desktop sidebar uses the fixed default NAV order — menu reordering is mobile-only.
+  const { t } = useTranslation();
 
   return (
     <aside className="hidden md:flex flex-col w-64 min-h-screen bg-white/80 backdrop-blur-xl border-r border-slate-200 px-4 py-8 shrink-0 relative z-50">
@@ -97,13 +98,13 @@ export function Sidebar() {
         </div>
         <div>
           <p className="text-slate-900 font-bold text-lg tracking-tight leading-none">Nova<span className="text-gradient">Fi</span></p>
-          <p className="text-slate-500 text-xs font-medium mt-1">Wealth Management</p>
+          <p className="text-slate-500 text-xs font-medium mt-1">{t('nav.wealthManagement')}</p>
         </div>
       </div>
 
       {/* Nav */}
       <nav className="flex flex-col gap-1.5 flex-1">
-        {NAV.map(({ href, label, icon: Icon, badgeKey }) => {
+        {NAV.map(({ href, labelKey, icon: Icon, badgeKey }) => {
           const active = path === href || path.startsWith(href + '/');
           const badgeCount = badgeKey ? badges[badgeKey] : 0;
           return (
@@ -126,7 +127,7 @@ export function Sidebar() {
                 />
               )}
               <Icon className={cn('w-5 h-5 shrink-0 relative z-10 transition-colors duration-150', active ? 'text-indigo-600' : 'group-hover:text-slate-900')} />
-              <span className="relative z-10 flex-1">{label}</span>
+              <span className="relative z-10 flex-1">{t(labelKey)}</span>
               {badgeCount > 0 && (
                 <NavBadge
                   count={badgeCount}
@@ -144,13 +145,14 @@ export function Sidebar() {
         className="group flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-semibold text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors duration-150 mt-auto tap-highlight-none select-none"
       >
         <LogOut className="w-5 h-5 shrink-0 group-hover:scale-110 transition-transform duration-150" />
-        Sign Out
+        {t('nav.signOut')}
       </button>
     </aside>
   );
 }
 
 export function MobileHeader() {
+  const { t } = useTranslation();
   return (
     <header className="md:hidden flex items-center justify-between px-4 py-4 bg-white/90 backdrop-blur-xl border-b border-slate-200 sticky top-0 z-40">
       <div className="flex items-center gap-3">
@@ -160,6 +162,7 @@ export function MobileHeader() {
       <button
         onClick={() => signOut({ callbackUrl: '/' })}
         className="p-2.5 text-slate-500 hover:text-rose-600 bg-slate-50 hover:bg-rose-50 rounded-full transition-colors duration-150 tap-highlight-none"
+        aria-label={t('nav.signOut')}
       >
         <LogOut className="w-5 h-5" />
       </button>
@@ -170,15 +173,15 @@ export function MobileHeader() {
 const MOBILE_NAV_ORDER_KEY = 'novafi_mobile_nav_order';
 
 const ALL_MOBILE_NAV = [
-  { href: '/dashboard',    label: 'Home',      icon: LayoutDashboard, badgeKey: null as keyof BadgeCounts | null },
-  { href: '/transactions', label: 'Spending',  icon: ArrowLeftRight,  badgeKey: null },
-  { href: '/bills',        label: 'Bills',     icon: Calendar,        badgeKey: 'overdueBills' as keyof BadgeCounts },
-  { href: '/planning',     label: 'Planning',  icon: BarChart3,       badgeKey: 'overBudget' as keyof BadgeCounts },
-  { href: '/accounts',     label: 'Accounts',  icon: Landmark,        badgeKey: null },
-  { href: '/savings',      label: 'Savings',   icon: PiggyBank,       badgeKey: null },
-  { href: '/paychecks',    label: 'Paychecks', icon: DollarSign,      badgeKey: null },
-  { href: '/reports',      label: 'Reports',   icon: FileText,        badgeKey: null },
-  { href: '/settings',     label: 'Settings',  icon: Settings,        badgeKey: null },
+  { href: '/dashboard',    labelKey: 'nav.home',         icon: LayoutDashboard, badgeKey: null as keyof BadgeCounts | null },
+  { href: '/transactions', labelKey: 'nav.spending',     icon: ArrowLeftRight,  badgeKey: null },
+  { href: '/bills',        labelKey: 'nav.bills',        icon: Calendar,        badgeKey: 'overdueBills' as keyof BadgeCounts },
+  { href: '/planning',     labelKey: 'nav.planning',     icon: BarChart3,       badgeKey: 'overBudget' as keyof BadgeCounts },
+  { href: '/accounts',     labelKey: 'nav.accounts',     icon: Landmark,        badgeKey: null },
+  { href: '/savings',      labelKey: 'nav.savings',      icon: PiggyBank,       badgeKey: null },
+  { href: '/paychecks',    labelKey: 'nav.paychecks',    icon: DollarSign,      badgeKey: null },
+  { href: '/reports',      labelKey: 'nav.reports',      icon: FileText,        badgeKey: null },
+  { href: '/settings',     labelKey: 'nav.settings',     icon: Settings,        badgeKey: null },
 ];
 
 function getMobileNavOrder(): typeof ALL_MOBILE_NAV {
@@ -198,6 +201,7 @@ function getMobileNavOrder(): typeof ALL_MOBILE_NAV {
 export function MobileNav() {
   const path = usePathname();
   const badges = useBadges();
+  const { t } = useTranslation();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const [navOrder, setNavOrder] = useState(ALL_MOBILE_NAV);
@@ -206,10 +210,8 @@ export function MobileNav() {
 
   useEffect(() => { setNavOrder(getMobileNavOrder()); }, []);
 
-  // Close sheets when navigating
   useEffect(() => { setSheetOpen(false); setCustomizeOpen(false); }, [path]);
 
-  // Close on outside tap
   useEffect(() => {
     if (!sheetOpen && !customizeOpen) return;
     const handler = (e: MouseEvent | TouchEvent) => {
@@ -276,31 +278,31 @@ export function MobileNav() {
           >
             <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-4" />
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-bold text-slate-900">Navigation Order</h2>
+              <h2 className="text-sm font-bold text-slate-900">{t('nav.navigationOrder')}</h2>
               <button
                 onClick={() => setCustomizeOpen(false)}
                 className="text-sm font-semibold text-indigo-600 tap-highlight-none px-1"
               >
-                Done
+                {t('nav.done')}
               </button>
             </div>
 
-            <p className="text-xs text-slate-400 mb-3">First 4 items appear in the bottom bar. The rest go in More.</p>
+            <p className="text-xs text-slate-400 mb-3">{t('nav.firstFourItems')}</p>
 
             <div className="space-y-0.5">
-              {navOrder.map(({ href, label, icon: Icon }, index) => (
+              {navOrder.map(({ href, labelKey, icon: Icon }, index) => (
                 <div key={href}>
                   {index === 4 && (
                     <div className="flex items-center gap-2 my-3">
                       <div className="flex-1 h-px bg-slate-200" />
-                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">More</span>
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{t('nav.more')}</span>
                       <div className="flex-1 h-px bg-slate-200" />
                     </div>
                   )}
                   <div className="flex items-center gap-3 py-2.5 px-2 rounded-xl">
                     <span className="w-5 h-5 flex items-center justify-center text-[11px] font-bold text-slate-300 shrink-0">{index + 1}</span>
                     <Icon className="w-5 h-5 text-slate-500 shrink-0" />
-                    <span className="flex-1 text-sm font-semibold text-slate-700">{label}</span>
+                    <span className="flex-1 text-sm font-semibold text-slate-700">{t(labelKey)}</span>
                     <div className="flex items-center gap-0.5">
                       <button
                         onClick={() => moveItem(index, 'up')}
@@ -326,7 +328,7 @@ export function MobileNav() {
               onClick={resetOrder}
               className="mt-4 w-full py-2.5 text-sm font-semibold text-slate-400 hover:text-slate-600 tap-highlight-none"
             >
-              Reset to Default
+              {t('nav.resetToDefault')}
             </button>
           </motion.div>
         )}
@@ -347,7 +349,7 @@ export function MobileNav() {
             <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-5" />
 
             <div className="grid grid-cols-5 gap-2">
-              {moreNav.map(({ href, label, icon: Icon, badgeKey }) => {
+              {moreNav.map(({ href, labelKey, icon: Icon, badgeKey }) => {
                 const active = path === href || path.startsWith(href + '/');
                 const badgeCount = badgeKey ? badges[badgeKey] : 0;
                 return (
@@ -370,7 +372,7 @@ export function MobileNav() {
                         </span>
                       )}
                     </div>
-                    <span className="text-[10px] font-semibold leading-tight text-center">{label}</span>
+                    <span className="text-[10px] font-semibold leading-tight text-center">{t(labelKey)}</span>
                   </Link>
                 );
               })}
@@ -382,14 +384,14 @@ export function MobileNav() {
                 className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors duration-150 border border-slate-100 tap-highlight-none select-none"
               >
                 <Sliders className="w-4 h-4" />
-                Customize
+                {t('nav.customize')}
               </button>
               <button
                 onClick={() => signOut({ callbackUrl: '/' })}
                 className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors duration-150 border border-slate-100 tap-highlight-none select-none"
               >
                 <LogOut className="w-4 h-4" />
-                Sign Out
+                {t('nav.signOut')}
               </button>
             </div>
           </motion.div>
@@ -398,7 +400,7 @@ export function MobileNav() {
 
       {/* Bottom bar */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-slate-200 px-2 py-2 flex items-center justify-around z-50 pb-safe shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
-        {primaryNav.map(({ href, label, icon: Icon, badgeKey }) => {
+        {primaryNav.map(({ href, labelKey, icon: Icon, badgeKey }) => {
           const active = path === href || path.startsWith(href + '/');
           const badgeCount = badgeKey ? badges[badgeKey] : 0;
           return (
@@ -432,7 +434,7 @@ export function MobileNav() {
                   </span>
                 )}
               </div>
-              <span className="text-[10px] font-semibold relative z-10 leading-tight">{label}</span>
+              <span className="text-[10px] font-semibold relative z-10 leading-tight">{t(labelKey)}</span>
             </Link>
           );
         })}
@@ -460,7 +462,7 @@ export function MobileNav() {
             ? <X className="w-5 h-5 relative z-10" />
             : <MoreHorizontal className={cn('w-5 h-5 relative z-10', (moreActive || sheetOpen) && 'drop-shadow-[0_0_8px_rgba(79,70,229,0.3)]')} />
           }
-          <span className="text-[10px] font-semibold relative z-10 leading-tight">More</span>
+          <span className="text-[10px] font-semibold relative z-10 leading-tight">{t('nav.more')}</span>
         </button>
       </nav>
     </>

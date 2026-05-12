@@ -1,4 +1,5 @@
 export type FilingStatus = 'single' | 'mfj' | 'mfs' | 'hoh';
+export type Language = 'en' | 'vi';
 
 export interface TaxSettings {
   filingStatus: FilingStatus;
@@ -18,6 +19,7 @@ export interface TaxSettings {
   customIncomeCategories: string[];
   hiddenExpenseCategories: string[];
   hiddenIncomeCategories: string[];
+  language: Language;
 }
 
 export interface TaxResult {

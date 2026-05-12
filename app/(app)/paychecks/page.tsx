@@ -9,6 +9,7 @@ import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
 import { calcPaycheckTax } from '@/lib/tax';
 import type { PaycheckEntry, TaxSettings, Account } from '@/types';
+import { useTranslation } from '@/lib/i18n/context';
 
 const EMPTY_FORM = {
   date: today(),
@@ -28,6 +29,7 @@ export default function PaychecksPage() {
   const [preview, setPreview] = useState<ReturnType<typeof calcPaycheckTax> | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const { t } = useTranslation();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -117,7 +119,7 @@ export default function PaychecksPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this paycheck entry?')) return;
+    if (!confirm(t('paychecks.confirmDelete'))) return;
     await fetch('/api/paychecks', {
       method: 'DELETE',
       body: JSON.stringify({ id }),
@@ -139,22 +141,22 @@ export default function PaychecksPage() {
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6 sm:space-y-8 pb-24 md:pb-8">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900">Paychecks</h1>
-          <p className="text-slate-500 text-base font-medium mt-1">Log income — net pay is deposited to your checking account</p>
+          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900">{t('paychecks.title')}</h1>
+          <p className="text-slate-500 text-base font-medium mt-1">{t('paychecks.subtitle')}</p>
         </div>
         <Button onClick={() => setOpen(true)} className="w-full md:w-auto shadow-sm hover:shadow-md">
           <Plus className="w-5 h-5" />
-          Log Paycheck
+          {t('paychecks.logPaycheck')}
         </Button>
       </div>
 
       {/* YTD Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'YTD Taxable Wages', value: ytdGross, color: 'text-slate-900' },
-          { label: 'YTD Net (take-home)', value: ytdNet + ytdGratuity, color: 'text-emerald-600' },
-          { label: 'YTD Taxes & Deductions', value: ytdGross - ytdNet, color: 'text-rose-600' },
-          { label: 'YTD Tips', value: ytdGratuity, color: 'text-sky-600' },
+          { label: t('paychecks.ytdTaxableWages'), value: ytdGross, color: 'text-slate-900' },
+          { label: t('paychecks.ytdNet'), value: ytdNet + ytdGratuity, color: 'text-emerald-600' },
+          { label: t('paychecks.ytdTaxes'), value: ytdGross - ytdNet, color: 'text-rose-600' },
+          { label: t('paychecks.ytdTips'), value: ytdGratuity, color: 'text-sky-600' },
         ].map(({ label, value, color }) => (
           <Card key={label}>
             <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{label}</p>
@@ -175,7 +177,7 @@ export default function PaychecksPage() {
           </div>
           <p className="text-slate-900 font-bold text-lg mb-1">No paychecks logged yet.</p>
           <p className="text-slate-500 font-medium mb-6">Log your first paycheck to start tracking income.</p>
-          <Button onClick={() => setOpen(true)} className="shadow-sm">Log your first paycheck</Button>
+          <Button onClick={() => setOpen(true)} className="shadow-sm">{t('paychecks.logPaycheck')}</Button>
         </Card>
       ) : (
         <div className="space-y-4">
@@ -236,17 +238,17 @@ export default function PaychecksPage() {
       )}
 
       {/* Add Paycheck Modal */}
-      <Modal open={open} onClose={() => { setOpen(false); setForm(EMPTY_FORM); setPreview(null); }} title="Log Paycheck">
+      <Modal open={open} onClose={() => { setOpen(false); setForm(EMPTY_FORM); setPreview(null); }} title={t('paychecks.logPaycheck')}>
         <div className="space-y-5 pb-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
-              label="Pay Date"
+              label={t('paychecks.payDate')}
               type="date"
               value={form.date}
               onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
             />
             <Input
-              label="Total Amount (incl. tips)"
+              label={t('paychecks.totalAmount')}
               type="number"
               min="0"
               step="0.01"
@@ -256,7 +258,7 @@ export default function PaychecksPage() {
             />
           </div>
           <Input
-            label="Tips / Gratuity (optional, non-taxable)"
+            label={t('paychecks.tips')}
             type="number"
             min="0"
             step="0.01"
@@ -269,7 +271,7 @@ export default function PaychecksPage() {
           </p>
           {checkingAccounts.length > 0 && (
             <Select
-              label="Deposit to Checking Account"
+              label={t('paychecks.depositAccount')}
               value={form.checkingAccountId}
               options={checkingAccounts.map((a) => ({ value: a.id, label: a.name }))}
               onChange={(e) => setForm((f) => ({ ...f, checkingAccountId: e.target.value }))}
@@ -279,27 +281,27 @@ export default function PaychecksPage() {
           {/* Live Preview */}
           {preview && (
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-5 space-y-3 shadow-sm">
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 border-b border-slate-200 pb-2">Estimated Breakdown</p>
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 border-b border-slate-200 pb-2">{t('paychecks.estimatedBreakdown')}</p>
               {(() => {
                 const total = parseFloat(form.totalAmount) || 0;
                 const tips = parseFloat(form.gratuityAmount) || 0;
                 return tips > 0 ? (
                   <>
                     <div className="flex justify-between text-sm">
-                      <span className="text-slate-600 font-medium">Total Amount</span>
+                      <span className="text-slate-600 font-medium">{t('paychecks.totalAmountLabel')}</span>
                       <span className="text-slate-900 font-extrabold">{formatCurrency(total)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-slate-600 font-medium">Less: Tips (non-taxable)</span>
+                      <span className="text-slate-600 font-medium">{t('paychecks.lessTips')}</span>
                       <span className="text-sky-600 font-bold">-{formatCurrency(tips)}</span>
                     </div>
                   </>
                 ) : null;
               })()}
               {[
-                { label: 'Taxable Wages', value: preview.grossPaycheck, cls: 'text-slate-900 font-extrabold' },
+                { label: t('paychecks.taxableWages'), value: preview.grossPaycheck, cls: 'text-slate-900 font-extrabold' },
                 { label: `401(k) (${settings?.k401Pct}%)`, value: -preview.k401, cls: 'text-indigo-600 font-bold' },
-                { label: 'HSA', value: -preview.hsa, cls: 'text-indigo-600 font-bold' },
+                { label: t('paychecks.hsa'), value: -preview.hsa, cls: 'text-indigo-600 font-bold' },
                 {
                   label: settings?.useFederalBrackets
                     ? `Federal Tax (progressive${preview.marginalRate !== undefined ? ` · ${preview.marginalRate.toFixed(0)}% marginal` : ''})`
@@ -321,29 +323,29 @@ export default function PaychecksPage() {
                 return gratuity > 0 ? (
                   <>
                     <div className="border-t border-slate-200 pt-3 mt-1 flex justify-between text-sm">
-                      <span className="text-slate-600 font-medium">Net of taxable wages</span>
+                      <span className="text-slate-600 font-medium">{t('paychecks.netOfTaxable')}</span>
                       <span className="text-slate-700 font-bold">{formatCurrency(preview.netPaycheck)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-slate-600 font-medium">Add back: Tips</span>
+                      <span className="text-slate-600 font-medium">{t('paychecks.addBackTips')}</span>
                       <span className="text-sky-600 font-bold">+{formatCurrency(gratuity)}</span>
                     </div>
                     <div className="border-t border-slate-200 pt-3 mt-1 flex justify-between items-center">
-                      <span className="text-slate-900 font-bold">Total Take-Home</span>
+                      <span className="text-slate-900 font-bold">{t('paychecks.totalTakeHome')}</span>
                       <span className="text-emerald-600 font-extrabold text-lg">{formatCurrency(preview.netPaycheck + gratuity)}</span>
                     </div>
                   </>
                 ) : (
                   <div className="border-t border-slate-200 pt-3 mt-3 flex justify-between items-center">
-                    <span className="text-slate-900 font-bold">Net Take-Home</span>
+                    <span className="text-slate-900 font-bold">{t('paychecks.netTakeHome')}</span>
                     <span className="text-emerald-600 font-extrabold text-lg">{formatCurrency(preview.netPaycheck)}</span>
                   </div>
                 );
               })()}
               <div className="text-xs font-medium text-slate-500 text-right mt-1 space-y-0.5">
-                <p>Effective rate: {preview.effectiveRate.toFixed(1)}%</p>
+                <p>{t('paychecks.effectiveRate')} {preview.effectiveRate.toFixed(1)}%</p>
                 {settings?.useFederalBrackets && preview.taxableIncome !== undefined && (
-                  <p>Annual taxable income: {preview.taxableIncome.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}</p>
+                  <p>{t('paychecks.annualTaxableIncome')} {preview.taxableIncome.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}</p>
                 )}
               </div>
             </div>
@@ -353,10 +355,10 @@ export default function PaychecksPage() {
         <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={() => { setOpen(false); setForm(EMPTY_FORM); setPreview(null); }}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button className="flex-1 shadow-sm" onClick={handleSave} disabled={!preview || saving}>
-              {saving ? 'Saving…' : 'Save Paycheck'}
+              {saving ? t('common.saving') : t('paychecks.savePaycheck')}
             </Button>
           </div>
         </div>
