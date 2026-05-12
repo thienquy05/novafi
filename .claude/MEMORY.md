@@ -10,6 +10,31 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-05-12 — Fix: first checking account balance saved as $0.00
+
+User report: on a brand-new spreadsheet, the very first account added (checking, by default) showed $0.00 after save even when a balance was typed. Later savings/credit accounts saved correctly.
+
+Root-cause analysis (no single smoking gun, so the fix hardens three layers that could each produce the symptom):
+
+1. **Input was `<input type="number" step="0.01">`** — strict browser validation. On some mobile keyboards and non-US locales, typing "1000" or "1,000" can leave `e.target.value === ''`, which then runs through `parseFloat('') || 0 = 0`. Switched to `type="text" inputMode="decimal"` so the numeric keypad still appears on mobile but the value is never silently rejected. Input still strips non-numeric chars via `e.target.value.replace(/[^0-9.,\-]/g, '')`.
+
+2. **`parseFloat` is locale-fragile** — `parseFloat('1,000')` returns `1`, `parseFloat('1.000,50')` returns `1`. Replaced the inline `parseFloat(form.balance) || 0` with a `parseBalance(input)` helper at the top of `app/(app)/accounts/page.tsx` that:
+   - strips currency symbols / letters / spaces,
+   - treats the last `.` or `,` as the decimal separator (rest are thousands),
+   - preserves a leading minus,
+   - returns `0` on `NaN`/`Infinity`.
+
+3. **Sheets reads used `FORMATTED_VALUE` (the default)** — if Google Sheets auto-formats a column as currency, `r[4]` comes back as `"$100.00"`, and `Number("$100.00") === NaN`. Added `valueRenderOption: 'UNFORMATTED_VALUE'` to both `getAccounts()` and the two `batchGet*` helpers so numbers stay numeric. Also switched the parse from `Number(r[4] ?? 0)` to `Number(r[4]) || 0` so NaN falls back to 0 instead of propagating into the UI. Sibling string fields wrapped in `String(...)` for the same robustness.
+
+### Files
+- `app/(app)/accounts/page.tsx` — new `parseBalance()` helper above `EMPTY_FORM`; balance Input switched from `type="number"` to `type="text" inputMode="decimal"` with input sanitization; `handleSave` now calls `parseBalance(form.balance)` instead of inline `parseFloat`.
+- `lib/sheets.ts` — `getAccounts()`, `batchGetBillsBudgetsTransactions()`, and `batchGetDashboardData()` now request `valueRenderOption: 'UNFORMATTED_VALUE'`; account row parsing uses `Number(r[4]) || 0` and wraps string fields with `String(...)`.
+
+### Why not just one of these
+We can't deterministically prove which layer was failing from the report alone, but each is an independently-known footgun in this stack. Hardening all three eliminates the symptom regardless of which one triggered it in the user's environment. None of the changes alter persisted data or affect other entities adversely.
+
+---
+
 ## 2026-05-12 — Vietnamese language support (PR: claude/add-vietnamese-language-b0FQq)
 
 Full i18n implementation with no new npm dependencies. Lightweight React Context + JSON dictionaries approach.

@@ -238,16 +238,19 @@ export async function getAccounts(
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
     range: 'Accounts!A2:H200',
+    // Raw cell value: a currency-formatted cell stays a number rather than
+    // coming back as "$100.00" → NaN.
+    valueRenderOption: 'UNFORMATTED_VALUE',
   });
   return (res.data.values ?? []).map((r) => ({
-    id: r[0] ?? '',
-    name: r[1] ?? '',
+    id: String(r[0] ?? ''),
+    name: String(r[1] ?? ''),
     type: (r[2] ?? 'checking') as Account['type'],
-    institution: r[3] ?? '',
-    balance: Number(r[4] ?? 0),
-    last4: r[5] ?? '',
-    color: r[6] ?? '#6366f1',
-    createdAt: r[7] ?? '',
+    institution: String(r[3] ?? ''),
+    balance: Number(r[4]) || 0,
+    last4: String(r[5] ?? ''),
+    color: String(r[6] ?? '#6366f1'),
+    createdAt: String(r[7] ?? ''),
   }));
 }
 
@@ -572,7 +575,13 @@ export async function batchGetBadgesData(
     'Budgets!A2:D200',
     'Transactions!A2:H1000',
   ];
-  const res = await sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges });
+  const res = await sheets.spreadsheets.values.batchGet({
+    spreadsheetId,
+    ranges,
+    // Numeric cells must come back as numbers — currency-formatted cells
+    // would otherwise return "$100.00" strings that Number() turns into NaN.
+    valueRenderOption: 'UNFORMATTED_VALUE',
+  });
   const vr = res.data.valueRanges ?? [];
   const bills: Bill[] = (vr[0]?.values ?? []).map((r) => ({
     id: r[0] ?? '',
@@ -628,7 +637,13 @@ export async function batchGetDashboardData(
     'Budgets!A2:D200',
     'Goals!A2:G200',
   ];
-  const res = await sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges });
+  const res = await sheets.spreadsheets.values.batchGet({
+    spreadsheetId,
+    ranges,
+    // Numeric cells must come back as numbers — currency-formatted cells
+    // would otherwise return "$100.00" strings that Number() turns into NaN.
+    valueRenderOption: 'UNFORMATTED_VALUE',
+  });
   const vr = res.data.valueRanges ?? [];
 
   const paychecks: PaycheckEntry[] = (vr[0]?.values ?? []).map((r) => ({
@@ -655,14 +670,14 @@ export async function batchGetDashboardData(
     toAccount: r[7] ?? '',
   }));
   const accounts: Account[] = (vr[2]?.values ?? []).map((r) => ({
-    id: r[0] ?? '',
-    name: r[1] ?? '',
+    id: String(r[0] ?? ''),
+    name: String(r[1] ?? ''),
     type: (r[2] ?? 'checking') as Account['type'],
-    institution: r[3] ?? '',
-    balance: Number(r[4] ?? 0),
-    last4: r[5] ?? '',
-    color: r[6] ?? '#6366f1',
-    createdAt: r[7] ?? '',
+    institution: String(r[3] ?? ''),
+    balance: Number(r[4]) || 0,
+    last4: String(r[5] ?? ''),
+    color: String(r[6] ?? '#6366f1'),
+    createdAt: String(r[7] ?? ''),
   }));
   const bills: Bill[] = (vr[3]?.values ?? []).map((r) => ({
     id: r[0] ?? '',
