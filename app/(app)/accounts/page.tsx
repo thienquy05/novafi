@@ -28,6 +28,30 @@ const ACCOUNT_TYPE_CONFIG = {
   loan: { icon: CreditCard, colorClass: 'text-amber-600', bgClass: 'bg-amber-50' },
 };
 
+// Tolerate "1,000.50", "1.000,50", "$100", and currency symbols — strip
+// everything except digits, a single decimal point, and a leading minus.
+function parseBalance(input: string): number {
+  if (input == null) return 0;
+  const s = String(input).trim();
+  if (!s) return 0;
+  const negative = s.startsWith('-');
+  // Drop currency symbols/letters/spaces; treat both "," and "." as separators.
+  let cleaned = s.replace(/[^0-9.,]/g, '');
+  const lastDot = cleaned.lastIndexOf('.');
+  const lastComma = cleaned.lastIndexOf(',');
+  const decimalAt = Math.max(lastDot, lastComma);
+  if (decimalAt >= 0) {
+    const intPart = cleaned.slice(0, decimalAt).replace(/[.,]/g, '');
+    const fracPart = cleaned.slice(decimalAt + 1).replace(/[.,]/g, '');
+    cleaned = intPart + '.' + fracPart;
+  } else {
+    cleaned = cleaned.replace(/[.,]/g, '');
+  }
+  const n = parseFloat(cleaned);
+  if (!Number.isFinite(n)) return 0;
+  return negative ? -n : n;
+}
+
 const EMPTY_FORM = {
   name: '',
   type: 'checking' as Account['type'],
@@ -89,7 +113,7 @@ export default function AccountsPage() {
       name: form.name,
       type: form.type,
       institution: form.institution,
-      balance: parseFloat(form.balance) || 0,
+      balance: parseBalance(form.balance),
       last4: form.last4,
       color: form.color,
       createdAt: editTarget?.createdAt ?? today(),
@@ -264,7 +288,7 @@ export default function AccountsPage() {
           <Select label={t('accounts.accountType')} value={form.type} options={Object.entries(ACCOUNT_TYPE_CONFIG).map(([value]) => ({ value, label: ACCOUNT_TYPE_LABELS[value as Account['type']] }))} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as Account['type'] }))} />
           <Input label={t('accounts.accountName')} placeholder={form.type === 'checking' ? 'e.g. Chase Checking' : form.type === 'credit' ? 'e.g. Chase Sapphire' : 'e.g. HYSA'} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
           <Input label={t('accounts.institution')} placeholder="e.g. Chase, Bank of America" value={form.institution} onChange={(e) => setForm((f) => ({ ...f, institution: e.target.value }))} />
-          <Input label={form.type === 'credit' || form.type === 'loan' ? `${t('accounts.balanceOwed')} — enter negative if bank owes you` : t('accounts.currentBalance')} type="number" step="0.01" placeholder="0.00" value={form.balance} onChange={(e) => setForm((f) => ({ ...f, balance: e.target.value }))} />
+          <Input label={form.type === 'credit' || form.type === 'loan' ? `${t('accounts.balanceOwed')} — enter negative if bank owes you` : t('accounts.currentBalance')} type="text" inputMode="decimal" placeholder="0.00" value={form.balance} onChange={(e) => setForm((f) => ({ ...f, balance: e.target.value.replace(/[^0-9.,\-]/g, '') }))} />
           <Input label={t('accounts.last4')} placeholder="1234" maxLength={4} value={form.last4} onChange={(e) => setForm((f) => ({ ...f, last4: e.target.value.replace(/\D/g, '').slice(0, 4) }))} />
           <div>
             <p className="text-sm font-bold text-slate-700 ml-1 mb-2">{t('common.color')}</p>
