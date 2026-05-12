@@ -57,6 +57,73 @@ Added `createdAt?: string` (ISO timestamp) as a secondary sort key so transactio
 
 ---
 
+## 2026-05-12 — Feat: same-day transaction ordering by creation time (PR: claude/fix-transaction-time-sort)
+
+Added `createdAt?: string` (ISO timestamp) to `Transaction` stored in Google Sheets column I. New transactions include `createdAt: new Date().toISOString()`. Sort key is `(date desc, createdAt/id desc)` — existing rows without `createdAt` fall back to `id` (which is `${Date.now()}_${random}`, naturally sortable by time).
+
+### Files
+- `types/index.ts` — added `createdAt?: string` to `Transaction`
+- `lib/sheets.ts` — extended ranges to `I1000`; `rowToTransaction` reads `r[8]`; `addTransaction`/`updateTransaction` write `tx.createdAt ?? ''`
+- `app/(app)/transactions/page.tsx` — two-key sort; new transactions set `createdAt: new Date().toISOString()`; edits preserve original `createdAt`
+- `app/(app)/dashboard/QuickAddTransaction.tsx` — new transactions set `createdAt: new Date().toISOString()`
+
+---
+
+## 2026-05-12 — Perf: server-side optimizations (PR: claude/perf-optimizations)
+
+- `app/(app)/dashboard/page.tsx` — single-pass `monthlyTotals` map (eliminated 18+ array scans); `budgetData` O(1) lookups; `last3MonthsExpenses`/`income` from precomputed map
+- `app/(app)/reports/page.tsx` — single `useMemo` with one `for` loop (replaced 36+ passes per render)
+- `app/(app)/dashboard/DashboardCharts.tsx` — `categoryTotal` computed once before `.map()` in `SpendingPieChart` (was O(n²))
+- `app/(app)/planning/page.tsx` — `useMemo` for `monthExpenses`/`prevMonthExpenses`; precomputed spend maps; O(1) `spentForCategory`; Set-based `unbudgetedWithSpending`
+- `app/api/transactions/route.ts` — eliminated second `getAccounts()` Sheets call in PUT handler using in-memory `accountMap`
+
+---
+
+## 2026-05-12 — Perf: client-page redundant array passes and O(n) lookups (branch: claude/fix-transactions-billing-Tbt4h)
+
+Eliminated repeated array scans and linear account lookups across five client pages.
+
+### Changes
+
+**`app/(app)/transactions/page.tsx`**
+- Added `useMemo` import
+- `filtered` list is now memoized (deps: `transactions`, `search`, `filter`, `categoryFilter`) — was recomputed on every render
+- `totalIncome`/`totalExpense` now computed in single `useMemo` pass over `filtered` (was 2× `filter().reduce()`)
+- `accountMap` `useMemo` (O(1) `Record<id, name>`) replaces `accounts.find()` inline function — called on every row and in CSV export
+- `merchantRows` now `useMemo(() => buildMerchantRows(filtered), [filtered])` — skips rebuild when filtered hasn't changed
+
+**`app/(app)/accounts/page.tsx`**
+- `netWorth`, `totalAssets`, `totalDebt` computed in one `useMemo` pass (was 3 separate `reduce`/`filter` chains = 3× full array scan)
+- `grouped` object built in one `useMemo` pass with a single `for` loop (was 5× `accounts.filter()` = 5× full array scan)
+
+**`app/(app)/paychecks/page.tsx`**
+- Added `useMemo` import
+- `ytdPaychecks` memoized (deps: `paychecks`, `currentYear`)
+- `ytdNet`, `ytdGross`, `ytdGratuity` computed in single `useMemo` pass (was 3× `reduce`)
+- `accountMap` O(1) map replaces `accounts.find()` per rendered paycheck row
+- `checkingAccounts` memoized (was `accounts.filter()` on every render)
+
+**`app/(app)/savings/page.tsx`**
+- Added `useMemo` import
+- `savingsAccountIds` memoized
+- `accountMap` O(1) map replaces 2× `accounts.find()` per transaction in the history list
+
+**`app/(app)/bills/page.tsx` — `CashflowCalendar`**
+- `totalBillsAmt` and `totalPaychecksAmt` now accumulated inside existing `forEach` loops (eliminated `Object.values().flat().filter().reduce()` chain)
+- Deduplicated `Object.entries().sort()` comparator and `toLocaleString` month label (both called twice in legend)
+
+---
+
+## 2026-05-12 — Fix: billing dates and transaction dates off by 1 day (PR: claude/fix-billing-date-offset)
+
+Root cause: `new Date("YYYY-MM-DD")` parses date-only strings as UTC midnight. In UTC-negative timezones, calling `.toLocaleDateString()` or `.getDate()` on the client returns the previous calendar day. Server components running in UTC are unaffected — which is why dashboard (server) showed correct dates but billing page (client) showed 1 day early.
+
+### Fix
+- `lib/utils.ts` — `formatDate()` now parses with `new Date(y, m-1, d)` (local midnight) instead of `new Date(dateStr)` (UTC midnight); `today()` now uses local calendar date (`getFullYear/getMonth/getDate`) instead of `toISOString().slice(0,10)` which is UTC
+- `app/(app)/bills/page.tsx` — added `parseLocalDate()` helper replacing all `new Date("YYYY-MM-DD")` calls; fixed `nextDueAfter()` output to use local date string; fixed `CashflowCalendar` and `BillsTimeline` day mapping; fixed `overdueBills` filter and `daysUntil` per-bill calculation using `todayMidnight` (local midnight via `setHours(0,0,0,0)`)
+
+---
+
 ## 2026-05-12 — Fix: first checking account balance saved as $0.00
 
 User report: on a brand-new spreadsheet, the very first account added (checking, by default) showed $0.00 after save even when a balance was typed. Later savings/credit accounts saved correctly.

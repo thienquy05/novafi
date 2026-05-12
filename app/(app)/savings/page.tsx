@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ArrowDownLeft, ArrowUpRight, ArrowRightLeft, PiggyBank, Target } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -57,7 +57,12 @@ export default function SavingsPage() {
   useEffect(() => { load(); }, [load]);
   useAutoRefresh(load);
 
-  const savingsAccountIds = accounts.map((a) => a.id);
+  const savingsAccountIds = useMemo(() => accounts.map((a) => a.id), [accounts]);
+  const accountMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const a of accounts) m[a.id] = a.name;
+    return m;
+  }, [accounts]);
 
   const savingsTx = transactions
     .filter((tx) => {
@@ -252,8 +257,8 @@ export default function SavingsPage() {
             ) : (
               <div className="space-y-3">
                 {savingsTx.map((tx) => {
-                  const fromName = accounts.find((a) => a.id === tx.account)?.name ?? tx.account;
-                  const toName = tx.toAccount ? accounts.find((a) => a.id === tx.toAccount)?.name : null;
+                  const fromName = accountMap[tx.account] ?? tx.account;
+                  const toName = tx.toAccount ? accountMap[tx.toAccount] : null;
                   const isTransfer = tx.type === 'transfer';
                   const isIncoming = isTransfer
                     ? savingsAccountIds.includes(tx.toAccount ?? '')

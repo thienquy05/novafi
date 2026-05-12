@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, Trash2, Search, Pencil, RefreshCw, AlertCircle, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronRight, X } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -136,12 +136,19 @@ export default function TransactionsPage() {
   const { pullY, refreshing } = usePullToRefresh(load);
 
   const categories = form.type === 'expense' ? expenseCategories : form.type === 'income' ? incomeCategories : [...EXPENSE_CATEGORIES];
-  const filtered = transactions.filter((tx) => {
+
+  const accountMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const a of accounts) m[a.id] = a.name;
+    return m;
+  }, [accounts]);
+
+  const filtered = useMemo(() => transactions.filter((tx) => {
     const matchSearch = !search || tx.description.toLowerCase().includes(search.toLowerCase()) || tx.category.toLowerCase().includes(search.toLowerCase());
     const matchFilter = filter === 'all' || tx.type === filter;
     const matchCategory = !categoryFilter || tx.category === categoryFilter;
     return matchSearch && matchFilter && matchCategory;
-  });
+  }), [transactions, search, filter, categoryFilter]);
 
   function openAdd() { setEditTarget(null); setForm(EMPTY_FORM); setOpen(true); }
   function openEdit(tx: Transaction) {
@@ -236,10 +243,16 @@ export default function TransactionsPage() {
     }
   }
 
-  const totalIncome = filtered.filter((tx) => tx.type === 'income').reduce((s, tx) => s + tx.amount, 0);
-  const totalExpense = filtered.filter((tx) => tx.type === 'expense').reduce((s, tx) => s + tx.amount, 0);
-  const accountName = (id: string) => accounts.find((a) => a.id === id)?.name ?? id;
-  const merchantRows = buildMerchantRows(filtered);
+  const { totalIncome, totalExpense } = useMemo(() => {
+    let income = 0, expense = 0;
+    for (const tx of filtered) {
+      if (tx.type === 'income') income += tx.amount;
+      else if (tx.type === 'expense') expense += tx.amount;
+    }
+    return { totalIncome: income, totalExpense: expense };
+  }, [filtered]);
+  const accountName = (id: string) => accountMap[id] ?? id;
+  const merchantRows = useMemo(() => buildMerchantRows(filtered), [filtered]);
 
   const filterLabels: Record<string, string> = {
     all: t('common.all'),

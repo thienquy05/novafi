@@ -149,6 +149,8 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
   // Map day → bills and paychecks
   const dayBills: Record<number, Bill[]> = {};
   const dayPaychecks: Record<number, PaycheckEntry[]> = {};
+  let totalBillsAmt = 0;
+  let totalPaychecksAmt = 0;
 
   bills.forEach((bill) => {
     if (!bill.isActive) return;
@@ -157,6 +159,7 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
       const d = due.getDate();
       if (!dayBills[d]) dayBills[d] = [];
       dayBills[d].push(bill);
+      if (d >= todayDay) totalBillsAmt += bill.amount;
     }
   });
 
@@ -166,12 +169,11 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
       const day = d.getDate();
       if (!dayPaychecks[day]) dayPaychecks[day] = [];
       dayPaychecks[day].push(p);
+      totalPaychecksAmt += p.netAmount;
     }
   });
 
   const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
-  const totalBillsAmt = Object.values(dayBills).flat().filter((b) => parseLocalDate(b.nextDue) >= new Date(new Date(nowMs).setHours(0,0,0,0))).reduce((s, b) => s + b.amount, 0);
-  const totalPaychecksAmt = Object.values(dayPaychecks).flat().reduce((s, p) => s + p.netAmount, 0);
 
   return (
     <Card className="p-4 sm:p-5">
@@ -226,17 +228,25 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
       {/* Quick summary legend */}
       {(Object.keys(dayBills).length > 0 || Object.keys(dayPaychecks).length > 0) && (
         <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap gap-2">
-          {Object.entries(dayPaychecks).sort(([a], [b]) => Number(a) - Number(b)).map(([day, pays]) => (
-            <span key={`pay-${day}`} className="text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg px-2 py-1 flex items-center gap-1">
-              <Banknote className="w-3 h-3" />
-              {now.toLocaleString('default', { month: 'short' })} {day} · +{formatCurrency(pays.reduce((s, p) => s + p.netAmount, 0))}
-            </span>
-          ))}
-          {Object.entries(dayBills).sort(([a], [b]) => Number(a) - Number(b)).map(([day, bs]) => (
-            <span key={`bill-${day}`} className="text-xs font-medium bg-rose-50 text-rose-700 border border-rose-100 rounded-lg px-2 py-1">
-              {now.toLocaleString('default', { month: 'short' })} {day} · {bs.map((b) => b.name).join(', ')}
-            </span>
-          ))}
+          {(() => {
+            const sortedNum = ([a]: [string, unknown], [b]: [string, unknown]) => Number(a) - Number(b);
+            const monthShort = now.toLocaleString('default', { month: 'short' });
+            return (
+              <>
+                {Object.entries(dayPaychecks).sort(sortedNum).map(([day, pays]) => (
+                  <span key={`pay-${day}`} className="text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg px-2 py-1 flex items-center gap-1">
+                    <Banknote className="w-3 h-3" />
+                    {monthShort} {day} · +{formatCurrency(pays.reduce((s, p) => s + p.netAmount, 0))}
+                  </span>
+                ))}
+                {Object.entries(dayBills).sort(sortedNum).map(([day, bs]) => (
+                  <span key={`bill-${day}`} className="text-xs font-medium bg-rose-50 text-rose-700 border border-rose-100 rounded-lg px-2 py-1">
+                    {monthShort} {day} · {bs.map((b) => b.name).join(', ')}
+                  </span>
+                ))}
+              </>
+            );
+          })()}
         </div>
       )}
     </Card>

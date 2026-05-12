@@ -160,16 +160,25 @@ export default function AccountsPage() {
     }
   }
 
-  const netWorth = accounts.reduce((sum, a) => sum + (a.type === 'credit' || a.type === 'loan' ? -a.balance : a.balance), 0);
-  const totalAssets = accounts.filter((a) => a.type !== 'credit' && a.type !== 'loan').reduce((s, a) => s + a.balance, 0);
-  const totalDebt = accounts.filter((a) => (a.type === 'credit' || a.type === 'loan') && a.balance > 0).reduce((s, a) => s + a.balance, 0);
-  const grouped = {
-    checking: accounts.filter((a) => a.type === 'checking'),
-    savings: accounts.filter((a) => a.type === 'savings'),
-    credit: accounts.filter((a) => a.type === 'credit'),
-    investment: accounts.filter((a) => a.type === 'investment'),
-    loan: accounts.filter((a) => a.type === 'loan'),
-  };
+  const { netWorth, totalAssets, totalDebt } = useMemo(() => {
+    let nw = 0, assets = 0, debt = 0;
+    for (const a of accounts) {
+      if (a.type === 'credit' || a.type === 'loan') {
+        nw -= a.balance;
+        if (a.balance > 0) debt += a.balance;
+      } else {
+        nw += a.balance;
+        assets += a.balance;
+      }
+    }
+    return { netWorth: nw, totalAssets: assets, totalDebt: debt };
+  }, [accounts]);
+
+  const grouped = useMemo(() => {
+    const g: Record<Account['type'], Account[]> = { checking: [], savings: [], credit: [], investment: [], loan: [] };
+    for (const a of accounts) g[a.type].push(a);
+    return g;
+  }, [accounts]);
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6 sm:space-y-8 pb-24 md:pb-8">
