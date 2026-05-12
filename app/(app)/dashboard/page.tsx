@@ -149,7 +149,11 @@ export default async function DashboardPage() {
 
   // Recent transactions (last 6)
   const recentTx = [...transactions]
-    .sort((a, b) => b.date.localeCompare(a.date))
+    .sort((a, b) => {
+      const dateCmp = b.date.localeCompare(a.date);
+      if (dateCmp !== 0) return dateCmp;
+      return (b.createdAt ?? b.id).localeCompare(a.createdAt ?? a.id);
+    })
     .slice(0, 6);
 
   // Spending by category this month

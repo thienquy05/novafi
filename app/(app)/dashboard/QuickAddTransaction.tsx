@@ -51,6 +51,7 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[]; 
       type: form.type,
       category: form.category,
       account: form.account,
+      createdAt: new Date().toISOString(),
     };
 
     await fetch('/api/transactions', {
