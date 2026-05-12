@@ -10,6 +10,41 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-05-12 — Perf: client-page redundant array passes and O(n) lookups (branch: claude/fix-transactions-billing-Tbt4h)
+
+Eliminated repeated array scans and linear account lookups across five client pages.
+
+### Changes
+
+**`app/(app)/transactions/page.tsx`**
+- Added `useMemo` import
+- `filtered` list is now memoized (deps: `transactions`, `search`, `filter`, `categoryFilter`) — was recomputed on every render
+- `totalIncome`/`totalExpense` now computed in single `useMemo` pass over `filtered` (was 2× `filter().reduce()`)
+- `accountMap` `useMemo` (O(1) `Record<id, name>`) replaces `accounts.find()` inline function — called on every row and in CSV export
+- `merchantRows` now `useMemo(() => buildMerchantRows(filtered), [filtered])` — skips rebuild when filtered hasn't changed
+
+**`app/(app)/accounts/page.tsx`**
+- `netWorth`, `totalAssets`, `totalDebt` computed in one `useMemo` pass (was 3 separate `reduce`/`filter` chains = 3× full array scan)
+- `grouped` object built in one `useMemo` pass with a single `for` loop (was 5× `accounts.filter()` = 5× full array scan)
+
+**`app/(app)/paychecks/page.tsx`**
+- Added `useMemo` import
+- `ytdPaychecks` memoized (deps: `paychecks`, `currentYear`)
+- `ytdNet`, `ytdGross`, `ytdGratuity` computed in single `useMemo` pass (was 3× `reduce`)
+- `accountMap` O(1) map replaces `accounts.find()` per rendered paycheck row
+- `checkingAccounts` memoized (was `accounts.filter()` on every render)
+
+**`app/(app)/savings/page.tsx`**
+- Added `useMemo` import
+- `savingsAccountIds` memoized
+- `accountMap` O(1) map replaces 2× `accounts.find()` per transaction in the history list
+
+**`app/(app)/bills/page.tsx` — `CashflowCalendar`**
+- `totalBillsAmt` and `totalPaychecksAmt` now accumulated inside existing `forEach` loops (eliminated `Object.values().flat().filter().reduce()` chain)
+- Deduplicated `Object.entries().sort()` comparator and `toLocaleString` month label (both called twice in legend)
+
+---
+
 ## 2026-05-12 — Fix: first checking account balance saved as $0.00
 
 User report: on a brand-new spreadsheet, the very first account added (checking, by default) showed $0.00 after save even when a balance was typed. Later savings/credit accounts saved correctly.
