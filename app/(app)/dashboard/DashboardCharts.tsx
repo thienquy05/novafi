@@ -218,6 +218,7 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
   const isEmpty = data.length === 0;
   const displayData = isEmpty ? [{ name: t('charts.noExpenseData'), value: 1 }] : data;
   const ready = useChartReady();
+  const categoryTotal = data.reduce((s, d) => s + d.value, 0);
 
   return (
     <div className="flex flex-col md:flex-row items-center gap-8 w-full">
@@ -261,8 +262,7 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
           </div>
         ) : (
           data.map((entry, i) => {
-            const total = data.reduce((s, d) => s + d.value, 0);
-            const pct = total > 0 ? (entry.value / total) * 100 : 0;
+            const pct = categoryTotal > 0 ? (entry.value / categoryTotal) * 100 : 0;
             return (
               <motion.div
                 initial={{ opacity: 0, x: 20 }}
