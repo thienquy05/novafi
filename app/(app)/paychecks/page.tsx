@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, Trash2, DollarSign } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -129,13 +129,27 @@ export default function PaychecksPage() {
   }
 
   const currentYear = new Date().getFullYear();
-  const ytdPaychecks = paychecks.filter((p) => new Date(p.date).getFullYear() === currentYear);
-  const ytdNet = ytdPaychecks.reduce((s, p) => s + p.netAmount, 0);
-  const ytdGross = ytdPaychecks.reduce((s, p) => s + p.grossAmount, 0);
-  const ytdGratuity = ytdPaychecks.reduce((s, p) => s + (p.gratuityAmount ?? 0), 0);
+  const ytdPaychecks = useMemo(
+    () => paychecks.filter((p) => new Date(p.date).getFullYear() === currentYear),
+    [paychecks, currentYear],
+  );
+  const { ytdNet, ytdGross, ytdGratuity } = useMemo(() => {
+    let net = 0, gross = 0, gratuity = 0;
+    for (const p of ytdPaychecks) {
+      net += p.netAmount;
+      gross += p.grossAmount;
+      gratuity += p.gratuityAmount ?? 0;
+    }
+    return { ytdNet: net, ytdGross: gross, ytdGratuity: gratuity };
+  }, [ytdPaychecks]);
 
-  const checkingAccounts = accounts.filter((a) => a.type === 'checking');
-  const accountName = (id: string) => accounts.find((a) => a.id === id)?.name ?? '';
+  const accountMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const a of accounts) m[a.id] = a.name;
+    return m;
+  }, [accounts]);
+  const checkingAccounts = useMemo(() => accounts.filter((a) => a.type === 'checking'), [accounts]);
+  const accountName = (id: string) => accountMap[id] ?? '';
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6 sm:space-y-8 pb-24 md:pb-8">
