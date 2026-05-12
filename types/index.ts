@@ -61,6 +61,7 @@ export interface Transaction {
   category: string;
   account: string;
   toAccount?: string; // for transfers
+  createdAt?: string; // ISO timestamp for same-day ordering; absent on pre-existing rows
 }
 
 export interface Account {

@@ -419,6 +419,7 @@ export default function BillsPage() {
       type: 'expense',
       category: payForm.category,
       account: payForm.account,
+      createdAt: new Date().toISOString(),
     };
     try {
       const [txRes] = await Promise.all([
