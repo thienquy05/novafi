@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ArrowDownLeft, ArrowUpRight, ArrowRightLeft, PiggyBank, Target } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, ArrowRightLeft, PiggyBank, Target, Pencil, CheckCircle2, Trash2 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -12,12 +12,32 @@ import type { Account, Transaction, Goal } from '@/types';
 import { FitText } from '@/components/ui/FitText';
 import { useTranslation } from '@/lib/i18n/context';
 
+const ACCOUNT_COLORS = [
+  '#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#84cc16',
+];
+
 type ActionForm = {
   type: 'deposit' | 'withdraw';
   accountId: string;
   amount: string;
   description: string;
   date: string;
+};
+
+type EditForm = {
+  name: string;
+  institution: string;
+  balance: string;
+  last4: string;
+  color: string;
+};
+
+const EMPTY_EDIT_FORM: EditForm = {
+  name: '',
+  institution: '',
+  balance: '',
+  last4: '',
+  color: ACCOUNT_COLORS[0],
 };
 
 const EMPTY_FORM: ActionForm = {
@@ -31,11 +51,15 @@ const EMPTY_FORM: ActionForm = {
 export default function SavingsPage() {
   const { t } = useTranslation();
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [allAccounts, setAllAccounts] = useState<Account[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<string>('all');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ActionForm>(EMPTY_FORM);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<Account | null>(null);
+  const [editForm, setEditForm] = useState<EditForm>(EMPTY_EDIT_FORM);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -48,6 +72,7 @@ export default function SavingsPage() {
     ]);
     const [accs, txs, gls] = await Promise.all([accRes.json(), txRes.json(), goalRes.json()]);
     const savingsAccs: Account[] = accs.filter((a: Account) => a.type === 'savings');
+    setAllAccounts(accs);
     setAccounts(savingsAccs);
     setTransactions(txs);
     setGoals(gls);
@@ -60,9 +85,9 @@ export default function SavingsPage() {
   const savingsAccountIds = useMemo(() => accounts.map((a) => a.id), [accounts]);
   const accountMap = useMemo(() => {
     const m: Record<string, string> = {};
-    for (const a of accounts) m[a.id] = a.name;
+    for (const a of allAccounts) m[a.id] = a.name;
     return m;
-  }, [accounts]);
+  }, [allAccounts]);
 
   const savingsTx = transactions
     .filter((tx) => {
@@ -107,6 +132,37 @@ export default function SavingsPage() {
   function openAction(type: 'deposit' | 'withdraw') {
     setForm({ ...EMPTY_FORM, type, accountId: accounts[0]?.id ?? '' });
     setOpen(true);
+  }
+
+  function openEdit(account: Account) {
+    setEditTarget(account);
+    setEditForm({ name: account.name, institution: account.institution, balance: String(account.balance), last4: account.last4, color: account.color });
+    setEditOpen(true);
+  }
+
+  async function handleEditSave() {
+    if (!editTarget || !editForm.name) return;
+    setSaving(true);
+    const updated: Account = {
+      ...editTarget,
+      name: editForm.name,
+      institution: editForm.institution,
+      balance: parseFloat(editForm.balance) || 0,
+      last4: editForm.last4,
+      color: editForm.color,
+    };
+    await fetch('/api/accounts', { method: 'POST', body: JSON.stringify(updated), headers: { 'Content-Type': 'application/json' } });
+    setEditOpen(false);
+    setEditTarget(null);
+    await load();
+    setSaving(false);
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm(t('accounts.confirmDelete'))) return;
+    setAccounts((a) => a.filter((acc) => acc.id !== id));
+    await fetch('/api/accounts', { method: 'DELETE', body: JSON.stringify({ id }), headers: { 'Content-Type': 'application/json' } });
+    await load();
   }
 
   if (loading) {
@@ -158,7 +214,17 @@ export default function SavingsPage() {
             </Card>
             {accounts.map((a) => (
               <Card key={a.id} className="border-l-[6px]" style={{ borderLeftColor: a.color }}>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider truncate">{a.name}</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider truncate">{a.name}</p>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => openEdit(a)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors">
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={() => handleDelete(a.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
                 <FitText maxSize={28} minSize={13} className={`font-extrabold mt-2 ${a.balance < 0 ? 'text-rose-600' : 'text-slate-900'}`}>{formatCurrency(a.balance)}</FitText>
                 {a.institution && <p className="text-sm font-medium text-slate-500 mt-1">{a.institution}</p>}
               </Card>
@@ -298,6 +364,59 @@ export default function SavingsPage() {
           </div>
         </>
       )}
+
+      {/* Edit Account Modal */}
+      <Modal
+        open={editOpen}
+        onClose={() => { setEditOpen(false); setEditTarget(null); }}
+        title={t('accounts.editAccount')}
+      >
+        <div className="space-y-5 pb-4">
+          <Input
+            label={t('accounts.accountName')}
+            placeholder="e.g. HYSA"
+            value={editForm.name}
+            onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+          />
+          <Input
+            label={t('accounts.institution')}
+            placeholder="e.g. Ally, Marcus"
+            value={editForm.institution}
+            onChange={(e) => setEditForm((f) => ({ ...f, institution: e.target.value }))}
+          />
+          <Input
+            label={t('accounts.currentBalance')}
+            type="text"
+            inputMode="decimal"
+            placeholder="0.00"
+            value={editForm.balance}
+            onChange={(e) => setEditForm((f) => ({ ...f, balance: e.target.value.replace(/[^0-9.,-]/g, '') }))}
+          />
+          <Input
+            label={t('accounts.last4')}
+            placeholder="1234"
+            maxLength={4}
+            value={editForm.last4}
+            onChange={(e) => setEditForm((f) => ({ ...f, last4: e.target.value.replace(/\D/g, '').slice(0, 4) }))}
+          />
+          <div>
+            <p className="text-sm font-bold text-slate-700 ml-1 mb-2">{t('common.color')}</p>
+            <div className="flex gap-3 flex-wrap">
+              {ACCOUNT_COLORS.map((c) => (
+                <button key={c} onClick={() => setEditForm((f) => ({ ...f, color: c }))} className="w-10 h-10 rounded-full border-[3px] transition-all flex items-center justify-center shadow-sm hover:scale-110" style={{ backgroundColor: c, borderColor: editForm.color === c ? '#0f172a' : 'transparent' }}>
+                  {editForm.color === c && <CheckCircle2 className="w-5 h-5 text-white" />}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+          <div className="flex gap-3">
+            <Button variant="secondary" className="flex-1" onClick={() => { setEditOpen(false); setEditTarget(null); }}>{t('common.cancel')}</Button>
+            <Button className="flex-1 shadow-sm" onClick={handleEditSave} disabled={saving || !editForm.name}>{saving ? t('common.saving') : t('accounts.editAccount')}</Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Deposit/Withdraw Modal */}
       <Modal
