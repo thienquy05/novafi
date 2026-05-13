@@ -216,12 +216,8 @@ export function HealthBanner({
 export function SpendingPieChart({ data }: { data: CategoryData[] }) {
   const { t } = useTranslation();
   const isEmpty = data.length === 0;
-<<<<<<< HEAD
   const cleanData = data.map(d => ({ ...d, name: d.name.replace(/^categories\./, '') }));
-  const displayData = isEmpty ? [{ name: 'No Spending', value: 1 }] : cleanData;
-=======
-  const displayData = isEmpty ? [{ name: t('charts.noExpenseData'), value: 1 }] : data;
->>>>>>> refs/remotes/origin/master
+  const displayData = isEmpty ? [{ name: t('charts.noExpenseData'), value: 1 }] : cleanData;
   const ready = useChartReady();
   const categoryTotal = data.reduce((s, d) => s + d.value, 0);
 
@@ -266,14 +262,8 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
             <span className="text-sm font-extrabold text-slate-400">{formatCurrency(0)}</span>
           </div>
         ) : (
-<<<<<<< HEAD
           cleanData.map((entry, i) => {
-            const total = cleanData.reduce((s, d) => s + d.value, 0);
-            const pct = total > 0 ? (entry.value / total) * 100 : 0;
-=======
-          data.map((entry, i) => {
             const pct = categoryTotal > 0 ? (entry.value / categoryTotal) * 100 : 0;
->>>>>>> refs/remotes/origin/master
             return (
               <motion.div
                 initial={{ opacity: 0, x: 20 }}
