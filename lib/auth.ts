@@ -177,12 +177,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           refreshToken: (refreshed.refresh_token as string | undefined) ?? refreshToken,
         };
       } catch {
-        return { ...token, error: 'RefreshAccessTokenError' };
+        // Clear the expired token so API routes correctly see no valid session
+        return { ...token, accessToken: undefined, error: 'RefreshAccessTokenError' };
       }
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async session({ session, token }: any) {
-      session.accessToken = token.accessToken as string;
+      session.accessToken = token.accessToken as string | undefined;
       session.spreadsheetId = token.spreadsheetId as string;
       if (token.error) session.error = token.error as string;
       return session;
