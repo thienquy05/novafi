@@ -32,7 +32,8 @@ export function CategoryIconBadge({
   type?: 'income' | 'expense' | 'transfer';
   className?: string;
 }) {
-  const config = CATEGORY_ICONS[category];
+  const cleanCategory = category.replace(/^categories\./, '');
+  const config = CATEGORY_ICONS[cleanCategory];
 
   if (!config) {
     if (type === 'income') {

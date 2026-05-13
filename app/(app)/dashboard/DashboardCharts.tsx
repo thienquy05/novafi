@@ -199,7 +199,8 @@ export function HealthBanner({
 
 export function SpendingPieChart({ data }: { data: CategoryData[] }) {
   const isEmpty = data.length === 0;
-  const displayData = isEmpty ? [{ name: 'No Spending', value: 1 }] : data;
+  const cleanData = data.map(d => ({ ...d, name: d.name.replace(/^categories\./, '') }));
+  const displayData = isEmpty ? [{ name: 'No Spending', value: 1 }] : cleanData;
   const ready = useChartReady();
 
   return (
@@ -243,8 +244,8 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
             <span className="text-sm font-extrabold text-slate-400">{formatCurrency(0)}</span>
           </div>
         ) : (
-          data.map((entry, i) => {
-            const total = data.reduce((s, d) => s + d.value, 0);
+          cleanData.map((entry, i) => {
+            const total = cleanData.reduce((s, d) => s + d.value, 0);
             const pct = total > 0 ? (entry.value / total) * 100 : 0;
             return (
               <motion.div
@@ -341,7 +342,7 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM }: { data: Bud
             key={b.category}
           >
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-bold text-slate-800">{b.category}</span>
+              <span className="text-sm font-bold text-slate-800">{b.category.replace(/^categories\./, '')}</span>
               <div className="text-right">
                 <span className={`text-sm font-extrabold ${over ? 'text-rose-600' : 'text-slate-900'}`}>
                   {formatCurrency(b.spent)}
