@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import type {
   TaxSettings,
+  Language,
   PaycheckEntry,
   Transaction,
   Account,
@@ -52,6 +53,7 @@ export async function getSettings(
     customIncomeCategories: get('custom_income_categories', '').split('|').filter(Boolean),
     hiddenExpenseCategories: get('hidden_expense_categories', '').split('|').filter(Boolean),
     hiddenIncomeCategories: get('hidden_income_categories', '').split('|').filter(Boolean),
+    language: (get('language', 'en') as Language),
   };
 }
 
@@ -79,6 +81,7 @@ export async function saveSettings(
     ['custom_income_categories', (settings.customIncomeCategories ?? []).join('|')],
     ['hidden_expense_categories', (settings.hiddenExpenseCategories ?? []).join('|')],
     ['hidden_income_categories', (settings.hiddenIncomeCategories ?? []).join('|')],
+    ['language', settings.language ?? 'en'],
   ];
   await sheets.spreadsheets.values.update({
     spreadsheetId,
@@ -164,7 +167,7 @@ export async function getTransactions(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Transactions!A2:H1000',
+    range: 'Transactions!A2:I1000',
   });
   return (res.data.values ?? []).map(rowToTransaction);
 }
@@ -179,6 +182,7 @@ function rowToTransaction(r: string[]): Transaction {
     category: r[5] ?? '',
     account: r[6] ?? '',
     toAccount: r[7] ?? '',
+    createdAt: r[8] ?? '',
   };
 }
 
@@ -194,7 +198,7 @@ export async function addTransaction(
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
-      values: [[tx.id, tx.date, tx.description, tx.amount, tx.type, tx.category, tx.account, tx.toAccount ?? '']],
+      values: [[tx.id, tx.date, tx.description, tx.amount, tx.type, tx.category, tx.account, tx.toAccount ?? '', tx.createdAt ?? '']],
     },
   });
 }
@@ -204,7 +208,7 @@ export async function deleteTransaction(
   spreadsheetId: string,
   id: string
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Transactions', id, 'H');
+  await deleteRowById(accessToken, spreadsheetId, 'Transactions', id, 'I');
 }
 
 export async function updateTransaction(
@@ -212,7 +216,7 @@ export async function updateTransaction(
   spreadsheetId: string,
   tx: Transaction
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Transactions', tx.id, 'H');
+  await deleteRowById(accessToken, spreadsheetId, 'Transactions', tx.id, 'I');
   const sheets = getSheetsClient(accessToken);
   await sheets.spreadsheets.values.append({
     spreadsheetId,
@@ -220,7 +224,7 @@ export async function updateTransaction(
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
-      values: [[tx.id, tx.date, tx.description, tx.amount, tx.type, tx.category, tx.account, tx.toAccount ?? '']],
+      values: [[tx.id, tx.date, tx.description, tx.amount, tx.type, tx.category, tx.account, tx.toAccount ?? '', tx.createdAt ?? '']],
     },
   });
 }
@@ -235,16 +239,19 @@ export async function getAccounts(
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
     range: 'Accounts!A2:H200',
+    // Raw cell value: a currency-formatted cell stays a number rather than
+    // coming back as "$100.00" → NaN.
+    valueRenderOption: 'UNFORMATTED_VALUE',
   });
   return (res.data.values ?? []).map((r) => ({
-    id: r[0] ?? '',
-    name: r[1] ?? '',
+    id: String(r[0] ?? ''),
+    name: String(r[1] ?? ''),
     type: (r[2] ?? 'checking') as Account['type'],
-    institution: r[3] ?? '',
-    balance: Number(r[4] ?? 0),
-    last4: r[5] ?? '',
-    color: r[6] ?? '#6366f1',
-    createdAt: r[7] ?? '',
+    institution: String(r[3] ?? ''),
+    balance: Number(r[4]) || 0,
+    last4: String(r[5] ?? ''),
+    color: String(r[6] ?? '#6366f1'),
+    createdAt: String(r[7] ?? ''),
   }));
 }
 
@@ -567,9 +574,15 @@ export async function batchGetBadgesData(
   const ranges = [
     'Bills!A2:H200',
     'Budgets!A2:D200',
-    'Transactions!A2:H1000',
+    'Transactions!A2:I1000',
   ];
-  const res = await sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges });
+  const res = await sheets.spreadsheets.values.batchGet({
+    spreadsheetId,
+    ranges,
+    // Numeric cells must come back as numbers — currency-formatted cells
+    // would otherwise return "$100.00" strings that Number() turns into NaN.
+    valueRenderOption: 'UNFORMATTED_VALUE',
+  });
   const vr = res.data.valueRanges ?? [];
   const bills: Bill[] = (vr[0]?.values ?? []).map((r) => ({
     id: r[0] ?? '',
@@ -596,6 +609,7 @@ export async function batchGetBadgesData(
     category: r[5] ?? '',
     account: r[6] ?? '',
     toAccount: r[7] ?? '',
+    createdAt: r[8] ?? '',
   }));
   return { bills, budgets, transactions };
 }
@@ -619,13 +633,19 @@ export async function batchGetDashboardData(
   const sheets = getSheetsClient(accessToken);
   const ranges = [
     'Paychecks!A2:K1000',
-    'Transactions!A2:H1000',
+    'Transactions!A2:I1000',
     'Accounts!A2:H200',
     'Bills!A2:H200',
     'Budgets!A2:D200',
     'Goals!A2:G200',
   ];
-  const res = await sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges });
+  const res = await sheets.spreadsheets.values.batchGet({
+    spreadsheetId,
+    ranges,
+    // Numeric cells must come back as numbers — currency-formatted cells
+    // would otherwise return "$100.00" strings that Number() turns into NaN.
+    valueRenderOption: 'UNFORMATTED_VALUE',
+  });
   const vr = res.data.valueRanges ?? [];
 
   const paychecks: PaycheckEntry[] = (vr[0]?.values ?? []).map((r) => ({
@@ -650,16 +670,17 @@ export async function batchGetDashboardData(
     category: r[5] ?? '',
     account: r[6] ?? '',
     toAccount: r[7] ?? '',
+    createdAt: r[8] ?? '',
   }));
   const accounts: Account[] = (vr[2]?.values ?? []).map((r) => ({
-    id: r[0] ?? '',
-    name: r[1] ?? '',
+    id: String(r[0] ?? ''),
+    name: String(r[1] ?? ''),
     type: (r[2] ?? 'checking') as Account['type'],
-    institution: r[3] ?? '',
-    balance: Number(r[4] ?? 0),
-    last4: r[5] ?? '',
-    color: r[6] ?? '#6366f1',
-    createdAt: r[7] ?? '',
+    institution: String(r[3] ?? ''),
+    balance: Number(r[4]) || 0,
+    last4: String(r[5] ?? ''),
+    color: String(r[6] ?? '#6366f1'),
+    createdAt: String(r[7] ?? ''),
   }));
   const bills: Bill[] = (vr[3]?.values ?? []).map((r) => ({
     id: r[0] ?? '',

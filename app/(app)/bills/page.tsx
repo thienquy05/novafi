@@ -7,16 +7,14 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { BillsSkeleton } from '@/components/ui/Skeleton';
+import { FitText } from '@/components/ui/FitText';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
 import { billToTransactionDefaults } from '@/lib/calculations';
 import type { Bill, Account, PaycheckEntry, Transaction } from '@/types';
 import { useCategories } from '@/hooks/useCategories';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
-
-const FREQUENCY_LABELS: Record<Bill['frequency'], string> = {
-  weekly: 'Weekly', biweekly: 'Bi-weekly', monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly',
-};
+import { useTranslation } from '@/lib/i18n/context';
 
 // ── Subscription detection ─────────────────────────────────────────────────────
 
@@ -65,6 +63,7 @@ function detectSubscriptions(transactions: Transaction[]): DetectedSub[] {
 // ── Subscription Tracker component ────────────────────────────────────────────
 
 function SubscriptionTracker({ transactions }: { transactions: Transaction[] }) {
+  const { t } = useTranslation();
   const subs = detectSubscriptions(transactions);
   const monthlyTotal = subs.reduce((s, sub) => s + sub.avgAmount, 0);
 
@@ -74,7 +73,7 @@ function SubscriptionTracker({ transactions }: { transactions: Transaction[] }) 
     <div className="space-y-3">
       <div className="flex items-center justify-between px-1">
         <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-          <Repeat className="w-3.5 h-3.5" /> Detected Subscriptions
+          <Repeat className="w-3.5 h-3.5" /> {t('bills.detectedSubscriptions')}
         </h2>
         <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-lg">
           {formatCurrency(monthlyTotal)}/mo
@@ -89,7 +88,7 @@ function SubscriptionTracker({ transactions }: { transactions: Transaction[] }) 
               </div>
               <div>
                 <p className="text-sm font-bold text-slate-900 capitalize">{sub.name}</p>
-                <p className="text-xs font-medium text-slate-500 mt-0.5">{sub.category} · {sub.monthlyCount} mo detected</p>
+                <p className="text-xs font-medium text-slate-500 mt-0.5">{sub.category} · {t('bills.moDetected', { n: sub.monthlyCount })}</p>
               </div>
             </div>
             <span className="text-sm font-extrabold text-indigo-600 ml-2 shrink-0">{formatCurrency(sub.avgAmount)}</span>
@@ -100,8 +99,13 @@ function SubscriptionTracker({ transactions }: { transactions: Transaction[] }) 
   );
 }
 
+function parseLocalDate(dateStr: string): Date {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
 function nextDueAfter(currentDue: string, frequency: Bill['frequency']): string {
-  const d = new Date(currentDue);
+  const d = parseLocalDate(currentDue);
   switch (frequency) {
     case 'weekly': d.setDate(d.getDate() + 7); break;
     case 'biweekly': d.setDate(d.getDate() + 14); break;
@@ -109,7 +113,7 @@ function nextDueAfter(currentDue: string, frequency: Bill['frequency']): string 
     case 'quarterly': d.setMonth(d.getMonth() + 3); break;
     case 'yearly': d.setFullYear(d.getFullYear() + 1); break;
   }
-  return d.toISOString().split('T')[0];
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 const EMPTY_FORM = {
@@ -134,6 +138,7 @@ function upsertTemplate(tpl: BillTemplate) {
 
 // ── Cashflow Calendar ──────────────────────────────────────────────────────────
 function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paychecks: PaycheckEntry[]; nowMs: number }) {
+  const { t } = useTranslation();
   const now = new Date(nowMs);
   const year = now.getFullYear();
   const month = now.getMonth();
@@ -144,36 +149,38 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
   // Map day → bills and paychecks
   const dayBills: Record<number, Bill[]> = {};
   const dayPaychecks: Record<number, PaycheckEntry[]> = {};
+  let totalBillsAmt = 0;
+  let totalPaychecksAmt = 0;
 
   bills.forEach((bill) => {
     if (!bill.isActive) return;
-    const due = new Date(bill.nextDue);
+    const due = parseLocalDate(bill.nextDue);
     if (due.getFullYear() === year && due.getMonth() === month) {
       const d = due.getDate();
       if (!dayBills[d]) dayBills[d] = [];
       dayBills[d].push(bill);
+      if (d >= todayDay) totalBillsAmt += bill.amount;
     }
   });
 
   paychecks.forEach((p) => {
-    const d = new Date(p.date);
+    const d = parseLocalDate(p.date);
     if (d.getFullYear() === year && d.getMonth() === month) {
       const day = d.getDate();
       if (!dayPaychecks[day]) dayPaychecks[day] = [];
       dayPaychecks[day].push(p);
+      totalPaychecksAmt += p.netAmount;
     }
   });
 
   const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
-  const totalBillsAmt = Object.values(dayBills).flat().filter((b) => new Date(b.nextDue) >= new Date(nowMs)).reduce((s, b) => s + b.amount, 0);
-  const totalPaychecksAmt = Object.values(dayPaychecks).flat().reduce((s, p) => s + p.netAmount, 0);
 
   return (
     <Card className="p-4 sm:p-5">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-sm font-bold text-slate-900">
-            {now.toLocaleString('default', { month: 'long' })} {year} — Cashflow
+            {now.toLocaleString('default', { month: 'long' })} {year} — {t('bills.cashflow')}
           </h2>
           <div className="flex items-center gap-3 mt-1">
             {totalPaychecksAmt > 0 && <span className="text-xs font-bold text-emerald-600">+{formatCurrency(totalPaychecksAmt)} in</span>}
@@ -181,8 +188,8 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
           </div>
         </div>
         <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />Pay</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-400 inline-block" />Bill</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />{t('bills.pay')}</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-400 inline-block" />{t('bills.bill')}</span>
         </div>
       </div>
 
@@ -221,17 +228,25 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
       {/* Quick summary legend */}
       {(Object.keys(dayBills).length > 0 || Object.keys(dayPaychecks).length > 0) && (
         <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap gap-2">
-          {Object.entries(dayPaychecks).sort(([a], [b]) => Number(a) - Number(b)).map(([day, pays]) => (
-            <span key={`pay-${day}`} className="text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg px-2 py-1 flex items-center gap-1">
-              <Banknote className="w-3 h-3" />
-              {now.toLocaleString('default', { month: 'short' })} {day} · +{formatCurrency(pays.reduce((s, p) => s + p.netAmount, 0))}
-            </span>
-          ))}
-          {Object.entries(dayBills).sort(([a], [b]) => Number(a) - Number(b)).map(([day, bs]) => (
-            <span key={`bill-${day}`} className="text-xs font-medium bg-rose-50 text-rose-700 border border-rose-100 rounded-lg px-2 py-1">
-              {now.toLocaleString('default', { month: 'short' })} {day} · {bs.map((b) => b.name).join(', ')}
-            </span>
-          ))}
+          {(() => {
+            const sortedNum = ([a]: [string, unknown], [b]: [string, unknown]) => Number(a) - Number(b);
+            const monthShort = now.toLocaleString('default', { month: 'short' });
+            return (
+              <>
+                {Object.entries(dayPaychecks).sort(sortedNum).map(([day, pays]) => (
+                  <span key={`pay-${day}`} className="text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg px-2 py-1 flex items-center gap-1">
+                    <Banknote className="w-3 h-3" />
+                    {monthShort} {day} · +{formatCurrency(pays.reduce((s, p) => s + p.netAmount, 0))}
+                  </span>
+                ))}
+                {Object.entries(dayBills).sort(sortedNum).map(([day, bs]) => (
+                  <span key={`bill-${day}`} className="text-xs font-medium bg-rose-50 text-rose-700 border border-rose-100 rounded-lg px-2 py-1">
+                    {monthShort} {day} · {bs.map((b) => b.name).join(', ')}
+                  </span>
+                ))}
+              </>
+            );
+          })()}
         </div>
       )}
     </Card>
@@ -240,6 +255,7 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
 
 // ── Bills Timeline (horizontal scroll strip) ──────────────────────────────────
 function BillsTimeline({ bills, nowMs }: { bills: Bill[]; nowMs: number }) {
+  const { t } = useTranslation();
   const now = new Date(nowMs);
   const year = now.getFullYear();
   const month = now.getMonth();
@@ -250,7 +266,7 @@ function BillsTimeline({ bills, nowMs }: { bills: Bill[]; nowMs: number }) {
   const dayToBills: Record<number, Bill[]> = {};
   bills.forEach((bill) => {
     if (!bill.isActive) return;
-    const due = new Date(bill.nextDue);
+    const due = parseLocalDate(bill.nextDue);
     if (due.getMonth() === month && due.getFullYear() === year) {
       const d = due.getDate();
       if (!dayToBills[d]) dayToBills[d] = [];
@@ -272,8 +288,8 @@ function BillsTimeline({ bills, nowMs }: { bills: Bill[]; nowMs: number }) {
     <Card className="p-4 sm:p-5">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-sm font-bold text-slate-900">{now.toLocaleString('default', { month: 'long' })} Timeline</h2>
-          {totalThisMonth > 0 && <p className="text-xs font-medium text-slate-500 mt-0.5">{formatCurrency(totalThisMonth)} due this month</p>}
+          <h2 className="text-sm font-bold text-slate-900">{t('bills.timeline', { month: now.toLocaleString('default', { month: 'long' }) })}</h2>
+          {totalThisMonth > 0 && <p className="text-xs font-medium text-slate-500 mt-0.5">{formatCurrency(totalThisMonth)} {t('bills.dueThisMonth')}</p>}
         </div>
         {Object.keys(dayToBills).length > 0 && (
           <span className="text-xs font-bold text-rose-600 bg-rose-50 px-2.5 py-1 rounded-lg">{Object.keys(dayToBills).length} bill{Object.keys(dayToBills).length !== 1 ? 's' : ''}</span>
@@ -308,6 +324,7 @@ function BillsTimeline({ bills, nowMs }: { bills: Bill[]; nowMs: number }) {
 
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function BillsPage() {
+  const { t } = useTranslation();
   const [bills, setBills] = useState<Bill[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [paychecks, setPaychecks] = useState<PaycheckEntry[]>([]);
@@ -323,6 +340,14 @@ export default function BillsPage() {
   const [paying, setPaying] = useState(false);
   const toast = useToast();
   const { expenseCategories } = useCategories();
+
+  const FREQUENCY_LABELS: Record<Bill['frequency'], string> = {
+    weekly: t('common.weekly'),
+    biweekly: t('common.biweekly'),
+    monthly: t('common.monthly'),
+    quarterly: t('common.quarterly'),
+    yearly: t('common.yearly'),
+  };
 
   const load = useCallback(async () => {
     setError(false);
@@ -375,9 +400,9 @@ export default function BillsPage() {
     try {
       const res = await fetch('/api/bills', { method: 'POST', body: JSON.stringify(bill), headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error();
-      toast(editingId ? 'Bill updated' : 'Bill added', 'success');
+      toast(editingId ? t('bills.toastUpdated') : t('bills.toastAdded'), 'success');
     } catch {
-      toast('Failed to save bill', 'error');
+      toast(t('bills.toastFailedSave'), 'error');
       await load();
     } finally {
       setSaving(false);
@@ -409,6 +434,7 @@ export default function BillsPage() {
       type: 'expense',
       category: payForm.category,
       account: payForm.account,
+      createdAt: new Date().toISOString(),
     };
     try {
       const [txRes] = await Promise.all([
@@ -420,7 +446,7 @@ export default function BillsPage() {
       toast(`${payBill.name} paid & transaction recorded`, 'success');
       closePayModal();
     } catch {
-      toast('Failed to record payment', 'error');
+      toast(t('bills.toastFailedPayment'), 'error');
     } finally {
       setPaying(false);
     }
@@ -432,7 +458,7 @@ export default function BillsPage() {
       await advanceBillDue(payBill);
       toast(`${payBill.name} marked paid`, 'success');
     } catch {
-      toast('Failed to mark as paid', 'error');
+      toast(t('bills.toastFailedMarkPaid'), 'error');
       await load();
     }
     closePayModal();
@@ -443,15 +469,15 @@ export default function BillsPage() {
     setBills((prev) => prev.map((b) => b.id === bill.id ? updated : b));
     try {
       await fetch('/api/bills', { method: 'POST', body: JSON.stringify(updated), headers: { 'Content-Type': 'application/json' } });
-      toast(updated.isActive ? 'Bill resumed' : 'Bill paused', 'info');
+      toast(updated.isActive ? t('bills.toastResumed') : t('bills.toastPaused'), 'info');
     } catch {
-      toast('Failed to update bill', 'error');
+      toast(t('bills.toastFailedUpdate'), 'error');
       await load();
     }
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this bill?')) return;
+    if (!confirm(t('bills.confirmDelete'))) return;
     const prev = bills;
     setBills((b) => b.filter((bill) => bill.id !== id));
     try {
@@ -460,19 +486,20 @@ export default function BillsPage() {
       toast('Bill deleted', 'success');
     } catch {
       setBills(prev);
-      toast('Failed to delete bill', 'error');
+      toast(t('bills.toastFailedDelete'), 'error');
     }
   }
 
   const nowMs = useMemo(() => Date.now(), [bills]);
+  const todayMidnight = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, [bills]);
   const activeBills = bills.filter((b) => b.isActive);
   const inactiveBills = bills.filter((b) => !b.isActive);
   const monthlyTotal = activeBills.reduce((s, b) => {
     const m: Record<Bill['frequency'], number> = { weekly: 52 / 12, biweekly: 26 / 12, monthly: 1, quarterly: 1 / 3, yearly: 1 / 12 };
     return s + b.amount * m[b.frequency];
   }, 0);
-  const overdueBills = activeBills.filter((b) => new Date(b.nextDue) < new Date(nowMs));
-  const upcomingCount = activeBills.filter((b) => { const diff = (new Date(b.nextDue).getTime() - nowMs) / 86400000; return diff >= 0 && diff <= 14; }).length;
+  const overdueBills = activeBills.filter((b) => parseLocalDate(b.nextDue) < todayMidnight);
+  const upcomingCount = activeBills.filter((b) => { const diff = Math.ceil((parseLocalDate(b.nextDue).getTime() - todayMidnight.getTime()) / 86400000); return diff >= 0 && diff <= 14; }).length;
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
@@ -480,25 +507,31 @@ export default function BillsPage() {
         <div className="fixed top-0 left-0 right-0 z-50 flex justify-center pt-safe">
           <div className="flex items-center gap-2 bg-indigo-600 text-white text-xs font-bold px-4 py-2 rounded-full shadow-lg mt-2">
             <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} style={!refreshing ? { transform: `rotate(${pullY * 180}deg)` } : undefined} />
-            {refreshing ? 'Refreshing…' : pullY >= 1 ? 'Release to refresh' : 'Pull to refresh'}
+            {refreshing ? t('accounts.refreshing') : pullY >= 1 ? t('accounts.releaseToRefresh') : t('accounts.pullToRefresh')}
           </div>
         </div>
       )}
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900">Bills</h1>
-          <p className="text-slate-500 text-sm font-medium mt-1">Recurring payments &amp; schedule</p>
+          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900">{t('bills.title')}</h1>
+          <p className="text-slate-500 text-sm font-medium mt-1">{t('bills.subtitle')}</p>
         </div>
-        <Button onClick={openAdd} className="w-full md:w-auto shadow-sm"><Plus className="w-5 h-5" />Add Bill</Button>
+        <Button onClick={openAdd} className="w-full md:w-auto shadow-sm"><Plus className="w-5 h-5" />{t('bills.addBill')}</Button>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
-        <Card className="p-4 sm:p-5"><p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Monthly</p><p className="text-xl md:text-2xl font-extrabold text-slate-900 mt-1.5 tracking-tight">{formatCurrency(monthlyTotal)}</p></Card>
-        <Card className="p-4 sm:p-5"><p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Active</p><p className="text-xl md:text-2xl font-extrabold text-indigo-600 mt-1.5 tracking-tight">{activeBills.length}</p></Card>
-        <Card className={`p-4 sm:p-5 ${overdueBills.length > 0 ? 'border-rose-200' : upcomingCount > 0 ? 'border-amber-200' : ''}`}>
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{overdueBills.length > 0 ? 'Overdue' : 'Due Soon'}</p>
-          <p className={`text-xl md:text-2xl font-extrabold mt-1.5 tracking-tight ${overdueBills.length > 0 ? 'text-rose-600' : upcomingCount > 0 ? 'text-amber-600' : 'text-slate-400'}`}>{overdueBills.length > 0 ? overdueBills.length : upcomingCount}</p>
+        <Card className="p-4 sm:p-5 min-w-0">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('common.monthly')}</p>
+          <FitText maxSize={24} minSize={13} className="font-extrabold text-slate-900 mt-1.5">{formatCurrency(monthlyTotal)}</FitText>
+        </Card>
+        <Card className="p-4 sm:p-5 min-w-0">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('bills.active')}</p>
+          <FitText maxSize={24} minSize={13} className="font-extrabold text-indigo-600 mt-1.5">{String(activeBills.length)}</FitText>
+        </Card>
+        <Card className={`p-4 sm:p-5 min-w-0 ${overdueBills.length > 0 ? 'border-rose-200' : upcomingCount > 0 ? 'border-amber-200' : ''}`}>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{overdueBills.length > 0 ? t('bills.overdue') : t('bills.dueSoon')}</p>
+          <FitText maxSize={24} minSize={13} className={`font-extrabold mt-1.5 ${overdueBills.length > 0 ? 'text-rose-600' : upcomingCount > 0 ? 'text-amber-600' : 'text-slate-400'}`}>{String(overdueBills.length > 0 ? overdueBills.length : upcomingCount)}</FitText>
         </Card>
       </div>
 
@@ -542,11 +575,10 @@ export default function BillsPage() {
 
           {activeBills.length > 0 && (
             <div className="space-y-3">
-              <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Active Bills</h2>
+              <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">{t('bills.active')} Bills</h2>
               <div className="space-y-2.5">
                 {activeBills.map((bill) => {
-                  const dueDate = new Date(bill.nextDue);
-                  const daysUntil = Math.ceil((dueDate.getTime() - nowMs) / 86400000);
+                  const daysUntil = Math.ceil((parseLocalDate(bill.nextDue).getTime() - todayMidnight.getTime()) / 86400000);
                   const isOverdue = daysUntil < 0;
                   const isDueSoon = daysUntil >= 0 && daysUntil <= 7;
                   const accountName = accounts.find((a) => a.id === bill.account)?.name ?? bill.account;
@@ -560,7 +592,7 @@ export default function BillsPage() {
                           <p className="text-base font-bold text-slate-900">{bill.name}</p>
                           <p className="text-xs font-medium text-slate-500 mt-0.5">
                             {FREQUENCY_LABELS[bill.frequency]}{accountName ? ` · ${accountName}` : ''}{' · '}
-                            {isOverdue ? <span className="text-rose-600 font-bold">Overdue {Math.abs(daysUntil)}d</span> : daysUntil === 0 ? <span className="text-amber-600 font-bold">Due today</span> : <span>{daysUntil}d ({formatDate(bill.nextDue)})</span>}
+                            {isOverdue ? <span className="text-rose-600 font-bold">{t('common.overdue')} {Math.abs(daysUntil)}d</span> : daysUntil === 0 ? <span className="text-amber-600 font-bold">Due today</span> : <span>{daysUntil}d ({formatDate(bill.nextDue)})</span>}
                           </p>
                         </div>
                       </div>
@@ -604,45 +636,45 @@ export default function BillsPage() {
       )}
 
       {/* ── Record Payment modal ── */}
-      <Modal open={!!payBill} onClose={closePayModal} title="Record Payment">
+      <Modal open={!!payBill} onClose={closePayModal} title={t('bills.recordPayment')}>
         <div className="space-y-5 pb-4">
-          <Input label="Description" value={payForm.description} onChange={(e) => setPayForm((f) => ({ ...f, description: e.target.value }))} />
+          <Input label={t('common.description')} value={payForm.description} onChange={(e) => setPayForm((f) => ({ ...f, description: e.target.value }))} />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Input label="Amount ($)" type="number" min="0" step="0.01" value={payForm.amount} onChange={(e) => setPayForm((f) => ({ ...f, amount: e.target.value }))} />
-            <Input label="Date" type="date" value={payForm.date} onChange={(e) => setPayForm((f) => ({ ...f, date: e.target.value }))} />
+            <Input label={t('common.amountUsd')} type="number" min="0" step="0.01" value={payForm.amount} onChange={(e) => setPayForm((f) => ({ ...f, amount: e.target.value }))} />
+            <Input label={t('common.date')} type="date" value={payForm.date} onChange={(e) => setPayForm((f) => ({ ...f, date: e.target.value }))} />
           </div>
           {accounts.length > 0 && (
-            <Select label="Pay from Account" value={payForm.account} options={[{ value: '', label: '— None —' }, ...accounts.map((a) => ({ value: a.id, label: a.name }))]} onChange={(e) => setPayForm((f) => ({ ...f, account: e.target.value }))} />
+            <Select label={t('bills.payFromAccount')} value={payForm.account} options={[{ value: '', label: t('common.selectPlaceholder') }, ...accounts.map((a) => ({ value: a.id, label: a.name }))]} onChange={(e) => setPayForm((f) => ({ ...f, account: e.target.value }))} />
           )}
           <p className="text-xs text-slate-500 font-medium">This will record an expense transaction and save a recurring template for quick re-use.</p>
         </div>
         <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">
-            <Button variant="secondary" className="flex-1" onClick={handleSkipPayment} disabled={paying}>Skip</Button>
+            <Button variant="secondary" className="flex-1" onClick={handleSkipPayment} disabled={paying}>{t('common.skip')}</Button>
             <Button className="flex-1 shadow-sm" onClick={handleRecordPayment} disabled={paying || !payForm.amount}>
-              {paying ? 'Recording…' : 'Record Payment'}
+              {paying ? t('bills.recording') : t('bills.recordPayment')}
             </Button>
           </div>
         </div>
       </Modal>
 
-      <Modal open={open} onClose={closeModal} title={editingId ? 'Edit Bill' : 'Add Recurring Bill'}>
+      <Modal open={open} onClose={closeModal} title={editingId ? t('bills.editBill') : t('bills.addBill')}>
         <div className="space-y-5 pb-4">
-          <Input label="Bill Name" placeholder="e.g. Netflix, Rent, Car Insurance" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+          <Input label={t('bills.billName')} placeholder="e.g. Netflix, Rent, Car Insurance" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Input label="Amount ($)" type="number" min="0" step="0.01" placeholder="0.00" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} />
-            <Select label="Frequency" value={form.frequency} options={Object.entries(FREQUENCY_LABELS).map(([value, label]) => ({ value, label }))} onChange={(e) => setForm((f) => ({ ...f, frequency: e.target.value as Bill['frequency'] }))} />
+            <Input label={t('common.amountUsd')} type="number" min="0" step="0.01" placeholder="0.00" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} />
+            <Select label={t('common.frequency')} value={form.frequency} options={Object.entries(FREQUENCY_LABELS).map(([value, label]) => ({ value, label }))} onChange={(e) => setForm((f) => ({ ...f, frequency: e.target.value as Bill['frequency'] }))} />
           </div>
-          <Input label="Next Due Date" type="date" value={form.nextDue} onChange={(e) => setForm((f) => ({ ...f, nextDue: e.target.value }))} />
-          <Select label="Category" value={form.category} options={expenseCategories.map((c) => ({ value: c, label: c }))} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} />
+          <Input label={t('bills.nextDueDate')} type="date" value={form.nextDue} onChange={(e) => setForm((f) => ({ ...f, nextDue: e.target.value }))} />
+          <Select label={t('common.category')} value={form.category} options={expenseCategories.map((c) => ({ value: c, label: c }))} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} />
           {accounts.length > 0 && (
-            <Select label="Pay from Account (optional)" value={form.account} options={[{ value: '', label: '— None —' }, ...accounts.map((a) => ({ value: a.id, label: a.name }))]} onChange={(e) => setForm((f) => ({ ...f, account: e.target.value }))} />
+            <Select label={t('bills.payFromOptional')} value={form.account} options={[{ value: '', label: t('common.selectPlaceholder') }, ...accounts.map((a) => ({ value: a.id, label: a.name }))]} onChange={(e) => setForm((f) => ({ ...f, account: e.target.value }))} />
           )}
         </div>
         <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">
-            <Button variant="secondary" className="flex-1" onClick={closeModal}>Cancel</Button>
-            <Button className="flex-1 shadow-sm" onClick={handleSave} disabled={saving || !form.name || !form.amount}>{saving ? 'Saving…' : editingId ? 'Save Changes' : 'Add Bill'}</Button>
+            <Button variant="secondary" className="flex-1" onClick={closeModal}>{t('common.cancel')}</Button>
+            <Button className="flex-1 shadow-sm" onClick={handleSave} disabled={saving || !form.name || !form.amount}>{saving ? t('common.saving') : editingId ? t('bills.saveChanges') : t('bills.addBillBtn')}</Button>
           </div>
         </div>
       </Modal>

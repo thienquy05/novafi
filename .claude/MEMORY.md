@@ -6,7 +6,351 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ## Current Version — NovaFi Web App (Next.js + Google Sheets)
 
-**Last Updated:** May 6, 2026
+**Last Updated:** May 12, 2026
+
+---
+
+## 2026-05-12 — Fix: billing & transaction dates show 1 day early (PR #11: claude/fix-billing-date-offset)
+
+Root cause: `new Date("YYYY-MM-DD")` treats date-only strings as UTC midnight. In UTC-negative timezones, `.toLocaleDateString()` and `.getDate()` return the previous calendar day. Server components (dashboard) were unaffected because Node.js server runs in UTC. Client components (bills page, transactions) showed 1 day early.
+
+### Files
+- **`lib/utils.ts`**
+  - `formatDate(dateStr)`: changed from `new Date(dateStr).toLocaleDateString(...)` to `new Date(y, m-1, d).toLocaleDateString(...)` (local midnight, no UTC shift)
+  - `today()`: changed from `new Date().toISOString().split('T')[0]` (UTC date) to `getFullYear/getMonth/getDate` (local calendar date)
+- **`app/(app)/bills/page.tsx`**
+  - Added `parseLocalDate(dateStr)` helper: `new Date(y, m-1, d)` — used everywhere a YYYY-MM-DD string was previously passed to `new Date()`
+  - `nextDueAfter()`: uses `parseLocalDate()` + local date parts for output (no more `toISOString()` return)
+  - `CashflowCalendar`: bill/paycheck day mapping uses `parseLocalDate()`
+  - `BillsTimeline`: same
+  - `overdueBills` filter: `parseLocalDate(nextDue) < todayMidnight` (local midnight comparison)
+  - `upcomingCount` filter: same local-midnight comparison
+  - `daysUntil` per bill: `parseLocalDate(nextDue) - todayMidnight`
+  - `todayMidnight` memoized via `useMemo`
+
+---
+
+## 2026-05-12 — Feat: same-day transaction sort by creation time (PR #12: claude/fix-transaction-time-sort)
+
+Added `createdAt?: string` (ISO timestamp) as a secondary sort key so transactions added on the same calendar date appear newest-first (stacking). Time is internal only — never displayed.
+
+### Schema change
+- Google Sheets Transactions column I: `createdAt` (ISO string, optional). Existing rows without this column fall back to id-based ordering (`id` is `${Date.now()}_${random}`, so it also sorts by creation time).
+
+### Files
+- **`types/index.ts`**: added `createdAt?: string` to `Transaction`
+- **`lib/sheets.ts`**:
+  - `getTransactions` range: `A2:H1000` → `A2:I1000`
+  - `rowToTransaction`: reads `r[8]` as `createdAt`
+  - `addTransaction`, `updateTransaction`: write `createdAt` to col I
+  - `deleteTransaction`, `updateTransaction` (delete step): last col changed `H` → `I`
+  - `batchGetBadgesData`: range `H1000` → `I1000`; mapper adds `createdAt: r[8]`
+  - `batchGetDashboardData`: same range + mapper update
+- **`app/(app)/transactions/page.tsx`**: sort uses `(date desc, createdAt desc)`; new transactions include `createdAt: new Date().toISOString()`; edits preserve original `createdAt`
+- **`app/(app)/dashboard/QuickAddTransaction.tsx`**: includes `createdAt` on submit
+- **`app/(app)/bills/page.tsx`**: payment transactions include `createdAt`
+- **`app/(app)/dashboard/page.tsx`**: `recentTx` sort uses same two-key sort
+
+---
+
+**Last Updated:** May 11, 2026
+
+---
+
+## 2026-05-12 — Feat: same-day transaction ordering by creation time (PR: claude/fix-transaction-time-sort)
+
+Added `createdAt?: string` (ISO timestamp) to `Transaction` stored in Google Sheets column I. New transactions include `createdAt: new Date().toISOString()`. Sort key is `(date desc, createdAt/id desc)` — existing rows without `createdAt` fall back to `id` (which is `${Date.now()}_${random}`, naturally sortable by time).
+
+### Files
+- `types/index.ts` — added `createdAt?: string` to `Transaction`
+- `lib/sheets.ts` — extended ranges to `I1000`; `rowToTransaction` reads `r[8]`; `addTransaction`/`updateTransaction` write `tx.createdAt ?? ''`
+- `app/(app)/transactions/page.tsx` — two-key sort; new transactions set `createdAt: new Date().toISOString()`; edits preserve original `createdAt`
+- `app/(app)/dashboard/QuickAddTransaction.tsx` — new transactions set `createdAt: new Date().toISOString()`
+
+---
+
+## 2026-05-12 — Perf: server-side optimizations (PR: claude/perf-optimizations)
+
+- `app/(app)/dashboard/page.tsx` — single-pass `monthlyTotals` map (eliminated 18+ array scans); `budgetData` O(1) lookups; `last3MonthsExpenses`/`income` from precomputed map
+- `app/(app)/reports/page.tsx` — single `useMemo` with one `for` loop (replaced 36+ passes per render)
+- `app/(app)/dashboard/DashboardCharts.tsx` — `categoryTotal` computed once before `.map()` in `SpendingPieChart` (was O(n²))
+- `app/(app)/planning/page.tsx` — `useMemo` for `monthExpenses`/`prevMonthExpenses`; precomputed spend maps; O(1) `spentForCategory`; Set-based `unbudgetedWithSpending`
+- `app/api/transactions/route.ts` — eliminated second `getAccounts()` Sheets call in PUT handler using in-memory `accountMap`
+
+---
+
+## 2026-05-12 — Perf: client-page redundant array passes and O(n) lookups (branch: claude/fix-transactions-billing-Tbt4h)
+
+Eliminated repeated array scans and linear account lookups across five client pages.
+
+### Changes
+
+**`app/(app)/transactions/page.tsx`**
+- Added `useMemo` import
+- `filtered` list is now memoized (deps: `transactions`, `search`, `filter`, `categoryFilter`) — was recomputed on every render
+- `totalIncome`/`totalExpense` now computed in single `useMemo` pass over `filtered` (was 2× `filter().reduce()`)
+- `accountMap` `useMemo` (O(1) `Record<id, name>`) replaces `accounts.find()` inline function — called on every row and in CSV export
+- `merchantRows` now `useMemo(() => buildMerchantRows(filtered), [filtered])` — skips rebuild when filtered hasn't changed
+
+**`app/(app)/accounts/page.tsx`**
+- `netWorth`, `totalAssets`, `totalDebt` computed in one `useMemo` pass (was 3 separate `reduce`/`filter` chains = 3× full array scan)
+- `grouped` object built in one `useMemo` pass with a single `for` loop (was 5× `accounts.filter()` = 5× full array scan)
+
+**`app/(app)/paychecks/page.tsx`**
+- Added `useMemo` import
+- `ytdPaychecks` memoized (deps: `paychecks`, `currentYear`)
+- `ytdNet`, `ytdGross`, `ytdGratuity` computed in single `useMemo` pass (was 3× `reduce`)
+- `accountMap` O(1) map replaces `accounts.find()` per rendered paycheck row
+- `checkingAccounts` memoized (was `accounts.filter()` on every render)
+
+**`app/(app)/savings/page.tsx`**
+- Added `useMemo` import
+- `savingsAccountIds` memoized
+- `accountMap` O(1) map replaces 2× `accounts.find()` per transaction in the history list
+
+**`app/(app)/bills/page.tsx` — `CashflowCalendar`**
+- `totalBillsAmt` and `totalPaychecksAmt` now accumulated inside existing `forEach` loops (eliminated `Object.values().flat().filter().reduce()` chain)
+- Deduplicated `Object.entries().sort()` comparator and `toLocaleString` month label (both called twice in legend)
+
+---
+
+## 2026-05-12 — Fix: billing dates and transaction dates off by 1 day (PR: claude/fix-billing-date-offset)
+
+Root cause: `new Date("YYYY-MM-DD")` parses date-only strings as UTC midnight. In UTC-negative timezones, calling `.toLocaleDateString()` or `.getDate()` on the client returns the previous calendar day. Server components running in UTC are unaffected — which is why dashboard (server) showed correct dates but billing page (client) showed 1 day early.
+
+### Fix
+- `lib/utils.ts` — `formatDate()` now parses with `new Date(y, m-1, d)` (local midnight) instead of `new Date(dateStr)` (UTC midnight); `today()` now uses local calendar date (`getFullYear/getMonth/getDate`) instead of `toISOString().slice(0,10)` which is UTC
+- `app/(app)/bills/page.tsx` — added `parseLocalDate()` helper replacing all `new Date("YYYY-MM-DD")` calls; fixed `nextDueAfter()` output to use local date string; fixed `CashflowCalendar` and `BillsTimeline` day mapping; fixed `overdueBills` filter and `daysUntil` per-bill calculation using `todayMidnight` (local midnight via `setHours(0,0,0,0)`)
+
+---
+
+## 2026-05-12 — Fix: first checking account balance saved as $0.00
+
+User report: on a brand-new spreadsheet, the very first account added (checking, by default) showed $0.00 after save even when a balance was typed. Later savings/credit accounts saved correctly.
+
+Root-cause analysis (no single smoking gun, so the fix hardens three layers that could each produce the symptom):
+
+1. **Input was `<input type="number" step="0.01">`** — strict browser validation. On some mobile keyboards and non-US locales, typing "1000" or "1,000" can leave `e.target.value === ''`, which then runs through `parseFloat('') || 0 = 0`. Switched to `type="text" inputMode="decimal"` so the numeric keypad still appears on mobile but the value is never silently rejected. Input still strips non-numeric chars via `e.target.value.replace(/[^0-9.,\-]/g, '')`.
+
+2. **`parseFloat` is locale-fragile** — `parseFloat('1,000')` returns `1`, `parseFloat('1.000,50')` returns `1`. Replaced the inline `parseFloat(form.balance) || 0` with a `parseBalance(input)` helper at the top of `app/(app)/accounts/page.tsx` that:
+   - strips currency symbols / letters / spaces,
+   - treats the last `.` or `,` as the decimal separator (rest are thousands),
+   - preserves a leading minus,
+   - returns `0` on `NaN`/`Infinity`.
+
+3. **Sheets reads used `FORMATTED_VALUE` (the default)** — if Google Sheets auto-formats a column as currency, `r[4]` comes back as `"$100.00"`, and `Number("$100.00") === NaN`. Added `valueRenderOption: 'UNFORMATTED_VALUE'` to both `getAccounts()` and the two `batchGet*` helpers so numbers stay numeric. Also switched the parse from `Number(r[4] ?? 0)` to `Number(r[4]) || 0` so NaN falls back to 0 instead of propagating into the UI. Sibling string fields wrapped in `String(...)` for the same robustness.
+
+### Files
+- `app/(app)/accounts/page.tsx` — new `parseBalance()` helper above `EMPTY_FORM`; balance Input switched from `type="number"` to `type="text" inputMode="decimal"` with input sanitization; `handleSave` now calls `parseBalance(form.balance)` instead of inline `parseFloat`.
+- `lib/sheets.ts` — `getAccounts()`, `batchGetBillsBudgetsTransactions()`, and `batchGetDashboardData()` now request `valueRenderOption: 'UNFORMATTED_VALUE'`; account row parsing uses `Number(r[4]) || 0` and wraps string fields with `String(...)`.
+
+### Why not just one of these
+We can't deterministically prove which layer was failing from the report alone, but each is an independently-known footgun in this stack. Hardening all three eliminates the symptom regardless of which one triggered it in the user's environment. None of the changes alter persisted data or affect other entities adversely.
+
+---
+
+## 2026-05-12 — Vietnamese language support (PR: claude/add-vietnamese-language-b0FQq)
+
+Full i18n implementation with no new npm dependencies. Lightweight React Context + JSON dictionaries approach.
+
+### Architecture
+- **`/locales/en.json`** + **`/locales/vi.json`** — all UI strings as nested JSON (namespaces: nav, common, login, apiError, dashboard, charts, quickAdd, transactions, paychecks, bills, accounts, savings, planning, reports, settings, categories)
+- **`/lib/i18n/index.ts`** — server-side `t(key, lang, params?)` function with `{placeholder}` interpolation; used in server components
+- **`/lib/i18n/context.tsx`** — `LanguageProvider` + `useTranslation()` hook; client components use `const { t, lang, setLang } = useTranslation()`
+- **Persistence**: cookie `nf_lang` (server-readable, 1-year max-age) + localStorage `nf_lang` (instant client paint) + `TaxSettings.language` in Google Sheets (cross-device sync)
+- **SSR**: `app/layout.tsx` reads `nf_lang` cookie → sets `<html lang="...">` + passes `initialLang` to `SessionProvider`
+- **Category display**: stored values stay English; display uses `t(\`categories.${category}\`)`
+- **Number/date formatting**: kept as en-US throughout
+
+### Files changed
+- **`types/index.ts`** — Added `Language = 'en' | 'vi'` type; added `language: Language` to `TaxSettings`
+- **`lib/utils.ts`** — Added `language: 'en' as const` to `DEFAULT_TAX_SETTINGS`
+- **`lib/sheets.ts`** — `getSettings()` reads `language` key (fallback `'en'`); `saveSettings()` writes `['language', settings.language]`
+- **`lib/i18n/index.ts`** — NEW: server-side translation helper
+- **`lib/i18n/context.tsx`** — NEW: LanguageProvider + useTranslation hook with cookie/localStorage sync
+- **`locales/en.json`** — NEW: all English strings
+- **`locales/vi.json`** — NEW: all Vietnamese strings with proper diacritics; finance terms translated literally; untranslatable terms (401k, HSA, IRA, FICA, SS) kept in English
+- **`app/layout.tsx`** — async, reads `nf_lang` cookie, sets `html lang`, passes `initialLang` to SessionProvider
+- **`components/SessionProvider.tsx`** — wraps with `LanguageProvider` accepting `initialLang`
+- **`app/page.tsx`** — login page translated (server component, reads cookie)
+- **`app/(app)/layout.tsx`** — API error screen translated (server component)
+- **`components/Sidebar.tsx`** — desktop + mobile nav + customize sheet translated
+- **`app/(app)/dashboard/QuickAddTransaction.tsx`** — translated
+- **`app/(app)/settings/page.tsx`** — added "Language & Region" card at top with EN/VI switcher; all settings strings translated; `setLang()` called on switch (immediate cookie+localStorage update); language synced from server settings on load
+- **`app/(app)/dashboard/page.tsx`** — translated (server component)
+- **`app/(app)/dashboard/DashboardCharts.tsx`** — translated (client component)
+- **`app/(app)/transactions/page.tsx`** — translated
+- **`app/(app)/paychecks/page.tsx`** — translated
+- **`app/(app)/bills/page.tsx`** — translated
+- **`app/(app)/accounts/page.tsx`** — translated
+- **`app/(app)/savings/page.tsx`** — translated
+- **`app/(app)/planning/page.tsx`** — translated
+- **`app/(app)/reports/page.tsx`** — translated
+
+### Language switching flow
+1. User picks EN/VI in Settings → `setLang()` sets cookie + localStorage immediately
+2. Settings save → `language` written to Google Sheets
+3. Next visit → `app/layout.tsx` reads cookie → correct `html lang` + `initialLang` for LanguageProvider
+4. On settings load → if `s.language !== lang`, reconcile (cross-device sync)
+
+---
+
+## 2026-05-11 — Financial Health Score rebuild (PR: claude/health-score-rebuild)
+
+Replaced 4-factor (savings 25 / emergency 25 / budget 25 / debt-to-asset 25) composite with **6-factor weighted** model so a single distorted ratio (e.g. debt/asset 2672% when assets ≈ 0) can no longer sink the entire score.
+
+New weights (total 100):
+
+| Factor | Max | Replaces |
+|---|---|---|
+| Savings Rate | 25 | re-bucketed (8 tiers: 0/4/9/14/18/22/25) |
+| Emergency Fund | 20 | re-bucketed (7 tiers: 0/3/6/9/13/16/20) |
+| Budget Adherence | 15 | now adherence-ratio based, neutral 7 when no budgets |
+| **Debt-to-Income** | 20 | replaces debt-to-asset (totalDebt ÷ avgMonthlyIncome×12) |
+| **Net Worth Trend** | 10 | NEW — avg MoM % across up-to-4 latest snapshots |
+| **Spending Stability** | 10 | NEW — coefficient of variation of last 3-mo expenses |
+
+### Files
+- `lib/calculations.ts`:
+  - Re-bucketed `calcSavingsRateScore`, `calcEmergencyScore`, `calcBudgetScore`
+  - **Added** `calcDebtToIncomeScore`, `calcDebtToIncomeRatio`
+  - **Added** `calcNetWorthTrendScore`, `calcAvgMomPct` (null when <2 snapshots; skips zero-base points)
+  - **Added** `calcSpendingVolatilityScore`, `calcCoefficientOfVariation` (population stddev / mean; null when mean ≤ 0)
+  - Kept legacy `calcDebtScore` (debt-to-asset) marked legacy for back-compat
+  - `calcHealthGrade` thresholds unchanged (85/70/55/40)
+- `app/(app)/dashboard/page.tsx`:
+  - Compute `avgMonthlyIncome` (3-mo mean), `dti`, `netWorthTrendPct` (slices last 4 of `netWorthPoints`), `spendingCv`
+  - Sum 6 component scores into `healthScore`
+  - Pass `dti`, `netWorthTrendPct`, `spendingCv`, `breakdown {...}` to `FinancialHealthScore`
+- `app/(app)/dashboard/DashboardCharts.tsx`:
+  - `HealthScoreData` — removed `debtRatio`; added `dti`, `netWorthTrendPct`, `spendingCv`, `breakdown`
+  - `FinancialHealthScore` — 6 rows; new formatters: `fmtDti` (None/%/×), `fmtTrend` (+/-X%/mo), `fmtCv` (±X%)
+  - Subtitle: "4-factor" → "6-factor composite score"
+- `lib/__tests__/calculations.test.ts` — updated existing score tests for new tier values; added 60+ new tests for the 6 new helpers
+- All 182 tests pass; tsc clean.
+
+---
+
+## 2026-05-11 — Budget overshoot help tooltip (PR: claude/budget-overshoot-help)
+
+Adds a reusable inline help tooltip (`HelpHint`) explaining what each budget badge means. The overshoot math itself was already correct — users were just confused by the terminology.
+
+### Files
+- **NEW** `components/ui/HelpHint.tsx` — click-toggle popover with outside-click and Escape dismissal; framer-motion fade; right/left align; accessible (`aria-label`, `aria-expanded`, role="tooltip")
+- `app/(app)/dashboard/page.tsx` — `<HelpHint>` next to "Budget Progress" CardTitle (align="left")
+- `app/(app)/planning/page.tsx` — same `<HelpHint>` next to "Budgets" section header
+
+### Tooltip contents
+Explains the four badge variants (`~$X overshoot`, `On pace`, `$X over`, `+$X vs last mo`) plus the projection formula: `projection = (spent ÷ days elapsed) × days in month`.
+
+---
+
+## 2026-05-11 — Paid-off credit card celebration (PR: claude/credit-card-paid-off)
+
+Replaces the unflattering `-$0.00` red display on credit/loan cards with a celebratory paid-off badge.
+
+### Behavior
+- `balance < 0` — still shows green `+$X (credit)` (unchanged)
+- `balance === 0` — **NEW** `<PaidOffBadge>`: emerald `$0.00` in `font-black` with checkmark, brief one-shot confetti burst (14 particles, deterministic trajectories), session-storage gated per-account so it doesn't replay on every list refresh
+- `balance > 0` — still shows red `-$X owed` (unchanged)
+
+### Files
+- `app/(app)/accounts/page.tsx`
+  - new branch in display logic (line ~226): `balance === 0` → `<PaidOffBadge accountId={...} />`
+  - imports: `useRef`, `useMemo`, `motion`, `AnimatePresence`
+  - **new local component `PaidOffBadge`** at bottom of file:
+    - spring-scale entry on the `$0.00` text
+    - confetti particles use deterministic `(i*7)%14` jitter + `(i%4)*0.08` duration variance (pure during render — passes `react-hooks/purity` lint)
+    - `sessionStorage` key `paidoff-confetti:${accountId}` ensures one burst per account per browser session
+
+---
+
+## 2026-05-11 — Negative sign wrapping fix (PR: claude/negative-sign-flex)
+
+The `-` of a `-$X.XX` amount was wrapping onto its own line when summary cards / table cells became too narrow (the user's screenshots show this on the transactions Net card and on the reports monthly Saved column). Fix uses **`FitText`** + `min-w-0` + `whitespace-nowrap` so the amount stays on one line and auto-shrinks within the container.
+
+### Strategy
+- **Cards (transactions, reports, bills summary)** — swap fixed `text-xl`/`text-2xl` `<p>` for `<FitText>` which sets `whitespace-nowrap` + `overflow-hidden` and binary-shrinks font down to `minSize` to fit. Adds `min-w-0` on parent so flex/grid items can shrink below content width.
+- **Tables (reports monthly breakdown)** — add `whitespace-nowrap` to each numeric `<td>`; the outer `overflow-x-auto` already provides horizontal scroll fallback.
+
+### Files
+- `app/(app)/transactions/page.tsx` — Income/Spending/Net summary cards now use `FitText`; imported `FitText`
+- `app/(app)/reports/page.tsx` — 4-card year summary uses `FitText`; monthly breakdown table cells get `whitespace-nowrap`; imported `FitText`
+- `app/(app)/bills/page.tsx` — 3-card Monthly/Active/Overdue summary uses `FitText`; imported `FitText`
+
+---
+
+## 2026-05-11 — Inverted red fill for negative savings goal bars (PR: claude/savings-negative-bar)
+
+Savings goals linked to an overdrawn account previously showed a fully-empty (or zero-width) bar — visually identical to a 0% goal — even though the underlying balance was deeply negative. Fix: when `current < 0`, render an **inverted right-anchored rose-500 bar** with width proportional to the deficit (`min(100, |current/target|*100)%`).
+
+### Visual logic
+- `current >= target` (achieved) — full emerald bar, left-to-right (unchanged)
+- `0 ≤ current < target` — partial indigo bar, left-to-right (unchanged)
+- `current < 0` — **NEW** rose bar anchored to RIGHT, width `min(100, |pct|)`, deficit label
+- Percentage badge becomes `bg-rose-50 text-rose-700` when negative
+- Current-amount text becomes `text-rose-600` when negative
+
+### Files
+- `app/(app)/planning/page.tsx`
+  - `goal.map(...)` block: replaced `Math.min(100, ...)` with `Math.max(-100, Math.min(100, ...))` so `pct` keeps its sign
+  - `GoalItem` bar: conditional render, absolute right-anchored rose div for the negative branch
+- `app/(app)/dashboard/DashboardCharts.tsx` — same treatment in `GoalsSummary`; uses framer-motion `motion.div` for animated entry
+- `app/(app)/savings/page.tsx` — same treatment in inline goals grid
+
+---
+
+## 2026-05-11 — Paycheck tips: total-first input flow (PR: claude/paycheck-tips-flow)
+
+Flips the paycheck input semantics so users enter the **total amount they received** (which includes tips), then list the tips separately. Tips are subtracted to derive the taxable wage base — the underlying tax math is unchanged.
+
+### Old flow (deprecated)
+1. User enters `grossAmount` (taxable only)
+2. User enters `gratuityAmount` (non-taxable, added on top)
+3. Display: Net = `(gross - taxes) + tips`
+
+### New flow
+1. User enters `totalAmount` (full check, including tips)
+2. User enters `gratuityAmount` (optional)
+3. `taxableGross = max(0, total - tips)` — fed into `calcPaycheckTax`
+4. Display: Net = `(taxableGross - taxes) + tips` = `total - taxes`
+
+### Data model
+- **No schema changes.** `PaycheckEntry.grossAmount` still stores the taxable portion. Existing YTD wage-base lookups (`paychecks[].grossAmount`) keep working identically.
+- The income transaction amount remains `preview.netPaycheck + gratuity` (mathematically equivalent to `total - taxes`).
+
+### Files
+- `app/(app)/paychecks/page.tsx`
+  - Form field renamed: `grossAmount` → `totalAmount`
+  - `useEffect` preview now computes `taxableGross = max(0, total - tips)` and passes to `calcPaycheckTax`
+  - Input labels: "Gross Amount (taxable)" → "Total Amount (incl. tips)"; "Gratuity" → "Tips / Gratuity"
+  - Added helper text under the tips field
+  - Preview header now shows: Total → less Tips → Taxable Wages → deductions → Net of wages → add Tips → Total Take-Home
+  - List row column "Gross" → "Wages", "Gratuity" → "Tips"
+  - YTD summary card labels: "YTD Gross" → "YTD Taxable Wages", "YTD Gratuity" → "YTD Tips"; "YTD Net (take-home)" now includes tips so the user sees actual cash received
+
+---
+
+## 2026-05-11 — Menu Order: mobile-only customization (PR: claude/menu-order-mobile)
+
+The desktop version doesn't need menu reordering. The Settings page "Menu Order" card was specifically wired to the desktop sidebar (via `novafi_nav_order` localStorage key); mobile already had its own separate customize sheet inside `MobileNav` (via `novafi_mobile_nav_order`). This PR removes the now-unused desktop machinery so customization is **mobile-only**, accessed via the existing `Customize` sheet at the bottom of the mobile nav.
+
+### Changes
+- **`components/Sidebar.tsx` (desktop `Sidebar`)**
+  - Reads from fixed `NAV` array instead of `getSortedNav()`
+  - Removed `getSortedNav()`, `NAV_ORDER_KEY`, `useState`/`useEffect` for sortedNav
+- **`app/(app)/settings/page.tsx`**
+  - Removed the entire "Menu Order" Card from the rendered settings page
+  - Removed `NAV_ITEMS`, `NAV_ORDER_KEY`, `getStoredNavOrder()`, `NavReorderItem`, `NavReorderRow` helpers
+  - Removed `navOrder` state and its persistence on save
+  - Dropped now-unused imports: `GripVertical`, `LayoutDashboard`, `Landmark`, `DollarSign`, `ArrowLeftRight`, `PiggyBank`, `Calendar`, `BarChart3`, `FileText`, `Settings as SettingsIcon`, `Reorder`, `useDragControls`
+
+### What's preserved
+- **`MobileNav`** in `components/Sidebar.tsx` keeps its `MOBILE_NAV_ORDER_KEY = 'novafi_mobile_nav_order'`, customize sheet, up/down move arrows, and reset button — fully intact.
+
+---
+
+## (Legacy) Last Updated: May 6, 2026
 
 ### Stack
 | Package | Purpose |

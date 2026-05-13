@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
+import { cookies } from 'next/headers';
 import './globals.css';
 import { SessionProvider } from '@/components/SessionProvider';
+import type { Language } from '@/types';
 
 const inter = Inter({ subsets: ['latin'], display: 'swap' });
 
@@ -19,15 +21,19 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const jar = await cookies();
+  const langCookie = jar.get('nf_lang')?.value;
+  const lang: Language = langCookie === 'vi' ? 'vi' : 'en';
+
   return (
-    <html lang="en">
+    <html lang={lang}>
       <head>
         <meta name="theme-color" content="#1568a3" />
         <link rel="apple-touch-icon" href="/icon.svg" />
       </head>
       <body className={inter.className} suppressHydrationWarning>
-        <SessionProvider>{children}</SessionProvider>
+        <SessionProvider initialLang={lang}>{children}</SessionProvider>
       </body>
     </html>
   );

@@ -1,4 +1,5 @@
 export type FilingStatus = 'single' | 'mfj' | 'mfs' | 'hoh';
+export type Language = 'en' | 'vi';
 
 export interface TaxSettings {
   filingStatus: FilingStatus;
@@ -18,6 +19,7 @@ export interface TaxSettings {
   customIncomeCategories: string[];
   hiddenExpenseCategories: string[];
   hiddenIncomeCategories: string[];
+  language: Language;
 }
 
 export interface TaxResult {
@@ -59,6 +61,7 @@ export interface Transaction {
   category: string;
   account: string;
   toAccount?: string; // for transfers
+  createdAt?: string; // ISO timestamp for same-day ordering; absent on pre-existing rows
 }
 
 export interface Account {

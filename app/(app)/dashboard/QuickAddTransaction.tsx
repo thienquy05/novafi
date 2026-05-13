@@ -9,6 +9,7 @@ import { Modal } from '@/components/ui/Modal';
 import { generateId, today } from '@/lib/utils';
 import type { Account, Transaction } from '@/types';
 import { useCategories } from '@/hooks/useCategories';
+import { useTranslation } from '@/lib/i18n/context';
 
 const EMPTY_FORM = {
   date: today(),
@@ -21,6 +22,7 @@ const EMPTY_FORM = {
 
 export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[]; isFab?: boolean }) {
   const router = useRouter();
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -49,6 +51,7 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[]; 
       type: form.type,
       category: form.category,
       account: form.account,
+      createdAt: new Date().toISOString(),
     };
 
     await fetch('/api/transactions', {
@@ -75,36 +78,35 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[]; 
       ) : (
         <Button onClick={() => setOpen(true)} size="md" className="hidden md:flex">
           <Plus className="w-4 h-4" />
-          Quick Add
+          {t('quickAdd.quickAddBtn')}
         </Button>
       )}
 
-      <Modal open={open} onClose={handleClose} title="New Transaction">
-        {/* All form fields — scrollable */}
+      <Modal open={open} onClose={handleClose} title={t('quickAdd.title')}>
         <div className="space-y-4 pb-4">
           {/* Expense / Income toggle */}
           <div className="flex p-1.5 rounded-2xl bg-slate-100">
-            {(['expense', 'income'] as const).map((t) => (
+            {(['expense', 'income'] as const).map((tp) => (
               <button
-                key={t}
-                onClick={() => handleTypeChange(t)}
+                key={tp}
+                onClick={() => handleTypeChange(tp)}
                 className={`flex-1 py-2.5 text-sm font-bold rounded-xl transition-all duration-200 ${
-                  form.type === t
-                    ? t === 'expense'
+                  form.type === tp
+                    ? tp === 'expense'
                       ? 'bg-white text-rose-600 shadow-sm'
                       : 'bg-white text-emerald-600 shadow-sm'
                     : 'text-slate-500'
                 }`}
               >
-                {t === 'expense' ? 'Expense' : 'Income'}
+                {tp === 'expense' ? t('quickAdd.expenseLabel') : t('quickAdd.incomeLabel')}
               </button>
             ))}
           </div>
 
-          {/* Amount — prominent hero field */}
+          {/* Amount */}
           <div>
             <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
-              Amount ($)
+              {t('quickAdd.amountLabel')}
             </label>
             <div className="relative flex items-center">
               <span className="absolute left-4 text-2xl font-bold text-slate-400 pointer-events-none select-none">$</span>
@@ -124,13 +126,13 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[]; 
           {/* Date + Description */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input
-              label="Date"
+              label={t('common.date')}
               type="date"
               value={form.date}
               onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
             />
             <Input
-              label="Description"
+              label={t('common.description')}
               placeholder="e.g. Netflix"
               value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
@@ -140,16 +142,16 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[]; 
           {/* Category + Account */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Select
-              label="Category"
+              label={t('common.category')}
               value={form.category}
               options={categories.map((c) => ({ value: c, label: c }))}
               onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
             />
             <Select
-              label="Account"
+              label={t('common.account')}
               value={form.account}
               options={[
-                { value: '', label: '— Select —' },
+                { value: '', label: t('common.selectPlaceholder') },
                 ...accounts.map((a) => ({ value: a.id, label: a.name })),
               ]}
               onChange={(e) => setForm((f) => ({ ...f, account: e.target.value }))}
@@ -157,18 +159,17 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[]; 
           </div>
         </div>
 
-        {/* Sticky action bar — always visible at the bottom of the sheet */}
         <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={handleClose}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               className="flex-1"
               onClick={handleSave}
               disabled={saving || !form.amount || !form.account}
             >
-              {saving ? 'Saving…' : 'Save'}
+              {saving ? t('common.saving') : t('common.save')}
             </Button>
           </div>
         </div>

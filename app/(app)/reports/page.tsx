@@ -1,13 +1,15 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { RefreshCw, AlertCircle, BarChart3, TrendingUp, TrendingDown, DollarSign, Calendar } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { FitText } from '@/components/ui/FitText';
 import { formatCurrency } from '@/lib/utils';
 import type { Transaction } from '@/types';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
+import { useTranslation } from '@/lib/i18n/context';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -30,6 +32,7 @@ function fmt(v: number) {
 }
 
 export default function ReportsPage() {
+  const { t } = useTranslation();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -52,66 +55,72 @@ export default function ReportsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Derive available years
-  const years = [...new Set(transactions.map((t) => Number(t.date.slice(0, 4))))].sort((a, b) => b - a);
-  if (years.length === 0) years.push(new Date().getFullYear());
+  // Derive available years (memoized so it only recalculates when transactions change)
+  const years = useMemo(() => {
+    const y = [...new Set(transactions.map((tx) => Number(tx.date.slice(0, 4))))].sort((a, b) => b - a);
+    if (y.length === 0) y.push(new Date().getFullYear());
+    return y;
+  }, [transactions]);
 
-  // Filter to selected year
-  const yearTx = transactions.filter((t) => t.date.startsWith(String(selectedYear)));
+  // All derived data in a single pass over the selected year's transactions
+  const reportData = useMemo(() => {
+    const yearStr = String(selectedYear);
+    const monthTotals: Array<{ income: number; expenses: number }> =
+      Array.from({ length: 12 }, () => ({ income: 0, expenses: 0 }));
+    const categorySpend: Record<string, number> = {};
+    const merchantSpend: Record<string, { total: number; count: number }> = {};
+    let yearIncome = 0, yearExpense = 0;
 
-  const yearIncome = yearTx.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-  const yearExpense = yearTx.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-  const yearSavings = yearIncome - yearExpense;
-  const savingsRate = yearIncome > 0 ? (yearSavings / yearIncome) * 100 : 0;
+    for (const tx of transactions) {
+      if (!tx.date.startsWith(yearStr)) continue;
+      const monthIdx = Number(tx.date.slice(5, 7)) - 1;
+      if (tx.type === 'income') {
+        monthTotals[monthIdx].income += tx.amount;
+        yearIncome += tx.amount;
+      } else if (tx.type === 'expense') {
+        monthTotals[monthIdx].expenses += tx.amount;
+        yearExpense += tx.amount;
+        categorySpend[tx.category] = (categorySpend[tx.category] ?? 0) + tx.amount;
+        if (tx.description) {
+          const key = tx.description.toLowerCase().trim();
+          if (!merchantSpend[key]) merchantSpend[key] = { total: 0, count: 0 };
+          merchantSpend[key].total += tx.amount;
+          merchantSpend[key].count += 1;
+        }
+      }
+    }
 
-  // Monthly breakdown
-  const monthlyData = Array.from({ length: 12 }, (_, i) => {
-    const key = `${selectedYear}-${String(i + 1).padStart(2, '0')}`;
-    const mTx = yearTx.filter((t) => t.date.startsWith(key));
-    return {
-      month: MONTH_NAMES[i],
-      income: mTx.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0),
-      expenses: mTx.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0),
-    };
-  });
+    const monthlyData = MONTH_NAMES.map((month, i) => ({ month, ...monthTotals[i] }));
+    const categoryData = Object.entries(categorySpend)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, value]) => ({ name, value }));
+    const topMerchants = Object.entries(merchantSpend)
+      .sort((a, b) => b[1].total - a[1].total)
+      .slice(0, 10)
+      .map(([name, { total, count }]) => ({ name, total, count }));
 
-  // Category breakdown
-  const categorySpend: Record<string, number> = {};
-  yearTx.filter((t) => t.type === 'expense').forEach((t) => {
-    categorySpend[t.category] = (categorySpend[t.category] ?? 0) + t.amount;
-  });
-  const categoryData = Object.entries(categorySpend)
-    .sort((a, b) => b[1] - a[1])
-    .map(([name, value]) => ({ name, value }));
+    const yearSavings = yearIncome - yearExpense;
+    const savingsRate = yearIncome > 0 ? (yearSavings / yearIncome) * 100 : 0;
 
-  // Top merchants
-  const merchantSpend: Record<string, { total: number; count: number }> = {};
-  yearTx.filter((t) => t.type === 'expense' && t.description).forEach((t) => {
-    const key = t.description.toLowerCase().trim();
-    if (!merchantSpend[key]) merchantSpend[key] = { total: 0, count: 0 };
-    merchantSpend[key].total += t.amount;
-    merchantSpend[key].count += 1;
-  });
-  const topMerchants = Object.entries(merchantSpend)
-    .sort((a, b) => b[1].total - a[1].total)
-    .slice(0, 10)
-    .map(([name, { total, count }]) => ({ name, total, count }));
+    const monthsWithData = monthlyData.filter((m) => m.income > 0 || m.expenses > 0);
+    const bestSavingsMonth = monthsWithData.length > 0
+      ? monthsWithData.reduce((best, m) => (m.income - m.expenses) > (best.income - best.expenses) ? m : best, monthsWithData[0])
+      : null;
+    const highestSpendMonth = monthsWithData.length > 0
+      ? monthsWithData.reduce((worst, m) => m.expenses > worst.expenses ? m : worst, monthsWithData[0])
+      : null;
 
-  // Best/worst month
-  const monthsWithData = monthlyData.filter((m) => m.income > 0 || m.expenses > 0);
-  const bestSavingsMonth = monthsWithData.length > 0
-    ? monthsWithData.reduce((best, m) => (m.income - m.expenses) > (best.income - best.expenses) ? m : best, monthsWithData[0])
-    : null;
-  const highestSpendMonth = monthsWithData.length > 0
-    ? monthsWithData.reduce((worst, m) => m.expenses > worst.expenses ? m : worst, monthsWithData[0])
-    : null;
+    return { yearIncome, yearExpense, yearSavings, savingsRate, monthlyData, categoryData, topMerchants, bestSavingsMonth, highestSpendMonth };
+  }, [transactions, selectedYear]);
+
+  const { yearIncome, yearExpense, yearSavings, savingsRate, monthlyData, categoryData, topMerchants, bestSavingsMonth, highestSpendMonth } = reportData;
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900">Annual Report</h1>
-          <p className="text-slate-500 text-sm font-medium mt-1">Year-in-review for your finances</p>
+          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900">{t('reports.title')}</h1>
+          <p className="text-slate-500 text-sm font-medium mt-1">{t('reports.subtitle')}</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex bg-white border border-slate-200 rounded-2xl overflow-hidden">
@@ -138,40 +147,40 @@ export default function ReportsPage() {
       ) : error ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <div className="w-14 h-14 rounded-full bg-rose-50 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-rose-400" /></div>
-          <p className="text-slate-700 font-bold text-base mb-1">Couldn&apos;t load transactions</p>
-          <Button variant="secondary" onClick={load} className="mt-4">Try Again</Button>
+          <p className="text-slate-700 font-bold text-base mb-1">{t('reports.errorTitle')}</p>
+          <Button variant="secondary" onClick={load} className="mt-4">{t('common.tryAgain')}</Button>
         </div>
       ) : (
         <>
           {/* Summary stats */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <Card className="border-emerald-100">
+            <Card className="border-emerald-100 min-w-0">
               <div className="flex items-center gap-3 mb-2">
                 <div className="p-2 rounded-xl bg-emerald-50"><TrendingUp className="w-4 h-4 text-emerald-600" /></div>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Income</p>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('reports.totalIncome')}</p>
               </div>
-              <p className="text-2xl font-extrabold text-emerald-600 tracking-tight">{formatCurrency(yearIncome)}</p>
+              <FitText maxSize={24} minSize={13} className="font-extrabold text-emerald-600">{formatCurrency(yearIncome)}</FitText>
             </Card>
-            <Card className="border-rose-100">
+            <Card className="border-rose-100 min-w-0">
               <div className="flex items-center gap-3 mb-2">
                 <div className="p-2 rounded-xl bg-rose-50"><TrendingDown className="w-4 h-4 text-rose-600" /></div>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Spent</p>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('reports.totalSpent')}</p>
               </div>
-              <p className="text-2xl font-extrabold text-rose-600 tracking-tight">{formatCurrency(yearExpense)}</p>
+              <FitText maxSize={24} minSize={13} className="font-extrabold text-rose-600">{formatCurrency(yearExpense)}</FitText>
             </Card>
-            <Card className={yearSavings >= 0 ? 'border-indigo-100' : 'border-rose-100'}>
+            <Card className={`min-w-0 ${yearSavings >= 0 ? 'border-indigo-100' : 'border-rose-100'}`}>
               <div className="flex items-center gap-3 mb-2">
                 <div className={`p-2 rounded-xl ${yearSavings >= 0 ? 'bg-indigo-50' : 'bg-rose-50'}`}><DollarSign className={`w-4 h-4 ${yearSavings >= 0 ? 'text-indigo-600' : 'text-rose-600'}`} /></div>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Net Saved</p>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('reports.netSaved')}</p>
               </div>
-              <p className={`text-2xl font-extrabold tracking-tight ${yearSavings >= 0 ? 'text-indigo-600' : 'text-rose-600'}`}>{formatCurrency(yearSavings)}</p>
+              <FitText maxSize={24} minSize={13} className={`font-extrabold ${yearSavings >= 0 ? 'text-indigo-600' : 'text-rose-600'}`}>{formatCurrency(yearSavings)}</FitText>
             </Card>
-            <Card>
+            <Card className="min-w-0">
               <div className="flex items-center gap-3 mb-2">
                 <div className="p-2 rounded-xl bg-purple-50"><BarChart3 className="w-4 h-4 text-purple-600" /></div>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Savings Rate</p>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('reports.savingsRate')}</p>
               </div>
-              <p className={`text-2xl font-extrabold tracking-tight ${savingsRate >= 20 ? 'text-emerald-600' : savingsRate >= 10 ? 'text-indigo-600' : 'text-rose-600'}`}>{savingsRate.toFixed(1)}%</p>
+              <FitText maxSize={24} minSize={13} className={`font-extrabold ${savingsRate >= 20 ? 'text-emerald-600' : savingsRate >= 10 ? 'text-indigo-600' : 'text-rose-600'}`}>{`${savingsRate.toFixed(1)}%`}</FitText>
             </Card>
           </div>
 
@@ -182,8 +191,8 @@ export default function ReportsPage() {
                 <div className="flex items-center gap-4 p-4 rounded-2xl bg-emerald-50 border border-emerald-100">
                   <div className="p-2.5 rounded-xl bg-white shadow-sm"><Calendar className="w-5 h-5 text-emerald-600" /></div>
                   <div>
-                    <p className="text-xs font-bold text-emerald-700 uppercase tracking-wider">Best Savings Month</p>
-                    <p className="text-base font-extrabold text-emerald-900">{bestSavingsMonth.month} · {formatCurrency(bestSavingsMonth.income - bestSavingsMonth.expenses)} saved</p>
+                    <p className="text-xs font-bold text-emerald-700 uppercase tracking-wider">{t('reports.bestSavingsMonth')}</p>
+                    <p className="text-base font-extrabold text-emerald-900">{bestSavingsMonth.month} · {formatCurrency(bestSavingsMonth.income - bestSavingsMonth.expenses)} {t('reports.saved')}</p>
                   </div>
                 </div>
               )}
@@ -191,8 +200,8 @@ export default function ReportsPage() {
                 <div className="flex items-center gap-4 p-4 rounded-2xl bg-rose-50 border border-rose-100">
                   <div className="p-2.5 rounded-xl bg-white shadow-sm"><Calendar className="w-5 h-5 text-rose-600" /></div>
                   <div>
-                    <p className="text-xs font-bold text-rose-700 uppercase tracking-wider">Highest Spend Month</p>
-                    <p className="text-base font-extrabold text-rose-900">{highestSpendMonth.month} · {formatCurrency(highestSpendMonth.expenses)} spent</p>
+                    <p className="text-xs font-bold text-rose-700 uppercase tracking-wider">{t('reports.highestSpendMonth')}</p>
+                    <p className="text-base font-extrabold text-rose-900">{highestSpendMonth.month} · {formatCurrency(highestSpendMonth.expenses)} {t('reports.spent')}</p>
                   </div>
                 </div>
               )}
@@ -202,7 +211,7 @@ export default function ReportsPage() {
           {/* Monthly cash flow chart */}
           <Card>
             <CardHeader>
-              <CardTitle>Monthly Cash Flow — {selectedYear}</CardTitle>
+              <CardTitle>{t('reports.monthlyCashFlow', { year: selectedYear })}</CardTitle>
             </CardHeader>
             <div className="h-64 w-full mt-4">
               {!ready ? <div className="w-full h-full rounded-2xl bg-slate-100 animate-pulse" /> : (
@@ -223,9 +232,9 @@ export default function ReportsPage() {
           {/* Category breakdown + Top merchants */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             <Card>
-              <CardHeader><CardTitle>Spending by Category</CardTitle></CardHeader>
+              <CardHeader><CardTitle>{t('reports.spendingByCategory')}</CardTitle></CardHeader>
               {categoryData.length === 0 ? (
-                <p className="text-slate-400 font-medium text-sm py-8 text-center">No expense data for {selectedYear}</p>
+                <p className="text-slate-400 font-medium text-sm py-8 text-center">{t('reports.noExpenseData', { year: selectedYear })}</p>
               ) : (
                 <div className="mt-4 space-y-3 max-h-72 overflow-y-auto hide-scrollbar pr-1">
                   {categoryData.map((c) => {
@@ -256,9 +265,9 @@ export default function ReportsPage() {
             </Card>
 
             <Card>
-              <CardHeader><CardTitle>Top Merchants</CardTitle></CardHeader>
+              <CardHeader><CardTitle>{t('reports.topMerchants')}</CardTitle></CardHeader>
               {topMerchants.length === 0 ? (
-                <p className="text-slate-400 font-medium text-sm py-8 text-center">No merchant data for {selectedYear}</p>
+                <p className="text-slate-400 font-medium text-sm py-8 text-center">{t('reports.noMerchantData', { year: selectedYear })}</p>
               ) : (
                 <div className="mt-4 space-y-2 max-h-72 overflow-y-auto hide-scrollbar pr-1">
                   {topMerchants.map((m, i) => (
@@ -267,7 +276,7 @@ export default function ReportsPage() {
                         <span className="w-6 h-6 rounded-lg bg-slate-100 flex items-center justify-center text-xs font-extrabold text-slate-500 shrink-0">{i + 1}</span>
                         <div>
                           <p className="text-sm font-bold text-slate-900 capitalize">{m.name}</p>
-                          <p className="text-xs font-medium text-slate-500">{m.count} transaction{m.count !== 1 ? 's' : ''}</p>
+                          <p className="text-xs font-medium text-slate-500">{m.count} {t('reports.transactions')}</p>
                         </div>
                       </div>
                       <span className="text-sm font-extrabold text-slate-900">{formatCurrency(m.total)}</span>
@@ -280,15 +289,15 @@ export default function ReportsPage() {
 
           {/* Monthly table */}
           <Card>
-            <CardHeader><CardTitle>Monthly Breakdown</CardTitle></CardHeader>
+            <CardHeader><CardTitle>{t('reports.monthlyBreakdown')}</CardTitle></CardHeader>
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100">
-                    <th className="text-left py-2 px-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Month</th>
-                    <th className="text-right py-2 px-3 text-xs font-bold text-emerald-600 uppercase tracking-wider">Income</th>
-                    <th className="text-right py-2 px-3 text-xs font-bold text-rose-600 uppercase tracking-wider">Spent</th>
-                    <th className="text-right py-2 px-3 text-xs font-bold text-slate-600 uppercase tracking-wider">Saved</th>
+                    <th className="text-left py-2 px-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{t('reports.tableMonth')}</th>
+                    <th className="text-right py-2 px-3 text-xs font-bold text-emerald-600 uppercase tracking-wider">{t('reports.tableIncome')}</th>
+                    <th className="text-right py-2 px-3 text-xs font-bold text-rose-600 uppercase tracking-wider">{t('reports.tableSpent')}</th>
+                    <th className="text-right py-2 px-3 text-xs font-bold text-slate-600 uppercase tracking-wider">{t('reports.tableSaved')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -297,20 +306,20 @@ export default function ReportsPage() {
                     const hasData = m.income > 0 || m.expenses > 0;
                     return (
                       <tr key={m.month} className={`border-b border-slate-50 hover:bg-slate-50 transition-colors ${!hasData ? 'opacity-30' : ''}`}>
-                        <td className="py-2.5 px-3 font-bold text-slate-700">{m.month}</td>
-                        <td className="py-2.5 px-3 text-right font-bold text-emerald-600">{m.income > 0 ? formatCurrency(m.income) : '—'}</td>
-                        <td className="py-2.5 px-3 text-right font-bold text-rose-600">{m.expenses > 0 ? formatCurrency(m.expenses) : '—'}</td>
-                        <td className={`py-2.5 px-3 text-right font-extrabold ${!hasData ? 'text-slate-300' : saved >= 0 ? 'text-indigo-600' : 'text-rose-600'}`}>
+                        <td className="py-2.5 px-3 font-bold text-slate-700 whitespace-nowrap">{m.month}</td>
+                        <td className="py-2.5 px-3 text-right font-bold text-emerald-600 whitespace-nowrap">{m.income > 0 ? formatCurrency(m.income) : '—'}</td>
+                        <td className="py-2.5 px-3 text-right font-bold text-rose-600 whitespace-nowrap">{m.expenses > 0 ? formatCurrency(m.expenses) : '—'}</td>
+                        <td className={`py-2.5 px-3 text-right font-extrabold whitespace-nowrap ${!hasData ? 'text-slate-300' : saved >= 0 ? 'text-indigo-600' : 'text-rose-600'}`}>
                           {hasData ? formatCurrency(saved) : '—'}
                         </td>
                       </tr>
                     );
                   })}
                   <tr className="border-t-2 border-slate-200 bg-slate-50">
-                    <td className="py-2.5 px-3 font-extrabold text-slate-900">Total</td>
-                    <td className="py-2.5 px-3 text-right font-extrabold text-emerald-700">{formatCurrency(yearIncome)}</td>
-                    <td className="py-2.5 px-3 text-right font-extrabold text-rose-700">{formatCurrency(yearExpense)}</td>
-                    <td className={`py-2.5 px-3 text-right font-extrabold ${yearSavings >= 0 ? 'text-indigo-700' : 'text-rose-700'}`}>{formatCurrency(yearSavings)}</td>
+                    <td className="py-2.5 px-3 font-extrabold text-slate-900 whitespace-nowrap">{t('reports.tableTotal')}</td>
+                    <td className="py-2.5 px-3 text-right font-extrabold text-emerald-700 whitespace-nowrap">{formatCurrency(yearIncome)}</td>
+                    <td className="py-2.5 px-3 text-right font-extrabold text-rose-700 whitespace-nowrap">{formatCurrency(yearExpense)}</td>
+                    <td className={`py-2.5 px-3 text-right font-extrabold whitespace-nowrap ${yearSavings >= 0 ? 'text-indigo-700' : 'text-rose-700'}`}>{formatCurrency(yearSavings)}</td>
                   </tr>
                 </tbody>
               </table>

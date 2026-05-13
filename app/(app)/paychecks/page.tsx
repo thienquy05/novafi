@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, Trash2, DollarSign } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -9,10 +9,13 @@ import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
 import { calcPaycheckTax } from '@/lib/tax';
 import type { PaycheckEntry, TaxSettings, Account } from '@/types';
+import { useTranslation } from '@/lib/i18n/context';
 
 const EMPTY_FORM = {
   date: today(),
-  grossAmount: '',
+  // Total paycheck amount the user receives (taxable wages + tips combined).
+  totalAmount: '',
+  // Tips/gratuity portion — subtracted from total to derive the taxable wage base.
   gratuityAmount: '',
   checkingAccountId: '',
 };
@@ -26,6 +29,7 @@ export default function PaychecksPage() {
   const [preview, setPreview] = useState<ReturnType<typeof calcPaycheckTax> | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const { t } = useTranslation();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -51,16 +55,21 @@ export default function PaychecksPage() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    if (!settings || !form.grossAmount) { setPreview(null); return; }
-    const gross = parseFloat(form.grossAmount);
-    if (isNaN(gross) || gross <= 0) { setPreview(null); return; }
+    if (!settings || !form.totalAmount) { setPreview(null); return; }
+    const total = parseFloat(form.totalAmount);
+    if (isNaN(total) || total <= 0) { setPreview(null); return; }
+
+    // Tips are non-taxable: peel them off to get the wage base used for federal/state/FICA.
+    const tips = parseFloat(form.gratuityAmount) || 0;
+    const taxableGross = Math.max(0, total - tips);
+    if (taxableGross <= 0) { setPreview(null); return; }
 
     const ytdGross = paychecks
       .filter((p) => new Date(p.date).getFullYear() === new Date(form.date).getFullYear())
       .reduce((s, p) => s + p.grossAmount, 0);
 
-    setPreview(calcPaycheckTax(gross, settings, ytdGross));
-  }, [form.grossAmount, form.date, settings, paychecks]);
+    setPreview(calcPaycheckTax(taxableGross, settings, ytdGross));
+  }, [form.totalAmount, form.gratuityAmount, form.date, settings, paychecks]);
 
   async function handleSave() {
     if (!settings || !preview) return;
@@ -110,7 +119,7 @@ export default function PaychecksPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this paycheck entry?')) return;
+    if (!confirm(t('paychecks.confirmDelete'))) return;
     await fetch('/api/paychecks', {
       method: 'DELETE',
       body: JSON.stringify({ id }),
@@ -120,34 +129,48 @@ export default function PaychecksPage() {
   }
 
   const currentYear = new Date().getFullYear();
-  const ytdPaychecks = paychecks.filter((p) => new Date(p.date).getFullYear() === currentYear);
-  const ytdNet = ytdPaychecks.reduce((s, p) => s + p.netAmount, 0);
-  const ytdGross = ytdPaychecks.reduce((s, p) => s + p.grossAmount, 0);
-  const ytdGratuity = ytdPaychecks.reduce((s, p) => s + (p.gratuityAmount ?? 0), 0);
+  const ytdPaychecks = useMemo(
+    () => paychecks.filter((p) => new Date(p.date).getFullYear() === currentYear),
+    [paychecks, currentYear],
+  );
+  const { ytdNet, ytdGross, ytdGratuity } = useMemo(() => {
+    let net = 0, gross = 0, gratuity = 0;
+    for (const p of ytdPaychecks) {
+      net += p.netAmount;
+      gross += p.grossAmount;
+      gratuity += p.gratuityAmount ?? 0;
+    }
+    return { ytdNet: net, ytdGross: gross, ytdGratuity: gratuity };
+  }, [ytdPaychecks]);
 
-  const checkingAccounts = accounts.filter((a) => a.type === 'checking');
-  const accountName = (id: string) => accounts.find((a) => a.id === id)?.name ?? '';
+  const accountMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const a of accounts) m[a.id] = a.name;
+    return m;
+  }, [accounts]);
+  const checkingAccounts = useMemo(() => accounts.filter((a) => a.type === 'checking'), [accounts]);
+  const accountName = (id: string) => accountMap[id] ?? '';
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6 sm:space-y-8 pb-24 md:pb-8">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900">Paychecks</h1>
-          <p className="text-slate-500 text-base font-medium mt-1">Log income — net pay is deposited to your checking account</p>
+          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900">{t('paychecks.title')}</h1>
+          <p className="text-slate-500 text-base font-medium mt-1">{t('paychecks.subtitle')}</p>
         </div>
         <Button onClick={() => setOpen(true)} className="w-full md:w-auto shadow-sm hover:shadow-md">
           <Plus className="w-5 h-5" />
-          Log Paycheck
+          {t('paychecks.logPaycheck')}
         </Button>
       </div>
 
       {/* YTD Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'YTD Gross', value: ytdGross, color: 'text-slate-900' },
-          { label: 'YTD Net (take-home)', value: ytdNet, color: 'text-emerald-600' },
-          { label: 'YTD Taxes & Deductions', value: ytdGross - ytdNet, color: 'text-rose-600' },
-          { label: 'YTD Gratuity', value: ytdGratuity, color: 'text-sky-600' },
+          { label: t('paychecks.ytdTaxableWages'), value: ytdGross, color: 'text-slate-900' },
+          { label: t('paychecks.ytdNet'), value: ytdNet + ytdGratuity, color: 'text-emerald-600' },
+          { label: t('paychecks.ytdTaxes'), value: ytdGross - ytdNet, color: 'text-rose-600' },
+          { label: t('paychecks.ytdTips'), value: ytdGratuity, color: 'text-sky-600' },
         ].map(({ label, value, color }) => (
           <Card key={label}>
             <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{label}</p>
@@ -168,7 +191,7 @@ export default function PaychecksPage() {
           </div>
           <p className="text-slate-900 font-bold text-lg mb-1">No paychecks logged yet.</p>
           <p className="text-slate-500 font-medium mb-6">Log your first paycheck to start tracking income.</p>
-          <Button onClick={() => setOpen(true)} className="shadow-sm">Log your first paycheck</Button>
+          <Button onClick={() => setOpen(true)} className="shadow-sm">{t('paychecks.logPaycheck')}</Button>
         </Card>
       ) : (
         <div className="space-y-4">
@@ -187,7 +210,7 @@ export default function PaychecksPage() {
               </div>
               <div className="grid grid-cols-2 md:flex md:items-center gap-4 md:gap-8 text-left md:text-right w-full md:w-auto">
                 <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Gross</p>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Wages</p>
                   <p className="text-sm font-extrabold text-slate-700 mt-1">{formatCurrency(p.grossAmount)}</p>
                 </div>
                 <div>
@@ -202,7 +225,7 @@ export default function PaychecksPage() {
                 </div>
                 {(p.gratuityAmount ?? 0) > 0 && (
                   <div>
-                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Gratuity</p>
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Tips</p>
                     <p className="text-sm font-extrabold text-sky-600 mt-1">+{formatCurrency(p.gratuityAmount)}</p>
                   </div>
                 )}
@@ -229,27 +252,27 @@ export default function PaychecksPage() {
       )}
 
       {/* Add Paycheck Modal */}
-      <Modal open={open} onClose={() => { setOpen(false); setForm(EMPTY_FORM); setPreview(null); }} title="Log Paycheck">
+      <Modal open={open} onClose={() => { setOpen(false); setForm(EMPTY_FORM); setPreview(null); }} title={t('paychecks.logPaycheck')}>
         <div className="space-y-5 pb-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
-              label="Pay Date"
+              label={t('paychecks.payDate')}
               type="date"
               value={form.date}
               onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
             />
             <Input
-              label="Gross Amount (taxable)"
+              label={t('paychecks.totalAmount')}
               type="number"
               min="0"
               step="0.01"
-              placeholder="e.g. 3500.00"
-              value={form.grossAmount}
-              onChange={(e) => setForm((f) => ({ ...f, grossAmount: e.target.value }))}
+              placeholder="e.g. 3650.00"
+              value={form.totalAmount}
+              onChange={(e) => setForm((f) => ({ ...f, totalAmount: e.target.value }))}
             />
           </div>
           <Input
-            label="Gratuity (optional, non-taxable)"
+            label={t('paychecks.tips')}
             type="number"
             min="0"
             step="0.01"
@@ -257,9 +280,12 @@ export default function PaychecksPage() {
             value={form.gratuityAmount}
             onChange={(e) => setForm((f) => ({ ...f, gratuityAmount: e.target.value }))}
           />
+          <p className="text-xs font-medium text-slate-500 -mt-3 px-1">
+            Enter the full amount you received. If part of it is non-taxable tips, list it separately so tax is only applied to the wage portion.
+          </p>
           {checkingAccounts.length > 0 && (
             <Select
-              label="Deposit to Checking Account"
+              label={t('paychecks.depositAccount')}
               value={form.checkingAccountId}
               options={checkingAccounts.map((a) => ({ value: a.id, label: a.name }))}
               onChange={(e) => setForm((f) => ({ ...f, checkingAccountId: e.target.value }))}
@@ -269,11 +295,27 @@ export default function PaychecksPage() {
           {/* Live Preview */}
           {preview && (
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-5 space-y-3 shadow-sm">
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 border-b border-slate-200 pb-2">Estimated Breakdown</p>
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 border-b border-slate-200 pb-2">{t('paychecks.estimatedBreakdown')}</p>
+              {(() => {
+                const total = parseFloat(form.totalAmount) || 0;
+                const tips = parseFloat(form.gratuityAmount) || 0;
+                return tips > 0 ? (
+                  <>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-600 font-medium">{t('paychecks.totalAmountLabel')}</span>
+                      <span className="text-slate-900 font-extrabold">{formatCurrency(total)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-600 font-medium">{t('paychecks.lessTips')}</span>
+                      <span className="text-sky-600 font-bold">-{formatCurrency(tips)}</span>
+                    </div>
+                  </>
+                ) : null;
+              })()}
               {[
-                { label: 'Gross Pay (taxable)', value: preview.grossPaycheck, cls: 'text-slate-900 font-extrabold' },
+                { label: t('paychecks.taxableWages'), value: preview.grossPaycheck, cls: 'text-slate-900 font-extrabold' },
                 { label: `401(k) (${settings?.k401Pct}%)`, value: -preview.k401, cls: 'text-indigo-600 font-bold' },
-                { label: 'HSA', value: -preview.hsa, cls: 'text-indigo-600 font-bold' },
+                { label: t('paychecks.hsa'), value: -preview.hsa, cls: 'text-indigo-600 font-bold' },
                 {
                   label: settings?.useFederalBrackets
                     ? `Federal Tax (progressive${preview.marginalRate !== undefined ? ` · ${preview.marginalRate.toFixed(0)}% marginal` : ''})`
@@ -295,29 +337,29 @@ export default function PaychecksPage() {
                 return gratuity > 0 ? (
                   <>
                     <div className="border-t border-slate-200 pt-3 mt-1 flex justify-between text-sm">
-                      <span className="text-slate-600 font-medium">Net Paycheck</span>
+                      <span className="text-slate-600 font-medium">{t('paychecks.netOfTaxable')}</span>
                       <span className="text-slate-700 font-bold">{formatCurrency(preview.netPaycheck)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-slate-600 font-medium">Gratuity (non-taxable)</span>
+                      <span className="text-slate-600 font-medium">{t('paychecks.addBackTips')}</span>
                       <span className="text-sky-600 font-bold">+{formatCurrency(gratuity)}</span>
                     </div>
                     <div className="border-t border-slate-200 pt-3 mt-1 flex justify-between items-center">
-                      <span className="text-slate-900 font-bold">Total Take-Home</span>
+                      <span className="text-slate-900 font-bold">{t('paychecks.totalTakeHome')}</span>
                       <span className="text-emerald-600 font-extrabold text-lg">{formatCurrency(preview.netPaycheck + gratuity)}</span>
                     </div>
                   </>
                 ) : (
                   <div className="border-t border-slate-200 pt-3 mt-3 flex justify-between items-center">
-                    <span className="text-slate-900 font-bold">Net Take-Home</span>
+                    <span className="text-slate-900 font-bold">{t('paychecks.netTakeHome')}</span>
                     <span className="text-emerald-600 font-extrabold text-lg">{formatCurrency(preview.netPaycheck)}</span>
                   </div>
                 );
               })()}
               <div className="text-xs font-medium text-slate-500 text-right mt-1 space-y-0.5">
-                <p>Effective rate: {preview.effectiveRate.toFixed(1)}%</p>
+                <p>{t('paychecks.effectiveRate')} {preview.effectiveRate.toFixed(1)}%</p>
                 {settings?.useFederalBrackets && preview.taxableIncome !== undefined && (
-                  <p>Annual taxable income: {preview.taxableIncome.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}</p>
+                  <p>{t('paychecks.annualTaxableIncome')} {preview.taxableIncome.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}</p>
                 )}
               </div>
             </div>
@@ -327,10 +369,10 @@ export default function PaychecksPage() {
         <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={() => { setOpen(false); setForm(EMPTY_FORM); setPreview(null); }}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button className="flex-1 shadow-sm" onClick={handleSave} disabled={!preview || saving}>
-              {saving ? 'Saving…' : 'Save Paycheck'}
+              {saving ? t('common.saving') : t('paychecks.savePaycheck')}
             </Button>
           </div>
         </div>

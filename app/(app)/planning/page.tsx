@@ -1,8 +1,9 @@
 'use client';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap, RefreshCw, AlertCircle, GripVertical } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { HelpHint } from '@/components/ui/HelpHint';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
@@ -13,6 +14,7 @@ import { useCategories } from '@/hooks/useCategories';
 import { Reorder, useDragControls } from 'framer-motion';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { useTranslation } from '@/lib/i18n/context';
 
 const PERIOD_OPTIONS = [
   { value: 'monthly', label: 'Monthly' },
@@ -44,6 +46,7 @@ const EMPTY_GOAL_FORM = {
 };
 
 export default function PlanningPage() {
+  const { t } = useTranslation();
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -69,8 +72,8 @@ export default function PlanningPage() {
         fetch('/api/budgets'), fetch('/api/goals'), fetch('/api/transactions'), fetch('/api/accounts'),
       ]);
       if (!bRes.ok || !gRes.ok) throw new Error();
-      const [b, g, t, a] = await Promise.all([bRes.json(), gRes.json(), tRes.json(), aRes.json()]);
-      setBudgets(b); setGoals(g); setTransactions(t); setAccounts(a);
+      const [b, g, tx, a] = await Promise.all([bRes.json(), gRes.json(), tRes.json(), aRes.json()]);
+      setBudgets(b); setGoals(g); setTransactions(tx); setAccounts(a);
     } catch {
       setError(true);
     } finally {
@@ -90,16 +93,29 @@ export default function PlanningPage() {
   const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const prevMonthKey = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
 
-  const monthExpenses = transactions.filter((t) => t.date.startsWith(thisMonth) && t.type === 'expense');
-  const prevMonthExpenses = transactions.filter((t) => t.date.startsWith(prevMonthKey) && t.type === 'expense');
+  const monthExpenses = useMemo(
+    () => transactions.filter((tx) => tx.date.startsWith(thisMonth) && tx.type === 'expense'),
+    [transactions, thisMonth]
+  );
+  const prevMonthExpenses = useMemo(
+    () => transactions.filter((tx) => tx.date.startsWith(prevMonthKey) && tx.type === 'expense'),
+    [transactions, prevMonthKey]
+  );
 
-  function spentForCategory(cat: string): number {
-    return monthExpenses.filter((t) => t.category === cat).reduce((s, t) => s + t.amount, 0);
-  }
+  const categorySpendMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const tx of monthExpenses) map[tx.category] = (map[tx.category] ?? 0) + tx.amount;
+    return map;
+  }, [monthExpenses]);
 
-  function prevSpentForCategory(cat: string): number {
-    return prevMonthExpenses.filter((t) => t.category === cat).reduce((s, t) => s + t.amount, 0);
-  }
+  const prevCategorySpendMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const tx of prevMonthExpenses) map[tx.category] = (map[tx.category] ?? 0) + tx.amount;
+    return map;
+  }, [prevMonthExpenses]);
+
+  function spentForCategory(cat: string): number { return categorySpendMap[cat] ?? 0; }
+  function prevSpentForCategory(cat: string): number { return prevCategorySpendMap[cat] ?? 0; }
 
   // ─── Budget CRUD ──────────────────────────────────────────────────────────
   function openAddBudget() {
@@ -134,23 +150,23 @@ export default function PlanningPage() {
     try {
       const res = await fetch('/api/budgets', { method: 'POST', body: JSON.stringify(budget), headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error();
-      toast(editBudget ? 'Budget updated' : 'Budget saved', 'success');
+      toast(editBudget ? t('planning.toastBudgetUpdated') : t('planning.toastBudgetSaved'), 'success');
     } catch {
-      toast('Failed to save budget', 'error');
+      toast(t('planning.toastBudgetFailed'), 'error');
       await load();
     }
   }
 
   async function deleteBudget(id: string) {
-    if (!confirm('Delete this budget?')) return;
+    if (!confirm(t('planning.confirmDeleteBudget'))) return;
     const prev = budgets;
     setBudgets((b) => b.filter((x) => x.id !== id));
     try {
       await fetch('/api/budgets', { method: 'DELETE', body: JSON.stringify({ id }), headers: { 'Content-Type': 'application/json' } });
-      toast('Budget removed', 'success');
+      toast(t('planning.toastBudgetRemoved'), 'success');
     } catch {
       setBudgets(prev);
-      toast('Failed to delete budget', 'error');
+      toast(t('planning.toastBudgetDeleteFailed'), 'error');
     }
   }
 
@@ -195,23 +211,23 @@ export default function PlanningPage() {
     try {
       const res = await fetch('/api/goals', { method: 'POST', body: JSON.stringify(goal), headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error();
-      toast(editGoal ? 'Goal updated' : 'Goal added', 'success');
+      toast(editGoal ? t('planning.toastGoalUpdated') : t('planning.toastGoalAdded'), 'success');
     } catch {
-      toast('Failed to save goal', 'error');
+      toast(t('planning.toastGoalFailed'), 'error');
       await load();
     }
   }
 
   async function deleteGoal(id: string) {
-    if (!confirm('Delete this goal?')) return;
+    if (!confirm(t('planning.confirmDeleteGoal'))) return;
     const prev = goals;
     setGoals((g) => g.filter((x) => x.id !== id));
     try {
       await fetch('/api/goals', { method: 'DELETE', body: JSON.stringify({ id }), headers: { 'Content-Type': 'application/json' } });
-      toast('Goal removed', 'success');
+      toast(t('planning.toastGoalRemoved'), 'success');
     } catch {
       setGoals(prev);
-      toast('Failed to delete goal', 'error');
+      toast(t('planning.toastGoalDeleteFailed'), 'error');
     }
   }
 
@@ -227,7 +243,7 @@ export default function PlanningPage() {
         method: 'PATCH',
         body: JSON.stringify(newOrder.map((b, i) => ({ id: b.id, position: i }))),
         headers: { 'Content-Type': 'application/json' },
-      }).catch(() => toast('Failed to save order', 'error'));
+      }).catch(() => toast(t('planning.toastOrderFailed'), 'error'));
     }, 600);
   }
 
@@ -239,7 +255,7 @@ export default function PlanningPage() {
         method: 'PATCH',
         body: JSON.stringify(newOrder.map((g, i) => ({ id: g.id, position: i }))),
         headers: { 'Content-Type': 'application/json' },
-      }).catch(() => toast('Failed to save order', 'error'));
+      }).catch(() => toast(t('planning.toastOrderFailed'), 'error'));
     }, 600);
   }
 
@@ -255,8 +271,10 @@ export default function PlanningPage() {
   }, 0);
 
   const savingsAccounts = accounts.filter((a) => a.type === 'savings');
-  const unbudgetedWithSpending = expenseCategories.filter(
-    (c) => !budgets.some((b) => b.category === c) && monthExpenses.some((t) => t.category === c)
+  const budgetedCategories = useMemo(() => new Set(budgets.map((b) => b.category)), [budgets]);
+  const unbudgetedWithSpending = useMemo(
+    () => expenseCategories.filter((c) => !budgetedCategories.has(c) && (categorySpendMap[c] ?? 0) > 0),
+    [expenseCategories, budgetedCategories, categorySpendMap]
   );
 
   return (
@@ -271,31 +289,31 @@ export default function PlanningPage() {
       )}
       {/* Header */}
       <div className="mb-4 md:mb-6">
-        <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900">Planning</h1>
-        <p className="text-slate-500 text-sm font-medium mt-1">Budgets &amp; savings goals · {daysLeft} days left this month</p>
+        <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900">{t('planning.title')}</h1>
+        <p className="text-slate-500 text-sm font-medium mt-1">{t('planning.subtitle', { daysLeft })}</p>
       </div>
 
       {/* Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Card className="p-4 sm:p-5">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Budgeted/mo</p>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('planning.budgetedPerMonth')}</p>
           <p className="text-xl font-extrabold text-slate-900 mt-1.5 tracking-tight">{formatCurrency(totalBudgeted)}</p>
         </Card>
         <Card className="p-4 sm:p-5">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Spent</p>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('planning.spent')}</p>
           <p className={`text-xl font-extrabold mt-1.5 tracking-tight ${totalSpent > totalBudgeted ? 'text-rose-600' : 'text-slate-900'}`}>
             {formatCurrency(totalSpent)}
           </p>
         </Card>
         <Card className="p-4 sm:p-5 border-emerald-100">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Goals Saved</p>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('planning.goalsSaved')}</p>
           <p className="text-xl font-extrabold text-emerald-600 mt-1.5 tracking-tight">{formatCurrency(totalGoalSaved)}</p>
           <p className="text-xs font-bold text-slate-400 mt-0.5">of {formatCurrency(totalGoalTarget)}</p>
         </Card>
         <Card className={`p-4 sm:p-5 ${overBudgetCount > 0 ? 'border-rose-100' : ''}`}>
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Over Budget</p>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('planning.overBudget')}</p>
           <p className={`text-xl font-extrabold mt-1.5 tracking-tight ${overBudgetCount > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-            {overBudgetCount} <span className="text-sm font-bold opacity-80">{overBudgetCount === 1 ? 'cat.' : 'cats.'}</span>
+            {overBudgetCount} <span className="text-sm font-bold opacity-80">{overBudgetCount === 1 ? t('planning.cat') : t('planning.cats')}</span>
           </p>
         </Card>
       </div>
@@ -314,9 +332,30 @@ export default function PlanningPage() {
           {/* ── BUDGETS ──────────────────────────────────────────────────── */}
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-slate-900">Budgets</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-slate-900">{t('planning.budgets')}</h2>
+                <HelpHint label="What do these badges mean?" align="left">
+                  <p className="font-bold mb-2">{t('planning.helpTitle')}</p>
+                  <ul className="space-y-1.5 list-none">
+                    <li>
+                      <span className="font-bold text-amber-300">~$X overshoot</span> — at your current daily pace,
+                      you&apos;re projected to spend $X over the budget by month-end.
+                    </li>
+                    <li>
+                      <span className="font-bold text-emerald-300">On pace</span> — pace stays inside the cap if today&apos;s rate holds.
+                    </li>
+                    <li>
+                      <span className="font-bold text-rose-300">$X over</span> — you&apos;ve already exceeded the budget this month.
+                    </li>
+                    <li>
+                      <span className="font-bold text-slate-300">+$X vs last mo</span> — month-over-month change in spending.
+                    </li>
+                  </ul>
+                  <p className="mt-2 text-slate-300">Projection = (spent ÷ days elapsed) × days in month.</p>
+                </HelpHint>
+              </div>
               <Button size="sm" onClick={openAddBudget} className="shadow-sm">
-                <Plus className="w-4 h-4" /> Set Budget
+                <Plus className="w-4 h-4" /> {t('planning.setBudget')}
               </Button>
             </div>
 
@@ -325,9 +364,9 @@ export default function PlanningPage() {
                 <div className="w-14 h-14 rounded-full bg-white flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100">
                   <Target className="w-7 h-7 text-slate-400" />
                 </div>
-                <p className="text-slate-900 font-bold text-base mb-1">No budgets set yet</p>
-                <p className="text-slate-500 font-medium text-sm mb-5">Set spending limits by category to stay on track.</p>
-                <Button onClick={openAddBudget} className="shadow-sm">Set Your First Budget</Button>
+                <p className="text-slate-900 font-bold text-base mb-1">{t('planning.noBudgetsYet')}</p>
+                <p className="text-slate-500 font-medium text-sm mb-5">{t('planning.noBudgetsBody')}</p>
+                <Button onClick={openAddBudget} className="shadow-sm">{t('planning.setBudget')}</Button>
               </Card>
             ) : (
               <Reorder.Group axis="y" values={budgets} onReorder={handleBudgetReorder} className="space-y-3 list-none">
@@ -368,7 +407,7 @@ export default function PlanningPage() {
             {/* Unbudgeted categories with spending */}
             {unbudgetedWithSpending.length > 0 && (
               <div className="mt-2">
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 px-1">Unbudgeted spending detected</p>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 px-1">{t('planning.unbudgetedSpending')}</p>
                 <div className="space-y-2">
                   {unbudgetedWithSpending.map((c) => {
                     const spent = spentForCategory(c);
@@ -381,7 +420,7 @@ export default function PlanningPage() {
                             onClick={() => { setBudgetForm((f) => ({ ...f, category: c })); setBudgetModalOpen(true); }}
                             className="text-xs font-bold text-indigo-600 hover:text-indigo-500 transition-colors bg-indigo-50 px-3 py-1.5 rounded-lg"
                           >
-                            + Set limit
+                            {t('planning.setLimit')}
                           </button>
                         </div>
                       </div>
@@ -395,9 +434,9 @@ export default function PlanningPage() {
           {/* ── GOALS ────────────────────────────────────────────────────── */}
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-slate-900">Goals</h2>
+              <h2 className="text-base font-bold text-slate-900">{t('planning.goals')}</h2>
               <Button size="sm" onClick={openAddGoal} className="shadow-sm">
-                <Plus className="w-4 h-4" /> Add Goal
+                <Plus className="w-4 h-4" /> {t('planning.addGoal')}
               </Button>
             </div>
 
@@ -406,11 +445,11 @@ export default function PlanningPage() {
                 <div className="w-14 h-14 rounded-full bg-white flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100">
                   <PiggyBank className="w-7 h-7 text-slate-400" />
                 </div>
-                <p className="text-slate-900 font-bold text-base mb-1">No savings goals yet</p>
+                <p className="text-slate-900 font-bold text-base mb-1">{t('planning.noGoalsYet')}</p>
                 <p className="text-slate-500 font-medium text-sm mb-5">
-                  Set a target — emergency fund, vacation, down payment — and track your progress.
+                  {t('planning.noGoalsBody')}
                 </p>
-                <Button onClick={openAddGoal} className="shadow-sm">Add Your First Goal</Button>
+                <Button onClick={openAddGoal} className="shadow-sm">{t('planning.addFirstGoal')}</Button>
               </Card>
             ) : (
               <Reorder.Group axis="y" values={goals} onReorder={handleGoalReorder} className="space-y-3 list-none">
@@ -419,7 +458,9 @@ export default function PlanningPage() {
                     ? accounts.find((a) => a.id === goal.linkedAccountId)
                     : null;
                   const current = linked ? linked.balance : goal.currentAmount;
-                  const pct = goal.targetAmount > 0 ? Math.min(100, (current / goal.targetAmount) * 100) : 0;
+                  // Raw % can go negative when a linked account is overdrawn — keep the sign for display.
+                  const rawPct = goal.targetAmount > 0 ? (current / goal.targetAmount) * 100 : 0;
+                  const pct = Math.max(-100, Math.min(100, rawPct));
                   const remaining = goal.targetAmount - current;
                   const achieved = current >= goal.targetAmount;
                   const daysToDeadline = goal.deadline
@@ -461,11 +502,11 @@ export default function PlanningPage() {
       <Modal
         open={budgetModalOpen}
         onClose={() => { setBudgetModalOpen(false); setBudgetForm(EMPTY_BUDGET_FORM); setEditBudget(null); }}
-        title={editBudget ? 'Edit Budget' : 'Set Budget'}
+        title={editBudget ? t('planning.editBudget') : t('planning.setBudget')}
       >
         <div className="space-y-5 pb-4">
           <Select
-            label="Category"
+            label={t('common.category')}
             value={budgetForm.category}
             options={expenseCategories.map((c) => ({ value: c, label: c }))}
             onChange={(e) => setBudgetForm((f) => ({ ...f, category: e.target.value }))}
@@ -473,13 +514,13 @@ export default function PlanningPage() {
           />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Select
-              label="Period"
+              label={t('common.period')}
               value={budgetForm.period}
               options={PERIOD_OPTIONS}
               onChange={(e) => setBudgetForm((f) => ({ ...f, period: e.target.value as Budget['period'] }))}
             />
             <Input
-              label={`Limit per ${budgetForm.period}`}
+              label={t('planning.limitPerPeriod', { period: budgetForm.period })}
               type="number"
               min="0"
               step="10"
@@ -490,15 +531,15 @@ export default function PlanningPage() {
           </div>
           {!editBudget && budgets.find((b) => b.category === budgetForm.category) && (
             <p className="text-xs font-bold text-amber-600 bg-amber-50 p-3 rounded-xl border border-amber-100">
-              This replaces the existing budget for {budgetForm.category}.
+              {t('planning.replaceBudget', { category: budgetForm.category })}
             </p>
           )}
         </div>
         <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">
-            <Button variant="secondary" className="flex-1" onClick={() => { setBudgetModalOpen(false); setBudgetForm(EMPTY_BUDGET_FORM); setEditBudget(null); }}>Cancel</Button>
+            <Button variant="secondary" className="flex-1" onClick={() => { setBudgetModalOpen(false); setBudgetForm(EMPTY_BUDGET_FORM); setEditBudget(null); }}>{t('common.cancel')}</Button>
             <Button className="flex-1 shadow-sm" onClick={saveBudget} disabled={saving || !budgetForm.amount}>
-              {saving ? 'Saving…' : editBudget ? 'Save Changes' : 'Save Budget'}
+              {saving ? t('common.saving') : t('common.save')}
             </Button>
           </div>
         </div>
@@ -508,11 +549,11 @@ export default function PlanningPage() {
       <Modal
         open={goalModalOpen}
         onClose={() => { setGoalModalOpen(false); setGoalForm(EMPTY_GOAL_FORM); setEditGoal(null); }}
-        title={editGoal ? 'Edit Goal' : 'Add Goal'}
+        title={editGoal ? t('planning.editGoal') : t('planning.addGoal')}
       >
         <div className="space-y-5 pb-4">
           <div>
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Icon</p>
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{t('common.icon')}</p>
             <div className="flex gap-2 flex-wrap">
               {GOAL_ICONS.map((ic) => (
                 <button
@@ -528,13 +569,13 @@ export default function PlanningPage() {
             </div>
           </div>
           <Input
-            label="Goal Name"
+            label={t('planning.goalName')}
             placeholder="e.g. Emergency Fund, Down Payment, Vacation"
             value={goalForm.name}
             onChange={(e) => setGoalForm((f) => ({ ...f, name: e.target.value }))}
           />
           <Input
-            label="Target Amount ($)"
+            label={t('planning.targetAmount')}
             type="number"
             min="0"
             step="100"
@@ -544,10 +585,10 @@ export default function PlanningPage() {
           />
           {savingsAccounts.length > 0 ? (
             <Select
-              label="Link to Savings Account (optional)"
+              label={t('planning.linkToSavings')}
               value={goalForm.linkedAccountId}
               options={[
-                { value: '', label: '— Track manually —' },
+                { value: '', label: t('planning.trackManually') },
                 ...savingsAccounts.map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` })),
               ]}
               onChange={(e) => setGoalForm((f) => ({ ...f, linkedAccountId: e.target.value }))}
@@ -555,11 +596,11 @@ export default function PlanningPage() {
           ) : null}
           {!goalForm.linkedAccountId && (
             <Input
-              label="Current Amount ($)"
+              label={t('planning.currentAmount')}
               type="number"
               min="0"
               step="100"
-              placeholder="How much have you saved so far?"
+              placeholder={t('planning.howMuchSaved')}
               value={goalForm.currentAmount}
               onChange={(e) => setGoalForm((f) => ({ ...f, currentAmount: e.target.value }))}
             />
@@ -570,7 +611,7 @@ export default function PlanningPage() {
             </p>
           )}
           <Input
-            label="Target Date (optional)"
+            label={t('planning.targetDate')}
             type="date"
             value={goalForm.deadline}
             onChange={(e) => setGoalForm((f) => ({ ...f, deadline: e.target.value }))}
@@ -578,9 +619,9 @@ export default function PlanningPage() {
         </div>
         <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">
-            <Button variant="secondary" className="flex-1" onClick={() => { setGoalModalOpen(false); setGoalForm(EMPTY_GOAL_FORM); setEditGoal(null); }}>Cancel</Button>
+            <Button variant="secondary" className="flex-1" onClick={() => { setGoalModalOpen(false); setGoalForm(EMPTY_GOAL_FORM); setEditGoal(null); }}>{t('common.cancel')}</Button>
             <Button className="flex-1 shadow-sm" onClick={saveGoal} disabled={saving || !goalForm.name || !goalForm.targetAmount}>
-              {saving ? 'Saving…' : editGoal ? 'Update Goal' : 'Add Goal'}
+              {saving ? t('common.saving') : t('common.save')}
             </Button>
           </div>
         </div>
@@ -596,6 +637,7 @@ function BudgetItem({ budget, monthly, spent, prevSpent, momDiff, pct, over, rem
   pct: number; over: boolean; remaining: number; willOvershoot: boolean; overshootAmt: number; daysLeft: number;
   onEdit: (b: Budget) => void; onDelete: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   const controls = useDragControls();
   return (
     <Reorder.Item value={budget} dragListener={false} dragControls={controls} className="list-none">
@@ -643,7 +685,7 @@ function BudgetItem({ budget, monthly, spent, prevSpent, momDiff, pct, over, rem
           <p className="text-xs font-bold">
             {over
               ? <span className="text-rose-600">{formatCurrency(Math.abs(remaining))} over</span>
-              : <span className="text-slate-500">{formatCurrency(remaining)} left · {daysLeft}d</span>
+              : <span className="text-slate-500">{formatCurrency(remaining)} left · {daysLeft}{t('planning.daysLeft')}</span>
             }
           </p>
           <div className="flex items-center gap-1.5">
@@ -660,7 +702,7 @@ function BudgetItem({ budget, monthly, spent, prevSpent, momDiff, pct, over, rem
             )}
             {!over && !willOvershoot && pct > 0 && !prevSpent && (
               <span className="text-xs font-bold text-emerald-600 flex items-center gap-0.5">
-                <Zap className="w-3 h-3" />On pace
+                <Zap className="w-3 h-3" />{t('planning.onTrack')}
               </span>
             )}
             <span className="text-xs font-bold text-slate-400">{pct.toFixed(0)}%</span>
@@ -677,6 +719,7 @@ function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadl
   achieved: boolean; daysToDeadline: number | null; monthlyNeeded: number | null;
   onTrack: string; onEdit: (g: Goal) => void; onDelete: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   const controls = useDragControls();
   return (
     <Reorder.Item value={goal} dragListener={false} dragControls={controls} className="list-none">
@@ -695,22 +738,22 @@ function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadl
             <div className="min-w-0">
               <p className="text-sm font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
                 {goal.name}
-                {achieved && <span className="text-xs text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-md font-bold">Done!</span>}
+                {achieved && <span className="text-xs text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-md font-bold">{t('planning.done')}</span>}
                 {onTrack === 'behind' && (
                   <span className="text-xs text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-md font-bold flex items-center gap-0.5">
-                    <TrendingDown className="w-2.5 h-2.5" /> Behind
+                    <TrendingDown className="w-2.5 h-2.5" /> {t('planning.behind')}
                   </span>
                 )}
                 {onTrack === 'ontarget' && !achieved && (
                   <span className="text-xs text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md font-bold flex items-center gap-0.5">
-                    <TrendingUp className="w-2.5 h-2.5" /> On track
+                    <TrendingUp className="w-2.5 h-2.5" /> {t('planning.onTrack')}
                   </span>
                 )}
               </p>
-              {linked && <p className="text-xs font-medium text-slate-500 mt-0.5">Linked: {linked.name}</p>}
+              {linked && <p className="text-xs font-medium text-slate-500 mt-0.5">{t('planning.linked')} {linked.name}</p>}
               {goal.deadline && daysToDeadline !== null && (
                 <p className="text-xs font-medium text-slate-500">
-                  {daysToDeadline > 0 ? `${daysToDeadline}d left · ` : 'Deadline passed · '}
+                  {daysToDeadline > 0 ? `${daysToDeadline}${t('planning.daysLeft')} · ` : `${t('planning.deadlinePassed')} · `}
                   {formatDate(goal.deadline)}
                 </p>
               )}
@@ -726,30 +769,39 @@ function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadl
           </div>
         </div>
 
-        <div className="w-full bg-slate-100 rounded-full h-2.5 mb-2 overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-700 ${achieved ? 'bg-emerald-500' : 'bg-indigo-500'}`}
-            style={{ width: `${pct}%` }}
-          />
+        <div className="w-full bg-slate-100 rounded-full h-2.5 mb-2 overflow-hidden relative">
+          {current < 0 ? (
+            // Inverted red bar: anchored to the right, width proportional to how far below zero.
+            <div
+              className="absolute right-0 top-0 h-full rounded-full transition-all duration-700 bg-rose-500"
+              style={{ width: `${Math.min(100, Math.abs(pct))}%` }}
+              aria-label="Deficit"
+            />
+          ) : (
+            <div
+              className={`h-full rounded-full transition-all duration-700 ${achieved ? 'bg-emerald-500' : 'bg-indigo-500'}`}
+              style={{ width: `${Math.max(0, pct)}%` }}
+            />
+          )}
         </div>
 
         <div className="flex items-center justify-between">
           <div className="flex items-baseline gap-1.5">
-            <span className={`text-base font-extrabold ${achieved ? 'text-emerald-600' : 'text-slate-900'}`}>
+            <span className={`text-base font-extrabold ${achieved ? 'text-emerald-600' : current < 0 ? 'text-rose-600' : 'text-slate-900'}`}>
               {formatCurrency(current)}
             </span>
             <span className="text-xs font-bold text-slate-400">/ {formatCurrency(goal.targetAmount)}</span>
           </div>
-          <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg ${achieved ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-50 text-indigo-700'}`}>
+          <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg ${achieved ? 'bg-emerald-100 text-emerald-700' : current < 0 ? 'bg-rose-50 text-rose-700' : 'bg-indigo-50 text-indigo-700'}`}>
             {pct.toFixed(0)}%
           </span>
         </div>
 
         {!achieved && remaining > 0 && (
           <div className="flex justify-between items-center mt-2.5 pt-2.5 border-t border-slate-100">
-            <p className="text-xs font-bold text-slate-500">{formatCurrency(remaining)} to go</p>
+            <p className="text-xs font-bold text-slate-500">{formatCurrency(remaining)} {t('planning.toGo')}</p>
             {monthlyNeeded && (
-              <p className="text-xs font-bold text-slate-400">{formatCurrency(monthlyNeeded)}/mo needed</p>
+              <p className="text-xs font-bold text-slate-400">{formatCurrency(monthlyNeeded)}{t('planning.moNeeded')}</p>
             )}
           </div>
         )}
