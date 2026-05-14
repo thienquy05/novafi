@@ -14,6 +14,18 @@
 
 ---
 
+## 2026-05-14 — Badge count tests + pre-commit hook
+
+**Branch:** `claude/fix-numbers-z-index-UJ122`
+
+**Changes:**
+- Extracted `calcOverdueBills(bills, now)` and `calcOverBudget(budgets, transactions, monthKey)` from the inline logic in `app/api/badges/route.ts` into `lib/calculations.ts` (also added `Budget` to the import).
+- Updated `app/api/badges/route.ts` to call the extracted functions.
+- Added 22 new test cases in `lib/__tests__/calculations.test.ts` (203 tests total), covering: empty inputs, boundary conditions (exactly-at-limit not over), inactive bill exclusion, wrong-month exclusion, income-vs-expense discrimination, weekly/yearly normalization, and multi-category accumulation.
+- Added `.githooks/pre-commit` (runs `npm test`) and `"prepare": "git config core.hooksPath .githooks"` in `package.json` so the hook is automatically activated after `npm install`.
+
+---
+
 ## 2026-05-14 — Fix badge numbers z-index on mobile nav
 
 **Branch:** `claude/fix-numbers-z-index-UJ122`
