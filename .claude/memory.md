@@ -1,5 +1,22 @@
 # Change Log
 
+## 2026-05-14 — Fix custom categories showing "categories.X" in spending chart
+
+**Branch:** `claude/fix-categories-customization-hvwlP`
+
+**Problem:** Custom expense categories (e.g. "Utilities") showed as "categories.Utilities" in the dashboard spending pie chart legend instead of just "Utilities".
+
+**Root cause:** `SpendingPieChart` in `app/(app)/dashboard/DashboardCharts.tsx` rendered each category label using `t('categories.${entry.name}')`. The `t()` function in `lib/i18n/context.tsx` returns the full key string when a translation is not found. Built-in categories (Food, Grocery, etc.) have entries under `categories.*` in `locales/en.json` and `locales/vi.json`, but user-defined custom categories do not, so the raw key was returned and displayed.
+
+**Fix:**
+- Added `tCategory` helper inside `SpendingPieChart`: tries `t('categories.${name}')` and falls back to the bare `name` if the translation key was not found (i.e., `t()` returned the key itself).
+- Replaced `t(\`categories.\${entry.name}\`)` with `tCategory(entry.name)` on the label span.
+
+**Files changed:**
+- `app/(app)/dashboard/DashboardCharts.tsx`: Added `tCategory` helper (line 223) and updated category label render (line 280).
+
+---
+
 ## 2026-05-14 — Fix decimal precision in balance calculations
 
 **Branch:** `claude/fix-decimal-precision-1MI9l`
