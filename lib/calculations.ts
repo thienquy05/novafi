@@ -232,8 +232,8 @@ export function applyExpenseBalance(balance: number, amount: number, isDebt: boo
   return isDebt ? balance + amount : balance - amount;
 }
 
-export function applyIncomeBalance(balance: number, amount: number): number {
-  return balance + amount;
+export function applyIncomeBalance(balance: number, amount: number, isDebt: boolean = false): number {
+  return isDebt ? balance - amount : balance + amount;
 }
 
 export function applyTransferFromBalance(balance: number, amount: number): number {
@@ -248,8 +248,8 @@ export function reverseExpenseBalance(balance: number, amount: number, isDebt: b
   return isDebt ? balance - amount : balance + amount;
 }
 
-export function reverseIncomeBalance(balance: number, amount: number): number {
-  return balance - amount;
+export function reverseIncomeBalance(balance: number, amount: number, isDebt: boolean = false): number {
+  return isDebt ? balance + amount : balance - amount;
 }
 
 export function reverseTransferFromBalance(balance: number, amount: number): number {

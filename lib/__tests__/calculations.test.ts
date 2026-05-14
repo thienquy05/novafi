@@ -475,11 +475,14 @@ describe('applyExpenseBalance', () => {
 });
 
 describe('applyIncomeBalance', () => {
-  it('balance increases', () => {
+  it('asset account: balance increases', () => {
     expect(applyIncomeBalance(1000, 500)).toBe(1500);
   });
   it('zero income: no change', () => {
     expect(applyIncomeBalance(1000, 0)).toBe(1000);
+  });
+  it('debt account: balance decreases (refund reduces what is owed)', () => {
+    expect(applyIncomeBalance(500, 50, true)).toBe(450);
   });
 });
 
@@ -517,11 +520,14 @@ describe('reverseExpenseBalance', () => {
 });
 
 describe('reverseIncomeBalance', () => {
-  it('balance reduced (income reversed)', () => {
+  it('asset account: balance reduced (income reversed)', () => {
     expect(reverseIncomeBalance(1500, 500)).toBe(1000);
   });
   it('goes to zero if exactly reversed', () => {
     expect(reverseIncomeBalance(500, 500)).toBe(0);
+  });
+  it('debt account: balance restored (refund undone)', () => {
+    expect(reverseIncomeBalance(450, 50, true)).toBe(500);
   });
 });
 
