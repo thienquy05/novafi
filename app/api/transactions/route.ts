@@ -43,9 +43,10 @@ export async function POST(req: NextRequest) {
   } else if (body.type === 'income') {
     const account = accounts.find((a) => a.id === body.account);
     if (account) {
+      const isDebt = account.type === 'credit' || account.type === 'loan';
       await upsertAccount(session.accessToken, session.spreadsheetId, {
         ...account,
-        balance: applyIncomeBalance(account.balance, body.amount),
+        balance: applyIncomeBalance(account.balance, body.amount, isDebt),
       });
     }
   } else if (body.type === 'transfer') {
@@ -93,7 +94,7 @@ export async function PUT(req: NextRequest) {
     if (acc) { const isDebt = acc.type === 'credit' || acc.type === 'loan'; acc.balance = reverseExpenseBalance(acc.balance, original.amount, isDebt); await upsert(acc.id); }
   } else if (original.type === 'income') {
     const acc = accountMap.get(original.account);
-    if (acc) { acc.balance = reverseIncomeBalance(acc.balance, original.amount); await upsert(acc.id); }
+    if (acc) { const isDebt = acc.type === 'credit' || acc.type === 'loan'; acc.balance = reverseIncomeBalance(acc.balance, original.amount, isDebt); await upsert(acc.id); }
   } else if (original.type === 'transfer') {
     const fromAcc = accountMap.get(original.account);
     const toAcc = accountMap.get(original.toAccount ?? '');
@@ -107,7 +108,7 @@ export async function PUT(req: NextRequest) {
     if (acc) { const isDebt = acc.type === 'credit' || acc.type === 'loan'; await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: applyExpenseBalance(acc.balance, updated.amount, isDebt) }); }
   } else if (updated.type === 'income') {
     const acc = accountMap.get(updated.account);
-    if (acc) await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: applyIncomeBalance(acc.balance, updated.amount) });
+    if (acc) { const isDebt = acc.type === 'credit' || acc.type === 'loan'; await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: applyIncomeBalance(acc.balance, updated.amount, isDebt) }); }
   } else if (updated.type === 'transfer') {
     const fromAcc = accountMap.get(updated.account);
     const toAcc = accountMap.get(updated.toAccount ?? '');
@@ -144,7 +145,7 @@ export async function DELETE(req: NextRequest) {
       }
     } else if (tx.type === 'income') {
       const acc = findAcc(tx.account);
-      if (acc) await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: reverseIncomeBalance(acc.balance, tx.amount) });
+      if (acc) { const isDebt = acc.type === 'credit' || acc.type === 'loan'; await upsertAccount(session.accessToken, session.spreadsheetId, { ...acc, balance: reverseIncomeBalance(acc.balance, tx.amount, isDebt) }); }
     } else if (tx.type === 'transfer') {
       const fromAcc = findAcc(tx.account);
       const toAcc = findAcc(tx.toAccount ?? '');
