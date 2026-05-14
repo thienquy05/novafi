@@ -220,6 +220,7 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
   const displayData = isEmpty ? [{ name: t('charts.noExpenseData'), value: 1 }] : cleanData;
   const ready = useChartReady();
   const categoryTotal = data.reduce((s, d) => s + d.value, 0);
+  const tCategory = (name: string) => { const k = `categories.${name}`; const r = t(k); return r === k ? name : r; };
 
   return (
     <div className="flex flex-col md:flex-row items-center gap-8 w-full">
@@ -276,7 +277,7 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
                   className="w-3 h-3 rounded-full shrink-0"
                   style={{ backgroundColor: CATEGORY_COLORS[entry.name] ?? DEFAULT_COLOR }}
                 />
-                <span className="text-sm font-bold text-slate-700 flex-1 truncate">{t(`categories.${entry.name}`)}</span>
+                <span className="text-sm font-bold text-slate-700 flex-1 truncate">{tCategory(entry.name)}</span>
                 <span className="text-xs text-slate-400 font-bold bg-slate-100 px-2 py-0.5 rounded-md">{pct.toFixed(0)}%</span>
                 <span className="text-sm font-extrabold text-slate-900 w-20 text-right">{formatCurrency(entry.value)}</span>
               </motion.div>
