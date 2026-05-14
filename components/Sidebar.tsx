@@ -365,7 +365,7 @@ export function MobileNav() {
                       <Icon className="w-6 h-6" />
                       {badgeCount > 0 && (
                         <span className={cn(
-                          'absolute -top-1.5 -right-1.5 text-white text-[9px] font-extrabold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5',
+                          'absolute -top-1.5 -right-1.5 z-20 text-white text-[9px] font-extrabold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5',
                           badgeKey === 'overdueBills' ? 'bg-rose-500' : 'bg-amber-500'
                         )}>
                           {badgeCount > 9 ? '9+' : badgeCount}
@@ -427,7 +427,7 @@ export function MobileNav() {
                 <Icon className={cn('w-5 h-5 relative z-10', active && 'drop-shadow-[0_0_8px_rgba(79,70,229,0.3)]')} />
                 {badgeCount > 0 && (
                   <span className={cn(
-                    'absolute -top-1.5 -right-1.5 text-white text-[9px] font-extrabold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5',
+                    'absolute -top-1.5 -right-1.5 z-20 text-white text-[9px] font-extrabold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5',
                     badgeKey === 'overdueBills' ? 'bg-rose-500' : 'bg-amber-500'
                   )}>
                     {badgeCount > 9 ? '9+' : badgeCount}
