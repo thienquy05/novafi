@@ -12,7 +12,20 @@
 - `lib/calculations.ts`: Added private `roundCents(n)` helper (`Math.round(n * 100) / 100`) and wrapped every return value in all eight balance functions with it.
 - `lib/sheets.ts` (`getTransactions`): Added `valueRenderOption: 'UNFORMATTED_VALUE'` (was missing, unlike `getAccounts`) so currency-formatted cells return raw numbers instead of formatted strings.
 
+---
 
+## 2026-05-14 — Fix badge numbers z-index on mobile nav
+
+**Branch:** `claude/fix-numbers-z-index-UJ122`
+
+**Problem:** Badge count circles (red/amber numbers) on nav icons were rendered behind the icons instead of on top of them.
+
+**Root cause:** The icon element had `relative z-10` applied, creating a stacking context that put it at z-level 10 within the parent `<div className="relative">`. The badge `<span>` was `absolute` with no explicit z-index (defaulting to `auto`/0), so it rendered below the icon.
+
+**Files changed:**
+- `components/Sidebar.tsx` (lines 368, 430): Added `z-20` to both badge `<span>` elements — one in the slide-up "more" sheet and one in the bottom bar — so they paint above the icon's z-level of 10.
+
+---
 
 ## 2026-05-14 — Fix credit refund balance bug
 
