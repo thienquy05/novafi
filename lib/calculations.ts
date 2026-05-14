@@ -228,36 +228,40 @@ export function calcGoalProgress(current: number, target: number): number {
 
 // ── Transaction Balance Effects ───────────────────────────────────────────────
 
+function roundCents(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 export function applyExpenseBalance(balance: number, amount: number, isDebt: boolean): number {
-  return isDebt ? balance + amount : balance - amount;
+  return roundCents(isDebt ? balance + amount : balance - amount);
 }
 
 export function applyIncomeBalance(balance: number, amount: number, isDebt: boolean = false): number {
-  return isDebt ? balance - amount : balance + amount;
+  return roundCents(isDebt ? balance - amount : balance + amount);
 }
 
 export function applyTransferFromBalance(balance: number, amount: number): number {
-  return balance - amount;
+  return roundCents(balance - amount);
 }
 
 export function applyTransferToBalance(balance: number, amount: number, isDebt: boolean): number {
-  return isDebt ? Math.max(0, balance - amount) : balance + amount;
+  return isDebt ? roundCents(Math.max(0, balance - amount)) : roundCents(balance + amount);
 }
 
 export function reverseExpenseBalance(balance: number, amount: number, isDebt: boolean): number {
-  return isDebt ? balance - amount : balance + amount;
+  return roundCents(isDebt ? balance - amount : balance + amount);
 }
 
 export function reverseIncomeBalance(balance: number, amount: number, isDebt: boolean = false): number {
-  return isDebt ? balance + amount : balance - amount;
+  return roundCents(isDebt ? balance + amount : balance - amount);
 }
 
 export function reverseTransferFromBalance(balance: number, amount: number): number {
-  return balance + amount;
+  return roundCents(balance + amount);
 }
 
 export function reverseTransferToBalance(balance: number, amount: number, isDebt: boolean): number {
-  return isDebt ? balance + amount : balance - amount;
+  return roundCents(isDebt ? balance + amount : balance - amount);
 }
 
 // ── Bill helpers ──────────────────────────────────────────────────────────────
