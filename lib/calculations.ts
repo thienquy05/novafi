@@ -1,4 +1,4 @@
-import type { Account, Transaction, Bill } from '@/types';
+import type { Account, Transaction, Bill, Budget } from '@/types';
 
 // ── Net Worth ─────────────────────────────────────────────────────────────────
 
@@ -275,4 +275,30 @@ export function billToTransactionDefaults(bill: Bill, date: string): Omit<Transa
     category: bill.category,
     account: bill.account ?? '',
   };
+}
+
+// ── Badge Counts ──────────────────────────────────────────────────────────────
+
+export function calcOverdueBills(bills: Bill[], now: Date): number {
+  return bills.filter((b) => b.isActive && new Date(b.nextDue) < now).length;
+}
+
+export function calcOverBudget(
+  budgets: Budget[],
+  transactions: Transaction[],
+  monthKey: string,
+): number {
+  const monthExpenses = transactions.filter(
+    (t) => t.type === 'expense' && t.date.startsWith(monthKey),
+  );
+  return budgets.filter((b) => {
+    const monthly =
+      b.period === 'monthly' ? b.amount
+      : b.period === 'weekly'  ? b.amount * 4.33
+      : b.amount / 12;
+    const spent = monthExpenses
+      .filter((t) => t.category === b.category)
+      .reduce((s, t) => s + t.amount, 0);
+    return spent > monthly;
+  }).length;
 }

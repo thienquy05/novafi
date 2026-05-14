@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { batchGetBadgesData } from '@/lib/sheets';
 import { getCache, setCache } from '@/lib/cache';
+import { calcOverdueBills, calcOverBudget } from '@/lib/calculations';
 
 export async function GET() {
   const session = await auth();
@@ -20,22 +21,8 @@ export async function GET() {
       session.spreadsheetId
     );
 
-    const overdueBills = bills.filter((b) => {
-      if (!b.isActive) return false;
-      const due = new Date(b.nextDue);
-      return due < now;
-    }).length;
-
-    const monthExpenses = transactions.filter((t) => t.date.startsWith(thisMonth) && t.type === 'expense');
-
-    const overBudget = budgets.filter((b) => {
-      const monthly =
-        b.period === 'monthly' ? b.amount
-        : b.period === 'weekly' ? b.amount * 4.33
-        : b.amount / 12;
-      const spent = monthExpenses.filter((t) => t.category === b.category).reduce((s, t) => s + t.amount, 0);
-      return spent > monthly;
-    }).length;
+    const overdueBills = calcOverdueBills(bills, now);
+    const overBudget = calcOverBudget(budgets, transactions, thisMonth);
 
     const result = { overdueBills, overBudget };
     setCache(badgeKey, result, 60_000);
