@@ -168,6 +168,7 @@ export async function getTransactions(
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
     range: 'Transactions!A2:I1000',
+    valueRenderOption: 'UNFORMATTED_VALUE',
   });
   return (res.data.values ?? []).map(rowToTransaction);
 }
