@@ -1,4 +1,4 @@
-import type { Account, Transaction, Bill } from '@/types';
+import type { Account, Transaction, Bill, Budget } from '@/types';
 
 // ── Net Worth ─────────────────────────────────────────────────────────────────
 
@@ -228,36 +228,40 @@ export function calcGoalProgress(current: number, target: number): number {
 
 // ── Transaction Balance Effects ───────────────────────────────────────────────
 
-export function applyExpenseBalance(balance: number, amount: number, isDebt: boolean): number {
-  return isDebt ? balance + amount : balance - amount;
+function roundCents(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 
-export function applyIncomeBalance(balance: number, amount: number): number {
-  return balance + amount;
+export function applyExpenseBalance(balance: number, amount: number, isDebt: boolean): number {
+  return roundCents(isDebt ? balance + amount : balance - amount);
+}
+
+export function applyIncomeBalance(balance: number, amount: number, isDebt: boolean = false): number {
+  return roundCents(isDebt ? balance - amount : balance + amount);
 }
 
 export function applyTransferFromBalance(balance: number, amount: number): number {
-  return balance - amount;
+  return roundCents(balance - amount);
 }
 
 export function applyTransferToBalance(balance: number, amount: number, isDebt: boolean): number {
-  return isDebt ? Math.max(0, balance - amount) : balance + amount;
+  return isDebt ? roundCents(Math.max(0, balance - amount)) : roundCents(balance + amount);
 }
 
 export function reverseExpenseBalance(balance: number, amount: number, isDebt: boolean): number {
-  return isDebt ? balance - amount : balance + amount;
+  return roundCents(isDebt ? balance - amount : balance + amount);
 }
 
-export function reverseIncomeBalance(balance: number, amount: number): number {
-  return balance - amount;
+export function reverseIncomeBalance(balance: number, amount: number, isDebt: boolean = false): number {
+  return roundCents(isDebt ? balance + amount : balance - amount);
 }
 
 export function reverseTransferFromBalance(balance: number, amount: number): number {
-  return balance + amount;
+  return roundCents(balance + amount);
 }
 
 export function reverseTransferToBalance(balance: number, amount: number, isDebt: boolean): number {
-  return isDebt ? balance + amount : balance - amount;
+  return roundCents(isDebt ? balance + amount : balance - amount);
 }
 
 // ── Bill helpers ──────────────────────────────────────────────────────────────
@@ -271,4 +275,30 @@ export function billToTransactionDefaults(bill: Bill, date: string): Omit<Transa
     category: bill.category,
     account: bill.account ?? '',
   };
+}
+
+// ── Badge Counts ──────────────────────────────────────────────────────────────
+
+export function calcOverdueBills(bills: Bill[], now: Date): number {
+  return bills.filter((b) => b.isActive && new Date(b.nextDue) < now).length;
+}
+
+export function calcOverBudget(
+  budgets: Budget[],
+  transactions: Transaction[],
+  monthKey: string,
+): number {
+  const monthExpenses = transactions.filter(
+    (t) => t.type === 'expense' && t.date.startsWith(monthKey),
+  );
+  return budgets.filter((b) => {
+    const monthly =
+      b.period === 'monthly' ? b.amount
+      : b.period === 'weekly'  ? b.amount * 4.33
+      : b.amount / 12;
+    const spent = monthExpenses
+      .filter((t) => t.category === b.category)
+      .reduce((s, t) => s + t.amount, 0);
+    return spent > monthly;
+  }).length;
 }

@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     if (account) {
       await upsertAccount(session.userId, {
         ...account,
-        balance: applyIncomeBalance(account.balance, body.amount),
+        balance: applyIncomeBalance(account.balance, body.amount, isDebt),
       });
     }
   } else if (body.type === 'transfer') {
@@ -91,7 +91,7 @@ export async function PUT(req: NextRequest) {
     if (acc) { const isDebt = acc.type === 'credit' || acc.type === 'loan'; acc.balance = reverseExpenseBalance(acc.balance, original.amount, isDebt); await upsert(acc.id); }
   } else if (original.type === 'income') {
     const acc = accountMap.get(original.account);
-    if (acc) { acc.balance = reverseIncomeBalance(acc.balance, original.amount); await upsert(acc.id); }
+    if (acc) { const isDebt = acc.type === 'credit' || acc.type === 'loan'; acc.balance = reverseIncomeBalance(acc.balance, original.amount, isDebt); await upsert(acc.id); }
   } else if (original.type === 'transfer') {
     const fromAcc = accountMap.get(original.account);
     const toAcc = accountMap.get(original.toAccount ?? '');

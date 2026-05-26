@@ -12,8 +12,9 @@ import {
   applyExpenseBalance, applyIncomeBalance, applyTransferFromBalance, applyTransferToBalance,
   reverseExpenseBalance, reverseIncomeBalance, reverseTransferFromBalance, reverseTransferToBalance,
   billToTransactionDefaults,
+  calcOverdueBills, calcOverBudget,
 } from '@/lib/calculations';
-import type { Account, Transaction, Bill } from '@/types';
+import type { Account, Transaction, Bill, Budget } from '@/types';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -475,11 +476,14 @@ describe('applyExpenseBalance', () => {
 });
 
 describe('applyIncomeBalance', () => {
-  it('balance increases', () => {
+  it('asset account: balance increases', () => {
     expect(applyIncomeBalance(1000, 500)).toBe(1500);
   });
   it('zero income: no change', () => {
     expect(applyIncomeBalance(1000, 0)).toBe(1000);
+  });
+  it('debt account: balance decreases (refund reduces what is owed)', () => {
+    expect(applyIncomeBalance(500, 50, true)).toBe(450);
   });
 });
 
@@ -517,11 +521,14 @@ describe('reverseExpenseBalance', () => {
 });
 
 describe('reverseIncomeBalance', () => {
-  it('balance reduced (income reversed)', () => {
+  it('asset account: balance reduced (income reversed)', () => {
     expect(reverseIncomeBalance(1500, 500)).toBe(1000);
   });
   it('goes to zero if exactly reversed', () => {
     expect(reverseIncomeBalance(500, 500)).toBe(0);
+  });
+  it('debt account: balance restored (refund undone)', () => {
+    expect(reverseIncomeBalance(450, 50, true)).toBe(500);
   });
 });
 
@@ -613,5 +620,173 @@ describe('billToTransactionDefaults', () => {
       expect(result.amount).toBe(50);
       expect(result.type).toBe('expense');
     }
+  });
+});
+
+// ── calcOverdueBills ──────────────────────────────────────────────────────────
+
+function makeBillFull(overrides: Partial<Bill> = {}): Bill {
+  return {
+    id: 'b1', name: 'Test Bill', amount: 50,
+    frequency: 'monthly', nextDue: '2026-05-01',
+    account: 'acc_1', category: 'Bills', isActive: true,
+    ...overrides,
+  };
+}
+
+const NOW = new Date('2026-05-14T12:00:00Z');
+
+describe('calcOverdueBills', () => {
+  it('empty list → 0', () => {
+    expect(calcOverdueBills([], NOW)).toBe(0);
+  });
+
+  it('no bills are overdue → 0', () => {
+    const bills = [
+      makeBillFull({ nextDue: '2026-05-20' }),
+      makeBillFull({ nextDue: '2026-06-01' }),
+    ];
+    expect(calcOverdueBills(bills, NOW)).toBe(0);
+  });
+
+  it('counts bills whose nextDue is before now', () => {
+    const bills = [
+      makeBillFull({ nextDue: '2026-05-01' }),  // overdue
+      makeBillFull({ nextDue: '2026-05-10' }),  // overdue
+      makeBillFull({ nextDue: '2026-05-20' }),  // future
+    ];
+    expect(calcOverdueBills(bills, NOW)).toBe(2);
+  });
+
+  it('inactive bills are excluded even if overdue', () => {
+    const bills = [
+      makeBillFull({ nextDue: '2026-05-01', isActive: false }),
+      makeBillFull({ nextDue: '2026-05-01', isActive: true }),
+    ];
+    expect(calcOverdueBills(bills, NOW)).toBe(1);
+  });
+
+  it('all inactive → 0', () => {
+    const bills = [
+      makeBillFull({ nextDue: '2026-04-01', isActive: false }),
+      makeBillFull({ nextDue: '2026-04-15', isActive: false }),
+    ];
+    expect(calcOverdueBills(bills, NOW)).toBe(0);
+  });
+
+  it('due exactly at now is NOT overdue (strict <)', () => {
+    const bills = [makeBillFull({ nextDue: '2026-05-14T12:00:00Z' })];
+    expect(calcOverdueBills(bills, NOW)).toBe(0);
+  });
+
+  it('all bills overdue', () => {
+    const bills = [
+      makeBillFull({ nextDue: '2026-01-01' }),
+      makeBillFull({ nextDue: '2026-03-15' }),
+      makeBillFull({ nextDue: '2026-05-13' }),
+    ];
+    expect(calcOverdueBills(bills, NOW)).toBe(3);
+  });
+});
+
+// ── calcOverBudget ────────────────────────────────────────────────────────────
+
+function makeBudget(overrides: Partial<Budget> = {}): Budget {
+  return {
+    id: 'bgt_1', category: 'Food', amount: 500, period: 'monthly',
+    ...overrides,
+  };
+}
+
+const MONTH = '2026-05';
+
+describe('calcOverBudget', () => {
+  it('empty budgets → 0', () => {
+    expect(calcOverBudget([], [], MONTH)).toBe(0);
+  });
+
+  it('no transactions → 0 (all budgets under)', () => {
+    const budgets = [makeBudget(), makeBudget({ id: 'b2', category: 'Transport', amount: 200 })];
+    expect(calcOverBudget(budgets, [], MONTH)).toBe(0);
+  });
+
+  it('spending exactly at budget limit → NOT over', () => {
+    const budgets = [makeBudget({ amount: 300 })];
+    const txs = [makeTx({ type: 'expense', date: '2026-05-10', amount: 300, category: 'Food' })];
+    expect(calcOverBudget(budgets, txs, MONTH)).toBe(0);
+  });
+
+  it('spending one cent over → over', () => {
+    const budgets = [makeBudget({ amount: 300 })];
+    const txs = [makeTx({ type: 'expense', date: '2026-05-10', amount: 300.01, category: 'Food' })];
+    expect(calcOverBudget(budgets, txs, MONTH)).toBe(1);
+  });
+
+  it('counts multiple over-budget categories', () => {
+    const budgets = [
+      makeBudget({ id: 'b1', category: 'Food', amount: 300 }),
+      makeBudget({ id: 'b2', category: 'Entertainment', amount: 100 }),
+      makeBudget({ id: 'b3', category: 'Transport', amount: 200 }),
+    ];
+    const txs = [
+      makeTx({ type: 'expense', date: '2026-05-05', amount: 350, category: 'Food' }),        // over
+      makeTx({ type: 'expense', date: '2026-05-06', amount: 150, category: 'Entertainment' }), // over
+      makeTx({ type: 'expense', date: '2026-05-07', amount: 180, category: 'Transport' }),    // under
+    ];
+    expect(calcOverBudget(budgets, txs, MONTH)).toBe(2);
+  });
+
+  it('only sums transactions from the given month', () => {
+    const budgets = [makeBudget({ amount: 300 })];
+    const txs = [
+      makeTx({ type: 'expense', date: '2026-04-20', amount: 200, category: 'Food' }), // wrong month
+      makeTx({ type: 'expense', date: '2026-05-10', amount: 200, category: 'Food' }), // correct
+    ];
+    expect(calcOverBudget(budgets, txs, MONTH)).toBe(0); // only 200 counted, under 300
+  });
+
+  it('income transactions are not counted toward budget', () => {
+    const budgets = [makeBudget({ amount: 300 })];
+    const txs = [
+      makeTx({ type: 'income',  date: '2026-05-01', amount: 1000, category: 'Food' }),
+      makeTx({ type: 'expense', date: '2026-05-10', amount: 200,  category: 'Food' }),
+    ];
+    expect(calcOverBudget(budgets, txs, MONTH)).toBe(0);
+  });
+
+  it('weekly budget normalized to monthly (× 4.33)', () => {
+    // weekly $100 → monthly $433; spend $434 → over
+    const budgets = [makeBudget({ amount: 100, period: 'weekly' })];
+    const txs = [makeTx({ type: 'expense', date: '2026-05-15', amount: 434, category: 'Food' })];
+    expect(calcOverBudget(budgets, txs, MONTH)).toBe(1);
+  });
+
+  it('weekly budget: spending at $433 is NOT over (≤ 100×4.33)', () => {
+    const budgets = [makeBudget({ amount: 100, period: 'weekly' })];
+    const txs = [makeTx({ type: 'expense', date: '2026-05-15', amount: 433, category: 'Food' })];
+    expect(calcOverBudget(budgets, txs, MONTH)).toBe(0);
+  });
+
+  it('yearly budget normalized to monthly (÷ 12)', () => {
+    // yearly $1200 → monthly $100; spend $101 → over
+    const budgets = [makeBudget({ amount: 1200, period: 'yearly' })];
+    const txs = [makeTx({ type: 'expense', date: '2026-05-01', amount: 101, category: 'Food' })];
+    expect(calcOverBudget(budgets, txs, MONTH)).toBe(1);
+  });
+
+  it('transactions from multiple days accumulate', () => {
+    const budgets = [makeBudget({ amount: 500 })];
+    const txs = [
+      makeTx({ id: 'tx_a', type: 'expense', date: '2026-05-01', amount: 200, category: 'Food' }),
+      makeTx({ id: 'tx_b', type: 'expense', date: '2026-05-15', amount: 200, category: 'Food' }),
+      makeTx({ id: 'tx_c', type: 'expense', date: '2026-05-28', amount: 150, category: 'Food' }),
+    ];
+    expect(calcOverBudget(budgets, txs, MONTH)).toBe(1); // 550 > 500
+  });
+
+  it('category mismatch → not counted', () => {
+    const budgets = [makeBudget({ category: 'Food', amount: 300 })];
+    const txs = [makeTx({ type: 'expense', date: '2026-05-10', amount: 500, category: 'Entertainment' })];
+    expect(calcOverBudget(budgets, txs, MONTH)).toBe(0);
   });
 });
