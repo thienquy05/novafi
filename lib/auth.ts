@@ -2,6 +2,7 @@ import NextAuth from 'next-auth';
 import Google from 'next-auth/providers/google';
 import { google as googleApis } from 'googleapis';
 import { DEFAULT_TAX_SETTINGS } from './utils';
+import { ensureUser } from './db';
 
 const SPREADSHEET_NAME = 'NovaFi Finance Data';
 
@@ -106,6 +107,7 @@ declare module 'next-auth' {
   interface Session {
     accessToken: string;
     spreadsheetId: string;
+    userId: string;
     error?: string;
   }
 }
@@ -146,6 +148,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           console.error('Failed to init spreadsheet:', e);
           token.error = 'SpreadsheetInitError';
         }
+        try {
+          await ensureUser(
+            token.sub as string,
+            (token.email as string) ?? '',
+            (token.name as string) ?? '',
+          );
+        } catch {
+          // DB may not be configured yet — non-fatal during migration setup
+        }
       }
 
       // Token still valid
@@ -185,6 +196,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async session({ session, token }: any) {
       session.accessToken = token.accessToken as string | undefined;
       session.spreadsheetId = token.spreadsheetId as string;
+      session.userId = token.sub as string;
       if (token.error) session.error = token.error as string;
       return session;
     },

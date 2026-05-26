@@ -1,24 +1,21 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { batchGetBadgesData } from '@/lib/sheets';
+import { batchGetBadgesData } from '@/lib/db';
 import { getCache, setCache } from '@/lib/cache';
 
 export async function GET() {
   const session = await auth();
-  if (!session?.accessToken) return NextResponse.json({ overdueBills: 0, overBudget: 0 });
+  if (!session?.userId) return NextResponse.json({ overdueBills: 0, overBudget: 0 });
 
   try {
-    const badgeKey = `badges:${session.spreadsheetId}`;
+    const badgeKey = `badges:${session.userId}`;
     const cachedBadge = getCache<{ overdueBills: number; overBudget: number }>(badgeKey);
     if (cachedBadge) return NextResponse.json(cachedBadge);
 
     const now = new Date();
     const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-    const { bills, budgets, transactions } = await batchGetBadgesData(
-      session.accessToken,
-      session.spreadsheetId
-    );
+    const { bills, budgets, transactions } = await batchGetBadgesData(session.userId);
 
     const overdueBills = bills.filter((b) => {
       if (!b.isActive) return false;

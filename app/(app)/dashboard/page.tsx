@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { auth } from '@/lib/auth';
-import { batchGetDashboardData, getNetWorthHistory, appendNetWorthSnapshot, getSettings } from '@/lib/sheets';
+import { batchGetDashboardData, getNetWorthHistory, appendNetWorthSnapshot, getSettings } from '@/lib/db';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import {
   calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
@@ -30,34 +30,34 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 
 export default async function DashboardPage() {
   const session = await auth();
-  if (!session?.accessToken || !session.spreadsheetId) return null;
+  if (!session?.userId) return null;
 
   const jar = await cookies();
   const lang: Language = jar.get('nf_lang')?.value === 'vi' ? 'vi' : 'en';
 
-  const dashKey = `dashboard:${session.spreadsheetId}`;
-  const nwhKey  = `nwh:${session.spreadsheetId}`;
+  const dashKey = `dashboard:${session.userId}`;
+  const nwhKey  = `nwh:${session.userId}`;
 
-  const settingsKey = `settings:${session.spreadsheetId}`;
+  const settingsKey = `settings:${session.userId}`;
   const [dashData, netWorthHistory, settings] = await Promise.all([
     (async () => {
       const cached = getCache<Awaited<ReturnType<typeof batchGetDashboardData>>>(dashKey);
       if (cached) return cached;
-      const fresh = await batchGetDashboardData(session.accessToken, session.spreadsheetId);
+      const fresh = await batchGetDashboardData(session.userId);
       setCache(dashKey, fresh, 45_000);
       return fresh;
     })(),
     (async () => {
       const cached = getCache<Awaited<ReturnType<typeof getNetWorthHistory>>>(nwhKey);
       if (cached) return cached;
-      const fresh = await getNetWorthHistory(session.accessToken, session.spreadsheetId);
+      const fresh = await getNetWorthHistory(session.userId);
       setCache(nwhKey, fresh, 45_000);
       return fresh;
     })(),
     (async () => {
       const cached = getCache<Awaited<ReturnType<typeof getSettings>>>(settingsKey);
       if (cached) return cached;
-      const fresh = await getSettings(session.accessToken, session.spreadsheetId);
+      const fresh = await getSettings(session.userId);
       setCache(settingsKey, fresh, 45_000);
       return fresh;
     })(),
@@ -99,7 +99,7 @@ export default async function DashboardPage() {
   const currentMonthKey = thisMonth;
   const alreadySnapped = netWorthHistory.some((s) => s.month === currentMonthKey);
   if (!alreadySnapped) {
-    appendNetWorthSnapshot(session.accessToken, session.spreadsheetId, {
+    appendNetWorthSnapshot(session.userId, {
       id: `nw_${currentMonthKey}`,
       date: now.toISOString().split('T')[0],
       month: currentMonthKey,

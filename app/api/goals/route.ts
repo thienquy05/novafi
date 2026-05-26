@@ -1,48 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getGoals, upsertGoal, deleteGoal, reorderGoals } from '@/lib/sheets';
+import { getGoals, upsertGoal, deleteGoal, reorderGoals } from '@/lib/db';
 import { getCache, setCache, invalidateCache } from '@/lib/cache';
 import type { Goal } from '@/types';
 
 export async function GET() {
   const session = await auth();
-  if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!session?.userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const key = `goals:${session.spreadsheetId}`;
+  const key = `goals:${session.userId}`;
   const cached = getCache<Goal[]>(key);
   if (cached) return NextResponse.json(cached);
 
-  const goals = await getGoals(session.accessToken, session.spreadsheetId);
+  const goals = await getGoals(session.userId);
   setCache(key, goals, 60_000);
   return NextResponse.json(goals);
 }
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!session?.userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const body: Goal = await req.json();
-  await upsertGoal(session.accessToken, session.spreadsheetId, body);
-  invalidateCache(`goals:${session.spreadsheetId}`);
-  invalidateCache(`dashboard:${session.spreadsheetId}`);
+  await upsertGoal(session.userId, body);
+  invalidateCache(`goals:${session.userId}`);
+  invalidateCache(`dashboard:${session.userId}`);
   return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(req: NextRequest) {
   const session = await auth();
-  if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!session?.userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { id } = await req.json();
-  await deleteGoal(session.accessToken, session.spreadsheetId, id);
-  invalidateCache(`goals:${session.spreadsheetId}`);
-  invalidateCache(`dashboard:${session.spreadsheetId}`);
+  await deleteGoal(session.userId, id);
+  invalidateCache(`goals:${session.userId}`);
+  invalidateCache(`dashboard:${session.userId}`);
   return NextResponse.json({ ok: true });
 }
 
 export async function PATCH(req: NextRequest) {
   const session = await auth();
-  if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!session?.userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const items: { id: string; position: number }[] = await req.json();
-  await reorderGoals(session.accessToken, session.spreadsheetId, items);
-  invalidateCache(`goals:${session.spreadsheetId}`);
-  invalidateCache(`dashboard:${session.spreadsheetId}`);
+  await reorderGoals(session.userId, items);
+  invalidateCache(`goals:${session.userId}`);
+  invalidateCache(`dashboard:${session.userId}`);
   return NextResponse.json({ ok: true });
 }
