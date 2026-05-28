@@ -83,6 +83,44 @@ export function calcEffectiveBudget(baseBudget: number, carryover: number): numb
   return baseBudget + carryover;
 }
 
+// ── Spending Pace / Velocity ──────────────────────────────────────────────────
+// Extrapolates current spending rate to project end-of-month total.
+// Formula: projected = (spent / daysElapsed) × daysInMonth
+export function calcProjectedSpend(spent: number, daysElapsed: number, daysInMonth: number): number {
+  if (daysElapsed <= 0) return 0;
+  return (spent / daysElapsed) * daysInMonth;
+}
+
+export type SpendingPaceItem = {
+  category: string;
+  budget: number;
+  spent: number;
+  projected: number;
+  pace: number;          // daily spend rate
+  status: 'over' | 'atRisk' | 'onTrack';
+  overshootAmt: number;  // projected - budget (0 if onTrack/over)
+};
+
+export function calcSpendingPace(
+  budgets: Budget[],
+  categorySpend: Record<string, number>,
+  daysElapsed: number,
+  daysInMonth: number,
+): SpendingPaceItem[] {
+  return budgets.map((b) => {
+    const budget = normalizeMonthlyBudget(b.amount, b.period);
+    const spent = categorySpend[b.category] ?? 0;
+    const projected = calcProjectedSpend(spent, daysElapsed, daysInMonth);
+    const pace = daysElapsed > 0 ? spent / daysElapsed : 0;
+    const status: SpendingPaceItem['status'] =
+      spent > budget ? 'over' :
+      projected > budget ? 'atRisk' :
+      'onTrack';
+    const overshootAmt = status === 'atRisk' ? projected - budget : 0;
+    return { category: b.category, budget, spent, projected, pace, status, overshootAmt };
+  });
+}
+
 // ── Emergency Fund ────────────────────────────────────────────────────────────
 
 export function calcAvgMonthlyExpense(monthlySums: number[]): number {

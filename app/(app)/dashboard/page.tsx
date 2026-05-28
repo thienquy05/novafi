@@ -10,10 +10,11 @@ import {
   calcDebtToIncomeScore, calcDebtToIncomeRatio,
   calcNetWorthTrendScore, calcAvgMomPct,
   calcSpendingVolatilityScore, calcCoefficientOfVariation,
+  calcSpendingPace,
 } from '@/lib/calculations';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { TrendingUp, TrendingDown, Calendar, PiggyBank, ArrowUpRight, Wallet, BarChart3, ArrowLeftRight } from 'lucide-react';
-import { SpendingPieChart, MonthlyBarChart, BudgetBars, GoalsSummary, NetWorthTrendChart, HealthBanner, EmergencyFundWidget, FinancialHealthScore } from './DashboardCharts';
+import { SpendingPieChart, MonthlyBarChart, BudgetBars, GoalsSummary, NetWorthTrendChart, HealthBanner, EmergencyFundWidget, FinancialHealthScore, SpendingPaceWidget } from './DashboardCharts';
 import { QuickAddTransaction } from './QuickAddTransaction';
 import { CategoryIconBadge } from '@/components/CategoryIcon';
 import type { NetWorthPoint } from './DashboardCharts';
@@ -196,6 +197,9 @@ export default async function DashboardPage() {
     prevMonthSpent: prevMonthCategorySpend[b.category] ?? 0,
   }));
   const overBudgetCount = budgetData.filter((b) => b.spent > b.budget).length;
+
+  // Spending pace for the pace widget
+  const spendingPaceData = calcSpendingPace(budgets, categorySpend, daysElapsed, daysInMonth);
 
   // Emergency fund — pull from precomputed monthlyTotals instead of rescanning
   const liquidSavings = calcLiquidSavings(accounts);
@@ -493,6 +497,27 @@ export default async function DashboardPage() {
           </div>
         </Card>
       </div>
+
+      {/* Spending Pace */}
+      {spendingPaceData.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-amber-50 border border-amber-100">
+                <TrendingUp className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <CardTitle>{t('dashboard.spendingPace', lang)}</CardTitle>
+                <p className="text-xs font-medium text-slate-500 mt-0.5">{t('dashboard.spendingPaceSubtitle', lang)}</p>
+              </div>
+            </div>
+            <a href="/planning" className="text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors">{t('common.viewAll', lang)}</a>
+          </CardHeader>
+          <div className="mt-4">
+            <SpendingPaceWidget data={spendingPaceData} daysLeft={daysLeft} />
+          </div>
+        </Card>
+      )}
 
       {/* Upcoming Bills + Recent Transactions */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

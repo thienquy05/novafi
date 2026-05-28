@@ -4,6 +4,7 @@ import {
   calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, pctChange,
   normalizeMonthlyBudget,
   calcRolloverCarryover, calcEffectiveBudget,
+  calcProjectedSpend, calcSpendingPace,
   calcAvgMonthlyExpense, calcEmergencyFundMonths,
   calcSavingsRateScore, calcEmergencyScore, calcBudgetScore, calcDebtScore, calcHealthGrade,
   calcDebtToIncomeScore, calcDebtToIncomeRatio,
@@ -841,5 +842,87 @@ describe('calcEffectiveBudget', () => {
     const prevSpend = 600;
     const carryover = calcRolloverCarryover(base, prevSpend);
     expect(calcEffectiveBudget(base, carryover)).toBe(400);
+  });
+});
+
+// ── Spending Pace ─────────────────────────────────────────────────────────────
+
+function makeBudgetItem(overrides: Partial<Budget> & { category: string; amount: number }): Budget {
+  return { id: 'b_1', period: 'monthly' as const, position: 0, ...overrides };
+}
+
+describe('calcProjectedSpend', () => {
+  it('projects correctly mid-month', () => {
+    // spent $150 in 15 days of 30-day month → project $300
+    expect(calcProjectedSpend(150, 15, 30)).toBeCloseTo(300, 4);
+  });
+
+  it('day 1: extrapolates a full month from one day', () => {
+    expect(calcProjectedSpend(10, 1, 31)).toBeCloseTo(310, 4);
+  });
+
+  it('daysElapsed = 0 → returns 0 (no division by zero)', () => {
+    expect(calcProjectedSpend(100, 0, 30)).toBe(0);
+  });
+
+  it('spent = 0 → projected = 0 regardless of days', () => {
+    expect(calcProjectedSpend(0, 15, 30)).toBe(0);
+  });
+});
+
+describe('calcSpendingPace', () => {
+  const budgets = [
+    makeBudgetItem({ id: 'b1', category: 'Food', amount: 500 }),
+    makeBudgetItem({ id: 'b2', category: 'Entertainment', amount: 200 }),
+    makeBudgetItem({ id: 'b3', category: 'Grocery', amount: 300 }),
+  ];
+
+  it('already-over category gets status "over"', () => {
+    const spend = { Food: 550, Entertainment: 50, Grocery: 100 };
+    const result = calcSpendingPace(budgets, spend, 15, 30);
+    expect(result.find((r) => r.category === 'Food')?.status).toBe('over');
+  });
+
+  it('pace-to-overshoot category gets status "atRisk"', () => {
+    // Entertainment: spent $120 in 15 of 30 days → projected $240 > $200
+    const spend = { Food: 100, Entertainment: 120, Grocery: 50 };
+    const result = calcSpendingPace(budgets, spend, 15, 30);
+    expect(result.find((r) => r.category === 'Entertainment')?.status).toBe('atRisk');
+  });
+
+  it('on-track category gets status "onTrack"', () => {
+    // Grocery: spent $100 in 15 days → projected $200 < $300
+    const spend = { Food: 100, Entertainment: 50, Grocery: 100 };
+    const result = calcSpendingPace(budgets, spend, 15, 30);
+    expect(result.find((r) => r.category === 'Grocery')?.status).toBe('onTrack');
+  });
+
+  it('overshootAmt = 0 for onTrack and over categories', () => {
+    const spend = { Food: 600, Entertainment: 120, Grocery: 100 };
+    const result = calcSpendingPace(budgets, spend, 15, 30);
+    expect(result.find((r) => r.category === 'Food')?.overshootAmt).toBe(0);
+    expect(result.find((r) => r.category === 'Grocery')?.overshootAmt).toBe(0);
+  });
+
+  it('overshootAmt is correct for atRisk category', () => {
+    // Entertainment: spent $120/15 days → projected $240, budget $200 → overshoot = $40
+    const spend = { Food: 100, Entertainment: 120, Grocery: 50 };
+    const result = calcSpendingPace(budgets, spend, 15, 30);
+    const ent = result.find((r) => r.category === 'Entertainment')!;
+    expect(ent.overshootAmt).toBeCloseTo(40, 4);
+  });
+
+  it('category with no spending is onTrack', () => {
+    const spend = { Food: 100 };
+    const result = calcSpendingPace(budgets, spend, 15, 30);
+    expect(result.find((r) => r.category === 'Entertainment')?.status).toBe('onTrack');
+  });
+
+  it('weekly budget is normalized to monthly before comparison', () => {
+    // weekly $50 → monthly $216.50; spent $200 in 15 days → projected $400 → atRisk
+    const weeklyBudgets = [makeBudgetItem({ id: 'bw', category: 'Food', amount: 50, period: 'weekly' })];
+    const spend = { Food: 200 };
+    const result = calcSpendingPace(weeklyBudgets, spend, 15, 30);
+    expect(result[0].status).toBe('atRisk');
   });
 });

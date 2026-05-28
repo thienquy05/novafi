@@ -122,16 +122,18 @@
     "savings": "Tiết kiệm",
     "emergency": "Khẩn cấp",
     "loansExcl": "Không tính khoản vay · xem Nợ phải trả",
-    "vsLastMonth": "% so tháng trước"
+    "vsLastMonth": "% so tháng trước",
+    "spendingPace": "Tốc độ chi tiêu",
+    "spendingPaceSubtitle": "Dự báo chi tiêu cuối tháng theo danh mục"
   },
   "charts": {
     "greatShape": "Rất tốt",
     "lookingGood": "Khá tốt",
     "watchSpending": "Chú ý chi tiêu",
-    "overBudget": "Vượt ngân sách",
+    "overBudget": "vượt ngân sách",
     "setUpIncome": "Thiết lập thu nhập",
     "emergencyFund": "Quỹ khẩn cấp",
-    "atRisk": "Có rủi ro",
+    "atRisk": "có nguy cơ",
     "buildingUp": "Đang xây dựng",
     "gettingThere": "Đang tiến triển",
     "fullyFunded": "Đã đủ quỹ",
@@ -159,7 +161,9 @@
     "over": "vượt quá",
     "vsLastMo": "so tháng trước",
     "sameAsLastMo": "bằng tháng trước",
-    "overshoot": "vượt dự kiến"
+    "overshoot": "vượt dự kiến",
+    "allOnTrack": "Tất cả đều đúng hướng",
+    "paceOnTrack": "đúng hướng"
   },
   "quickAdd": {
     "title": "Giao dịch mới",

@@ -5,7 +5,8 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   AreaChart, Area, ReferenceLine,
 } from 'recharts';
-import { AlertTriangle, TrendingUp, Sparkles, DollarSign, Target } from 'lucide-react';
+import { AlertTriangle, TrendingUp, TrendingDown, Sparkles, DollarSign, Target, Zap } from 'lucide-react';
+import type { SpendingPaceItem } from '@/lib/calculations';
 import { formatCurrency } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { useTranslation } from '@/lib/i18n/context';
@@ -741,6 +742,104 @@ export function GoalsSummary({ data }: { data: GoalData[] }) {
         <a href="/planning?tab=goals" className="text-sm font-bold text-indigo-600 hover:text-indigo-500 block text-center pt-2 pb-1 transition-colors">
           {t('charts.viewMoreGoals', { n: data.length - 3 })}
         </a>
+      )}
+    </div>
+  );
+}
+
+// ── Spending Pace Widget ──────────────────────────────────────────────────────
+
+export function SpendingPaceWidget({ data, daysLeft }: { data: SpendingPaceItem[]; daysLeft: number }) {
+  const { t } = useTranslation();
+  if (data.length === 0) return null;
+
+  const atRisk = data.filter((d) => d.status === 'atRisk').sort((a, b) => b.overshootAmt - a.overshootAmt);
+  const over = data.filter((d) => d.status === 'over');
+  const onTrack = data.filter((d) => d.status === 'onTrack');
+  const alerts = [...over, ...atRisk];
+
+  return (
+    <div className="space-y-3">
+      {/* Summary row */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {alerts.length === 0 ? (
+          <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-100">
+            <Zap className="w-3 h-3" />{t('charts.allOnTrack')}
+          </span>
+        ) : (
+          <>
+            {over.length > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-700 bg-rose-50 px-3 py-1.5 rounded-full border border-rose-100">
+                <AlertTriangle className="w-3 h-3" />{over.length} {t('charts.overBudget')}
+              </span>
+            )}
+            {atRisk.length > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-700 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-100">
+                <TrendingUp className="w-3 h-3" />{atRisk.length} {t('charts.atRisk')}
+              </span>
+            )}
+            {onTrack.length > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100">
+                <Zap className="w-3 h-3" />{onTrack.length} {t('charts.paceOnTrack')}
+              </span>
+            )}
+          </>
+        )}
+        <span className="text-xs font-medium text-slate-400 ml-auto">{daysLeft}d left</span>
+      </div>
+
+      {/* Alert list */}
+      {alerts.length > 0 && (
+        <div className="space-y-2">
+          {alerts.slice(0, 4).map((item) => {
+            const isOver = item.status === 'over';
+            const pct = item.budget > 0 ? Math.min(100, (item.spent / item.budget) * 100) : 0;
+            return (
+              <div key={item.category} className={`p-3 rounded-2xl border ${isOver ? 'bg-rose-50/60 border-rose-100' : 'bg-amber-50/60 border-amber-100'}`}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-sm font-bold text-slate-900">{item.category}</p>
+                  <div className="text-right">
+                    <p className={`text-xs font-extrabold ${isOver ? 'text-rose-600' : 'text-amber-600'}`}>
+                      {isOver
+                        ? `-${formatCurrency(item.spent - item.budget)} over`
+                        : `~+${formatCurrency(item.overshootAmt)} projected`}
+                    </p>
+                  </div>
+                </div>
+                <div className="w-full bg-white/80 rounded-full h-1.5 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${isOver ? 'bg-rose-500' : 'bg-amber-500'}`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between mt-1">
+                  <p className="text-xs font-medium text-slate-500">
+                    {formatCurrency(item.spent)} / {formatCurrency(item.budget)}
+                  </p>
+                  <p className="text-xs font-medium text-slate-500">
+                    {formatCurrency(item.pace)}/day
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+          {alerts.length > 4 && (
+            <a href="/planning" className="text-xs font-bold text-indigo-600 hover:text-indigo-500 block text-center pt-1 transition-colors">
+              +{alerts.length - 4} more → Planning
+            </a>
+          )}
+        </div>
+      )}
+
+      {/* On-track list (compact) */}
+      {onTrack.length > 0 && alerts.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 pt-1">
+          {onTrack.map((item) => (
+            <span key={item.category} className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 bg-slate-50 px-2.5 py-1 rounded-full border border-slate-100">
+              <TrendingDown className="w-2.5 h-2.5 text-emerald-500" />{item.category}
+            </span>
+          ))}
+        </div>
       )}
     </div>
   );

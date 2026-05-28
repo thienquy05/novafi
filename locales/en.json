@@ -122,16 +122,18 @@
     "savings": "Savings",
     "emergency": "Emergency",
     "loansExcl": "Loans excl. · see Liabilities",
-    "vsLastMonth": "% vs last mo"
+    "vsLastMonth": "% vs last mo",
+    "spendingPace": "Spending Pace",
+    "spendingPaceSubtitle": "Projected end-of-month by category"
   },
   "charts": {
     "greatShape": "Great shape",
     "lookingGood": "Looking good",
     "watchSpending": "Watch spending",
-    "overBudget": "Over budget",
+    "overBudget": "already over",
     "setUpIncome": "Set up income",
     "emergencyFund": "Emergency Fund",
-    "atRisk": "At risk",
+    "atRisk": "at risk",
     "buildingUp": "Building up",
     "gettingThere": "Getting there",
     "fullyFunded": "Fully funded",
@@ -159,7 +161,9 @@
     "over": "over",
     "vsLastMo": "vs last mo",
     "sameAsLastMo": "same as last mo",
-    "overshoot": "overshoot"
+    "overshoot": "overshoot",
+    "allOnTrack": "All categories on track",
+    "paceOnTrack": "on track"
   },
   "quickAdd": {
     "title": "New Transaction",
