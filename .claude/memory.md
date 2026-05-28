@@ -56,6 +56,29 @@
 
 ---
 
+## 2026-05-28 — Google Sheets row cleanup: remove 1000-row ceiling & auto-trim NetWorthHistory
+
+**Branch:** `claude/sheets-memory-cleanup-VtQGV`
+
+**Problem:** All high-volume sheet reads used hardcoded `A2:X1000` ranges, silently ignoring any rows written past row 1000. No enforcement prevented writes beyond this limit, creating a data visibility bug.
+
+**Changes:**
+
+1. **Lifted the artificial 1000-row ceiling** on Transactions and Paychecks (financial records that must never be auto-deleted):
+   - `getTransactions`: `Transactions!A2:I1000` → `Transactions!A2:I`
+   - `getPaychecks`: `Paychecks!A2:K1000` → `Paychecks!A2:K`
+   - `batchGetBadgesData`: same Transactions range update
+   - `batchGetDashboardData`: same Paychecks + Transactions range updates
+
+2. **Also unbounded the NetWorthHistory read range**: `NetWorthHistory!A2:D1000` → `NetWorthHistory!A2:D`
+
+3. **Added auto-trim logic in `appendNetWorthSnapshot`**: After each append, reads the current row count. If ≥ 1000, deletes the oldest 500 data rows (startIndex=1, endIndex=501 in 0-indexed) via `deleteDimension` batchUpdate. This is safe for monthly snapshots (not transactional records) and keeps the sheet lean indefinitely.
+
+**Files changed:**
+- `lib/sheets.ts`: 6 range string updates + `appendNetWorthSnapshot` cleanup block.
+
+---
+
 ## 2026-05-14 — Fix credit refund balance bug
 
 **Branch:** `claude/fix-credit-refund-YYNab`
