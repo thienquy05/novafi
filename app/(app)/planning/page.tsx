@@ -705,7 +705,7 @@ function BudgetItem({ budget, monthly, carryover, spent, prevSpent, rollingAvg, 
               <GripVertical className="w-4 h-4" />
             </button>
             <div className="min-w-0">
-              <p className="text-sm font-bold text-slate-900">{budget.category}</p>
+              <p className="text-sm font-bold text-slate-900 truncate">{budget.category}</p>
               <p className="text-xs font-medium text-slate-500 mt-0.5">
                 {formatCurrency(budget.amount)}/{budget.period}
                 {budget.period !== 'monthly' ? ` · ${formatCurrency(monthly)}/mo` : ''}
