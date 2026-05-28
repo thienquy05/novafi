@@ -89,7 +89,7 @@ export function Sidebar() {
   const { t } = useTranslation();
 
   return (
-    <aside className="hidden md:flex flex-col w-64 min-h-screen bg-white/80 backdrop-blur-xl border-r border-slate-200 px-4 py-8 shrink-0 relative z-50">
+    <aside className="hidden md:flex flex-col w-64 min-h-screen bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-r border-slate-200 dark:border-slate-700/50 px-4 py-8 shrink-0 relative z-50">
       {/* Logo */}
       <div className="flex items-center gap-3 px-2 mb-10">
         <div className="relative">
@@ -97,8 +97,8 @@ export function Sidebar() {
           <LogoMark className="relative w-10 h-10 rounded-xl shadow-lg" />
         </div>
         <div>
-          <p className="text-slate-900 font-bold text-lg tracking-tight leading-none">Nova<span className="text-gradient">Fi</span></p>
-          <p className="text-slate-500 text-xs font-medium mt-1">{t('nav.wealthManagement')}</p>
+          <p className="text-slate-900 dark:text-white font-bold text-lg tracking-tight leading-none">Nova<span className="text-gradient">Fi</span></p>
+          <p className="text-slate-500 dark:text-slate-400 text-xs font-medium mt-1">{t('nav.wealthManagement')}</p>
         </div>
       </div>
 
@@ -114,14 +114,14 @@ export function Sidebar() {
               className={cn(
                 'relative flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-semibold transition-colors duration-150 group overflow-hidden tap-highlight-none select-none',
                 active
-                  ? 'text-indigo-600'
-                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+                  ? 'text-indigo-600 dark:text-indigo-400'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800'
               )}
             >
               {active && (
                 <motion.div
                   layoutId="sidebar-active"
-                  className="absolute inset-0 bg-indigo-50 border border-indigo-100 rounded-xl"
+                  className="absolute inset-0 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50 rounded-xl"
                   initial={false}
                   transition={{ type: 'spring', bounce: 0.15, duration: 0.35 }}
                 />
@@ -142,7 +142,7 @@ export function Sidebar() {
       {/* Sign out */}
       <button
         onClick={() => signOut({ callbackUrl: '/' })}
-        className="group flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-semibold text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors duration-150 mt-auto tap-highlight-none select-none"
+        className="group flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-semibold text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors duration-150 mt-auto tap-highlight-none select-none"
       >
         <LogOut className="w-5 h-5 shrink-0 group-hover:scale-110 transition-transform duration-150" />
         {t('nav.signOut')}
@@ -154,14 +154,14 @@ export function Sidebar() {
 export function MobileHeader() {
   const { t } = useTranslation();
   return (
-    <header className="md:hidden flex items-center justify-between px-4 py-4 bg-white/90 backdrop-blur-xl border-b border-slate-200 sticky top-0 z-40">
+    <header className="md:hidden flex items-center justify-between px-4 py-4 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-slate-200 dark:border-slate-700/50 sticky top-0 z-40">
       <div className="flex items-center gap-3">
         <LogoMark className="w-9 h-9 rounded-xl shadow-md" />
-        <p className="text-slate-900 font-bold text-xl tracking-tight leading-none">Nova<span className="text-gradient">Fi</span></p>
+        <p className="text-slate-900 dark:text-white font-bold text-xl tracking-tight leading-none">Nova<span className="text-gradient">Fi</span></p>
       </div>
       <button
         onClick={() => signOut({ callbackUrl: '/' })}
-        className="p-2.5 text-slate-500 hover:text-rose-600 bg-slate-50 hover:bg-rose-50 rounded-full transition-colors duration-150 tap-highlight-none"
+        className="p-2.5 text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 bg-slate-50 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-full transition-colors duration-150 tap-highlight-none"
         aria-label={t('nav.signOut')}
       >
         <LogOut className="w-5 h-5" />
@@ -274,14 +274,14 @@ export function MobileNav() {
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring', bounce: 0.1, duration: 0.38 }}
-            className="md:hidden fixed bottom-[72px] left-0 right-0 z-50 bg-white rounded-t-3xl border-t border-slate-200 shadow-[0_-20px_60px_rgba(0,0,0,0.12)] px-4 pt-5 pb-6 max-h-[80vh] overflow-y-auto"
+            className="md:hidden fixed bottom-[72px] left-0 right-0 z-50 bg-white dark:bg-slate-800 rounded-t-3xl border-t border-slate-200 dark:border-slate-700 shadow-[0_-20px_60px_rgba(0,0,0,0.12)] px-4 pt-5 pb-6 max-h-[80vh] overflow-y-auto"
           >
-            <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-4" />
+            <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full mx-auto mb-4" />
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-bold text-slate-900">{t('nav.navigationOrder')}</h2>
+              <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('nav.navigationOrder')}</h2>
               <button
                 onClick={() => setCustomizeOpen(false)}
-                className="text-sm font-semibold text-indigo-600 tap-highlight-none px-1"
+                className="text-sm font-semibold text-indigo-600 dark:text-indigo-400 tap-highlight-none px-1"
               >
                 {t('nav.done')}
               </button>
@@ -302,7 +302,7 @@ export function MobileNav() {
                   <div className="flex items-center gap-3 py-2.5 px-2 rounded-xl">
                     <span className="w-5 h-5 flex items-center justify-center text-[11px] font-bold text-slate-300 shrink-0">{index + 1}</span>
                     <Icon className="w-5 h-5 text-slate-500 shrink-0" />
-                    <span className="flex-1 text-sm font-semibold text-slate-700">{t(labelKey)}</span>
+                    <span className="flex-1 text-sm font-semibold text-slate-700 dark:text-slate-300">{t(labelKey)}</span>
                     <div className="flex items-center gap-0.5">
                       <button
                         onClick={() => moveItem(index, 'up')}
@@ -344,9 +344,9 @@ export function MobileNav() {
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring', bounce: 0.1, duration: 0.38 }}
-            className="md:hidden fixed bottom-[72px] left-0 right-0 z-50 bg-white rounded-t-3xl border-t border-slate-200 shadow-[0_-20px_60px_rgba(0,0,0,0.12)] px-4 pt-5 pb-6"
+            className="md:hidden fixed bottom-[72px] left-0 right-0 z-50 bg-white dark:bg-slate-800 rounded-t-3xl border-t border-slate-200 dark:border-slate-700 shadow-[0_-20px_60px_rgba(0,0,0,0.12)] px-4 pt-5 pb-6"
           >
-            <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-5" />
+            <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full mx-auto mb-5" />
 
             <div className="grid grid-cols-5 gap-2">
               {moreNav.map(({ href, labelKey, icon: Icon, badgeKey }) => {
@@ -358,7 +358,7 @@ export function MobileNav() {
                     href={href}
                     className={cn(
                       'flex flex-col items-center gap-1.5 py-3 px-1 rounded-2xl transition-colors duration-150 tap-highlight-none select-none',
-                      active ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 active:bg-slate-50'
+                      active ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 active:bg-slate-50 dark:active:bg-slate-700'
                     )}
                   >
                     <div className="relative">
@@ -381,14 +381,14 @@ export function MobileNav() {
             <div className="mt-4 flex gap-2">
               <button
                 onClick={() => { setSheetOpen(false); setCustomizeOpen(true); }}
-                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors duration-150 border border-slate-100 tap-highlight-none select-none"
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors duration-150 border border-slate-100 dark:border-slate-700 tap-highlight-none select-none"
               >
                 <Sliders className="w-4 h-4" />
                 {t('nav.customize')}
               </button>
               <button
                 onClick={() => signOut({ callbackUrl: '/' })}
-                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors duration-150 border border-slate-100 tap-highlight-none select-none"
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors duration-150 border border-slate-100 dark:border-slate-700 tap-highlight-none select-none"
               >
                 <LogOut className="w-4 h-4" />
                 {t('nav.signOut')}
@@ -399,7 +399,7 @@ export function MobileNav() {
       </AnimatePresence>
 
       {/* Bottom bar */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-slate-200 px-2 py-2 flex items-center justify-around z-50 pb-safe shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-t border-slate-200 dark:border-slate-700/50 px-2 py-2 flex items-center justify-around z-50 pb-safe shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
         {primaryNav.map(({ href, labelKey, icon: Icon, badgeKey }) => {
           const active = path === href || path.startsWith(href + '/');
           const badgeCount = badgeKey ? badges[badgeKey] : 0;
@@ -409,14 +409,14 @@ export function MobileNav() {
               href={href}
               className={cn(
                 'relative flex flex-col items-center gap-1 p-2 rounded-xl transition-colors duration-150 min-w-[58px] min-h-[52px] justify-center tap-highlight-none select-none',
-                active ? 'text-indigo-600' : 'text-slate-400'
+                active ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'
               )}
             >
               <AnimatePresence>
                 {active && (
                   <motion.div
                     layoutId="mobile-nav-active"
-                    className="absolute inset-0 bg-indigo-50 rounded-xl"
+                    className="absolute inset-0 bg-indigo-50 dark:bg-indigo-900/30 rounded-xl"
                     initial={false}
                     exit={{ opacity: 0 }}
                     transition={{ type: 'spring', bounce: 0.15, duration: 0.35 }}
@@ -444,7 +444,7 @@ export function MobileNav() {
           onClick={() => setSheetOpen((v) => !v)}
           className={cn(
             'relative flex flex-col items-center gap-1 p-2 rounded-xl transition-colors duration-150 min-w-[58px] min-h-[52px] justify-center tap-highlight-none select-none',
-            (moreActive || sheetOpen) ? 'text-indigo-600' : 'text-slate-400'
+            (moreActive || sheetOpen) ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'
           )}
         >
           <AnimatePresence>

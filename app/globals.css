@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Class-based dark mode: dark: variants activate when .dark is present on html */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   /* Semantic tokens */
   --color-background:    #f0f7ff;
@@ -29,6 +32,9 @@
     /* Prevent overscroll bounce on iOS causing layout jank */
     overscroll-behavior: none;
   }
+  html.dark {
+    color-scheme: dark;
+  }
   body {
     background-color: var(--color-background);
     color: #0f172a;
@@ -42,6 +48,12 @@
       radial-gradient(circle at 85% 30%, rgba(21, 104, 163, 0.05) 0%, transparent 50%);
     /* Removes the 300 ms tap-delay on mobile touch browsers */
     touch-action: manipulation;
+  }
+  .dark body {
+    background-color: #0f172a;
+    background-image:
+      radial-gradient(circle at 15% 50%, rgba(30, 127, 191, 0.04) 0%, transparent 50%),
+      radial-gradient(circle at 85% 30%, rgba(21, 104, 163, 0.03) 0%, transparent 50%);
   }
   ::-webkit-scrollbar {
     width: 6px;

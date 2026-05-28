@@ -53,6 +53,7 @@
     "quarterly": "Hàng quý",
     "yearly": "Hàng năm",
     "net": "Ròng",
+    "type": "Loại",
     "total": "Tổng cộng",
     "manage": "Quản lý",
     "viewAll": "Xem tất cả →",
@@ -204,7 +205,13 @@
     "merchantCount": "{n} người bán · sắp xếp theo tổng",
     "transactionCount": "{n} giao dịch · lần cuối {date}",
     "noDescription": "(không có mô tả)",
-    "spending": "Chi tiêu"
+    "spending": "Chi tiêu",
+    "noTransactionsYet": "Chưa có giao dịch",
+    "noTransactionsYetBody": "Bắt đầu theo dõi tài chính — thêm giao dịch đầu tiên của bạn.",
+    "noResultsTitle": "Không tìm thấy kết quả",
+    "noResultsBody": "Thử điều chỉnh tìm kiếm hoặc bộ lọc.",
+    "clearFilters": "Xóa bộ lọc",
+    "filters": "Bộ lọc"
   },
   "paychecks": {
     "title": "Phiếu lương",
@@ -447,7 +454,9 @@
     "forceRefresh": "Làm mới bắt buộc",
     "refreshing": "Đang làm mới…",
     "budgetRollover": "Chuyển ngân sách",
-    "budgetRolloverDesc": "Chuyển phần ngân sách còn lại (thừa hoặc thiếu) sang tháng tiếp theo. Tiêu ít hơn sẽ cộng thêm vào tháng sau; tiêu nhiều hơn sẽ trừ đi."
+    "budgetRolloverDesc": "Chuyển phần ngân sách còn lại (thừa hoặc thiếu) sang tháng tiếp theo. Tiêu ít hơn sẽ cộng thêm vào tháng sau; tiêu nhiều hơn sẽ trừ đi.",
+    "darkMode": "Chế độ tối",
+    "darkModeDesc": "Chuyển sang giao diện tối hơn, dễ nhìn hơn vào ban đêm."
   },
   "categories": {
     "Food": "Ăn uống",

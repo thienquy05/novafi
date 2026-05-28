@@ -1,14 +1,14 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Trash2, Search, Pencil, RefreshCw, AlertCircle, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronRight, X } from 'lucide-react';
+import { Plus, Trash2, Search, Pencil, RefreshCw, AlertCircle, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronRight, X, Filter, ArrowLeftRight } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { TransactionsSkeleton } from '@/components/ui/Skeleton';
-import { FitText } from '@/components/ui/FitText';
-import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
+import { formatCurrency, formatCompact, formatDate, generateId, today } from '@/lib/utils';
+import { motion, useMotionValue, animate, AnimatePresence } from 'framer-motion';
 import { EXPENSE_CATEGORIES } from '@/types';
 import type { Transaction, Account } from '@/types';
 import { CategoryIconBadge } from '@/components/CategoryIcon';
@@ -107,6 +107,7 @@ export default function TransactionsPage() {
   const [expandedMerchant, setExpandedMerchant] = useState<string | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const toast = useToast();
   const { expenseCategories, incomeCategories } = useCategories();
   const { t } = useTranslation();
@@ -253,6 +254,16 @@ export default function TransactionsPage() {
   }, [filtered]);
   const accountName = (id: string) => accountMap[id] ?? id;
   const merchantRows = useMemo(() => buildMerchantRows(filtered), [filtered]);
+  const groupedByDate = useMemo(() => {
+    const groups: Array<{ date: string; txs: Transaction[] }> = [];
+    for (const tx of filtered) {
+      const last = groups[groups.length - 1];
+      if (!last || last.date !== tx.date) groups.push({ date: tx.date, txs: [tx] });
+      else last.txs.push(tx);
+    }
+    return groups;
+  }, [filtered]);
+  const activeFilterCount = (filter !== 'all' ? 1 : 0) + (categoryFilter ? 1 : 0);
 
   const filterLabels: Record<string, string> = {
     all: t('common.all'),
@@ -294,49 +305,57 @@ export default function TransactionsPage() {
 
       <div className="grid grid-cols-3 gap-3">
         <Card className="p-4 sm:p-5 min-w-0">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('common.income')}</p>
-          <FitText maxSize={20} minSize={12} className="font-extrabold text-emerald-600 mt-1.5">{formatCurrency(totalIncome)}</FitText>
+          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('common.income')}</p>
+          <p className="font-extrabold text-emerald-600 mt-1.5 text-base sm:text-lg truncate">{formatCompact(totalIncome)}</p>
         </Card>
         <Card className="p-4 sm:p-5 min-w-0">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('transactions.spending')}</p>
-          <FitText maxSize={20} minSize={12} className="font-extrabold text-rose-600 mt-1.5">{formatCurrency(totalExpense)}</FitText>
+          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('transactions.spending')}</p>
+          <p className="font-extrabold text-rose-600 mt-1.5 text-base sm:text-lg truncate">{formatCompact(totalExpense)}</p>
         </Card>
-        <Card className="p-4 sm:p-5 min-w-0 border-indigo-100">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('common.net')}</p>
-          <FitText maxSize={20} minSize={12} className={`font-extrabold mt-1.5 ${totalIncome - totalExpense >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(totalIncome - totalExpense)}</FitText>
+        <Card className="p-4 sm:p-5 min-w-0 border-indigo-100 dark:border-indigo-800/50">
+          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('common.net')}</p>
+          <p className={`font-extrabold mt-1.5 text-base sm:text-lg truncate ${totalIncome - totalExpense >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCompact(totalIncome - totalExpense)}</p>
         </Card>
       </div>
 
       {/* Filters + view toggle */}
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col md:flex-row gap-3">
-          <div className="relative flex-1 max-w-full md:max-w-md">
+      <div className="flex flex-col gap-2">
+        <div className="flex gap-2 items-center">
+          <div className="relative flex-1">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input className="w-full h-11 pl-10 pr-4 rounded-2xl border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all duration-200 shadow-sm" placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            <input className="w-full h-11 pl-10 pr-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all duration-200 shadow-sm" placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-          <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
-            {(['all', 'income', 'expense', 'transfer'] as const).map((f) => (
-              <button key={f} onClick={() => setFilter(f)} className={`px-4 h-11 rounded-2xl text-sm font-bold transition-all duration-200 whitespace-nowrap ${filter === f ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-slate-200'}`}>
-                {filterLabels[f]}
-              </button>
-            ))}
-            {/* View toggle */}
-            <div className="flex bg-white border border-slate-200 rounded-2xl overflow-hidden">
-              <button onClick={() => setViewMode('list')} className={`px-3 h-11 transition-all duration-200 ${viewMode === 'list' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-900'}`} title="List view">
-                <List className="w-4 h-4" />
-              </button>
-              <button onClick={() => setViewMode('merchant')} className={`px-3 h-11 transition-all duration-200 ${viewMode === 'merchant' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-900'}`} title="By merchant">
-                <Users className="w-4 h-4" />
-              </button>
-            </div>
+          <button
+            onClick={() => setFilterSheetOpen(true)}
+            className={`h-11 px-4 rounded-2xl text-sm font-bold transition-all duration-200 flex items-center gap-2 shrink-0 ${activeFilterCount > 0 ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'}`}
+          >
+            <Filter className="w-4 h-4" />
+            {activeFilterCount > 0 ? `${t('transactions.filters')} (${activeFilterCount})` : t('transactions.filters')}
+          </button>
+          <div className="flex bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden shrink-0">
+            <button onClick={() => setViewMode('list')} className={`px-3 h-11 transition-all duration-200 ${viewMode === 'list' ? 'bg-indigo-600 text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}`} title="List view">
+              <List className="w-4 h-4" />
+            </button>
+            <button onClick={() => setViewMode('merchant')} className={`px-3 h-11 transition-all duration-200 ${viewMode === 'merchant' ? 'bg-indigo-600 text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}`} title="By merchant">
+              <Users className="w-4 h-4" />
+            </button>
           </div>
         </div>
-        <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
-          <button onClick={() => setCategoryFilter('')} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${!categoryFilter ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'}`}>{t('common.all')}</button>
-          {expenseCategories.map((c) => (
-            <button key={c} onClick={() => setCategoryFilter(categoryFilter === c ? '' : c)} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${categoryFilter === c ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'}`}>{c}</button>
-          ))}
-        </div>
+        {/* Active filter chips */}
+        {activeFilterCount > 0 && (
+          <div className="flex gap-2 flex-wrap">
+            {filter !== 'all' && (
+              <button onClick={() => setFilter('all')} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold border border-indigo-100 dark:border-indigo-800/50">
+                {filterLabels[filter]} <X className="w-3 h-3" />
+              </button>
+            )}
+            {categoryFilter && (
+              <button onClick={() => setCategoryFilter('')} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold border border-indigo-100 dark:border-indigo-800/50">
+                {categoryFilter} <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {loading ? (
@@ -349,10 +368,27 @@ export default function TransactionsPage() {
           <Button variant="secondary" onClick={load}>{t('common.tryAgain')}</Button>
         </div>
       ) : filtered.length === 0 ? (
-        <Card className="text-center py-16 bg-slate-50 border-slate-100">
-          <p className="text-slate-500 font-bold">No transactions found.</p>
-          {transactions.length === 0 && <Button onClick={openAdd} className="mt-4 shadow-sm">{t('transactions.addTransaction')}</Button>}
-        </Card>
+        transactions.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <div className="w-20 h-20 rounded-3xl bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center mb-5">
+              <ArrowLeftRight className="w-8 h-8 text-indigo-400" />
+            </div>
+            <h3 className="text-slate-800 dark:text-slate-200 font-bold text-lg mb-1">{t('transactions.noTransactionsYet')}</h3>
+            <p className="text-slate-500 dark:text-slate-400 text-sm mb-6 max-w-xs">{t('transactions.noTransactionsYetBody')}</p>
+            <Button onClick={openAdd} className="shadow-sm"><Plus className="w-4 h-4" />{t('transactions.addTransaction')}</Button>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <div className="w-20 h-20 rounded-3xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-5">
+              <Search className="w-8 h-8 text-slate-400" />
+            </div>
+            <h3 className="text-slate-800 dark:text-slate-200 font-bold text-lg mb-1">{t('transactions.noResultsTitle')}</h3>
+            <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">{t('transactions.noResultsBody')}</p>
+            <Button variant="secondary" onClick={() => { setSearch(''); setFilter('all'); setCategoryFilter(''); }}>
+              {t('transactions.clearFilters')}
+            </Button>
+          </div>
+        )
       ) : viewMode === 'merchant' ? (
         /* ── Merchant View ─────────────────────────────────────────────── */
         <div className="space-y-2">
@@ -400,30 +436,18 @@ export default function TransactionsPage() {
           })}
         </div>
       ) : (
-        /* ── List View ─────────────────────────────────────────────────── */
-        <div className="space-y-2.5">
-          {filtered.map((tx) => (
-            <div key={tx.id} className="flex items-center justify-between p-4 sm:p-4.5 rounded-3xl bg-white border border-slate-100 transition-all duration-200">
-              <div className="flex items-center gap-3.5 flex-1 min-w-0">
-                <CategoryIconBadge category={tx.category} type={tx.type} className="w-11 h-11 rounded-2xl" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold text-slate-900 truncate">{tx.description || tx.category}</p>
-                  <div className="flex items-center gap-1 mt-0.5">
-                    <p className="text-xs font-medium text-slate-500 truncate min-w-0">
-                      {tx.category}{tx.account ? ` · ${accountName(tx.account)}` : ''}{tx.type === 'transfer' && tx.toAccount ? ` → ${accountName(tx.toAccount)}` : ''}
-                    </p>
-                    <span className="text-xs font-medium text-slate-400 shrink-0">· {formatDate(tx.date)}</span>
-                  </div>
-                </div>
+        /* ── List View (date-grouped + swipe-to-delete) ────────────────── */
+        <div className="space-y-1">
+          {groupedByDate.map(({ date, txs }) => (
+            <div key={date}>
+              <div className="flex items-center gap-3 px-1 py-2">
+                <span className="text-xs font-bold text-slate-400 dark:text-slate-500 whitespace-nowrap">{formatDate(date)}</span>
+                <div className="flex-1 h-px bg-slate-100 dark:bg-slate-800" />
               </div>
-              <div className="flex items-center gap-2 sm:gap-3 ml-3">
-                <span className={`text-sm font-extrabold whitespace-nowrap ${tx.type === 'income' ? 'text-emerald-600' : tx.type === 'transfer' ? 'text-blue-600' : 'text-slate-900'}`}>
-                  {tx.type === 'income' ? '+' : tx.type === 'transfer' ? '' : '-'}{formatCurrency(tx.amount)}
-                </span>
-                <div className="flex gap-1">
-                  <Button variant="ghost" size="icon" className="text-slate-400 h-9 w-9 rounded-xl" onClick={() => openEdit(tx)}><Pencil className="w-3.5 h-3.5" /></Button>
-                  <Button variant="ghost" size="icon" className="text-slate-400 h-9 w-9 rounded-xl" onClick={() => handleDelete(tx.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                </div>
+              <div className="space-y-2">
+                {txs.map((tx) => (
+                  <SwipeableRow key={tx.id} tx={tx} accountName={accountName} onEdit={openEdit} onDelete={handleDelete} />
+                ))}
               </div>
             </div>
           ))}
@@ -514,6 +538,124 @@ export default function TransactionsPage() {
           ))}
         </div>
       </Modal>
+
+      {/* ── Filter Sheet ─────────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {filterSheetOpen && (
+          <>
+            <motion.div
+              key="filter-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 bg-black/30 backdrop-blur-sm z-40"
+              onClick={() => setFilterSheetOpen(false)}
+            />
+            <motion.div
+              key="filter-sheet"
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', bounce: 0.1, duration: 0.38 }}
+              className="fixed bottom-[72px] left-0 right-0 z-50 bg-white dark:bg-slate-800 rounded-t-3xl border-t border-slate-200 dark:border-slate-700 shadow-[0_-20px_60px_rgba(0,0,0,0.12)] px-4 pt-5 pb-6 max-h-[70vh] overflow-y-auto"
+            >
+              <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full mx-auto mb-4" />
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('transactions.filters')}</h2>
+                <button onClick={() => setFilterSheetOpen(false)} className="text-sm font-semibold text-indigo-600 dark:text-indigo-400 tap-highlight-none px-1">{t('nav.done')}</button>
+              </div>
+              <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">{t('common.type')}</p>
+              <div className="flex gap-2 flex-wrap mb-5">
+                {(['all', 'income', 'expense', 'transfer'] as const).map((f) => (
+                  <button key={f} onClick={() => setFilter(f)} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${filter === f ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>
+                    {filterLabels[f]}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">{t('common.category')}</p>
+              <div className="flex gap-2 flex-wrap">
+                <button onClick={() => setCategoryFilter('')} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${!categoryFilter ? 'bg-indigo-600 text-white' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>{t('common.all')}</button>
+                {expenseCategories.map((c) => (
+                  <button key={c} onClick={() => setCategoryFilter(categoryFilter === c ? '' : c)} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${categoryFilter === c ? 'bg-indigo-600 text-white' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>{c}</button>
+                ))}
+              </div>
+              {activeFilterCount > 0 && (
+                <button onClick={() => { setFilter('all'); setCategoryFilter(''); }} className="mt-5 w-full py-2.5 text-sm font-semibold text-rose-500 dark:text-rose-400 hover:text-rose-600 tap-highlight-none">
+                  {t('transactions.clearFilters')}
+                </button>
+              )}
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ── Swipeable transaction row ──────────────────────────────────────────────────
+
+type SwipeRowProps = {
+  tx: Transaction;
+  accountName: (id: string) => string;
+  onEdit: (tx: Transaction) => void;
+  onDelete: (id: string) => void;
+};
+
+function SwipeableRow({ tx, accountName, onEdit, onDelete }: SwipeRowProps) {
+  const x = useMotionValue(0);
+  const [revealed, setRevealed] = useState(false);
+
+  function snapOpen() { animate(x, -76, { type: 'spring', stiffness: 400, damping: 40 }); setRevealed(true); }
+  function snapClose() { animate(x, 0, { type: 'spring', stiffness: 400, damping: 40 }); setRevealed(false); }
+
+  return (
+    <div className="relative rounded-3xl overflow-hidden">
+      {/* Delete reveal */}
+      <div className="absolute inset-y-0 right-0 w-[76px] bg-rose-500 rounded-r-3xl flex flex-col items-center justify-center gap-0.5">
+        <button
+          onClick={() => { onDelete(tx.id); snapClose(); }}
+          className="w-full h-full flex flex-col items-center justify-center gap-1 text-white"
+        >
+          <Trash2 className="w-5 h-5" />
+          <span className="text-[10px] font-bold">Delete</span>
+        </button>
+      </div>
+      <motion.div
+        drag="x"
+        dragConstraints={{ left: -76, right: 0 }}
+        dragMomentum={false}
+        style={{ x, touchAction: 'pan-y' }}
+        onDragEnd={(_, info) => {
+          if (info.offset.x < -40) snapOpen();
+          else snapClose();
+        }}
+        onClick={() => { if (revealed) snapClose(); }}
+        className="flex items-center justify-between p-4 rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 relative z-10 select-none"
+      >
+        <div className="flex items-center gap-3.5 flex-1 min-w-0">
+          <CategoryIconBadge category={tx.category} type={tx.type} className="w-11 h-11 rounded-2xl" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{tx.description || tx.category}</p>
+            <div className="flex items-center gap-1 mt-0.5">
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate min-w-0">
+                {tx.category}{tx.account ? ` · ${accountName(tx.account)}` : ''}{tx.type === 'transfer' && tx.toAccount ? ` → ${accountName(tx.toAccount)}` : ''}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 ml-3 shrink-0">
+          <span className={`text-sm font-extrabold whitespace-nowrap ${tx.type === 'income' ? 'text-emerald-600 dark:text-emerald-400' : tx.type === 'transfer' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-900 dark:text-slate-100'}`}>
+            {tx.type === 'income' ? '+' : tx.type === 'transfer' ? '' : '-'}{formatCurrency(tx.amount)}
+          </span>
+          <Button variant="ghost" size="icon" className="text-slate-400 h-9 w-9 rounded-xl" onClick={(e) => { e.stopPropagation(); onEdit(tx); }}>
+            <Pencil className="w-3.5 h-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon" className="text-slate-400 h-9 w-9 rounded-xl" onClick={(e) => { e.stopPropagation(); onDelete(tx.id); }}>
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      </motion.div>
     </div>
   );
 }
