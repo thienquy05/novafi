@@ -53,6 +53,7 @@
     "quarterly": "Quarterly",
     "yearly": "Yearly",
     "net": "Net",
+    "type": "Type",
     "total": "Total",
     "manage": "Manage",
     "viewAll": "View All →",
@@ -70,7 +71,8 @@
     "color": "Color",
     "icon": "Icon",
     "optional": "optional",
-    "deleteConfirm": "Are you sure?"
+    "deleteConfirm": "Are you sure?",
+    "netSavings": "Net Savings"
   },
   "login": {
     "tagline": "Wealth management, redefined.",
@@ -122,16 +124,22 @@
     "savings": "Savings",
     "emergency": "Emergency",
     "loansExcl": "Loans excl. · see Liabilities",
-    "vsLastMonth": "% vs last mo"
+    "vsLastMonth": "% vs last mo",
+    "spendingPace": "Spending Pace",
+    "spendingPaceSubtitle": "Projected end-of-month by category",
+    "billForecast": "Bills This Month",
+    "billForecastSubtitle": "Remaining {daysLeft} days — what you still owe",
+    "savingsRateKPI": "Savings Rate",
+    "savingsRateKPINote": "of income saved this month"
   },
   "charts": {
     "greatShape": "Great shape",
     "lookingGood": "Looking good",
     "watchSpending": "Watch spending",
-    "overBudget": "Over budget",
+    "overBudget": "already over",
     "setUpIncome": "Set up income",
     "emergencyFund": "Emergency Fund",
-    "atRisk": "At risk",
+    "atRisk": "at risk",
     "buildingUp": "Building up",
     "gettingThere": "Getting there",
     "fullyFunded": "Fully funded",
@@ -159,7 +167,10 @@
     "over": "over",
     "vsLastMo": "vs last mo",
     "sameAsLastMo": "same as last mo",
-    "overshoot": "overshoot"
+    "overshoot": "overshoot",
+    "allOnTrack": "All categories on track",
+    "paceOnTrack": "on track",
+    "projected": "Projected"
   },
   "quickAdd": {
     "title": "New Transaction",
@@ -194,7 +205,13 @@
     "merchantCount": "{n} merchants · sorted by total",
     "transactionCount": "{n} transaction(s) · last {date}",
     "noDescription": "(no description)",
-    "spending": "Spending"
+    "spending": "Spending",
+    "noTransactionsYet": "No transactions yet",
+    "noTransactionsYetBody": "Start tracking your finances — add your first transaction.",
+    "noResultsTitle": "No results found",
+    "noResultsBody": "Try adjusting your search or filters.",
+    "clearFilters": "Clear Filters",
+    "filters": "Filters"
   },
   "paychecks": {
     "title": "Paychecks",
@@ -220,7 +237,9 @@
     "effectiveRate": "Effective rate:",
     "annualTaxableIncome": "Annual taxable income:",
     "savePaycheck": "Save Paycheck",
-    "confirmDelete": "Delete this paycheck entry?"
+    "confirmDelete": "Delete this paycheck entry?",
+    "effectiveTaxRate": "effective tax rate",
+    "deductions": "pre-tax deductions"
   },
   "bills": {
     "title": "Bills",
@@ -435,7 +454,9 @@
     "forceRefresh": "Force Refresh",
     "refreshing": "Refreshing…",
     "budgetRollover": "Budget Rollover",
-    "budgetRolloverDesc": "Carry unused budget (surplus or deficit) forward to the next month. Underspending adds to next month's limit; overspending reduces it."
+    "budgetRolloverDesc": "Carry unused budget (surplus or deficit) forward to the next month. Underspending adds to next month's limit; overspending reduces it.",
+    "darkMode": "Dark Mode",
+    "darkModeDesc": "Switch to a darker color scheme, easier on the eyes at night."
   },
   "categories": {
     "Food": "Food",

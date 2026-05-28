@@ -117,8 +117,40 @@ export default function PlanningPage() {
     return map;
   }, [prevMonthExpenses]);
 
+  // 3-month rolling average: average spend per category across the 3 months prior to current
+  const rolling3MonthAvgMap = useMemo(() => {
+    const keys = [0, 1, 2].map((offset) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - 1 - offset, 1);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    });
+    const monthMaps: Record<string, number>[] = keys.map((key) => {
+      const map: Record<string, number> = {};
+      for (const tx of transactions) {
+        if (tx.type === 'expense' && tx.date.startsWith(key)) {
+          map[tx.category] = (map[tx.category] ?? 0) + tx.amount;
+        }
+      }
+      return map;
+    });
+    const allCats = new Set(monthMaps.flatMap((m) => Object.keys(m)));
+    const avg: Record<string, number> = {};
+    for (const cat of allCats) {
+      const values = monthMaps.map((m) => m[cat] ?? 0);
+      avg[cat] = values.reduce((s, v) => s + v, 0) / 3;
+    }
+    return avg;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transactions]);
+
+  // Total spend this month for category %
+  const totalMonthSpend = useMemo(
+    () => monthExpenses.reduce((s, tx) => s + tx.amount, 0),
+    [monthExpenses]
+  );
+
   function spentForCategory(cat: string): number { return categorySpendMap[cat] ?? 0; }
   function prevSpentForCategory(cat: string): number { return prevCategorySpendMap[cat] ?? 0; }
+  function rolling3AvgForCategory(cat: string): number { return rolling3MonthAvgMap[cat] ?? 0; }
 
   // ─── Budget CRUD ──────────────────────────────────────────────────────────
   function openAddBudget() {
@@ -391,6 +423,8 @@ export default function PlanningPage() {
                   const carryover = carryoverAmount(budget);
                   const spent = spentForCategory(budget.category);
                   const prevSpent = prevSpentForCategory(budget.category);
+                  const rollingAvg = rolling3AvgForCategory(budget.category);
+                  const categoryPct = totalMonthSpend > 0 && spent > 0 ? (spent / totalMonthSpend) * 100 : 0;
                   const momDiff = spent - prevSpent;
                   const pct = monthly > 0 ? Math.min(100, (spent / monthly) * 100) : 0;
                   const over = spent > monthly;
@@ -407,6 +441,8 @@ export default function PlanningPage() {
                       carryover={carryover}
                       spent={spent}
                       prevSpent={prevSpent}
+                      rollingAvg={rollingAvg}
+                      categoryPct={categoryPct}
                       momDiff={momDiff}
                       pct={pct}
                       over={over}
@@ -649,9 +685,9 @@ export default function PlanningPage() {
 }
 
 // ── Draggable Budget Card ──────────────────────────────────────────────────────
-function BudgetItem({ budget, monthly, carryover, spent, prevSpent, momDiff, pct, over, remaining, willOvershoot, overshootAmt, daysLeft, onEdit, onDelete }: {
+function BudgetItem({ budget, monthly, carryover, spent, prevSpent, rollingAvg, categoryPct, momDiff, pct, over, remaining, willOvershoot, overshootAmt, daysLeft, onEdit, onDelete }: {
   budget: Budget;
-  monthly: number; carryover: number; spent: number; prevSpent: number; momDiff: number;
+  monthly: number; carryover: number; spent: number; prevSpent: number; rollingAvg: number; categoryPct: number; momDiff: number;
   pct: number; over: boolean; remaining: number; willOvershoot: boolean; overshootAmt: number; daysLeft: number;
   onEdit: (b: Budget) => void; onDelete: (id: string) => void;
 }) {
@@ -731,6 +767,22 @@ function BudgetItem({ budget, monthly, carryover, spent, prevSpent, momDiff, pct
             <span className="text-xs font-bold text-slate-400">{pct.toFixed(0)}%</span>
           </div>
         </div>
+
+        {/* Category % of total + 3-month rolling avg */}
+        {(categoryPct > 0 || rollingAvg > 0) && (
+          <div className="flex items-center gap-3 mt-2 pt-2 border-t border-slate-50">
+            {categoryPct > 0 && (
+              <span className="text-xs font-medium text-slate-400">
+                {categoryPct.toFixed(0)}% of spend
+              </span>
+            )}
+            {rollingAvg > 0 && (
+              <span className="text-xs font-medium text-slate-400">
+                3mo avg: <span className={`font-bold ${spent > rollingAvg * 1.1 ? 'text-rose-500' : spent < rollingAvg * 0.9 ? 'text-emerald-600' : 'text-slate-500'}`}>{formatCurrency(rollingAvg)}</span>
+              </span>
+            )}
+          </div>
+        )}
       </Card>
     </Reorder.Item>
   );

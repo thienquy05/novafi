@@ -2,10 +2,11 @@
 import { useEffect, useState } from 'react';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  AreaChart, Area, ReferenceLine,
+  ComposedChart, BarChart, Bar, Line, XAxis, YAxis, CartesianGrid,
+  AreaChart, Area, ReferenceLine, Legend,
 } from 'recharts';
-import { AlertTriangle, TrendingUp, Sparkles, DollarSign, Target } from 'lucide-react';
+import { AlertTriangle, TrendingUp, TrendingDown, Sparkles, DollarSign, Target, Zap } from 'lucide-react';
+import type { SpendingPaceItem } from '@/lib/calculations';
 import { formatCurrency } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { useTranslation } from '@/lib/i18n/context';
@@ -34,7 +35,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 const DEFAULT_COLOR = '#6366f1';
 
 export type CategoryData = { name: string; value: number };
-export type MonthlyData = { month: string; income: number; expenses: number };
+export type MonthlyData = { month: string; income: number; expenses: number; net?: number };
 export type BudgetData = { category: string; budget: number; spent: number; prevMonthSpent?: number };
 export type GoalData = { id: string; name: string; icon: string; current: number; target: number; deadline: string };
 export type NetWorthPoint = { month: string; label: string; netWorth: number };
@@ -295,11 +296,12 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
   const { t } = useTranslation();
   const isEmpty = data.every(d => d.income === 0 && d.expenses === 0);
   const ready = useChartReady();
+  const hasNet = data.some((d) => d.net !== undefined);
 
   return (
     <div className="h-64 w-full mt-4">
       {!ready ? <div className="w-full h-full rounded-2xl bg-slate-100 animate-pulse" /> : <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} barGap={6}>
+        <ComposedChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} barGap={6}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
           <XAxis
             dataKey="month"
@@ -316,9 +318,21 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
             width={60}
           />
           {!isEmpty && <Tooltip content={<BarTooltip />} cursor={{ fill: '#f8fafc' }} />}
+          {hasNet && <ReferenceLine y={0} stroke="#e2e8f0" strokeDasharray="4 4" />}
           <Bar dataKey="income" name={t('common.income')} fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={32} />
           <Bar dataKey="expenses" name={t('common.expenses')} fill="#f43f5e" radius={[6, 6, 0, 0]} maxBarSize={32} />
-        </BarChart>
+          {hasNet && (
+            <Line
+              type="monotone"
+              dataKey="net"
+              name={t('common.netSavings')}
+              stroke="#6366f1"
+              strokeWidth={2.5}
+              dot={{ r: 3, fill: '#6366f1', strokeWidth: 0 }}
+              activeDot={{ r: 5 }}
+            />
+          )}
+        </ComposedChart>
       </ResponsiveContainer>}
     </div>
   );
@@ -326,7 +340,7 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
 
 // ── Budget Bars ───────────────────────────────────────────────────────────────
 
-export function BudgetBars({ data, daysLeft, daysElapsed, showMoM }: { data: BudgetData[]; daysLeft?: number; daysElapsed?: number; showMoM?: boolean }) {
+export function BudgetBars({ data, daysLeft, daysElapsed, showMoM, totalSpend }: { data: BudgetData[]; daysLeft?: number; daysElapsed?: number; showMoM?: boolean; totalSpend?: number }) {
   const { t } = useTranslation();
 
   if (data.length === 0) {
@@ -363,7 +377,14 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM }: { data: Bud
             key={b.category}
           >
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-bold text-slate-800">{b.category.replace(/^categories\./, '')}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-slate-800">{b.category.replace(/^categories\./, '')}</span>
+                {totalSpend && totalSpend > 0 && b.spent > 0 && (
+                  <span className="text-xs font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded-md">
+                    {((b.spent / totalSpend) * 100).toFixed(0)}%
+                  </span>
+                )}
+              </div>
               <div className="text-right">
                 <span className={`text-sm font-extrabold ${over ? 'text-rose-600' : 'text-slate-900'}`}>
                   {formatCurrency(b.spent)}
@@ -431,7 +452,7 @@ function NetWorthTooltip({ active, payload, label }: { active?: boolean; payload
   );
 }
 
-export function NetWorthTrendChart({ data }: { data: NetWorthPoint[] }) {
+export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]; projection?: { label: string; netWorth?: number; projected?: number }[] }) {
   const { t } = useTranslation();
   const ready = useChartReady();
 
@@ -452,16 +473,38 @@ export function NetWorthTrendChart({ data }: { data: NetWorthPoint[] }) {
   const stroke = isPositive ? '#10b981' : '#f43f5e';
   const fillId = isPositive ? 'nwPositive' : 'nwNegative';
 
+  // Merge history + projection into a single series for the chart
+  // History points: { label, netWorth, projected: undefined }
+  // Projection points: { label, netWorth: undefined, projected: value }
+  // Boundary point (last history): has both so the lines connect
+  const lastHistoryPoint = data[data.length - 1];
+  const chartData = [
+    ...data.map((d) => ({ label: d.label, netWorth: d.netWorth, projected: undefined as number | undefined })),
+    ...(projection ?? []).map((p, i) => ({
+      label: p.label,
+      netWorth: undefined as number | undefined,
+      projected: p.projected,
+      // First projected point also gets netWorth so lines connect
+      ...(i === 0 ? { netWorth: lastHistoryPoint.netWorth } : {}),
+    })),
+  ];
+
   return (
     <div className="w-full">
-      <div className="flex items-center justify-end gap-3 mb-4 pr-2">
+      <div className="flex items-center justify-between gap-3 mb-4 px-2">
         <span className={`text-sm font-extrabold px-3 py-1 rounded-lg ${isPositive ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
           {isPositive ? '+' : ''}{formatCurrency(delta)} {t('charts.since', { label: data[0].label })}
         </span>
+        {projection && projection.length > 0 && (
+          <span className="text-xs font-bold text-slate-400 flex items-center gap-1">
+            <span className="inline-block w-6 border-t-2 border-dashed border-slate-300" />
+            {t('charts.projected')}
+          </span>
+        )}
       </div>
       <div className="h-52 w-full">
         {!ready ? <div className="w-full h-full rounded-2xl bg-slate-100 animate-pulse" /> : <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 8, right: 10, left: -10, bottom: 0 }}>
+          <ComposedChart data={chartData} margin={{ top: 8, right: 10, left: -10, bottom: 0 }}>
             <defs>
               <linearGradient id="nwPositive" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#10b981" stopOpacity={0.15} />
@@ -497,8 +540,21 @@ export function NetWorthTrendChart({ data }: { data: NetWorthPoint[] }) {
               fill={`url(#${fillId})`}
               dot={{ fill: stroke, strokeWidth: 0, r: 4 }}
               activeDot={{ r: 6, fill: stroke, strokeWidth: 0 }}
+              connectNulls={false}
             />
-          </AreaChart>
+            {projection && projection.length > 0 && (
+              <Line
+                type="monotone"
+                dataKey="projected"
+                stroke={stroke}
+                strokeWidth={2}
+                strokeDasharray="6 4"
+                dot={false}
+                activeDot={{ r: 4, fill: stroke, strokeWidth: 0 }}
+                connectNulls
+              />
+            )}
+          </ComposedChart>
         </ResponsiveContainer>}
       </div>
     </div>
@@ -741,6 +797,104 @@ export function GoalsSummary({ data }: { data: GoalData[] }) {
         <a href="/planning?tab=goals" className="text-sm font-bold text-indigo-600 hover:text-indigo-500 block text-center pt-2 pb-1 transition-colors">
           {t('charts.viewMoreGoals', { n: data.length - 3 })}
         </a>
+      )}
+    </div>
+  );
+}
+
+// ── Spending Pace Widget ──────────────────────────────────────────────────────
+
+export function SpendingPaceWidget({ data, daysLeft }: { data: SpendingPaceItem[]; daysLeft: number }) {
+  const { t } = useTranslation();
+  if (data.length === 0) return null;
+
+  const atRisk = data.filter((d) => d.status === 'atRisk').sort((a, b) => b.overshootAmt - a.overshootAmt);
+  const over = data.filter((d) => d.status === 'over');
+  const onTrack = data.filter((d) => d.status === 'onTrack');
+  const alerts = [...over, ...atRisk];
+
+  return (
+    <div className="space-y-3">
+      {/* Summary row */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {alerts.length === 0 ? (
+          <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-100">
+            <Zap className="w-3 h-3" />{t('charts.allOnTrack')}
+          </span>
+        ) : (
+          <>
+            {over.length > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-700 bg-rose-50 px-3 py-1.5 rounded-full border border-rose-100">
+                <AlertTriangle className="w-3 h-3" />{over.length} {t('charts.overBudget')}
+              </span>
+            )}
+            {atRisk.length > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-700 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-100">
+                <TrendingUp className="w-3 h-3" />{atRisk.length} {t('charts.atRisk')}
+              </span>
+            )}
+            {onTrack.length > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100">
+                <Zap className="w-3 h-3" />{onTrack.length} {t('charts.paceOnTrack')}
+              </span>
+            )}
+          </>
+        )}
+        <span className="text-xs font-medium text-slate-400 ml-auto">{daysLeft}d left</span>
+      </div>
+
+      {/* Alert list */}
+      {alerts.length > 0 && (
+        <div className="space-y-2">
+          {alerts.slice(0, 4).map((item) => {
+            const isOver = item.status === 'over';
+            const pct = item.budget > 0 ? Math.min(100, (item.spent / item.budget) * 100) : 0;
+            return (
+              <div key={item.category} className={`p-3 rounded-2xl border ${isOver ? 'bg-rose-50/60 border-rose-100' : 'bg-amber-50/60 border-amber-100'}`}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-sm font-bold text-slate-900">{item.category}</p>
+                  <div className="text-right">
+                    <p className={`text-xs font-extrabold ${isOver ? 'text-rose-600' : 'text-amber-600'}`}>
+                      {isOver
+                        ? `-${formatCurrency(item.spent - item.budget)} over`
+                        : `~+${formatCurrency(item.overshootAmt)} projected`}
+                    </p>
+                  </div>
+                </div>
+                <div className="w-full bg-white/80 rounded-full h-1.5 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${isOver ? 'bg-rose-500' : 'bg-amber-500'}`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between mt-1">
+                  <p className="text-xs font-medium text-slate-500">
+                    {formatCurrency(item.spent)} / {formatCurrency(item.budget)}
+                  </p>
+                  <p className="text-xs font-medium text-slate-500">
+                    {formatCurrency(item.pace)}/day
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+          {alerts.length > 4 && (
+            <a href="/planning" className="text-xs font-bold text-indigo-600 hover:text-indigo-500 block text-center pt-1 transition-colors">
+              +{alerts.length - 4} more → Planning
+            </a>
+          )}
+        </div>
+      )}
+
+      {/* On-track list (compact) */}
+      {onTrack.length > 0 && alerts.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 pt-1">
+          {onTrack.map((item) => (
+            <span key={item.category} className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 bg-slate-50 px-2.5 py-1 rounded-full border border-slate-100">
+              <TrendingDown className="w-2.5 h-2.5 text-emerald-500" />{item.category}
+            </span>
+          ))}
+        </div>
       )}
     </div>
   );

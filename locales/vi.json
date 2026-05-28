@@ -53,6 +53,7 @@
     "quarterly": "Hàng quý",
     "yearly": "Hàng năm",
     "net": "Ròng",
+    "type": "Loại",
     "total": "Tổng cộng",
     "manage": "Quản lý",
     "viewAll": "Xem tất cả →",
@@ -70,7 +71,8 @@
     "color": "Màu sắc",
     "icon": "Biểu tượng",
     "optional": "tùy chọn",
-    "deleteConfirm": "Bạn có chắc không?"
+    "deleteConfirm": "Bạn có chắc không?",
+    "netSavings": "Tiết kiệm ròng"
   },
   "login": {
     "tagline": "Quản lý tài sản, được định nghĩa lại.",
@@ -122,16 +124,22 @@
     "savings": "Tiết kiệm",
     "emergency": "Khẩn cấp",
     "loansExcl": "Không tính khoản vay · xem Nợ phải trả",
-    "vsLastMonth": "% so tháng trước"
+    "vsLastMonth": "% so tháng trước",
+    "spendingPace": "Tốc độ chi tiêu",
+    "spendingPaceSubtitle": "Dự báo chi tiêu cuối tháng theo danh mục",
+    "billForecast": "Hóa đơn tháng này",
+    "billForecastSubtitle": "Còn {daysLeft} ngày — những khoản còn phải trả",
+    "savingsRateKPI": "Tỷ lệ tiết kiệm",
+    "savingsRateKPINote": "thu nhập tiết kiệm tháng này"
   },
   "charts": {
     "greatShape": "Rất tốt",
     "lookingGood": "Khá tốt",
     "watchSpending": "Chú ý chi tiêu",
-    "overBudget": "Vượt ngân sách",
+    "overBudget": "vượt ngân sách",
     "setUpIncome": "Thiết lập thu nhập",
     "emergencyFund": "Quỹ khẩn cấp",
-    "atRisk": "Có rủi ro",
+    "atRisk": "có nguy cơ",
     "buildingUp": "Đang xây dựng",
     "gettingThere": "Đang tiến triển",
     "fullyFunded": "Đã đủ quỹ",
@@ -159,7 +167,10 @@
     "over": "vượt quá",
     "vsLastMo": "so tháng trước",
     "sameAsLastMo": "bằng tháng trước",
-    "overshoot": "vượt dự kiến"
+    "overshoot": "vượt dự kiến",
+    "allOnTrack": "Tất cả đều đúng hướng",
+    "paceOnTrack": "đúng hướng",
+    "projected": "Dự báo"
   },
   "quickAdd": {
     "title": "Giao dịch mới",
@@ -194,7 +205,13 @@
     "merchantCount": "{n} người bán · sắp xếp theo tổng",
     "transactionCount": "{n} giao dịch · lần cuối {date}",
     "noDescription": "(không có mô tả)",
-    "spending": "Chi tiêu"
+    "spending": "Chi tiêu",
+    "noTransactionsYet": "Chưa có giao dịch",
+    "noTransactionsYetBody": "Bắt đầu theo dõi tài chính — thêm giao dịch đầu tiên của bạn.",
+    "noResultsTitle": "Không tìm thấy kết quả",
+    "noResultsBody": "Thử điều chỉnh tìm kiếm hoặc bộ lọc.",
+    "clearFilters": "Xóa bộ lọc",
+    "filters": "Bộ lọc"
   },
   "paychecks": {
     "title": "Phiếu lương",
@@ -220,7 +237,9 @@
     "effectiveRate": "Thuế suất hiệu dụng:",
     "annualTaxableIncome": "Thu nhập chịu thuế hàng năm:",
     "savePaycheck": "Lưu phiếu lương",
-    "confirmDelete": "Xóa phiếu lương này?"
+    "confirmDelete": "Xóa phiếu lương này?",
+    "effectiveTaxRate": "thuế suất thực tế",
+    "deductions": "khấu trừ trước thuế"
   },
   "bills": {
     "title": "Hóa đơn",
@@ -435,7 +454,9 @@
     "forceRefresh": "Làm mới bắt buộc",
     "refreshing": "Đang làm mới…",
     "budgetRollover": "Chuyển ngân sách",
-    "budgetRolloverDesc": "Chuyển phần ngân sách còn lại (thừa hoặc thiếu) sang tháng tiếp theo. Tiêu ít hơn sẽ cộng thêm vào tháng sau; tiêu nhiều hơn sẽ trừ đi."
+    "budgetRolloverDesc": "Chuyển phần ngân sách còn lại (thừa hoặc thiếu) sang tháng tiếp theo. Tiêu ít hơn sẽ cộng thêm vào tháng sau; tiêu nhiều hơn sẽ trừ đi.",
+    "darkMode": "Chế độ tối",
+    "darkModeDesc": "Chuyển sang giao diện tối hơn, dễ nhìn hơn vào ban đêm."
   },
   "categories": {
     "Food": "Ăn uống",

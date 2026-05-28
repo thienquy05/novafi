@@ -4,6 +4,7 @@ import {
   calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, pctChange,
   normalizeMonthlyBudget,
   calcRolloverCarryover, calcEffectiveBudget,
+  calcProjectedSpend, calcSpendingPace,
   calcAvgMonthlyExpense, calcEmergencyFundMonths,
   calcSavingsRateScore, calcEmergencyScore, calcBudgetScore, calcDebtScore, calcHealthGrade,
   calcDebtToIncomeScore, calcDebtToIncomeRatio,
@@ -14,6 +15,7 @@ import {
   reverseExpenseBalance, reverseIncomeBalance, reverseTransferFromBalance, reverseTransferToBalance,
   billToTransactionDefaults,
   calcOverdueBills, calcOverBudget,
+  calcNetWorthProjection, calcCategoryPct, calcPaycheckEffectiveRate,
 } from '@/lib/calculations';
 import type { Account, Transaction, Bill, Budget } from '@/types';
 
@@ -841,5 +843,153 @@ describe('calcEffectiveBudget', () => {
     const prevSpend = 600;
     const carryover = calcRolloverCarryover(base, prevSpend);
     expect(calcEffectiveBudget(base, carryover)).toBe(400);
+  });
+});
+
+// ── Spending Pace ─────────────────────────────────────────────────────────────
+
+function makeBudgetItem(overrides: Partial<Budget> & { category: string; amount: number }): Budget {
+  return { id: 'b_1', period: 'monthly' as const, position: 0, ...overrides };
+}
+
+describe('calcProjectedSpend', () => {
+  it('projects correctly mid-month', () => {
+    // spent $150 in 15 days of 30-day month → project $300
+    expect(calcProjectedSpend(150, 15, 30)).toBeCloseTo(300, 4);
+  });
+
+  it('day 1: extrapolates a full month from one day', () => {
+    expect(calcProjectedSpend(10, 1, 31)).toBeCloseTo(310, 4);
+  });
+
+  it('daysElapsed = 0 → returns 0 (no division by zero)', () => {
+    expect(calcProjectedSpend(100, 0, 30)).toBe(0);
+  });
+
+  it('spent = 0 → projected = 0 regardless of days', () => {
+    expect(calcProjectedSpend(0, 15, 30)).toBe(0);
+  });
+});
+
+describe('calcSpendingPace', () => {
+  const budgets = [
+    makeBudgetItem({ id: 'b1', category: 'Food', amount: 500 }),
+    makeBudgetItem({ id: 'b2', category: 'Entertainment', amount: 200 }),
+    makeBudgetItem({ id: 'b3', category: 'Grocery', amount: 300 }),
+  ];
+
+  it('already-over category gets status "over"', () => {
+    const spend = { Food: 550, Entertainment: 50, Grocery: 100 };
+    const result = calcSpendingPace(budgets, spend, 15, 30);
+    expect(result.find((r) => r.category === 'Food')?.status).toBe('over');
+  });
+
+  it('pace-to-overshoot category gets status "atRisk"', () => {
+    // Entertainment: spent $120 in 15 of 30 days → projected $240 > $200
+    const spend = { Food: 100, Entertainment: 120, Grocery: 50 };
+    const result = calcSpendingPace(budgets, spend, 15, 30);
+    expect(result.find((r) => r.category === 'Entertainment')?.status).toBe('atRisk');
+  });
+
+  it('on-track category gets status "onTrack"', () => {
+    // Grocery: spent $100 in 15 days → projected $200 < $300
+    const spend = { Food: 100, Entertainment: 50, Grocery: 100 };
+    const result = calcSpendingPace(budgets, spend, 15, 30);
+    expect(result.find((r) => r.category === 'Grocery')?.status).toBe('onTrack');
+  });
+
+  it('overshootAmt = 0 for onTrack and over categories', () => {
+    const spend = { Food: 600, Entertainment: 120, Grocery: 100 };
+    const result = calcSpendingPace(budgets, spend, 15, 30);
+    expect(result.find((r) => r.category === 'Food')?.overshootAmt).toBe(0);
+    expect(result.find((r) => r.category === 'Grocery')?.overshootAmt).toBe(0);
+  });
+
+  it('overshootAmt is correct for atRisk category', () => {
+    // Entertainment: spent $120/15 days → projected $240, budget $200 → overshoot = $40
+    const spend = { Food: 100, Entertainment: 120, Grocery: 50 };
+    const result = calcSpendingPace(budgets, spend, 15, 30);
+    const ent = result.find((r) => r.category === 'Entertainment')!;
+    expect(ent.overshootAmt).toBeCloseTo(40, 4);
+  });
+
+  it('category with no spending is onTrack', () => {
+    const spend = { Food: 100 };
+    const result = calcSpendingPace(budgets, spend, 15, 30);
+    expect(result.find((r) => r.category === 'Entertainment')?.status).toBe('onTrack');
+  });
+
+  it('weekly budget is normalized to monthly before comparison', () => {
+    // weekly $50 → monthly $216.50; spent $200 in 15 days → projected $400 → atRisk
+    const weeklyBudgets = [makeBudgetItem({ id: 'bw', category: 'Food', amount: 50, period: 'weekly' })];
+    const spend = { Food: 200 };
+    const result = calcSpendingPace(weeklyBudgets, spend, 15, 30);
+    expect(result[0].status).toBe('atRisk');
+  });
+});
+
+// ── Net Worth Projection ──────────────────────────────────────────────────────
+
+describe('calcNetWorthProjection', () => {
+  it('returns empty array when fewer than 2 data points', () => {
+    expect(calcNetWorthProjection([], 6)).toEqual([]);
+    expect(calcNetWorthProjection([{ netWorth: 10000 }], 6)).toEqual([]);
+  });
+
+  it('projects correct number of months', () => {
+    const history = [{ netWorth: 10000 }, { netWorth: 11000 }];
+    expect(calcNetWorthProjection(history, 6)).toHaveLength(6);
+    expect(calcNetWorthProjection(history, 3)).toHaveLength(3);
+  });
+
+  it('flat history (0% MoM) → constant projection', () => {
+    const history = [{ netWorth: 10000 }, { netWorth: 10000 }, { netWorth: 10000 }];
+    const proj = calcNetWorthProjection(history, 3);
+    expect(proj[0]).toBeCloseTo(10000, 0);
+    expect(proj[2]).toBeCloseTo(10000, 0);
+  });
+
+  it('positive growth → increasing projection', () => {
+    const history = [{ netWorth: 10000 }, { netWorth: 11000 }]; // +10% MoM
+    const proj = calcNetWorthProjection(history, 3);
+    expect(proj[0]).toBeGreaterThan(11000); // 11000 * 1.10
+    expect(proj[1]).toBeGreaterThan(proj[0]);
+  });
+});
+
+// ── Category Percentage ───────────────────────────────────────────────────────
+
+describe('calcCategoryPct', () => {
+  it('50% of total', () => {
+    expect(calcCategoryPct(500, 1000)).toBe(50);
+  });
+
+  it('0 total → 0%', () => {
+    expect(calcCategoryPct(100, 0)).toBe(0);
+  });
+
+  it('0 spent → 0%', () => {
+    expect(calcCategoryPct(0, 1000)).toBe(0);
+  });
+
+  it('100% when spent equals total', () => {
+    expect(calcCategoryPct(500, 500)).toBe(100);
+  });
+});
+
+// ── Paycheck Effective Tax Rate ───────────────────────────────────────────────
+
+describe('calcPaycheckEffectiveRate', () => {
+  it('correct rate from sample paycheck', () => {
+    // gross $5000, total taxes $1100 (22%)
+    expect(calcPaycheckEffectiveRate(5000, 700, 250, 150)).toBeCloseTo(22, 4);
+  });
+
+  it('0 gross → 0 rate (no division by zero)', () => {
+    expect(calcPaycheckEffectiveRate(0, 100, 50, 25)).toBe(0);
+  });
+
+  it('no withholding → 0%', () => {
+    expect(calcPaycheckEffectiveRate(5000, 0, 0, 0)).toBe(0);
   });
 });

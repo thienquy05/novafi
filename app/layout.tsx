@@ -27,10 +27,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const lang: Language = langCookie === 'vi' ? 'vi' : 'en';
 
   return (
-    <html lang={lang}>
+    <html lang={lang} suppressHydrationWarning>
       <head>
         <meta name="theme-color" content="#1568a3" />
         <link rel="apple-touch-icon" href="/icon.svg" />
+        {/* Apply stored dark mode class before first paint to prevent flash */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('nf_theme');if(t==='dark')document.documentElement.classList.add('dark')}catch(e){}})()`,
+          }}
+        />
       </head>
       <body className={inter.className} suppressHydrationWarning>
         <SessionProvider initialLang={lang}>{children}</SessionProvider>

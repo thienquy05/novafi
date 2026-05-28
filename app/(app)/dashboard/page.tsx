@@ -10,10 +10,11 @@ import {
   calcDebtToIncomeScore, calcDebtToIncomeRatio,
   calcNetWorthTrendScore, calcAvgMomPct,
   calcSpendingVolatilityScore, calcCoefficientOfVariation,
+  calcSpendingPace, calcNetWorthProjection,
 } from '@/lib/calculations';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { TrendingUp, TrendingDown, Calendar, PiggyBank, ArrowUpRight, Wallet, BarChart3, ArrowLeftRight } from 'lucide-react';
-import { SpendingPieChart, MonthlyBarChart, BudgetBars, GoalsSummary, NetWorthTrendChart, HealthBanner, EmergencyFundWidget, FinancialHealthScore } from './DashboardCharts';
+import { SpendingPieChart, MonthlyBarChart, BudgetBars, GoalsSummary, NetWorthTrendChart, HealthBanner, EmergencyFundWidget, FinancialHealthScore, SpendingPaceWidget } from './DashboardCharts';
 import { QuickAddTransaction } from './QuickAddTransaction';
 import { CategoryIconBadge } from '@/components/CategoryIcon';
 import type { NetWorthPoint } from './DashboardCharts';
@@ -125,24 +126,30 @@ export default async function DashboardPage() {
   // Savings rate
   const savingsRate = calcSavingsRate(monthIncome, monthSpending);
 
-  // Upcoming bills (next 14 days)
+  // Bills due rest of this month (for forecasting widget)
   const upcomingBills = bills
     .filter((b) => {
       if (!b.isActive) return false;
-      const due = new Date(b.nextDue);
-      const diff = (due.getTime() - now.getTime()) / 86400000;
-      return diff >= 0 && diff <= 14;
+      const due = new Date(b.nextDue + 'T00:00:00');
+      return (
+        due.getFullYear() === now.getFullYear() &&
+        due.getMonth() === now.getMonth() &&
+        due.getDate() >= now.getDate()
+      );
     })
     .sort((a, b) => a.nextDue.localeCompare(b.nextDue));
 
-  // Bills due this month (for safe-to-spend)
+  // Bills due this month (all, for safe-to-spend; includes already-passed due dates)
   const billsThisMonth = bills
     .filter((b) => {
       if (!b.isActive) return false;
-      const due = new Date(b.nextDue);
+      const due = new Date(b.nextDue + 'T00:00:00');
       return due.getMonth() === now.getMonth() && due.getFullYear() === now.getFullYear();
     })
     .reduce((s, b) => s + b.amount, 0);
+
+  // Total remaining bills this month (rest-of-month forecast)
+  const upcomingBillsTotal = upcomingBills.reduce((s, b) => s + b.amount, 0);
 
   // Safe to spend
   const safeToSpend = calcSafeToSpend(monthIncome, monthSpending, billsThisMonth);
@@ -175,12 +182,17 @@ export default async function DashboardPage() {
     else if (tx.type === 'expense') monthlyTotals[key].expense += tx.amount;
   }
 
-  // Monthly income vs spending (last 6 months)
+  // Monthly income vs spending (last 6 months) with net savings line
   const monthlyData = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     const totals = monthlyTotals[key] ?? { income: 0, expense: 0 };
-    return { month: MONTH_NAMES[d.getMonth()], income: totals.income, expenses: totals.expense };
+    return {
+      month: MONTH_NAMES[d.getMonth()],
+      income: totals.income,
+      expenses: totals.expense,
+      net: totals.income > 0 || totals.expense > 0 ? totals.income - totals.expense : undefined,
+    };
   });
 
   // Budget vs actual this month — reuse categorySpend (already computed above)
@@ -196,6 +208,22 @@ export default async function DashboardPage() {
     prevMonthSpent: prevMonthCategorySpend[b.category] ?? 0,
   }));
   const overBudgetCount = budgetData.filter((b) => b.spent > b.budget).length;
+
+  // Spending pace for the pace widget
+  const spendingPaceData = calcSpendingPace(budgets, categorySpend, daysElapsed, daysInMonth);
+
+  // Net worth projection (6 months forward based on avg MoM rate)
+  const projectedValues = calcNetWorthProjection(netWorthPoints, 6);
+  const netWorthProjection = projectedValues.map((projected, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() + i + 1, 1);
+    return {
+      label: `${MONTH_NAMES[d.getMonth()]} '${String(d.getFullYear()).slice(2)}`,
+      projected,
+    };
+  });
+
+  // Total spend this month for category %
+  const totalMonthSpend = Object.values(categorySpend).reduce((s, v) => s + v, 0);
 
   // Emergency fund — pull from precomputed monthlyTotals instead of rescanning
   const liquidSavings = calcLiquidSavings(accounts);
@@ -294,6 +322,17 @@ export default async function DashboardPage() {
       positiveIsGood: true,
       annotation: null,
     },
+    {
+      label: t('dashboard.savingsRateKPI', lang),
+      value: `${savingsRate.toFixed(0)}%`,
+      icon: TrendingUp,
+      color: savingsRate >= 20 ? 'text-emerald-600' : savingsRate >= 10 ? 'text-indigo-600' : 'text-amber-600',
+      bg: savingsRate >= 20 ? 'bg-emerald-50' : savingsRate >= 10 ? 'bg-indigo-50' : 'bg-amber-50',
+      border: savingsRate >= 20 ? 'border-emerald-100' : savingsRate >= 10 ? 'border-indigo-100' : 'border-amber-100',
+      delta: null,
+      positiveIsGood: true,
+      annotation: t('dashboard.savingsRateKPINote', lang),
+    },
   ];
 
   return (
@@ -324,7 +363,7 @@ export default async function DashboardPage() {
       />
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         {stats.map(({ label, value, icon: Icon, color, bg, border, delta, positiveIsGood, annotation }) => (
           <Card key={label} className={`border ${border} hover:border-slate-300`}>
             <div className="flex items-center gap-3 mb-3">
@@ -385,7 +424,7 @@ export default async function DashboardPage() {
           </div>
         </CardHeader>
         <div className="mt-2">
-          <NetWorthTrendChart data={netWorthPoints} />
+          <NetWorthTrendChart data={netWorthPoints} projection={netWorthProjection.length > 0 ? netWorthProjection : undefined} />
         </div>
       </Card>
 
@@ -474,7 +513,7 @@ export default async function DashboardPage() {
             <a href="/planning" className="text-xs font-bold text-indigo-600 hover:text-indigo-500 transition-colors bg-indigo-50 px-3 py-1.5 rounded-lg">{t('common.manage', lang)}</a>
           </CardHeader>
           <div className="mt-4">
-            <BudgetBars data={budgetData} daysLeft={daysLeft} daysElapsed={daysElapsed} showMoM />
+            <BudgetBars data={budgetData} daysLeft={daysLeft} daysElapsed={daysElapsed} showMoM totalSpend={totalMonthSpend} />
           </div>
         </Card>
 
@@ -494,9 +533,30 @@ export default async function DashboardPage() {
         </Card>
       </div>
 
+      {/* Spending Pace */}
+      {spendingPaceData.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-amber-50 border border-amber-100">
+                <TrendingUp className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <CardTitle>{t('dashboard.spendingPace', lang)}</CardTitle>
+                <p className="text-xs font-medium text-slate-500 mt-0.5">{t('dashboard.spendingPaceSubtitle', lang)}</p>
+              </div>
+            </div>
+            <a href="/planning" className="text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors">{t('common.viewAll', lang)}</a>
+          </CardHeader>
+          <div className="mt-4">
+            <SpendingPaceWidget data={spendingPaceData} daysLeft={daysLeft} />
+          </div>
+        </Card>
+      )}
+
       {/* Upcoming Bills + Recent Transactions */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Upcoming Bills */}
+        {/* Bill Forecast */}
         <Card>
           <CardHeader>
             <div className="flex items-center gap-3">
@@ -504,11 +564,16 @@ export default async function DashboardPage() {
                 <Calendar className="w-5 h-5 text-amber-600" />
               </div>
               <div>
-                <CardTitle>{t('dashboard.dueSoon', lang)}</CardTitle>
-                <p className="text-xs font-medium text-slate-500 mt-0.5">{t('dashboard.next14Days', lang)}</p>
+                <CardTitle>{t('dashboard.billForecast', lang)}</CardTitle>
+                <p className="text-xs font-medium text-slate-500 mt-0.5">{t('dashboard.billForecastSubtitle', lang, { daysLeft })}</p>
               </div>
             </div>
-            <a href="/bills" className="text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors">{t('common.viewAll', lang)}</a>
+            <div className="text-right">
+              {upcomingBillsTotal > 0 && (
+                <p className="text-base font-extrabold text-amber-600">{formatCurrency(upcomingBillsTotal)}</p>
+              )}
+              <a href="/bills" className="text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors">{t('common.viewAll', lang)}</a>
+            </div>
           </CardHeader>
           <div className="mt-2">
             {upcomingBills.length === 0 ? (
@@ -524,9 +589,9 @@ export default async function DashboardPage() {
             ) : (
               <div className="space-y-2">
                 {upcomingBills.map((bill) => {
-                  const daysUntil = Math.ceil(
-                    (new Date(bill.nextDue).getTime() - now.getTime()) / 86400000
-                  );
+                  const dueDate = new Date(bill.nextDue + 'T00:00:00');
+                  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                  const daysUntil = Math.round((dueDate.getTime() - todayMidnight.getTime()) / 86400000);
                   const isUrgent = daysUntil <= 3;
                   return (
                     <div key={bill.id} className="flex items-center justify-between p-3.5 rounded-2xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100">

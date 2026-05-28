@@ -21,6 +21,25 @@ export default function SettingsPage() {
   const [newExpCat, setNewExpCat] = useState('');
   const [newIncCat, setNewIncCat] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [darkMode, setDarkMode] = useState(false);
+
+  useEffect(() => {
+    try { setDarkMode(localStorage.getItem('nf_theme') === 'dark'); } catch { /* noop */ }
+  }, []);
+
+  function toggleDarkMode() {
+    const next = !darkMode;
+    setDarkMode(next);
+    try {
+      if (next) {
+        document.documentElement.classList.add('dark');
+        localStorage.setItem('nf_theme', 'dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+        localStorage.setItem('nf_theme', 'light');
+      }
+    } catch { /* noop */ }
+  }
 
   useEffect(() => {
     fetch('/api/settings')
@@ -211,6 +230,26 @@ export default function SettingsPage() {
                 <span
                   className={`inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition-transform duration-200 ${
                     settings.excludeLoansFromNetWorth ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            <div className="flex items-start justify-between gap-4 pt-4 border-t border-slate-100">
+              <div>
+                <p className="text-sm font-semibold text-slate-800">{t('settings.darkMode')}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{t('settings.darkModeDesc')}</p>
+              </div>
+              <button
+                type="button"
+                onClick={toggleDarkMode}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+                  darkMode ? 'bg-indigo-600' : 'bg-slate-200'
+                }`}
+              >
+                <span
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition-transform duration-200 ${
+                    darkMode ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
               </button>

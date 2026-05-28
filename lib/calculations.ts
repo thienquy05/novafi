@@ -83,6 +83,44 @@ export function calcEffectiveBudget(baseBudget: number, carryover: number): numb
   return baseBudget + carryover;
 }
 
+// ── Spending Pace / Velocity ──────────────────────────────────────────────────
+// Extrapolates current spending rate to project end-of-month total.
+// Formula: projected = (spent / daysElapsed) × daysInMonth
+export function calcProjectedSpend(spent: number, daysElapsed: number, daysInMonth: number): number {
+  if (daysElapsed <= 0) return 0;
+  return (spent / daysElapsed) * daysInMonth;
+}
+
+export type SpendingPaceItem = {
+  category: string;
+  budget: number;
+  spent: number;
+  projected: number;
+  pace: number;          // daily spend rate
+  status: 'over' | 'atRisk' | 'onTrack';
+  overshootAmt: number;  // projected - budget (0 if onTrack/over)
+};
+
+export function calcSpendingPace(
+  budgets: Budget[],
+  categorySpend: Record<string, number>,
+  daysElapsed: number,
+  daysInMonth: number,
+): SpendingPaceItem[] {
+  return budgets.map((b) => {
+    const budget = normalizeMonthlyBudget(b.amount, b.period);
+    const spent = categorySpend[b.category] ?? 0;
+    const projected = calcProjectedSpend(spent, daysElapsed, daysInMonth);
+    const pace = daysElapsed > 0 ? spent / daysElapsed : 0;
+    const status: SpendingPaceItem['status'] =
+      spent > budget ? 'over' :
+      projected > budget ? 'atRisk' :
+      'onTrack';
+    const overshootAmt = status === 'atRisk' ? projected - budget : 0;
+    return { category: b.category, budget, spent, projected, pace, status, overshootAmt };
+  });
+}
+
 // ── Emergency Fund ────────────────────────────────────────────────────────────
 
 export function calcAvgMonthlyExpense(monthlySums: number[]): number {
@@ -288,6 +326,42 @@ export function billToTransactionDefaults(bill: Bill, date: string): Omit<Transa
     category: bill.category,
     account: bill.account ?? '',
   };
+}
+
+// ── Net Worth Projection ──────────────────────────────────────────────────────
+// Extends historical net worth series N months forward using avg MoM growth rate.
+// Each projected point = previous × (1 + avgMoMRate).
+export function calcNetWorthProjection(
+  history: { netWorth: number }[],
+  months: number,
+): number[] {
+  if (history.length < 2) return [];
+  const avgMoM = calcAvgMomPct(history.map((h) => h.netWorth));
+  if (avgMoM === null) return [];
+  const rate = avgMoM / 100;
+  const last = history[history.length - 1].netWorth;
+  return Array.from({ length: months }, (_, i) => {
+    return last * Math.pow(1 + rate, i + 1);
+  });
+}
+
+// ── Category Percentage ───────────────────────────────────────────────────────
+export function calcCategoryPct(spent: number, totalSpend: number): number {
+  if (totalSpend <= 0) return 0;
+  return (spent / totalSpend) * 100;
+}
+
+// ── Paycheck Effective Tax Rate ───────────────────────────────────────────────
+// effectiveTaxRate = (federal + state + local withheld) / gross
+// totalDeductionRate includes pre-tax contributions (401k, HSA)
+export function calcPaycheckEffectiveRate(
+  grossAmount: number,
+  federalWithheld: number,
+  stateWithheld: number,
+  localWithheld: number,
+): number {
+  if (grossAmount <= 0) return 0;
+  return ((federalWithheld + stateWithheld + localWithheld) / grossAmount) * 100;
 }
 
 // ── Badge Counts ──────────────────────────────────────────────────────────────

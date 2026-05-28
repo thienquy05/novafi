@@ -73,7 +73,7 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
             transition={{ type: 'spring', damping: 30, stiffness: 340 }}
             style={{ willChange: 'transform' }}
             className={cn(
-              'relative z-10 w-full max-w-lg bg-white shadow-2xl',
+              'relative z-10 w-full max-w-lg bg-white dark:bg-slate-800 shadow-2xl',
               'rounded-t-[2rem] sm:rounded-3xl',
               'flex flex-col',
               // 88dvh gives more room for tall forms; capped at 90vh on desktop
@@ -86,15 +86,15 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
               className="shrink-0 pt-3 pb-1.5 sm:hidden flex justify-center touch-none select-none cursor-grab active:cursor-grabbing tap-highlight-none"
               onPointerDown={(e) => dragControls.start(e)}
             >
-              <div className="w-10 h-1 rounded-full bg-slate-200" />
+              <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-600" />
             </div>
 
             {/* Header */}
             <div className="shrink-0 flex items-center justify-between px-6 pt-3 pb-3 sm:px-8 sm:pt-6 sm:pb-4">
-              <h2 className="text-xl font-bold text-slate-900 tracking-tight">{title}</h2>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">{title}</h2>
               <button
                 onClick={onClose}
-                className="h-9 w-9 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors duration-150 tap-highlight-none shrink-0"
+                className="h-9 w-9 rounded-full flex items-center justify-center text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors duration-150 tap-highlight-none shrink-0"
               >
                 <X className="w-4.5 h-4.5" />
               </button>
