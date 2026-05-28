@@ -14,7 +14,7 @@ import {
 } from '@/lib/calculations';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { TrendingUp, TrendingDown, Calendar, PiggyBank, ArrowUpRight, Wallet, BarChart3, ArrowLeftRight } from 'lucide-react';
-import { SpendingPieChart, BudgetBars, GoalsSummary, NetWorthTrendChart, HealthBanner, EmergencyFundWidget, FinancialHealthScore } from './DashboardCharts';
+import { SpendingPieChart, BudgetBars, GoalsSummary, NetWorthTrendChart, HealthBanner, EmergencyFundWidget, FinancialHealthScore, SavingsRateGauge } from './DashboardCharts';
 import { QuickAddTransaction } from './QuickAddTransaction';
 import { CategoryIconBadge } from '@/components/CategoryIcon';
 import type { NetWorthPoint } from './DashboardCharts';
@@ -272,6 +272,7 @@ export default async function DashboardPage() {
       delta: netWorthDelta,
       positiveIsGood: true,
       annotation: excludeLoans && totalLoanDebt > 0 ? t('dashboard.loansExcl', lang) : null,
+      viz: null as number | null,
     },
     {
       label: t('dashboard.monthIncome', lang),
@@ -283,6 +284,7 @@ export default async function DashboardPage() {
       delta: incomeDelta,
       positiveIsGood: true,
       annotation: null,
+      viz: null,
     },
     {
       label: t('dashboard.monthSpending', lang),
@@ -294,6 +296,7 @@ export default async function DashboardPage() {
       delta: spendingDelta,
       positiveIsGood: false,
       annotation: null,
+      viz: null,
     },
     {
       label: t('dashboard.safeToSpend', lang),
@@ -305,6 +308,7 @@ export default async function DashboardPage() {
       delta: null,
       positiveIsGood: true,
       annotation: null,
+      viz: null,
     },
     {
       label: t('dashboard.savingsRateKPI', lang),
@@ -316,6 +320,7 @@ export default async function DashboardPage() {
       delta: null,
       positiveIsGood: true,
       annotation: t('dashboard.savingsRateKPINote', lang),
+      viz: savingsRate,
     },
   ];
 
@@ -348,7 +353,7 @@ export default async function DashboardPage() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
-        {stats.map(({ label, value, icon: Icon, color, bg, border, delta, positiveIsGood, annotation }, idx) => (
+        {stats.map(({ label, value, icon: Icon, color, bg, border, delta, positiveIsGood, annotation, viz }, idx) => (
           <Card key={label} className={`border ${border} hover:border-slate-300 ${idx === stats.length - 1 && stats.length % 2 !== 0 ? 'col-span-2 sm:col-span-1' : ''}`}>
             <div className="flex items-center gap-3 mb-3">
               <div className={`p-2.5 rounded-xl ${bg}`}>
@@ -356,17 +361,23 @@ export default async function DashboardPage() {
               </div>
               <p className="text-xs font-bold text-slate-500 leading-tight">{label}</p>
             </div>
-            <FitText maxSize={28} minSize={13} className="font-extrabold text-slate-900 mt-0.5">{value}</FitText>
-            {delta !== null && Math.abs(delta) > 0.5 && (
-              <p className={`text-xs font-bold mt-1.5 flex items-center gap-0.5 ${
-                (positiveIsGood ? delta > 0 : delta < 0) ? 'text-emerald-600' : 'text-rose-600'
-              }`}>
-                {delta > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                {Math.abs(delta).toFixed(0)}{t('dashboard.vsLastMonth', lang)}
-              </p>
-            )}
-            {annotation && (
-              <p className="text-xs font-medium text-slate-400 mt-1.5">{annotation}</p>
+            {viz !== null ? (
+              <SavingsRateGauge value={viz} note={annotation ?? undefined} />
+            ) : (
+              <>
+                <FitText maxSize={28} minSize={13} className="font-extrabold text-slate-900 mt-0.5">{value}</FitText>
+                {delta !== null && Math.abs(delta) > 0.5 && (
+                  <p className={`text-xs font-bold mt-1.5 flex items-center gap-0.5 ${
+                    (positiveIsGood ? delta > 0 : delta < 0) ? 'text-emerald-600' : 'text-rose-600'
+                  }`}>
+                    {delta > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                    {Math.abs(delta).toFixed(0)}{t('dashboard.vsLastMonth', lang)}
+                  </p>
+                )}
+                {annotation && (
+                  <p className="text-xs font-medium text-slate-400 mt-1.5">{annotation}</p>
+                )}
+              </>
             )}
           </Card>
         ))}

@@ -87,6 +87,44 @@ function BarTooltip({ active, payload, label }: { active?: boolean; payload?: { 
   );
 }
 
+// ── Savings Rate Gauge ────────────────────────────────────────────────────────
+
+/** Compact radial gauge that visualizes the savings rate instead of a flat number. */
+export function SavingsRateGauge({ value, note }: { value: number; note?: string }) {
+  const ready = useChartReady();
+  const pct = Math.max(0, Math.min(100, value));
+  const color = value >= 20 ? '#10b981' : value >= 10 ? '#6366f1' : value >= 1 ? '#f59e0b' : '#f43f5e';
+  const R = 28;
+  const C = 2 * Math.PI * R;
+
+  return (
+    <div className="flex items-center gap-3 mt-0.5">
+      <div className="relative w-[68px] h-[68px] shrink-0">
+        <svg viewBox="0 0 68 68" className="w-full h-full -rotate-90">
+          <circle cx="34" cy="34" r={R} fill="none" stroke="#f1f5f9" strokeWidth="7" />
+          <motion.circle
+            cx="34"
+            cy="34"
+            r={R}
+            fill="none"
+            stroke={color}
+            strokeWidth="7"
+            strokeLinecap="round"
+            strokeDasharray={C}
+            initial={{ strokeDashoffset: C }}
+            animate={{ strokeDashoffset: ready ? C - (pct / 100) * C : C }}
+            transition={{ duration: 1, ease: 'easeOut' }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-base font-extrabold tracking-tight" style={{ color }}>{value.toFixed(0)}%</span>
+        </div>
+      </div>
+      {note && <p className="text-xs font-medium text-slate-400 leading-snug flex-1 min-w-0">{note}</p>}
+    </div>
+  );
+}
+
 // ── Health Banner ─────────────────────────────────────────────────────────────
 
 export function HealthBanner({
@@ -166,6 +204,17 @@ export function HealthBanner({
   const cfg = configs[status];
   const { Icon } = cfg;
 
+  // Flexible, situation-aware title instead of a single fixed "already over".
+  const overByPct = monthIncome > 0 ? (monthSpending - monthIncome) / monthIncome : 0;
+  const title =
+    status === 'danger'
+      ? overByPct < 0.1 ? t('charts.overSlight')
+        : overByPct < 0.3 ? t('charts.overModerate')
+        : t('charts.overHeavy')
+      : status === 'great'
+      ? savingsRate >= 30 ? t('charts.thriving') : cfg.title
+      : cfg.title;
+
   const cashFlow = monthIncome - monthSpending;
   const subtitle =
     monthIncome === 0
@@ -185,7 +234,7 @@ export function HealthBanner({
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-          <p className={`text-base font-extrabold ${cfg.titleColor}`}>{cfg.title}</p>
+          <p className={`text-base font-extrabold ${cfg.titleColor}`}>{title}</p>
           {monthIncome > 0 && (
             <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${cfg.pillBg}`}>
               {savingsRate.toFixed(0)}% saved

@@ -7,6 +7,7 @@ import { HelpHint } from '@/components/ui/HelpHint';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
+import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { PlanningSkeleton } from '@/components/ui/Skeleton';
 import { formatCurrency, formatDate, generateId } from '@/lib/utils';
 import { calcRolloverCarryover, calcEffectiveBudget } from '@/lib/calculations';
@@ -695,42 +696,41 @@ function BudgetItem({ budget, monthly, carryover, spent, prevSpent, rollingAvg, 
   const controls = useDragControls();
   return (
     <Reorder.Item value={budget} dragListener={false} dragControls={controls} className="list-none">
+      <SwipeToDelete onDelete={() => onDelete(budget.id)}>
       <Card className={`transition-all p-4 sm:p-5 ${over ? 'border-rose-100' : willOvershoot ? 'border-amber-100' : ''}`}>
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-2 flex-1 min-w-0 mr-2">
-            <button
-              className="touch-none cursor-grab active:cursor-grabbing text-slate-300 shrink-0 p-1 -ml-1"
-              onPointerDown={(e) => controls.start(e)}
-            >
-              <GripVertical className="w-4 h-4" />
-            </button>
-            <div className="min-w-0">
-              <p className="text-sm font-bold text-slate-900 truncate">{budget.category}</p>
-              <p className="text-xs font-medium text-slate-500 mt-0.5">
-                {formatCurrency(budget.amount)}/{budget.period}
-                {budget.period !== 'monthly' ? ` · ${formatCurrency(monthly)}/mo` : ''}
-                {carryover !== 0 && (
-                  <span className={`ml-1 ${carryover > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
-                    ({carryover > 0 ? '+' : ''}{formatCurrency(carryover)} rollover)
-                  </span>
-                )}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <div className="text-right mr-1">
-              <p className={`text-sm font-extrabold ${over ? 'text-rose-600' : 'text-slate-900'}`}>
-                {formatCurrency(spent)}
-                <span className="text-slate-400 font-bold text-xs ml-1">/ {formatCurrency(monthly)}</span>
-              </p>
-            </div>
-            <Button variant="ghost" size="icon" className="text-slate-400 h-9 w-9 rounded-xl" onClick={() => onEdit(budget)}>
-              <Pencil className="w-4 h-4" />
-            </Button>
-            <Button variant="ghost" size="icon" className="text-slate-400 h-9 w-9 rounded-xl" onClick={() => onDelete(budget.id)}>
-              <Trash2 className="w-4 h-4" />
-            </Button>
-          </div>
+        {/* Header: grip · category · spent/limit · edit */}
+        <div className="flex items-center gap-2 mb-2">
+          <button
+            className="touch-none cursor-grab active:cursor-grabbing text-slate-300 shrink-0 p-1 -ml-1"
+            onPointerDown={(e) => { e.stopPropagation(); controls.start(e); }}
+            aria-label="Reorder budget"
+          >
+            <GripVertical className="w-4 h-4" />
+          </button>
+          <p className="text-sm font-bold text-slate-900 truncate flex-1 min-w-0">{budget.category}</p>
+          <p className="text-sm font-extrabold shrink-0 text-right tabular-nums whitespace-nowrap">
+            <span className={over ? 'text-rose-600' : 'text-slate-900'}>{formatCurrency(spent)}</span>
+            <span className="text-slate-400 font-bold text-xs"> / {formatCurrency(monthly)}</span>
+          </p>
+          <Button variant="ghost" size="icon" className="text-slate-400 h-8 w-8 rounded-xl shrink-0" onClick={(e) => { e.stopPropagation(); onEdit(budget); }}>
+            <Pencil className="w-4 h-4" />
+          </Button>
+        </div>
+
+        {/* Meta: budget amount per period + rollover formula, aligned under the name */}
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mb-3 pl-6 text-xs font-medium text-slate-500">
+          <span className="tabular-nums">{formatCurrency(budget.amount)}/{budget.period}</span>
+          {budget.period !== 'monthly' && (
+            <>
+              <span className="text-slate-300">·</span>
+              <span className="tabular-nums">{formatCurrency(monthly)}/mo</span>
+            </>
+          )}
+          {carryover !== 0 && (
+            <span className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-bold tabular-nums ${carryover > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-600'}`}>
+              {carryover > 0 ? '+' : ''}{formatCurrency(carryover)} rollover
+            </span>
+          )}
         </div>
 
         <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
@@ -784,6 +784,7 @@ function BudgetItem({ budget, monthly, carryover, spent, prevSpent, rollingAvg, 
           </div>
         )}
       </Card>
+      </SwipeToDelete>
     </Reorder.Item>
   );
 }
