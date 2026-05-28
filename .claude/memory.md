@@ -10,6 +10,38 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-05-28 — UI enhancements: flexible banner, savings gauge, multi-category filter, shared swipe-to-delete, budget card alignment (branch claude/dashboard-transactions-ui-updates-cOJAZ)
+
+Five enhancement requests; current functions/formulas preserved (only optimized/enhanced). tsc clean, eslint 0 errors (pre-existing warnings only), 234 tests pass, `next build` clean.
+
+### 1 — Flexible dashboard health prompt (`app/(app)/dashboard/DashboardCharts.tsx` `HealthBanner` + `locales/en.json`,`vi.json`)
+- The danger title was always the fixed "already over". Now a situation-aware `title` is computed from `overByPct = (monthSpending - monthIncome) / monthIncome`:
+  - `< 0.10` → `charts.overSlight` ("A bit over this month")
+  - `< 0.30` → `charts.overModerate` ("Past your income")
+  - else → `charts.overHeavy` ("Time to regroup")
+- `great` status also varies: `savingsRate >= 30` → `charts.thriving` ("Thriving"), else existing "Great shape".
+- Renders `{title}` instead of `{cfg.title}`. Old `charts.overBudget` key kept (unused by banner now, still referenced elsewhere). Added 4 keys to both en/vi locale files under `charts`.
+
+### 2 — Savings Rate visualization (`DashboardCharts.tsx` new `SavingsRateGauge` + `app/(app)/dashboard/page.tsx`)
+- New exported client component `SavingsRateGauge`: a compact SVG radial ring (animated `strokeDashoffset` via framer-motion, reuses `useChartReady`) with the % in the center and the note beside it. Tier color: ≥20 emerald, ≥10 indigo, ≥1 amber, else rose.
+- Dashboard `stats` array: added a `viz: number | null` field to every stat (only the Savings Rate stat sets `viz: savingsRate`). In the stats grid map, when `viz !== null` the card renders `<SavingsRateGauge value note={annotation} />` instead of the `FitText` number/delta/annotation block. `calcSavingsRate` formula untouched.
+
+### 3 — Multi-select transaction category filter (`app/(app)/transactions/page.tsx`)
+- `categoryFilter: string` → `categoryFilters: string[]`. Filter match: `categoryFilters.length === 0 || categoryFilters.includes(tx.category)`. Added `toggleCategory(c)` (add/remove). `activeFilterCount = (filter!=='all'?1:0) + categoryFilters.length`.
+- Filter sheet: category buttons (kept the separate **Expenses** / **Income** labeled groups so duplicate names across income/expense are still surfaced) now toggle membership; "All" clears the array; added a header **Clear (n)** button to clear all category choices. Active-filter chip row renders one removable chip per selected category + a combined "Clear filters" chip when >1 filter active. Empty-state + bottom reset use `setCategoryFilters([])`.
+
+### 4 — Shared swipe-to-delete (`components/ui/SwipeToDelete.tsx` NEW) applied to transactions, bills, planning budget cards
+- New reusable `SwipeToDelete` wrapper: reveal width reduced 76px→64px (smaller padding); animated reveal (gradient `from-rose-600 via-rose-500 to-rose-400`, trash icon scales+fades in with drag via `useTransform`). Mouse drag works too. Child must paint its own opaque bg.
+- **Transactions** `SwipeableRow`: refactored to use the shared component; removed the inline trash `Button` (delete is now swipe-only); kept edit. Dropped now-unused `Trash2`, `useMotionValue`, `animate` imports.
+- **Bills** active + inactive cards: wrapped in `SwipeToDelete`, removed the trash `<button>` (kept edit / mark-paid / pause / resume). Action buttons got `e.stopPropagation()`. Dropped unused `Trash2` import.
+- **Planning** `BudgetItem`: wrapped the `Card` in `SwipeToDelete` (inside `Reorder.Item`), removed the trash `Button`. Grip `onPointerDown` now calls `e.stopPropagation()` before `controls.start(e)` so vertical reorder-drag and horizontal swipe-drag don't both fire. `Trash2` import kept (still used by `GoalItem`).
+
+### 5 — Budget card font alignment (`app/(app)/planning/page.tsx` `BudgetItem`)
+- Header restructured: row 1 = `[grip] [category truncate flex-1] [spent / limit tabular-nums] [edit]`; the budget-per-period + rollover info moved to a dedicated full-width meta line (`pl-6`, flex-wrap) below so it no longer collides with the title/amount.
+- The rollover formula (loved) is now a highlighted pill: `+$X rollover` on `bg-emerald-50 text-emerald-700` (positive) / `bg-rose-50 text-rose-600` (negative), `tabular-nums`. `calcRolloverCarryover` value unchanged. Progress bar + footer rows untouched.
+
+---
+
 ## 2026-05-28 — Bills: remove month comparison; Health Score UI: color-coded factor bars
 
 ### Bills page (`app/(app)/bills/page.tsx`)

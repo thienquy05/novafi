@@ -1,11 +1,12 @@
 'use client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Plus, Trash2, Calendar, CheckCircle2, Circle, AlarmClock, Pencil, RefreshCw, AlertCircle, Banknote, Repeat } from 'lucide-react';
+import { Plus, Calendar, CheckCircle2, Circle, AlarmClock, Pencil, RefreshCw, AlertCircle, Banknote, Repeat } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
+import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { BillsSkeleton } from '@/components/ui/Skeleton';
 import { FitText } from '@/components/ui/FitText';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
@@ -583,29 +584,30 @@ export default function BillsPage() {
                   const isDueSoon = daysUntil >= 0 && daysUntil <= 7;
                   const accountName = accounts.find((a) => a.id === bill.account)?.name ?? bill.account;
                   return (
-                    <div key={bill.id} className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-5 rounded-3xl bg-white border transition-all duration-200 gap-3 sm:gap-0 ${isOverdue ? 'border-rose-200 bg-rose-50/30' : isDueSoon ? 'border-amber-200 bg-amber-50/30' : 'border-slate-100 hover:border-slate-200 hover:shadow-sm'}`}>
-                      <div className="flex items-center gap-4">
-                        <div className={`flex items-center justify-center w-12 h-12 rounded-2xl shrink-0 border ${isOverdue ? 'bg-rose-100 border-rose-200' : isDueSoon ? 'bg-amber-100 border-amber-200' : 'bg-slate-100 border-slate-200'}`}>
-                          <AlarmClock className={`w-5 h-5 ${isOverdue ? 'text-rose-600' : isDueSoon ? 'text-amber-600' : 'text-slate-500'}`} />
+                    <SwipeToDelete key={bill.id} onDelete={() => handleDelete(bill.id)}>
+                      <div className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-5 rounded-3xl bg-white border transition-all duration-200 gap-3 sm:gap-0 ${isOverdue ? 'border-rose-200 bg-rose-50/30' : isDueSoon ? 'border-amber-200 bg-amber-50/30' : 'border-slate-100 hover:border-slate-200 hover:shadow-sm'}`}>
+                        <div className="flex items-center gap-4">
+                          <div className={`flex items-center justify-center w-12 h-12 rounded-2xl shrink-0 border ${isOverdue ? 'bg-rose-100 border-rose-200' : isDueSoon ? 'bg-amber-100 border-amber-200' : 'bg-slate-100 border-slate-200'}`}>
+                            <AlarmClock className={`w-5 h-5 ${isOverdue ? 'text-rose-600' : isDueSoon ? 'text-amber-600' : 'text-slate-500'}`} />
+                          </div>
+                          <div>
+                            <p className="text-base font-bold text-slate-900">{bill.name}</p>
+                            <p className="text-xs font-medium text-slate-500 mt-0.5">
+                              {FREQUENCY_LABELS[bill.frequency]}{accountName ? ` · ${accountName}` : ''}{' · '}
+                              {isOverdue ? <span className="text-rose-600 font-bold">{t('common.overdue')} {Math.abs(daysUntil)}d</span> : daysUntil === 0 ? <span className="text-amber-600 font-bold">Due today</span> : <span>{daysUntil}d ({formatDate(bill.nextDue)})</span>}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-base font-bold text-slate-900">{bill.name}</p>
-                          <p className="text-xs font-medium text-slate-500 mt-0.5">
-                            {FREQUENCY_LABELS[bill.frequency]}{accountName ? ` · ${accountName}` : ''}{' · '}
-                            {isOverdue ? <span className="text-rose-600 font-bold">{t('common.overdue')} {Math.abs(daysUntil)}d</span> : daysUntil === 0 ? <span className="text-amber-600 font-bold">Due today</span> : <span>{daysUntil}d ({formatDate(bill.nextDue)})</span>}
-                          </p>
+                        <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto pl-16 sm:pl-0 gap-3 sm:gap-5">
+                          <span className={`text-base font-extrabold ${isOverdue ? 'text-rose-600' : 'text-slate-900'}`}>{formatCurrency(bill.amount)}</span>
+                          <div className="flex gap-1.5">
+                            <button title="Edit" onClick={(e) => { e.stopPropagation(); openEdit(bill); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
+                            <button title="Mark paid" onClick={(e) => { e.stopPropagation(); openPayModal(bill); }} className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-colors"><CheckCircle2 className="w-4 h-4" /></button>
+                            <button title="Pause" onClick={(e) => { e.stopPropagation(); handleToggle(bill); }} className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-colors"><Circle className="w-4 h-4" /></button>
+                          </div>
                         </div>
                       </div>
-                      <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto pl-16 sm:pl-0 gap-3 sm:gap-5">
-                        <span className={`text-base font-extrabold ${isOverdue ? 'text-rose-600' : 'text-slate-900'}`}>{formatCurrency(bill.amount)}</span>
-                        <div className="flex gap-1.5">
-                          <button title="Edit" onClick={() => openEdit(bill)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
-                          <button title="Mark paid" onClick={() => openPayModal(bill)} className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-colors"><CheckCircle2 className="w-4 h-4" /></button>
-                          <button title="Pause" onClick={() => handleToggle(bill)} className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-colors"><Circle className="w-4 h-4" /></button>
-                          <button title="Delete" onClick={() => handleDelete(bill.id)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"><Trash2 className="w-4 h-4" /></button>
-                        </div>
-                      </div>
-                    </div>
+                    </SwipeToDelete>
                   );
                 })}
               </div>
@@ -617,17 +619,18 @@ export default function BillsPage() {
               <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">Paused</h2>
               <div className="space-y-2 opacity-60">
                 {inactiveBills.map((bill) => (
-                  <div key={bill.id} className="flex items-center justify-between p-4 sm:p-5 rounded-3xl bg-slate-50 border border-slate-200">
-                    <div>
-                      <p className="text-sm font-bold text-slate-700">{bill.name}</p>
-                      <p className="text-xs font-medium text-slate-500 mt-0.5">{FREQUENCY_LABELS[bill.frequency]} · {formatCurrency(bill.amount)}</p>
+                  <SwipeToDelete key={bill.id} onDelete={() => handleDelete(bill.id)}>
+                    <div className="flex items-center justify-between p-4 sm:p-5 rounded-3xl bg-slate-50 border border-slate-200">
+                      <div>
+                        <p className="text-sm font-bold text-slate-700">{bill.name}</p>
+                        <p className="text-xs font-medium text-slate-500 mt-0.5">{FREQUENCY_LABELS[bill.frequency]} · {formatCurrency(bill.amount)}</p>
+                      </div>
+                      <div className="flex gap-1.5">
+                        <button title="Edit" onClick={(e) => { e.stopPropagation(); openEdit(bill); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
+                        <button title="Resume" onClick={(e) => { e.stopPropagation(); handleToggle(bill); }} className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-colors"><CheckCircle2 className="w-4 h-4" /></button>
+                      </div>
                     </div>
-                    <div className="flex gap-1.5">
-                      <button title="Edit" onClick={() => openEdit(bill)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
-                      <button title="Resume" onClick={() => handleToggle(bill)} className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-colors"><CheckCircle2 className="w-4 h-4" /></button>
-                      <button title="Delete" onClick={() => handleDelete(bill.id)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"><Trash2 className="w-4 h-4" /></button>
-                    </div>
-                  </div>
+                  </SwipeToDelete>
                 ))}
               </div>
             </div>

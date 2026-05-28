@@ -1,14 +1,15 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Trash2, Search, Pencil, RefreshCw, AlertCircle, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronRight, X, Filter, ArrowLeftRight } from 'lucide-react';
+import { Plus, Search, Pencil, RefreshCw, AlertCircle, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronRight, X, Filter, ArrowLeftRight } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
+import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { TransactionsSkeleton } from '@/components/ui/Skeleton';
 import { formatCurrency, formatCompact, formatDate, generateId, today } from '@/lib/utils';
-import { motion, useMotionValue, animate, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { EXPENSE_CATEGORIES } from '@/types';
 import type { Transaction, Account } from '@/types';
 import { CategoryIconBadge } from '@/components/CategoryIcon';
@@ -96,7 +97,7 @@ export default function TransactionsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'income' | 'expense' | 'transfer'>('all');
-  const [categoryFilter, setCategoryFilter] = useState('');
+  const [categoryFilters, setCategoryFilters] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editTarget, setEditTarget] = useState<Transaction | null>(null);
@@ -147,9 +148,13 @@ export default function TransactionsPage() {
   const filtered = useMemo(() => transactions.filter((tx) => {
     const matchSearch = !search || tx.description.toLowerCase().includes(search.toLowerCase()) || tx.category.toLowerCase().includes(search.toLowerCase());
     const matchFilter = filter === 'all' || tx.type === filter;
-    const matchCategory = !categoryFilter || tx.category === categoryFilter;
+    const matchCategory = categoryFilters.length === 0 || categoryFilters.includes(tx.category);
     return matchSearch && matchFilter && matchCategory;
-  }), [transactions, search, filter, categoryFilter]);
+  }), [transactions, search, filter, categoryFilters]);
+
+  function toggleCategory(c: string) {
+    setCategoryFilters((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
+  }
 
   function openAdd() { setEditTarget(null); setForm(EMPTY_FORM); setOpen(true); }
   function openEdit(tx: Transaction) {
@@ -263,7 +268,7 @@ export default function TransactionsPage() {
     }
     return groups;
   }, [filtered]);
-  const activeFilterCount = (filter !== 'all' ? 1 : 0) + (categoryFilter ? 1 : 0);
+  const activeFilterCount = (filter !== 'all' ? 1 : 0) + categoryFilters.length;
 
   const filterLabels: Record<string, string> = {
     all: t('common.all'),
@@ -349,9 +354,14 @@ export default function TransactionsPage() {
                 {filterLabels[filter]} <X className="w-3 h-3" />
               </button>
             )}
-            {categoryFilter && (
-              <button onClick={() => setCategoryFilter('')} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold border border-indigo-100 dark:border-indigo-800/50">
-                {categoryFilter} <X className="w-3 h-3" />
+            {categoryFilters.map((c) => (
+              <button key={`chip-${c}`} onClick={() => toggleCategory(c)} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold border border-indigo-100 dark:border-indigo-800/50">
+                {c} <X className="w-3 h-3" />
+              </button>
+            ))}
+            {activeFilterCount > 1 && (
+              <button onClick={() => { setFilter('all'); setCategoryFilters([]); }} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 text-xs font-bold border border-rose-100 dark:border-rose-800/50">
+                {t('transactions.clearFilters')} <X className="w-3 h-3" />
               </button>
             )}
           </div>
@@ -384,7 +394,7 @@ export default function TransactionsPage() {
             </div>
             <h3 className="text-slate-800 dark:text-slate-200 font-bold text-lg mb-1">{t('transactions.noResultsTitle')}</h3>
             <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">{t('transactions.noResultsBody')}</p>
-            <Button variant="secondary" onClick={() => { setSearch(''); setFilter('all'); setCategoryFilter(''); }}>
+            <Button variant="secondary" onClick={() => { setSearch(''); setFilter('all'); setCategoryFilters([]); }}>
               {t('transactions.clearFilters')}
             </Button>
           </div>
@@ -573,16 +583,23 @@ export default function TransactionsPage() {
                   </button>
                 ))}
               </div>
-              <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">{t('common.category')}</p>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{t('common.category')}</p>
+                {categoryFilters.length > 0 && (
+                  <button onClick={() => setCategoryFilters([])} className="text-[11px] font-bold text-rose-500 dark:text-rose-400 hover:text-rose-600 tap-highlight-none flex items-center gap-1">
+                    <X className="w-3 h-3" />{t('transactions.clearFilters')} ({categoryFilters.length})
+                  </button>
+                )}
+              </div>
               <div className="flex gap-2 flex-wrap mb-4">
-                <button onClick={() => setCategoryFilter('')} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${!categoryFilter ? 'bg-indigo-600 text-white' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>{t('common.all')}</button>
+                <button onClick={() => setCategoryFilters([])} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${categoryFilters.length === 0 ? 'bg-indigo-600 text-white' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>{t('common.all')}</button>
               </div>
               {expenseCategories.length > 0 && (
                 <>
                   <p className="text-[11px] font-bold text-rose-500 dark:text-rose-400 uppercase tracking-wider mb-2">{t('common.expenses')}</p>
                   <div className="flex gap-2 flex-wrap mb-4">
                     {expenseCategories.map((c) => (
-                      <button key={`exp-${c}`} onClick={() => setCategoryFilter(categoryFilter === c ? '' : c)} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${categoryFilter === c ? 'bg-indigo-600 text-white' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>{c}</button>
+                      <button key={`exp-${c}`} onClick={() => toggleCategory(c)} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${categoryFilters.includes(c) ? 'bg-indigo-600 text-white' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>{c}</button>
                     ))}
                   </div>
                 </>
@@ -592,13 +609,13 @@ export default function TransactionsPage() {
                   <p className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-2">{t('common.income')}</p>
                   <div className="flex gap-2 flex-wrap">
                     {incomeCategories.map((c) => (
-                      <button key={`inc-${c}`} onClick={() => setCategoryFilter(categoryFilter === c ? '' : c)} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${categoryFilter === c ? 'bg-indigo-600 text-white' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>{c}</button>
+                      <button key={`inc-${c}`} onClick={() => toggleCategory(c)} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${categoryFilters.includes(c) ? 'bg-indigo-600 text-white' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>{c}</button>
                     ))}
                   </div>
                 </>
               )}
               {activeFilterCount > 0 && (
-                <button onClick={() => { setFilter('all'); setCategoryFilter(''); }} className="mt-5 w-full py-2.5 text-sm font-semibold text-rose-500 dark:text-rose-400 hover:text-rose-600 tap-highlight-none">
+                <button onClick={() => { setFilter('all'); setCategoryFilters([]); }} className="mt-5 w-full py-2.5 text-sm font-semibold text-rose-500 dark:text-rose-400 hover:text-rose-600 tap-highlight-none">
                   {t('transactions.clearFilters')}
                 </button>
               )}
@@ -620,36 +637,9 @@ type SwipeRowProps = {
 };
 
 function SwipeableRow({ tx, accountName, onEdit, onDelete }: SwipeRowProps) {
-  const x = useMotionValue(0);
-  const [revealed, setRevealed] = useState(false);
-
-  function snapOpen() { animate(x, -76, { type: 'spring', stiffness: 400, damping: 40 }); setRevealed(true); }
-  function snapClose() { animate(x, 0, { type: 'spring', stiffness: 400, damping: 40 }); setRevealed(false); }
-
   return (
-    <div className="relative rounded-3xl overflow-hidden">
-      {/* Delete reveal */}
-      <div className="absolute inset-y-0 right-0 w-[76px] bg-rose-500 rounded-r-3xl flex flex-col items-center justify-center gap-0.5">
-        <button
-          onClick={() => { onDelete(tx.id); snapClose(); }}
-          className="w-full h-full flex flex-col items-center justify-center gap-1 text-white"
-        >
-          <Trash2 className="w-5 h-5" />
-          <span className="text-[10px] font-bold">Delete</span>
-        </button>
-      </div>
-      <motion.div
-        drag="x"
-        dragConstraints={{ left: -76, right: 0 }}
-        dragMomentum={false}
-        style={{ x, touchAction: 'pan-y' }}
-        onDragEnd={(_, info) => {
-          if (info.offset.x < -40) snapOpen();
-          else snapClose();
-        }}
-        onClick={() => { if (revealed) snapClose(); }}
-        className="flex items-center justify-between p-4 rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 relative z-10 select-none"
-      >
+    <SwipeToDelete onDelete={() => onDelete(tx.id)}>
+      <div className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 rounded-3xl select-none">
         <div className="flex items-center gap-3.5 flex-1 min-w-0">
           <CategoryIconBadge category={tx.category} type={tx.type} className="w-11 h-11 rounded-2xl" />
           <div className="min-w-0 flex-1">
@@ -668,11 +658,8 @@ function SwipeableRow({ tx, accountName, onEdit, onDelete }: SwipeRowProps) {
           <Button variant="ghost" size="icon" className="text-slate-400 h-9 w-9 rounded-xl" onClick={(e) => { e.stopPropagation(); onEdit(tx); }}>
             <Pencil className="w-3.5 h-3.5" />
           </Button>
-          <Button variant="ghost" size="icon" className="text-slate-400 h-9 w-9 rounded-xl" onClick={(e) => { e.stopPropagation(); onDelete(tx.id); }}>
-            <Trash2 className="w-3.5 h-3.5" />
-          </Button>
         </div>
-      </motion.div>
-    </div>
+      </div>
+    </SwipeToDelete>
   );
 }
