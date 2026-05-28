@@ -124,7 +124,9 @@
     "loansExcl": "Loans excl. · see Liabilities",
     "vsLastMonth": "% vs last mo",
     "spendingPace": "Spending Pace",
-    "spendingPaceSubtitle": "Projected end-of-month by category"
+    "spendingPaceSubtitle": "Projected end-of-month by category",
+    "billForecast": "Bills This Month",
+    "billForecastSubtitle": "Remaining {daysLeft} days — what you still owe"
   },
   "charts": {
     "greatShape": "Great shape",

@@ -124,7 +124,9 @@
     "loansExcl": "Không tính khoản vay · xem Nợ phải trả",
     "vsLastMonth": "% so tháng trước",
     "spendingPace": "Tốc độ chi tiêu",
-    "spendingPaceSubtitle": "Dự báo chi tiêu cuối tháng theo danh mục"
+    "spendingPaceSubtitle": "Dự báo chi tiêu cuối tháng theo danh mục",
+    "billForecast": "Hóa đơn tháng này",
+    "billForecastSubtitle": "Còn {daysLeft} ngày — những khoản còn phải trả"
   },
   "charts": {
     "greatShape": "Rất tốt",

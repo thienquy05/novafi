@@ -126,24 +126,30 @@ export default async function DashboardPage() {
   // Savings rate
   const savingsRate = calcSavingsRate(monthIncome, monthSpending);
 
-  // Upcoming bills (next 14 days)
+  // Bills due rest of this month (for forecasting widget)
   const upcomingBills = bills
     .filter((b) => {
       if (!b.isActive) return false;
-      const due = new Date(b.nextDue);
-      const diff = (due.getTime() - now.getTime()) / 86400000;
-      return diff >= 0 && diff <= 14;
+      const due = new Date(b.nextDue + 'T00:00:00');
+      return (
+        due.getFullYear() === now.getFullYear() &&
+        due.getMonth() === now.getMonth() &&
+        due.getDate() >= now.getDate()
+      );
     })
     .sort((a, b) => a.nextDue.localeCompare(b.nextDue));
 
-  // Bills due this month (for safe-to-spend)
+  // Bills due this month (all, for safe-to-spend; includes already-passed due dates)
   const billsThisMonth = bills
     .filter((b) => {
       if (!b.isActive) return false;
-      const due = new Date(b.nextDue);
+      const due = new Date(b.nextDue + 'T00:00:00');
       return due.getMonth() === now.getMonth() && due.getFullYear() === now.getFullYear();
     })
     .reduce((s, b) => s + b.amount, 0);
+
+  // Total remaining bills this month (rest-of-month forecast)
+  const upcomingBillsTotal = upcomingBills.reduce((s, b) => s + b.amount, 0);
 
   // Safe to spend
   const safeToSpend = calcSafeToSpend(monthIncome, monthSpending, billsThisMonth);
@@ -521,7 +527,7 @@ export default async function DashboardPage() {
 
       {/* Upcoming Bills + Recent Transactions */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Upcoming Bills */}
+        {/* Bill Forecast */}
         <Card>
           <CardHeader>
             <div className="flex items-center gap-3">
@@ -529,11 +535,16 @@ export default async function DashboardPage() {
                 <Calendar className="w-5 h-5 text-amber-600" />
               </div>
               <div>
-                <CardTitle>{t('dashboard.dueSoon', lang)}</CardTitle>
-                <p className="text-xs font-medium text-slate-500 mt-0.5">{t('dashboard.next14Days', lang)}</p>
+                <CardTitle>{t('dashboard.billForecast', lang)}</CardTitle>
+                <p className="text-xs font-medium text-slate-500 mt-0.5">{t('dashboard.billForecastSubtitle', lang, { daysLeft })}</p>
               </div>
             </div>
-            <a href="/bills" className="text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors">{t('common.viewAll', lang)}</a>
+            <div className="text-right">
+              {upcomingBillsTotal > 0 && (
+                <p className="text-base font-extrabold text-amber-600">{formatCurrency(upcomingBillsTotal)}</p>
+              )}
+              <a href="/bills" className="text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors">{t('common.viewAll', lang)}</a>
+            </div>
           </CardHeader>
           <div className="mt-2">
             {upcomingBills.length === 0 ? (
@@ -549,9 +560,9 @@ export default async function DashboardPage() {
             ) : (
               <div className="space-y-2">
                 {upcomingBills.map((bill) => {
-                  const daysUntil = Math.ceil(
-                    (new Date(bill.nextDue).getTime() - now.getTime()) / 86400000
-                  );
+                  const dueDate = new Date(bill.nextDue + 'T00:00:00');
+                  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                  const daysUntil = Math.round((dueDate.getTime() - todayMidnight.getTime()) / 86400000);
                   const isUrgent = daysUntil <= 3;
                   return (
                     <div key={bill.id} className="flex items-center justify-between p-3.5 rounded-2xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100">
