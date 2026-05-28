@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe } from 'lucide-react';
+import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw } from 'lucide-react';
 import { BRACKETS_2026, STANDARD_DEDUCTION_2026 } from '@/lib/tax';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -20,6 +20,7 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [newExpCat, setNewExpCat] = useState('');
   const [newIncCat, setNewIncCat] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     fetch('/api/settings')
@@ -103,6 +104,22 @@ export default function SettingsPage() {
 
   function restoreIncCat(cat: string) {
     setSettings((s) => s ? { ...s, hiddenIncomeCategories: (s.hiddenIncomeCategories ?? []).filter((c) => c !== cat) } : s);
+  }
+
+  async function handleHardRefresh() {
+    setRefreshing(true);
+    sessionStorage.clear();
+    if ('caches' in window) {
+      const names = await caches.keys();
+      await Promise.all(names.map((n) => caches.delete(n)));
+    }
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set('t', Date.now().toString());
+    window.location.replace(url.toString());
   }
 
   function handleReset() {
@@ -519,6 +536,23 @@ export default function SettingsPage() {
             </div>
           </div>
           <p className="text-xs font-medium text-slate-400 mt-4">Changes take effect after clicking {t('settings.saveSettings')}.</p>
+        </Card>
+
+        {/* App Update */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <RefreshCw className="w-4 h-4 text-indigo-500" />
+              {t('settings.appUpdate')}
+            </CardTitle>
+          </CardHeader>
+          <p className="text-sm font-medium text-slate-600 leading-relaxed mb-4">
+            {t('settings.appUpdateDesc')}
+          </p>
+          <Button variant="secondary" onClick={handleHardRefresh} disabled={refreshing} className="shadow-sm">
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? t('settings.refreshing') : t('settings.forceRefresh')}
+          </Button>
         </Card>
 
         {/* Data Storage */}
