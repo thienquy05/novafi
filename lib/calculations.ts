@@ -70,17 +70,23 @@ export function normalizeMonthlyBudget(amount: number, period: 'monthly' | 'week
   return amount / 12;
 }
 
-// ── Budget Rollover ───────────────────────────────────────────────────────────
-// carryover = baseBudget - prevMonthSpend
-//   positive → surplus carried forward (extra budget this month)
-//   negative → deficit carried forward (reduced budget this month)
-export function calcRolloverCarryover(baseBudget: number, prevMonthSpend: number): number {
-  return baseBudget - prevMonthSpend;
+// ── Budget Rollover (deficit-only) ────────────────────────────────────────────
+// The budget cap itself stays FIXED every month. Rollover only carries last
+// month's OVERSPEND forward into this month's usage:
+//   rolledOverDeficit = max(0, prevMonthSpend − baseBudget)
+//
+//   • Underspending (a surplus) does NOT roll over — you do not get extra room.
+//   • A budget with no prior-month spend (e.g. brand new) carries nothing over,
+//     since prevMonthSpend ≤ baseBudget ⇒ deficit = 0. This avoids the old bug
+//     where an untouched budget appeared doubled.
+export function calcRolloverDeficit(baseBudget: number, prevMonthSpend: number): number {
+  return Math.max(0, prevMonthSpend - baseBudget);
 }
 
-// effectiveBudget = baseBudget + carryover = 2 * baseBudget - prevMonthSpend
-export function calcEffectiveBudget(baseBudget: number, carryover: number): number {
-  return baseBudget + carryover;
+// Effective usage this month = actual spend + deficit carried over from last month.
+// The cap is unchanged; only the "used" side grows by the rolled-over overspend.
+export function calcEffectiveSpent(spent: number, rolledOverDeficit: number): number {
+  return spent + rolledOverDeficit;
 }
 
 // ── Spending Pace / Velocity ──────────────────────────────────────────────────

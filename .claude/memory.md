@@ -10,6 +10,34 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-05-28 — Fix budget "doubling" + redefine rollover as deficit-only on usage (branch claude/budget-amount-doubling-6Q4Dy)
+
+**Bug:** With rollover enabled, a $100 monthly budget displayed as $200 with a "+$100 rollover" badge. Root cause was the rollover math: `carryover = baseBudget − prevMonthSpend` and `effectiveBudget = baseBudget + carryover` (= `2*baseBudget − prevMonthSpend`). When last month's spend was 0 — including a brand-new budget or any category with no prior-month transactions (`prevSpentForCategory` returns 0 in all those cases) — carryover equalled the full base, so the cap doubled.
+
+**New model (per user spec):** the budget cap stays **fixed**; only last month's **overspend** rolls forward, and it adds to this month's **usage** (not the cap). Surplus/underspending does NOT roll over. New budgets carry nothing (since `prevSpend ≤ base ⇒ deficit 0`), which removes the phantom doubling.
+
+### `lib/calculations.ts`
+- Removed `calcRolloverCarryover` and `calcEffectiveBudget`.
+- Added `calcRolloverDeficit(baseBudget, prevMonthSpend) = Math.max(0, prevMonthSpend − baseBudget)` (≥ 0, the carried-over overage).
+- Added `calcEffectiveSpent(spent, rolledOverDeficit) = spent + rolledOverDeficit` (cap unchanged; only the "used" side grows).
+
+### `app/(app)/planning/page.tsx`
+- Import updated to the two new fns.
+- Replaced `effectiveMonthlyAmount`/`carryoverAmount` helpers with a single `rolledOverDeficit(budget)` (returns 0 when rollover disabled).
+- Derived stats: `totalBudgeted` now sums fixed `monthlyAmount(b)`; `overBudgetCount` compares `calcEffectiveSpent(spent, rolledOver)` against the fixed `monthlyAmount(b)`.
+- Per-budget map now computes `monthly` (fixed cap), `rolledOver`, actual `spent`, and `usage = calcEffectiveSpent(spent, rolledOver)`. `pct`/`over`/`remaining` use `usage`; `projected` = pace-of-actual-spend + `rolledOver`. `momDiff`/`categoryPct` still use actual `spent`.
+- `BudgetItem` props: `carryover` → `rolledOver`, added `usage`. Header numerator now shows `usage` / `monthly`. Meta badge: when `rolledOver > 0`, renders rose `+{amount} {t('planning.rolledOver')}` note (no more green/red two-way "rollover" badge). 3mo-avg comparison still uses actual `spent`.
+
+### Locales — added `planning.rolledOver`
+- `en.json`: "from last month"; `vi.json`: "từ tháng trước".
+
+### Tests — `lib/__tests__/calculations.test.ts`
+- Replaced the `calcRolloverCarryover`/`calcEffectiveBudget` suites with `calcRolloverDeficit` (surplus→0, overspend→overage, new budget→0) and `calcEffectiveSpent` (usage = spend + rolled deficit) suites, covering the $100/$20 deficit and $70 surplus scenarios.
+
+Verified: `tsc --noEmit` clean, eslint 0 errors (pre-existing line-88 setState-in-effect warning only), 213 tests pass.
+
+---
+
 ## 2026-05-28 — UI enhancements: flexible banner, savings gauge, multi-category filter, shared swipe-to-delete, budget card alignment (branch claude/dashboard-transactions-ui-updates-cOJAZ)
 
 Five enhancement requests; current functions/formulas preserved (only optimized/enhanced). tsc clean, eslint 0 errors (pre-existing warnings only), 234 tests pass, `next build` clean.
