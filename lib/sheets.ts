@@ -100,7 +100,7 @@ export async function getPaychecks(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Paychecks!A2:K1000',
+    range: 'Paychecks!A2:K',
   });
   return (res.data.values ?? []).map(rowToPaycheck);
 }
@@ -167,7 +167,7 @@ export async function getTransactions(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Transactions!A2:I1000',
+    range: 'Transactions!A2:I',
     valueRenderOption: 'UNFORMATTED_VALUE',
   });
   return (res.data.values ?? []).map(rowToTransaction);
@@ -529,7 +529,7 @@ export async function getNetWorthHistory(
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'NetWorthHistory!A2:D1000',
+      range: 'NetWorthHistory!A2:D',
     });
     return (res.data.values ?? []).map((r) => ({
       id: r[0] ?? '',
@@ -559,6 +559,34 @@ export async function appendNetWorthSnapshot(
       values: [[snapshot.id, snapshot.date, snapshot.month, snapshot.netWorth]],
     },
   });
+
+  // When snapshots reach 1000, drop the oldest 500 to keep the sheet lean.
+  const countRes = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: 'NetWorthHistory!A2:A',
+  });
+  const rowCount = (countRes.data.values ?? []).length;
+  if (rowCount >= 1000) {
+    const meta = await sheets.spreadsheets.get({ spreadsheetId });
+    const sheetId = meta.data.sheets?.find(
+      (s) => s.properties?.title === 'NetWorthHistory'
+    )?.properties?.sheetId ?? 0;
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [{
+          deleteDimension: {
+            range: {
+              sheetId,
+              dimension: 'ROWS',
+              startIndex: 1,   // row 2 (oldest data row), 0-indexed
+              endIndex: 501,   // delete 500 rows
+            },
+          },
+        }],
+      },
+    });
+  }
 }
 
 // ── Batch reads (reduces quota usage) ────────────────────────────────────────
@@ -575,7 +603,7 @@ export async function batchGetBadgesData(
   const ranges = [
     'Bills!A2:H200',
     'Budgets!A2:D200',
-    'Transactions!A2:I1000',
+    'Transactions!A2:I',
   ];
   const res = await sheets.spreadsheets.values.batchGet({
     spreadsheetId,
@@ -633,8 +661,8 @@ export async function batchGetDashboardData(
 }> {
   const sheets = getSheetsClient(accessToken);
   const ranges = [
-    'Paychecks!A2:K1000',
-    'Transactions!A2:I1000',
+    'Paychecks!A2:K',
+    'Transactions!A2:I',
     'Accounts!A2:H200',
     'Bills!A2:H200',
     'Budgets!A2:D200',
