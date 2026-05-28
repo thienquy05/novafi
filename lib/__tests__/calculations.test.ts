@@ -3,7 +3,7 @@ import {
   calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
   calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, pctChange,
   normalizeMonthlyBudget,
-  calcRolloverCarryover, calcEffectiveBudget,
+  calcRolloverDeficit, calcEffectiveSpent,
   calcProjectedSpend, calcSpendingPace,
   calcAvgMonthlyExpense, calcEmergencyFundMonths,
   calcSavingsRateScore, calcEmergencyScore, calcBudgetScore, calcDebtScore, calcHealthGrade,
@@ -796,53 +796,51 @@ describe('calcOverBudget', () => {
 
 // ── Budget Rollover ───────────────────────────────────────────────────────────
 
-describe('calcRolloverCarryover', () => {
-  it('underspend produces positive carryover', () => {
-    // $500 budget, $300 spent → +$200 carryover
-    expect(calcRolloverCarryover(500, 300)).toBe(200);
+describe('calcRolloverDeficit', () => {
+  it('underspend (surplus) carries nothing over', () => {
+    // $500 budget, $300 spent → surplus does NOT roll over
+    expect(calcRolloverDeficit(500, 300)).toBe(0);
   });
 
-  it('overspend produces negative carryover', () => {
-    // $500 budget, $600 spent → -$100 carryover
-    expect(calcRolloverCarryover(500, 600)).toBe(-100);
+  it('overspend carries the overage forward', () => {
+    // $500 budget, $600 spent → +$100 deficit rolls into this month's usage
+    expect(calcRolloverDeficit(500, 600)).toBe(100);
   });
 
-  it('exact spend produces zero carryover', () => {
-    expect(calcRolloverCarryover(500, 500)).toBe(0);
+  it('exact spend carries nothing over', () => {
+    expect(calcRolloverDeficit(500, 500)).toBe(0);
   });
 
-  it('no prior spending (new category) → full carryover', () => {
-    expect(calcRolloverCarryover(400, 0)).toBe(400);
+  it('no prior spending (new budget) → nothing carried over (no doubling)', () => {
+    expect(calcRolloverDeficit(400, 0)).toBe(0);
   });
 });
 
-describe('calcEffectiveBudget', () => {
-  it('surplus carryover increases effective budget', () => {
-    // $500 base + $200 carryover = $700 effective
-    expect(calcEffectiveBudget(500, 200)).toBe(700);
+describe('calcEffectiveSpent', () => {
+  it('a fixed budget with no rollover shows actual spend', () => {
+    // $100 budget, $0 rolled over → usage = actual spend (no doubling)
+    expect(calcEffectiveSpent(0, 0)).toBe(0);
+    expect(calcEffectiveSpent(40, 0)).toBe(40);
   });
 
-  it('deficit carryover reduces effective budget', () => {
-    // $500 base + (-$100) carryover = $400 effective
-    expect(calcEffectiveBudget(500, -100)).toBe(400);
+  it('rolled-over deficit adds to this month usage', () => {
+    // $20 overspent last month + $0 spent so far → $20 used
+    expect(calcEffectiveSpent(0, 20)).toBe(20);
   });
 
-  it('zero carryover keeps base budget unchanged', () => {
-    expect(calcEffectiveBudget(500, 0)).toBe(500);
+  it('composed: overspend last month rolls into usage, cap unchanged', () => {
+    const base = 100;
+    const prevSpend = 120;
+    const rolledOver = calcRolloverDeficit(base, prevSpend); // 20
+    // spent $0 this month → usage shows $20 against the fixed $100 cap
+    expect(calcEffectiveSpent(0, rolledOver)).toBe(20);
   });
 
-  it('composed: underspend last month increases this month', () => {
-    const base = 500;
-    const prevSpend = 300;
-    const carryover = calcRolloverCarryover(base, prevSpend);
-    expect(calcEffectiveBudget(base, carryover)).toBe(700);
-  });
-
-  it('composed: overspend last month reduces this month', () => {
-    const base = 500;
-    const prevSpend = 600;
-    const carryover = calcRolloverCarryover(base, prevSpend);
-    expect(calcEffectiveBudget(base, carryover)).toBe(400);
+  it('composed: underspend last month leaves usage at actual spend', () => {
+    const base = 100;
+    const prevSpend = 70;
+    const rolledOver = calcRolloverDeficit(base, prevSpend); // 0 (surplus does not roll)
+    expect(calcEffectiveSpent(0, rolledOver)).toBe(0);
   });
 });
 
