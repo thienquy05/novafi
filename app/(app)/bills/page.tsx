@@ -501,7 +501,6 @@ export default function BillsPage() {
   const overdueBills = activeBills.filter((b) => parseLocalDate(b.nextDue) < todayMidnight);
   const upcomingCount = activeBills.filter((b) => { const diff = Math.ceil((parseLocalDate(b.nextDue).getTime() - todayMidnight.getTime()) / 86400000); return diff >= 0 && diff <= 14; }).length;
 
-  // Bill vs actual: sum of same-category expense transactions this month per category
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
       {(pullY > 0 || refreshing) && (

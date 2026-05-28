@@ -706,8 +706,8 @@ export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
                   className={`h-full rounded-full ${barColor}`}
                 />
               </div>
-              <span className="text-[11px] font-bold text-slate-500 w-12 text-right shrink-0">{c.detail}</span>
-              <span className="text-[11px] font-bold text-slate-400 w-12 text-right shrink-0 tabular-nums">{c.score}/{c.max}</span>
+              <span className="text-[11px] font-bold text-slate-500 w-16 text-right shrink-0 whitespace-nowrap">{c.detail}</span>
+              <span className="text-[11px] font-bold text-slate-400 w-10 text-right shrink-0 whitespace-nowrap tabular-nums">{c.score}/{c.max}</span>
             </div>
           );
         })}
