@@ -364,8 +364,8 @@ export default async function DashboardPage() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
-        {stats.map(({ label, value, icon: Icon, color, bg, border, delta, positiveIsGood, annotation }) => (
-          <Card key={label} className={`border ${border} hover:border-slate-300`}>
+        {stats.map(({ label, value, icon: Icon, color, bg, border, delta, positiveIsGood, annotation }, idx) => (
+          <Card key={label} className={`border ${border} hover:border-slate-300 ${idx === stats.length - 1 && stats.length % 2 !== 0 ? 'col-span-2 sm:col-span-1' : ''}`}>
             <div className="flex items-center gap-3 mb-3">
               <div className={`p-2.5 rounded-xl ${bg}`}>
                 <Icon className={`w-5 h-5 ${color}`} />
