@@ -10,11 +10,11 @@ import {
   calcDebtToIncomeScore, calcDebtToIncomeRatio,
   calcNetWorthTrendScore, calcAvgMomPct,
   calcSpendingVolatilityScore, calcCoefficientOfVariation,
-  calcSpendingPace, calcNetWorthProjection,
+  calcNetWorthProjection,
 } from '@/lib/calculations';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { TrendingUp, TrendingDown, Calendar, PiggyBank, ArrowUpRight, Wallet, BarChart3, ArrowLeftRight } from 'lucide-react';
-import { SpendingPieChart, MonthlyBarChart, BudgetBars, GoalsSummary, NetWorthTrendChart, HealthBanner, EmergencyFundWidget, FinancialHealthScore, SpendingPaceWidget } from './DashboardCharts';
+import { SpendingPieChart, BudgetBars, GoalsSummary, NetWorthTrendChart, HealthBanner, EmergencyFundWidget, FinancialHealthScore } from './DashboardCharts';
 import { QuickAddTransaction } from './QuickAddTransaction';
 import { CategoryIconBadge } from '@/components/CategoryIcon';
 import type { NetWorthPoint } from './DashboardCharts';
@@ -182,19 +182,6 @@ export default async function DashboardPage() {
     else if (tx.type === 'expense') monthlyTotals[key].expense += tx.amount;
   }
 
-  // Monthly income vs spending (last 6 months) with net savings line
-  const monthlyData = Array.from({ length: 6 }, (_, i) => {
-    const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const totals = monthlyTotals[key] ?? { income: 0, expense: 0 };
-    return {
-      month: MONTH_NAMES[d.getMonth()],
-      income: totals.income,
-      expenses: totals.expense,
-      net: totals.income > 0 || totals.expense > 0 ? totals.income - totals.expense : undefined,
-    };
-  });
-
   // Budget vs actual this month — reuse categorySpend (already computed above)
   const prevMonthCategorySpend: Record<string, number> = {};
   prevMonthTx.filter((tx) => tx.type === 'expense').forEach((tx) => {
@@ -208,9 +195,6 @@ export default async function DashboardPage() {
     prevMonthSpent: prevMonthCategorySpend[b.category] ?? 0,
   }));
   const overBudgetCount = budgetData.filter((b) => b.spent > b.budget).length;
-
-  // Spending pace for the pace widget
-  const spendingPaceData = calcSpendingPace(budgets, categorySpend, daysElapsed, daysInMonth);
 
   // Net worth projection (6 months forward based on avg MoM rate)
   const projectedValues = calcNetWorthProjection(netWorthPoints, 6);
@@ -364,8 +348,8 @@ export default async function DashboardPage() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
-        {stats.map(({ label, value, icon: Icon, color, bg, border, delta, positiveIsGood, annotation }) => (
-          <Card key={label} className={`border ${border} hover:border-slate-300`}>
+        {stats.map(({ label, value, icon: Icon, color, bg, border, delta, positiveIsGood, annotation }, idx) => (
+          <Card key={label} className={`border ${border} hover:border-slate-300 ${idx === stats.length - 1 && stats.length % 2 !== 0 ? 'col-span-2 sm:col-span-1' : ''}`}>
             <div className="flex items-center gap-3 mb-3">
               <div className={`p-2.5 rounded-xl ${bg}`}>
                 <Icon className={`w-5 h-5 ${color}`} />
@@ -428,35 +412,21 @@ export default async function DashboardPage() {
         </div>
       </Card>
 
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <Card className="min-h-[380px] flex flex-col">
-          <CardHeader>
-            <div>
-              <CardTitle>{t('dashboard.spendingThisMonth', lang)}</CardTitle>
-              <p className="text-xs font-medium text-slate-500 mt-1">{t('dashboard.whereMoneyWent', lang)}</p>
-            </div>
-            <div className="text-right">
-              <span className="text-xl font-extrabold text-slate-900">{formatCurrency(monthSpending)}</span>
-            </div>
-          </CardHeader>
-          <div className="flex-1 flex items-center justify-center">
-            <SpendingPieChart data={categoryData} />
+      {/* Spending breakdown */}
+      <Card className="min-h-[380px] flex flex-col">
+        <CardHeader>
+          <div>
+            <CardTitle>{t('dashboard.spendingThisMonth', lang)}</CardTitle>
+            <p className="text-xs font-medium text-slate-500 mt-1">{t('dashboard.whereMoneyWent', lang)}</p>
           </div>
-        </Card>
-
-        <Card className="min-h-[380px] flex flex-col">
-          <CardHeader>
-            <div>
-              <CardTitle>{t('dashboard.cashFlow', lang)}</CardTitle>
-              <p className="text-xs font-medium text-slate-500 mt-1">{t('dashboard.cashFlowSubtitle', lang)}</p>
-            </div>
-          </CardHeader>
-          <div className="flex-1">
-            <MonthlyBarChart data={monthlyData} />
+          <div className="text-right">
+            <span className="text-xl font-extrabold text-slate-900">{formatCurrency(monthSpending)}</span>
           </div>
-        </Card>
-      </div>
+        </CardHeader>
+        <div className="flex-1 flex items-center justify-center">
+          <SpendingPieChart data={categoryData} />
+        </div>
+      </Card>
 
       {/* Emergency Fund + Health Score row */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -532,27 +502,6 @@ export default async function DashboardPage() {
           </div>
         </Card>
       </div>
-
-      {/* Spending Pace */}
-      {spendingPaceData.length > 0 && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-amber-50 border border-amber-100">
-                <TrendingUp className="w-5 h-5 text-amber-600" />
-              </div>
-              <div>
-                <CardTitle>{t('dashboard.spendingPace', lang)}</CardTitle>
-                <p className="text-xs font-medium text-slate-500 mt-0.5">{t('dashboard.spendingPaceSubtitle', lang)}</p>
-              </div>
-            </div>
-            <a href="/planning" className="text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors">{t('common.viewAll', lang)}</a>
-          </CardHeader>
-          <div className="mt-4">
-            <SpendingPaceWidget data={spendingPaceData} daysLeft={daysLeft} />
-          </div>
-        </Card>
-      )}
 
       {/* Upcoming Bills + Recent Transactions */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

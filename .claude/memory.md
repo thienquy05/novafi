@@ -27,6 +27,25 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-05-28 — UI sprint: 4 changes (branch claude/flamboyant-meninsky-5522b8, 4 commits)
+
+Four independent UI requests, one commit each on the same branch. tsc clean, eslint clean (pre-existing warnings only), 234 tests pass.
+
+### PR1 — Dashboard stat card orphan blank space
+- **`app/(app)/dashboard/page.tsx`**: stats grid is `grid-cols-2 sm:grid-cols-3 lg:grid-cols-5` with 5 cards, so on a 2-col mobile layout the last card (Savings Rate) sat alone with blank to its right. Added `idx` to the `stats.map` and, when count is odd, the final card gets `col-span-2 sm:col-span-1` so it stretches full-width on mobile only. Decision: user chose "stretch full-width" over adding a 6th KPI.
+
+### PR2 — Move Spending Pace to Reports, remove Cash Flow from dashboard
+- **`app/(app)/dashboard/page.tsx`**: removed the "Cash Flow" `MonthlyBarChart` card (already in Reports) and made the spending pie a full-width card (was a 2-col `grid` with the bar chart). Removed the Spending Pace section. Deleted now-unused `monthlyData` computation, `spendingPaceData`, and imports `MonthlyBarChart`, `SpendingPaceWidget`, `calcSpendingPace`. `monthlyTotals` kept (still feeds emergency fund / health arrays).
+- **`app/(app)/reports/page.tsx`**: now also fetches `/api/budgets` (parallel with transactions). Added a `useMemo` computing current-month `categorySpend` + `calcSpendingPace(budgets, …)` — always current month regardless of `selectedYear`. Renders a "Spending Pace" card (imports `SpendingPaceWidget` from `../dashboard/DashboardCharts`, `calcSpendingPace` from `@/lib/calculations`, `Budget` type). Uses client `t('dashboard.spendingPace')` keys.
+
+### PR3 — Planning budget card title/number overlap
+- **`app/(app)/planning/page.tsx`** `BudgetItem`: long category names (e.g. "Transportation") overflowed and collided with the right-side spent/limit amount. Added `truncate` to the category `<p>` (parent already `flex-1 min-w-0`).
+
+### PR4 — Transaction filter missing income categories
+- **`app/(app)/transactions/page.tsx`** filter sheet: previously only `expenseCategories` were listed. Now renders two labeled groups — "Expenses" (rose label) and "Income" (emerald label) — each mapping its own list; the "All" reset button sits above both. `incomeCategories` already came from `useCategories()`. Keys prefixed `exp-`/`inc-` to avoid collisions when a name exists in both groups. No new functions added (so no new test file needed).
+
+---
+
 ## 2026-05-12 — Fix: billing & transaction dates show 1 day early (PR #11: claude/fix-billing-date-offset)
 
 Root cause: `new Date("YYYY-MM-DD")` treats date-only strings as UTC midnight. In UTC-negative timezones, `.toLocaleDateString()` and `.getDate()` return the previous calendar day. Server components (dashboard) were unaffected because Node.js server runs in UTC. Client components (bills page, transactions) showed 1 day early.

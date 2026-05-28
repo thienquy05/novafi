@@ -5,7 +5,9 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { FitText } from '@/components/ui/FitText';
 import { formatCurrency } from '@/lib/utils';
-import type { Transaction } from '@/types';
+import type { Transaction, Budget } from '@/types';
+import { calcSpendingPace } from '@/lib/calculations';
+import { SpendingPaceWidget } from '../dashboard/DashboardCharts';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
@@ -34,6 +36,7 @@ function fmt(v: number) {
 export default function ReportsPage() {
   const { t } = useTranslation();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [budgets, setBudgets] = useState<Budget[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -43,9 +46,10 @@ export default function ReportsPage() {
     setError(false);
     setLoading(true);
     try {
-      const res = await fetch('/api/transactions');
-      if (!res.ok) throw new Error();
-      setTransactions(await res.json());
+      const [txRes, bRes] = await Promise.all([fetch('/api/transactions'), fetch('/api/budgets')]);
+      if (!txRes.ok) throw new Error();
+      setTransactions(await txRes.json());
+      setBudgets(bRes.ok ? await bRes.json() : []);
     } catch {
       setError(true);
     } finally {
@@ -114,6 +118,24 @@ export default function ReportsPage() {
   }, [transactions, selectedYear]);
 
   const { yearIncome, yearExpense, yearSavings, savingsRate, monthlyData, categoryData, topMerchants, bestSavingsMonth, highestSpendMonth } = reportData;
+
+  // Spending pace — always reflects the current month regardless of selected year
+  const { spendingPace, paceDaysLeft } = useMemo(() => {
+    const now = new Date();
+    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const daysElapsed = now.getDate();
+    const categorySpend: Record<string, number> = {};
+    for (const tx of transactions) {
+      if (tx.type === 'expense' && tx.date.startsWith(monthKey)) {
+        categorySpend[tx.category] = (categorySpend[tx.category] ?? 0) + tx.amount;
+      }
+    }
+    return {
+      spendingPace: calcSpendingPace(budgets, categorySpend, daysElapsed, daysInMonth),
+      paceDaysLeft: daysInMonth - daysElapsed,
+    };
+  }, [transactions, budgets]);
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
@@ -206,6 +228,26 @@ export default function ReportsPage() {
                 </div>
               )}
             </div>
+          )}
+
+          {/* Spending pace (current month) */}
+          {spendingPace.length > 0 && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-xl bg-amber-50 border border-amber-100">
+                    <TrendingUp className="w-5 h-5 text-amber-600" />
+                  </div>
+                  <div>
+                    <CardTitle>{t('dashboard.spendingPace')}</CardTitle>
+                    <p className="text-xs font-medium text-slate-500 mt-0.5">{t('dashboard.spendingPaceSubtitle')}</p>
+                  </div>
+                </div>
+              </CardHeader>
+              <div className="mt-4">
+                <SpendingPaceWidget data={spendingPace} daysLeft={paceDaysLeft} />
+              </div>
+            </Card>
           )}
 
           {/* Monthly cash flow chart */}
