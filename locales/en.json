@@ -429,7 +429,11 @@
     "single": "Single",
     "mfj": "Married Filing Jointly",
     "mfs": "Married Filing Separately",
-    "hoh": "Head of Household"
+    "hoh": "Head of Household",
+    "appUpdate": "App Update",
+    "appUpdateDesc": "If the app feels stale after an update — especially when launched from your home screen — use this to clear all caches and reload the latest version. Your data in Google Sheets is never affected.",
+    "forceRefresh": "Force Refresh",
+    "refreshing": "Refreshing…"
   },
   "categories": {
     "Food": "Food",

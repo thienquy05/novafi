@@ -1,5 +1,26 @@
 # Change Log
 
+## 2026-05-28 — Force cache refresh option in Settings
+
+**Branch:** `claude/web-app-cache-refresh-I6IlV`
+
+**Problem:** When the app is added to the home screen (PWA/standalone mode), browser caches and sessionStorage can serve stale content after a deploy, and there's no way for the user to force a fresh load from within the app.
+
+**Solution:** Added an "App Update" card in the Settings page with a "Force Refresh" button. Clicking it:
+1. Clears `sessionStorage` (badge counts and categories cache from `Sidebar.tsx` and `useCategories.ts`)
+2. Clears all Cache Storage API entries (`caches.keys()` + `caches.delete()`) — covers any future service workers or browser HTTP cache
+3. Unregisters any service workers currently active
+4. Navigates to the current page with a `?t=<timestamp>` query param via `window.location.replace()` to force the browser to fetch fresh HTML and assets
+
+No data loss: all user data lives in Google Sheets on the server; only transient in-memory/sessionStorage caches are cleared.
+
+**Files changed:**
+- `app/(app)/settings/page.tsx`: Added `RefreshCw` icon import, `refreshing` state, `handleHardRefresh` async function, and "App Update" Card before the "Data Storage" card.
+- `locales/en.json`: Added `appUpdate`, `appUpdateDesc`, `forceRefresh`, `refreshing` keys under `settings`.
+- `locales/vi.json`: Same keys in Vietnamese.
+
+---
+
 ## 2026-05-14 — Fix custom categories showing "categories.X" in spending chart
 
 **Branch:** `claude/fix-categories-customization-hvwlP`
