@@ -328,6 +328,42 @@ export function billToTransactionDefaults(bill: Bill, date: string): Omit<Transa
   };
 }
 
+// ── Net Worth Projection ──────────────────────────────────────────────────────
+// Extends historical net worth series N months forward using avg MoM growth rate.
+// Each projected point = previous × (1 + avgMoMRate).
+export function calcNetWorthProjection(
+  history: { netWorth: number }[],
+  months: number,
+): number[] {
+  if (history.length < 2) return [];
+  const avgMoM = calcAvgMomPct(history.map((h) => h.netWorth));
+  if (avgMoM === null) return [];
+  const rate = avgMoM / 100;
+  const last = history[history.length - 1].netWorth;
+  return Array.from({ length: months }, (_, i) => {
+    return last * Math.pow(1 + rate, i + 1);
+  });
+}
+
+// ── Category Percentage ───────────────────────────────────────────────────────
+export function calcCategoryPct(spent: number, totalSpend: number): number {
+  if (totalSpend <= 0) return 0;
+  return (spent / totalSpend) * 100;
+}
+
+// ── Paycheck Effective Tax Rate ───────────────────────────────────────────────
+// effectiveTaxRate = (federal + state + local withheld) / gross
+// totalDeductionRate includes pre-tax contributions (401k, HSA)
+export function calcPaycheckEffectiveRate(
+  grossAmount: number,
+  federalWithheld: number,
+  stateWithheld: number,
+  localWithheld: number,
+): number {
+  if (grossAmount <= 0) return 0;
+  return ((federalWithheld + stateWithheld + localWithheld) / grossAmount) * 100;
+}
+
 // ── Badge Counts ──────────────────────────────────────────────────────────────
 
 export function calcOverdueBills(bills: Bill[], now: Date): number {

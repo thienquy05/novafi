@@ -15,6 +15,7 @@ import {
   reverseExpenseBalance, reverseIncomeBalance, reverseTransferFromBalance, reverseTransferToBalance,
   billToTransactionDefaults,
   calcOverdueBills, calcOverBudget,
+  calcNetWorthProjection, calcCategoryPct, calcPaycheckEffectiveRate,
 } from '@/lib/calculations';
 import type { Account, Transaction, Bill, Budget } from '@/types';
 
@@ -924,5 +925,71 @@ describe('calcSpendingPace', () => {
     const spend = { Food: 200 };
     const result = calcSpendingPace(weeklyBudgets, spend, 15, 30);
     expect(result[0].status).toBe('atRisk');
+  });
+});
+
+// ── Net Worth Projection ──────────────────────────────────────────────────────
+
+describe('calcNetWorthProjection', () => {
+  it('returns empty array when fewer than 2 data points', () => {
+    expect(calcNetWorthProjection([], 6)).toEqual([]);
+    expect(calcNetWorthProjection([{ netWorth: 10000 }], 6)).toEqual([]);
+  });
+
+  it('projects correct number of months', () => {
+    const history = [{ netWorth: 10000 }, { netWorth: 11000 }];
+    expect(calcNetWorthProjection(history, 6)).toHaveLength(6);
+    expect(calcNetWorthProjection(history, 3)).toHaveLength(3);
+  });
+
+  it('flat history (0% MoM) → constant projection', () => {
+    const history = [{ netWorth: 10000 }, { netWorth: 10000 }, { netWorth: 10000 }];
+    const proj = calcNetWorthProjection(history, 3);
+    expect(proj[0]).toBeCloseTo(10000, 0);
+    expect(proj[2]).toBeCloseTo(10000, 0);
+  });
+
+  it('positive growth → increasing projection', () => {
+    const history = [{ netWorth: 10000 }, { netWorth: 11000 }]; // +10% MoM
+    const proj = calcNetWorthProjection(history, 3);
+    expect(proj[0]).toBeGreaterThan(11000); // 11000 * 1.10
+    expect(proj[1]).toBeGreaterThan(proj[0]);
+  });
+});
+
+// ── Category Percentage ───────────────────────────────────────────────────────
+
+describe('calcCategoryPct', () => {
+  it('50% of total', () => {
+    expect(calcCategoryPct(500, 1000)).toBe(50);
+  });
+
+  it('0 total → 0%', () => {
+    expect(calcCategoryPct(100, 0)).toBe(0);
+  });
+
+  it('0 spent → 0%', () => {
+    expect(calcCategoryPct(0, 1000)).toBe(0);
+  });
+
+  it('100% when spent equals total', () => {
+    expect(calcCategoryPct(500, 500)).toBe(100);
+  });
+});
+
+// ── Paycheck Effective Tax Rate ───────────────────────────────────────────────
+
+describe('calcPaycheckEffectiveRate', () => {
+  it('correct rate from sample paycheck', () => {
+    // gross $5000, total taxes $1100 (22%)
+    expect(calcPaycheckEffectiveRate(5000, 700, 250, 150)).toBeCloseTo(22, 4);
+  });
+
+  it('0 gross → 0 rate (no division by zero)', () => {
+    expect(calcPaycheckEffectiveRate(0, 100, 50, 25)).toBe(0);
+  });
+
+  it('no withholding → 0%', () => {
+    expect(calcPaycheckEffectiveRate(5000, 0, 0, 0)).toBe(0);
   });
 });

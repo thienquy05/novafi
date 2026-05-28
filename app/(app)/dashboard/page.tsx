@@ -10,7 +10,7 @@ import {
   calcDebtToIncomeScore, calcDebtToIncomeRatio,
   calcNetWorthTrendScore, calcAvgMomPct,
   calcSpendingVolatilityScore, calcCoefficientOfVariation,
-  calcSpendingPace,
+  calcSpendingPace, calcNetWorthProjection,
 } from '@/lib/calculations';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { TrendingUp, TrendingDown, Calendar, PiggyBank, ArrowUpRight, Wallet, BarChart3, ArrowLeftRight } from 'lucide-react';
@@ -182,12 +182,17 @@ export default async function DashboardPage() {
     else if (tx.type === 'expense') monthlyTotals[key].expense += tx.amount;
   }
 
-  // Monthly income vs spending (last 6 months)
+  // Monthly income vs spending (last 6 months) with net savings line
   const monthlyData = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     const totals = monthlyTotals[key] ?? { income: 0, expense: 0 };
-    return { month: MONTH_NAMES[d.getMonth()], income: totals.income, expenses: totals.expense };
+    return {
+      month: MONTH_NAMES[d.getMonth()],
+      income: totals.income,
+      expenses: totals.expense,
+      net: totals.income > 0 || totals.expense > 0 ? totals.income - totals.expense : undefined,
+    };
   });
 
   // Budget vs actual this month — reuse categorySpend (already computed above)
@@ -206,6 +211,19 @@ export default async function DashboardPage() {
 
   // Spending pace for the pace widget
   const spendingPaceData = calcSpendingPace(budgets, categorySpend, daysElapsed, daysInMonth);
+
+  // Net worth projection (6 months forward based on avg MoM rate)
+  const projectedValues = calcNetWorthProjection(netWorthPoints, 6);
+  const netWorthProjection = projectedValues.map((projected, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() + i + 1, 1);
+    return {
+      label: `${MONTH_NAMES[d.getMonth()]} '${String(d.getFullYear()).slice(2)}`,
+      projected,
+    };
+  });
+
+  // Total spend this month for category %
+  const totalMonthSpend = Object.values(categorySpend).reduce((s, v) => s + v, 0);
 
   // Emergency fund — pull from precomputed monthlyTotals instead of rescanning
   const liquidSavings = calcLiquidSavings(accounts);
@@ -304,6 +322,17 @@ export default async function DashboardPage() {
       positiveIsGood: true,
       annotation: null,
     },
+    {
+      label: t('dashboard.savingsRateKPI', lang),
+      value: `${savingsRate.toFixed(0)}%`,
+      icon: TrendingUp,
+      color: savingsRate >= 20 ? 'text-emerald-600' : savingsRate >= 10 ? 'text-indigo-600' : 'text-amber-600',
+      bg: savingsRate >= 20 ? 'bg-emerald-50' : savingsRate >= 10 ? 'bg-indigo-50' : 'bg-amber-50',
+      border: savingsRate >= 20 ? 'border-emerald-100' : savingsRate >= 10 ? 'border-indigo-100' : 'border-amber-100',
+      delta: null,
+      positiveIsGood: true,
+      annotation: t('dashboard.savingsRateKPINote', lang),
+    },
   ];
 
   return (
@@ -334,7 +363,7 @@ export default async function DashboardPage() {
       />
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         {stats.map(({ label, value, icon: Icon, color, bg, border, delta, positiveIsGood, annotation }) => (
           <Card key={label} className={`border ${border} hover:border-slate-300`}>
             <div className="flex items-center gap-3 mb-3">
@@ -395,7 +424,7 @@ export default async function DashboardPage() {
           </div>
         </CardHeader>
         <div className="mt-2">
-          <NetWorthTrendChart data={netWorthPoints} />
+          <NetWorthTrendChart data={netWorthPoints} projection={netWorthProjection.length > 0 ? netWorthProjection : undefined} />
         </div>
       </Card>
 
@@ -484,7 +513,7 @@ export default async function DashboardPage() {
             <a href="/planning" className="text-xs font-bold text-indigo-600 hover:text-indigo-500 transition-colors bg-indigo-50 px-3 py-1.5 rounded-lg">{t('common.manage', lang)}</a>
           </CardHeader>
           <div className="mt-4">
-            <BudgetBars data={budgetData} daysLeft={daysLeft} daysElapsed={daysElapsed} showMoM />
+            <BudgetBars data={budgetData} daysLeft={daysLeft} daysElapsed={daysElapsed} showMoM totalSpend={totalMonthSpend} />
           </div>
         </Card>
 

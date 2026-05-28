@@ -70,7 +70,8 @@
     "color": "Màu sắc",
     "icon": "Biểu tượng",
     "optional": "tùy chọn",
-    "deleteConfirm": "Bạn có chắc không?"
+    "deleteConfirm": "Bạn có chắc không?",
+    "netSavings": "Tiết kiệm ròng"
   },
   "login": {
     "tagline": "Quản lý tài sản, được định nghĩa lại.",
@@ -126,7 +127,9 @@
     "spendingPace": "Tốc độ chi tiêu",
     "spendingPaceSubtitle": "Dự báo chi tiêu cuối tháng theo danh mục",
     "billForecast": "Hóa đơn tháng này",
-    "billForecastSubtitle": "Còn {daysLeft} ngày — những khoản còn phải trả"
+    "billForecastSubtitle": "Còn {daysLeft} ngày — những khoản còn phải trả",
+    "savingsRateKPI": "Tỷ lệ tiết kiệm",
+    "savingsRateKPINote": "thu nhập tiết kiệm tháng này"
   },
   "charts": {
     "greatShape": "Rất tốt",
@@ -165,7 +168,8 @@
     "sameAsLastMo": "bằng tháng trước",
     "overshoot": "vượt dự kiến",
     "allOnTrack": "Tất cả đều đúng hướng",
-    "paceOnTrack": "đúng hướng"
+    "paceOnTrack": "đúng hướng",
+    "projected": "Dự báo"
   },
   "quickAdd": {
     "title": "Giao dịch mới",
@@ -226,7 +230,9 @@
     "effectiveRate": "Thuế suất hiệu dụng:",
     "annualTaxableIncome": "Thu nhập chịu thuế hàng năm:",
     "savePaycheck": "Lưu phiếu lương",
-    "confirmDelete": "Xóa phiếu lương này?"
+    "confirmDelete": "Xóa phiếu lương này?",
+    "effectiveTaxRate": "thuế suất thực tế",
+    "deductions": "khấu trừ trước thuế"
   },
   "bills": {
     "title": "Hóa đơn",

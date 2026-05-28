@@ -70,7 +70,8 @@
     "color": "Color",
     "icon": "Icon",
     "optional": "optional",
-    "deleteConfirm": "Are you sure?"
+    "deleteConfirm": "Are you sure?",
+    "netSavings": "Net Savings"
   },
   "login": {
     "tagline": "Wealth management, redefined.",
@@ -126,7 +127,9 @@
     "spendingPace": "Spending Pace",
     "spendingPaceSubtitle": "Projected end-of-month by category",
     "billForecast": "Bills This Month",
-    "billForecastSubtitle": "Remaining {daysLeft} days — what you still owe"
+    "billForecastSubtitle": "Remaining {daysLeft} days — what you still owe",
+    "savingsRateKPI": "Savings Rate",
+    "savingsRateKPINote": "of income saved this month"
   },
   "charts": {
     "greatShape": "Great shape",
@@ -165,7 +168,8 @@
     "sameAsLastMo": "same as last mo",
     "overshoot": "overshoot",
     "allOnTrack": "All categories on track",
-    "paceOnTrack": "on track"
+    "paceOnTrack": "on track",
+    "projected": "Projected"
   },
   "quickAdd": {
     "title": "New Transaction",
@@ -226,7 +230,9 @@
     "effectiveRate": "Effective rate:",
     "annualTaxableIncome": "Annual taxable income:",
     "savePaycheck": "Save Paycheck",
-    "confirmDelete": "Delete this paycheck entry?"
+    "confirmDelete": "Delete this paycheck entry?",
+    "effectiveTaxRate": "effective tax rate",
+    "deductions": "pre-tax deductions"
   },
   "bills": {
     "title": "Bills",
