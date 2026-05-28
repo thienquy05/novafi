@@ -6,7 +6,24 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ## Current Version — NovaFi Web App (Next.js + Google Sheets)
 
-**Last Updated:** May 12, 2026
+**Last Updated:** May 28, 2026
+
+---
+
+## 2026-05-28 — Bills: remove month comparison; Health Score UI: color-coded factor bars
+
+### Bills page (`app/(app)/bills/page.tsx`)
+- Removed the per-bill "Paid this month: $X (±$Y vs expected)" line on active bill cards.
+- Deleted the now-unused `thisMonthKey` and `thisMonthCategorySpend` memos, plus the `paidThisMonth`/`paidDiff` locals in the bill map.
+
+### Financial Health Score — 6-factor verification
+- Verified the composite is correct: Savings Rate (25) + Emergency Fund (20) + Budget Adherence (15) + Debt-to-Income (20) + Net Worth Trend (10) + Spending Volatility (10) = 100 max. 55 score-related Vitest tests pass.
+- Computation lives in `app/(app)/dashboard/page.tsx` (lines ~254-260); pure scoring fns in `lib/calculations.ts`.
+
+### Health Score UI fix (`app/(app)/dashboard/DashboardCharts.tsx`, `FinancialHealthScore`)
+- Factor progress bars previously always indigo with no points shown — bar width didn't visually convey the assessment.
+- Now: bar width = `round(score/max * 100)%`; bar color reflects ratio (≥0.8 emerald, ≥0.6 indigo, ≥0.4 amber, ≥0.2 orange, else rose).
+- Added a `score/max` points label (tabular-nums) next to each factor's metric detail so the bar matches the assessment score.
 
 ---
 

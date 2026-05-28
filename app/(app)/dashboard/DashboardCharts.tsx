@@ -691,21 +691,26 @@ export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
           </div>
         </div>
       </div>
-      <div className="space-y-2">
-        {components.map((c) => (
-          <div key={c.label} className="flex items-center gap-3">
-            <span className="text-xs font-bold text-slate-600 w-32 shrink-0">{c.label}</span>
-            <div className="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${(c.score / c.max) * 100}%` }}
-                transition={{ duration: 0.8, ease: 'easeOut' }}
-                className="h-full rounded-full bg-indigo-500"
-              />
+      <div className="space-y-2.5">
+        {components.map((c) => {
+          const ratio = c.max > 0 ? c.score / c.max : 0;
+          const barColor = ratio >= 0.8 ? 'bg-emerald-500' : ratio >= 0.6 ? 'bg-indigo-500' : ratio >= 0.4 ? 'bg-amber-500' : ratio >= 0.2 ? 'bg-orange-500' : 'bg-rose-500';
+          return (
+            <div key={c.label} className="flex items-center gap-3">
+              <span className="text-xs font-bold text-slate-600 w-32 shrink-0">{c.label}</span>
+              <div className="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${Math.round(ratio * 100)}%` }}
+                  transition={{ duration: 0.8, ease: 'easeOut' }}
+                  className={`h-full rounded-full ${barColor}`}
+                />
+              </div>
+              <span className="text-[11px] font-bold text-slate-500 w-12 text-right shrink-0">{c.detail}</span>
+              <span className="text-[11px] font-bold text-slate-400 w-12 text-right shrink-0 tabular-nums">{c.score}/{c.max}</span>
             </div>
-            <span className="text-[11px] font-bold text-slate-500 w-16 text-right shrink-0">{c.detail}</span>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

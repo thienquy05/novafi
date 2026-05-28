@@ -502,20 +502,6 @@ export default function BillsPage() {
   const upcomingCount = activeBills.filter((b) => { const diff = Math.ceil((parseLocalDate(b.nextDue).getTime() - todayMidnight.getTime()) / 86400000); return diff >= 0 && diff <= 14; }).length;
 
   // Bill vs actual: sum of same-category expense transactions this month per category
-  const thisMonthKey = useMemo(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  }, []);
-  const thisMonthCategorySpend = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const tx of transactions) {
-      if (tx.type === 'expense' && tx.date.startsWith(thisMonthKey)) {
-        map[tx.category] = (map[tx.category] ?? 0) + tx.amount;
-      }
-    }
-    return map;
-  }, [transactions, thisMonthKey]);
-
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
       {(pullY > 0 || refreshing) && (
@@ -597,8 +583,6 @@ export default function BillsPage() {
                   const isOverdue = daysUntil < 0;
                   const isDueSoon = daysUntil >= 0 && daysUntil <= 7;
                   const accountName = accounts.find((a) => a.id === bill.account)?.name ?? bill.account;
-                  const paidThisMonth = thisMonthCategorySpend[bill.category] ?? 0;
-                  const paidDiff = paidThisMonth - bill.amount;
                   return (
                     <div key={bill.id} className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-5 rounded-3xl bg-white border transition-all duration-200 gap-3 sm:gap-0 ${isOverdue ? 'border-rose-200 bg-rose-50/30' : isDueSoon ? 'border-amber-200 bg-amber-50/30' : 'border-slate-100 hover:border-slate-200 hover:shadow-sm'}`}>
                       <div className="flex items-center gap-4">
@@ -611,16 +595,6 @@ export default function BillsPage() {
                             {FREQUENCY_LABELS[bill.frequency]}{accountName ? ` · ${accountName}` : ''}{' · '}
                             {isOverdue ? <span className="text-rose-600 font-bold">{t('common.overdue')} {Math.abs(daysUntil)}d</span> : daysUntil === 0 ? <span className="text-amber-600 font-bold">Due today</span> : <span>{daysUntil}d ({formatDate(bill.nextDue)})</span>}
                           </p>
-                          {paidThisMonth > 0 && (
-                            <p className="text-xs font-bold mt-0.5">
-                              <span className="text-emerald-600">Paid this month: {formatCurrency(paidThisMonth)}</span>
-                              {Math.abs(paidDiff) >= 1 && (
-                                <span className={`ml-1 ${paidDiff > 0 ? 'text-rose-500' : 'text-slate-400'}`}>
-                                  ({paidDiff > 0 ? '+' : ''}{formatCurrency(paidDiff)} vs expected)
-                                </span>
-                              )}
-                            </p>
-                          )}
                         </div>
                       </div>
                       <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto pl-16 sm:pl-0 gap-3 sm:gap-5">
