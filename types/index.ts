@@ -15,6 +15,7 @@ export interface TaxSettings {
   ficaMedicareRate: number;
   useFederalBrackets: boolean; // when true, uses 2026 IRS progressive brackets instead of federalRate
   excludeLoansFromNetWorth: boolean; // when true, loan balances are excluded from net worth headline
+  budgetRollover: boolean; // when true, unused/overspent budget carries forward to next month
   customExpenseCategories: string[];
   customIncomeCategories: string[];
   hiddenExpenseCategories: string[];

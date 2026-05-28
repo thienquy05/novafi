@@ -70,6 +70,19 @@ export function normalizeMonthlyBudget(amount: number, period: 'monthly' | 'week
   return amount / 12;
 }
 
+// ── Budget Rollover ───────────────────────────────────────────────────────────
+// carryover = baseBudget - prevMonthSpend
+//   positive → surplus carried forward (extra budget this month)
+//   negative → deficit carried forward (reduced budget this month)
+export function calcRolloverCarryover(baseBudget: number, prevMonthSpend: number): number {
+  return baseBudget - prevMonthSpend;
+}
+
+// effectiveBudget = baseBudget + carryover = 2 * baseBudget - prevMonthSpend
+export function calcEffectiveBudget(baseBudget: number, carryover: number): number {
+  return baseBudget + carryover;
+}
+
 // ── Emergency Fund ────────────────────────────────────────────────────────────
 
 export function calcAvgMonthlyExpense(monthlySums: number[]): number {

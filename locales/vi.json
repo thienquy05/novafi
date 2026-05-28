@@ -433,7 +433,9 @@
     "appUpdate": "Cập nhật ứng dụng",
     "appUpdateDesc": "Nếu ứng dụng có vẻ cũ sau khi cập nhật — đặc biệt khi khởi chạy từ màn hình chính — hãy dùng tính năng này để xóa bộ nhớ đệm và tải lại phiên bản mới nhất. Dữ liệu trong Google Sheets không bị ảnh hưởng.",
     "forceRefresh": "Làm mới bắt buộc",
-    "refreshing": "Đang làm mới…"
+    "refreshing": "Đang làm mới…",
+    "budgetRollover": "Chuyển ngân sách",
+    "budgetRolloverDesc": "Chuyển phần ngân sách còn lại (thừa hoặc thiếu) sang tháng tiếp theo. Tiêu ít hơn sẽ cộng thêm vào tháng sau; tiêu nhiều hơn sẽ trừ đi."
   },
   "categories": {
     "Food": "Ăn uống",

@@ -9,6 +9,7 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { PlanningSkeleton } from '@/components/ui/Skeleton';
 import { formatCurrency, formatDate, generateId } from '@/lib/utils';
+import { calcRolloverCarryover, calcEffectiveBudget } from '@/lib/calculations';
 import type { Budget, Goal, Transaction, Account } from '@/types';
 import { useCategories } from '@/hooks/useCategories';
 import { Reorder, useDragControls } from 'framer-motion';
@@ -51,6 +52,7 @@ export default function PlanningPage() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [rolloverEnabled, setRolloverEnabled] = useState(false);
 
   const [budgetModalOpen, setBudgetModalOpen] = useState(false);
   const [editBudget, setEditBudget] = useState<Budget | null>(null);
@@ -68,12 +70,13 @@ export default function PlanningPage() {
   const load = useCallback(async () => {
     setError(false);
     try {
-      const [bRes, gRes, tRes, aRes] = await Promise.all([
-        fetch('/api/budgets'), fetch('/api/goals'), fetch('/api/transactions'), fetch('/api/accounts'),
+      const [bRes, gRes, tRes, aRes, sRes] = await Promise.all([
+        fetch('/api/budgets'), fetch('/api/goals'), fetch('/api/transactions'), fetch('/api/accounts'), fetch('/api/settings'),
       ]);
       if (!bRes.ok || !gRes.ok) throw new Error();
-      const [b, g, tx, a] = await Promise.all([bRes.json(), gRes.json(), tRes.json(), aRes.json()]);
+      const [b, g, tx, a, s] = await Promise.all([bRes.json(), gRes.json(), tRes.json(), aRes.json(), sRes.json()]);
       setBudgets(b); setGoals(g); setTransactions(tx); setAccounts(a);
+      setRolloverEnabled(s?.budgetRollover === true);
     } catch {
       setError(true);
     } finally {
@@ -259,10 +262,23 @@ export default function PlanningPage() {
     }, 600);
   }
 
-  // ─── Derived stats ────────────────────────────────────────────────────────
-  const totalBudgeted = budgets.reduce((s, b) => s + monthlyAmount(b), 0);
+  // ─── Rollover helpers ────────────────────────────────────────────────────
+  function effectiveMonthlyAmount(budget: Budget): number {
+    const base = monthlyAmount(budget);
+    if (!rolloverEnabled) return base;
+    const carryover = calcRolloverCarryover(base, prevSpentForCategory(budget.category));
+    return calcEffectiveBudget(base, carryover);
+  }
+
+  function carryoverAmount(budget: Budget): number {
+    if (!rolloverEnabled) return 0;
+    return calcRolloverCarryover(monthlyAmount(budget), prevSpentForCategory(budget.category));
+  }
+
+  // ─── Derived stats ───────────────────────────────────────────────────────
+  const totalBudgeted = budgets.reduce((s, b) => s + effectiveMonthlyAmount(b), 0);
   const totalSpent = budgets.reduce((s, b) => s + spentForCategory(b.category), 0);
-  const overBudgetCount = budgets.filter((b) => spentForCategory(b.category) > monthlyAmount(b)).length;
+  const overBudgetCount = budgets.filter((b) => spentForCategory(b.category) > effectiveMonthlyAmount(b)).length;
 
   const totalGoalTarget = goals.reduce((s, g) => s + g.targetAmount, 0);
   const totalGoalSaved = goals.reduce((s, g) => {
@@ -371,7 +387,8 @@ export default function PlanningPage() {
             ) : (
               <Reorder.Group axis="y" values={budgets} onReorder={handleBudgetReorder} className="space-y-3 list-none">
                 {budgets.map((budget) => {
-                  const monthly = monthlyAmount(budget);
+                  const monthly = effectiveMonthlyAmount(budget);
+                  const carryover = carryoverAmount(budget);
                   const spent = spentForCategory(budget.category);
                   const prevSpent = prevSpentForCategory(budget.category);
                   const momDiff = spent - prevSpent;
@@ -387,6 +404,7 @@ export default function PlanningPage() {
                       key={budget.id}
                       budget={budget}
                       monthly={monthly}
+                      carryover={carryover}
                       spent={spent}
                       prevSpent={prevSpent}
                       momDiff={momDiff}
@@ -631,9 +649,9 @@ export default function PlanningPage() {
 }
 
 // ── Draggable Budget Card ──────────────────────────────────────────────────────
-function BudgetItem({ budget, monthly, spent, prevSpent, momDiff, pct, over, remaining, willOvershoot, overshootAmt, daysLeft, onEdit, onDelete }: {
+function BudgetItem({ budget, monthly, carryover, spent, prevSpent, momDiff, pct, over, remaining, willOvershoot, overshootAmt, daysLeft, onEdit, onDelete }: {
   budget: Budget;
-  monthly: number; spent: number; prevSpent: number; momDiff: number;
+  monthly: number; carryover: number; spent: number; prevSpent: number; momDiff: number;
   pct: number; over: boolean; remaining: number; willOvershoot: boolean; overshootAmt: number; daysLeft: number;
   onEdit: (b: Budget) => void; onDelete: (id: string) => void;
 }) {
@@ -655,6 +673,11 @@ function BudgetItem({ budget, monthly, spent, prevSpent, momDiff, pct, over, rem
               <p className="text-xs font-medium text-slate-500 mt-0.5">
                 {formatCurrency(budget.amount)}/{budget.period}
                 {budget.period !== 'monthly' ? ` · ${formatCurrency(monthly)}/mo` : ''}
+                {carryover !== 0 && (
+                  <span className={`ml-1 ${carryover > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                    ({carryover > 0 ? '+' : ''}{formatCurrency(carryover)} rollover)
+                  </span>
+                )}
               </p>
             </div>
           </div>

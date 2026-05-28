@@ -3,6 +3,7 @@ import {
   calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
   calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, pctChange,
   normalizeMonthlyBudget,
+  calcRolloverCarryover, calcEffectiveBudget,
   calcAvgMonthlyExpense, calcEmergencyFundMonths,
   calcSavingsRateScore, calcEmergencyScore, calcBudgetScore, calcDebtScore, calcHealthGrade,
   calcDebtToIncomeScore, calcDebtToIncomeRatio,
@@ -788,5 +789,57 @@ describe('calcOverBudget', () => {
     const budgets = [makeBudget({ category: 'Food', amount: 300 })];
     const txs = [makeTx({ type: 'expense', date: '2026-05-10', amount: 500, category: 'Entertainment' })];
     expect(calcOverBudget(budgets, txs, MONTH)).toBe(0);
+  });
+});
+
+// ── Budget Rollover ───────────────────────────────────────────────────────────
+
+describe('calcRolloverCarryover', () => {
+  it('underspend produces positive carryover', () => {
+    // $500 budget, $300 spent → +$200 carryover
+    expect(calcRolloverCarryover(500, 300)).toBe(200);
+  });
+
+  it('overspend produces negative carryover', () => {
+    // $500 budget, $600 spent → -$100 carryover
+    expect(calcRolloverCarryover(500, 600)).toBe(-100);
+  });
+
+  it('exact spend produces zero carryover', () => {
+    expect(calcRolloverCarryover(500, 500)).toBe(0);
+  });
+
+  it('no prior spending (new category) → full carryover', () => {
+    expect(calcRolloverCarryover(400, 0)).toBe(400);
+  });
+});
+
+describe('calcEffectiveBudget', () => {
+  it('surplus carryover increases effective budget', () => {
+    // $500 base + $200 carryover = $700 effective
+    expect(calcEffectiveBudget(500, 200)).toBe(700);
+  });
+
+  it('deficit carryover reduces effective budget', () => {
+    // $500 base + (-$100) carryover = $400 effective
+    expect(calcEffectiveBudget(500, -100)).toBe(400);
+  });
+
+  it('zero carryover keeps base budget unchanged', () => {
+    expect(calcEffectiveBudget(500, 0)).toBe(500);
+  });
+
+  it('composed: underspend last month increases this month', () => {
+    const base = 500;
+    const prevSpend = 300;
+    const carryover = calcRolloverCarryover(base, prevSpend);
+    expect(calcEffectiveBudget(base, carryover)).toBe(700);
+  });
+
+  it('composed: overspend last month reduces this month', () => {
+    const base = 500;
+    const prevSpend = 600;
+    const carryover = calcRolloverCarryover(base, prevSpend);
+    expect(calcEffectiveBudget(base, carryover)).toBe(400);
   });
 });

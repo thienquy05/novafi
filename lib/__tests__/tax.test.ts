@@ -19,6 +19,7 @@ const BASE_SETTINGS: TaxSettings = {
   ficaMedicareRate: 1.45,
   useFederalBrackets: false,
   excludeLoansFromNetWorth: false,
+  budgetRollover: false,
   customExpenseCategories: [],
   customIncomeCategories: [],
   hiddenExpenseCategories: [],
