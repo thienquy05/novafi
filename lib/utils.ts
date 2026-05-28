@@ -52,6 +52,7 @@ export const DEFAULT_TAX_SETTINGS = {
   ficaMedicareRate: 1.45,
   useFederalBrackets: false,
   excludeLoansFromNetWorth: false,
+  budgetRollover: false,
   customExpenseCategories: [] as string[],
   customIncomeCategories: [] as string[],
   hiddenExpenseCategories: [] as string[],
