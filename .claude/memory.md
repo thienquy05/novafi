@@ -1250,6 +1250,41 @@ Tax calculated only on `grossAmount` (taxable); gratuity bypasses `calcPaycheckT
 
 ---
 
+## Fix: Vercel prod crash — "'get' on proxy: property 'spreadsheets' is read-only" (May 29, 2026)
+
+### Symptom
+After deploying to Vercel, every Sheets-backed request threw:
+```
+TypeError: 'get' on proxy: property 'spreadsheets' is a read-only and
+non-configurable data property on the proxy target but the proxy did not
+return its actual value (expected '#<b>' but got '#<b>')
+```
+Never reproduced in local dev — only in the minified production build.
+
+### Root cause
+`withRetryProxy` in `lib/retry.ts` wrapped the googleapis Sheets client with
+`new Proxy(client, …)`. The `get` trap returns a *new* wrapper proxy for each
+nested resource (e.g. `spreadsheets`). JS enforces a Proxy invariant: when a
+property on the target is **non-configurable + non-writable**, the `get` trap
+MUST return the exact original value. In the minified prod build, googleapis
+exposes `spreadsheets` as a frozen data prop, so returning the wrapper violated
+the invariant and threw. Local dev builds don't freeze the prop, so it passed.
+
+### Solution
+- `lib/retry.ts` — `withRetryProxy` now proxies a **fresh empty object** (`{}`)
+  instead of `client`, reading real values from `client` via closure. The
+  invariant only constrains the trap relative to the *target's* own frozen
+  props; an empty target has none, so wrappers can be returned freely. `this`
+  binding preserved via `fn.apply(client, args)`. Added a `has` trap delegating
+  to `Reflect.has(client, …)` for correctness. Retry policy (429/network always;
+  5xx only for idempotent reads get/batchGet) is unchanged.
+- `lib/__tests__/retry.test.ts` — Added a `withRetryProxy` suite: nested call
+  forwarding, the frozen-property regression case (defines `spreadsheets` as
+  non-configurable/non-writable and asserts no throw), 429 retry on nested
+  methods, and the read-vs-write 5xx policy. 290 tests pass; typecheck clean.
+
+---
+
 ## Potential Future Enhancements
 | Priority | Task |
 |----------|------|

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { isRetryableError, backoffDelay, withRetry } from '@/lib/retry';
+import { isRetryableError, backoffDelay, withRetry, withRetryProxy } from '@/lib/retry';
 
 // Mimics how googleapis/gaxios attach status info.
 const httpErr = (code: number) => Object.assign(new Error(`HTTP ${code}`), { code });
@@ -85,5 +85,72 @@ describe('withRetry', () => {
     const result = await withRetry(fn, { sleep: noSleep, shouldRetry: () => true });
     expect(result).toBe('done');
     expect(fn).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('withRetryProxy', () => {
+  const httpErr = (code: number) => Object.assign(new Error(`HTTP ${code}`), { code });
+  const noSleep = () => Promise.resolve();
+
+  // Mirrors the googleapis client shape: a `spreadsheets` resource nested under
+  // the client, with `values` nested under that, and methods on each level.
+  function makeFakeSheets() {
+    const valuesGet = vi.fn().mockResolvedValue('values.get');
+    const valuesAppend = vi.fn().mockResolvedValue('values.append');
+    const spreadsheetsGet = vi.fn().mockResolvedValue('spreadsheets.get');
+    const client = {
+      spreadsheets: {
+        get: spreadsheetsGet,
+        values: { get: valuesGet, append: valuesAppend },
+      },
+    };
+    return { client, valuesGet, valuesAppend, spreadsheetsGet };
+  }
+
+  it('forwards nested method calls through the proxy', async () => {
+    const { client } = makeFakeSheets();
+    const proxy = withRetryProxy(client, { sleep: noSleep });
+    expect(await proxy.spreadsheets.values.get()).toBe('values.get');
+    expect(await proxy.spreadsheets.get()).toBe('spreadsheets.get');
+  });
+
+  it('does NOT throw when a resource property is frozen (read-only, non-configurable)', async () => {
+    // Reproduces the Vercel prod crash: googleapis exposes `spreadsheets` as a
+    // non-configurable, non-writable data prop in the minified build. A naive
+    // proxy-over-client returns a wrapper here, violating the get-trap invariant.
+    const { client } = makeFakeSheets();
+    Object.defineProperty(client, 'spreadsheets', {
+      value: client.spreadsheets,
+      writable: false,
+      configurable: false,
+      enumerable: true,
+    });
+    const proxy = withRetryProxy(client, { sleep: noSleep });
+    // The throwing line was the property access itself, not the call.
+    expect(() => proxy.spreadsheets).not.toThrow();
+    expect(await proxy.spreadsheets.values.get()).toBe('values.get');
+  });
+
+  it('retries transient 429s on nested method calls', async () => {
+    const { client, valuesAppend } = makeFakeSheets();
+    valuesAppend
+      .mockRejectedValueOnce(httpErr(429))
+      .mockResolvedValue('ok-after-retry');
+    const proxy = withRetryProxy(client, { sleep: noSleep });
+    expect(await proxy.spreadsheets.values.append()).toBe('ok-after-retry');
+    expect(valuesAppend).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry 5xx on writes (append) but does on reads (get)', async () => {
+    const { client, valuesAppend, valuesGet } = makeFakeSheets();
+    valuesAppend.mockRejectedValue(httpErr(503));
+    valuesGet.mockRejectedValueOnce(httpErr(503)).mockResolvedValue('read-ok');
+    const proxy = withRetryProxy(client, { sleep: noSleep });
+
+    await expect(proxy.spreadsheets.values.append()).rejects.toMatchObject({ code: 503 });
+    expect(valuesAppend).toHaveBeenCalledTimes(1); // write: no 5xx retry
+
+    expect(await proxy.spreadsheets.values.get()).toBe('read-ok');
+    expect(valuesGet).toHaveBeenCalledTimes(2); // read: 5xx retried
   });
 });

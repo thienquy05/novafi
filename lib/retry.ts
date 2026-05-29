@@ -80,17 +80,30 @@ const IDEMPOTENT_READ_METHODS = new Set(['get', 'batchGet']);
  * no per-call-site changes needed. `this` binding is preserved for prototype
  * methods. 5xx retries are enabled only for read methods (get/batchGet); all
  * other calls retry on 429/network errors only.
+ *
+ * The Proxy target is a fresh empty object, NOT `client` — and the trap reads
+ * the real values from `client` via closure. This is deliberate: the get-trap
+ * invariant only constrains the value returned for the *target's* own
+ * non-configurable, non-writable properties. In the minified production build,
+ * googleapis exposes its resource properties (e.g. `spreadsheets`) as frozen
+ * data props, so proxying the client directly and returning a wrapper throws
+ *   "'get' on proxy: property 'spreadsheets' is a read-only and
+ *    non-configurable data property ... but the proxy did not return its
+ *    actual value"
+ * (seen only on Vercel; local dev builds don't freeze these props). Keeping the
+ * target empty means there are no frozen own props to violate, so we can return
+ * wrapped values freely.
  */
 export function withRetryProxy<T extends object>(client: T, opts: RetryOptions = {}): T {
-  return new Proxy(client, {
-    get(target, prop, receiver) {
-      const value = Reflect.get(target, prop, receiver);
+  return new Proxy({} as T, {
+    get(_target, prop) {
+      const value = Reflect.get(client, prop);
       if (typeof prop === 'symbol') return value;
       if (typeof value === 'function') {
         const allow5xx = IDEMPOTENT_READ_METHODS.has(prop);
         const fn = value as (...args: unknown[]) => unknown;
         return (...args: unknown[]) =>
-          withRetry(() => Promise.resolve(fn.apply(target, args)), {
+          withRetry(() => Promise.resolve(fn.apply(client, args)), {
             ...opts,
             shouldRetry: opts.shouldRetry ?? ((err) => isRetryableError(err, allow5xx)),
           });
@@ -99,6 +112,9 @@ export function withRetryProxy<T extends object>(client: T, opts: RetryOptions =
         return withRetryProxy(value as object, opts);
       }
       return value;
+    },
+    has(_target, prop) {
+      return Reflect.has(client, prop);
     },
   }) as T;
 }
