@@ -6,7 +6,82 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ## Current Version — NovaFi Web App (Next.js + Google Sheets)
 
-**Last Updated:** May 28, 2026
+**Last Updated:** May 29, 2026
+
+---
+
+## 2026-05-29 — Ledger consolidation, balance reconciliation, cache hardening, pagination, undo, aggregation (branch claude/xenodochial-lalande-9ce7eb)
+
+Hardened the money-math and scaled the read path. All new functions are pure and unit-tested. Decisions confirmed with user: tests in `lib/__tests__`; Vercel hosting → cache fix with **no new dependency** (bounded staleness); **CSV import skipped** (export kept); recurring transactions skipped; reconcile basis = new `openingBalance` column.
+
+### `lib/calculations.ts` (new pure functions — single source of truth for balance math)
+- `nextBalanceForAccount(account, tx, mode)` — resulting balance for ONE account after a tx is applied/reversed; unrelated accounts unchanged. Wraps the existing `apply*/reverse*Balance` fns (incl. the `applyTransferToBalance` debt clamp `Math.max(0, …)`).
+- `applyTransactionToBalances(accounts, tx, mode)` — maps `nextBalanceForAccount` across all accounts, returning a NEW array; untouched accounts keep the same reference (identity check drives `persistChanged`). Replaces the 8 duplicated balance-mutation blocks formerly inline in the transactions route's POST/PUT/DELETE.
+- `reconcileAccountBalance(account, transactions)` — replays the account's ledger chronologically (`date`, then `createdAt`) from `openingBalance`; returns the balance it SHOULD have. Returns stored balance untouched when `openingBalance == null` (not yet baselined → avoids double-count).
+- `deriveOpeningBalance(account, transactions)` — reverse-replays from current balance to backfill `openingBalance` for legacy rows; round-trips with reconcile. Unclamped (accurate unless a historical debt-overpayment clamp fired — rare/ambiguous, documented).
+- `detectBalanceDrift(accounts, transactions, tolerance=0.01)` → `BalanceDrift[]` ({accountId,name,stored,expected,diff}); skips accounts without `openingBalance`.
+- `filterTransactions(txns, TxFilter)` — pure search/type/category/account/monthKey/date-range filter. `paginate(items, page, pageSize)` — generic, clamps out-of-range/non-positive pages. `aggregateMonthlyTotals(txns)` (ignores transfers) and `aggregateCategoryTotals(txns, monthKey?)` — pre-aggregation so dashboards/reports skip full rescans.
+
+### `types/index.ts`
+- `Account.openingBalance?: number` — balance before any transactions; reconciliation basis. Optional/backward-compatible; backfilled for legacy rows.
+
+### `lib/sheets.ts`
+- `getAccounts` range `A2:H200` → `A2:I200`; parses column I as `openingBalance` (blank/undefined → `undefined`, NOT 0).
+- `upsertAccount` writes `account.openingBalance ?? ''` to column I; `deleteRowById` last-col `'H'` → `'I'` (arg is unused `_lastCol`, cosmetic).
+
+### `app/api/transactions/route.ts` (rewritten)
+- POST/PUT/DELETE now go through `applyTransactionToBalances` + `persistChanged` helper (writes only accounts whose balance changed, via reference identity). Ledger row is written FIRST, balances second, so a partial balance-write failure self-heals on reconcile (transactions are source of truth). Centralized `invalidateTxCaches`. Transactions GET TTL `60_000` → `CACHE_TTL.SHORT`.
+
+### `app/api/accounts/route.ts`
+- POST self-maintains `openingBalance`: when client omits it, new accounts get `openingBalance = balance`; edits preserve the stored value (reads accounts once to distinguish). Accounts GET TTL → `CACHE_TTL.SHORT`.
+
+### `app/api/accounts/reconcile/route.ts` (NEW endpoint, POST)
+- Backfills missing `openingBalance` via `deriveOpeningBalance`, then repairs drift (writes reconciled balance when `|diff| > 0.01`). Never touches history. Returns `{backfilledCount, repairedCount, repaired[]}`. Invalidates accounts/dashboard/badges caches when anything changed.
+
+### `lib/cache.ts`
+- Added `CACHE_TTL = { SHORT: 15_000, MEDIUM: 30_000, LONG: 60_000 }` (default for `setCache` now MEDIUM) + `clearCache()` (test isolation). Documented Vercel per-instance behavior: cache is a short-lived read throttle; balance-critical data uses SHORT to bound the cross-instance stale window after a mutation.
+
+### `lib/csv.ts` (NEW)
+- `transactionsToCsv(transactions, accountName?)` — pure RFC-4180 serializer (extracted from the inline `exportCSV` in the transactions page); adds a "To Account" column for transfers. Page's `exportCSV` now calls it for the Blob download.
+
+### `lib/toast.tsx`
+- Toasts now accept an optional `action: {label, onClick}` (3rd arg, backward-compatible). Action toasts stay up 6s (vs 3.5s) and render a `<Toast.Action>` button that fires then dismisses.
+
+### `app/(app)/transactions/page.tsx`
+- **Undo on delete:** `handleDelete` captures the removed tx and shows an "Undo" toast → `restoreTransaction` re-POSTs (re-creating the row also re-applies balance effects).
+- **Pagination:** `PAGE_SIZE = 50`; list view renders `filtered.slice(0, visibleCount)` with a "Show more (N)" button. Paging resets when filters change via the render-time "adjust state" pattern (`prevFilterKey`) — no effect, avoids the `set-state-in-effect` lint warning.
+
+### i18n
+- `locales/en.json` + `vi.json`: added `common.undo`, `transactions.toastRestored`, `transactions.toastFailedRestore`, `transactions.showMore` (`{count}` param).
+
+### Tests (all in `lib/__tests__`, run by CI)
+- `ledger.test.ts` — nextBalanceForAccount (incl. debt clamp + reverse inverse), applyTransactionToBalances (reference preservation), reconcile/derive round-trip, drift detection, filter/paginate, monthly/category aggregation.
+- `csv.test.ts` — header, name mapping, transfer destination, quote escaping, 2-decimal amounts.
+- `cache.test.ts` — TTL hit/expiry (fake timers), prefix invalidation, clearCache, TTL tier ordering.
+- Suite: **270 passing**, typecheck clean, lint 0 errors (26 pre-existing warnings, none new).
+
+### Reconcile UI — Settings "Balance Check" (safe dry-run flow)
+- `lib/calculations.ts`: added pure `planReconcile(accounts, transactions, tolerance=0.01)` → `{ toBackfill: ReconcileBackfill[], toRepair: BalanceDrift[] }`. Single source of truth so the dry-run PREVIEW and the APPLY can never diverge.
+- `app/api/accounts/reconcile/route.ts`: rewritten to use `planReconcile`. Body `{ dryRun: true }` returns the plan WITHOUT writing (powers preview). Apply path writes only touched accounts (backfill openingBalance and/or repair balance to `expected`). Still never touches transaction history.
+- `app/(app)/settings/page.tsx`: new Card at the very bottom ("Balance Check"). Flow: **Check balances** (dry-run) → shows `stored → expected` per drifted account (or "all balances match", or "establishing baseline for N accounts") → **Fix balances** applies, **Cancel** dismisses. Nothing is written until the user confirms after seeing before/after. State: `reconcilePlan/reconcileBusy/reconcileError/reconcileDone`. Icons: `Scale/CheckCircle2/AlertTriangle`. Uses `formatCurrency`.
+- i18n: `settings.reconcile*` keys (Title, Desc, Check, Checking, AllGood, BaselineOnly `{count}`, Apply, Applying, Applied, Error) in en + vi.
+- Tests: `planReconcile` block added to `ledger.test.ts` (backfill-only consistent legacy acct; repair on drifted baselined acct; no-op when matching). Suite now **273 passing**.
+- Build verified: `npm run build` registers `ƒ /api/accounts/reconcile` and compiles clean.
+
+### Scaling readiness — Sheets retry/backoff + sheet-ID caching (resilience + cheap wins)
+Confirmed architecture insight: **each user has their OWN spreadsheet** in their OWN Drive (`auth.ts findOrCreateSpreadsheet`), accessed with their OWN OAuth token. Google Sheets quotas are ~60 read + 60 write per minute **per user**, so the app already scales by user count (no shared contention). Real risks were (1) no retry on transient errors, (2) call-heavy writes. Chosen scope: "resilience + cheap wins" (no values.update refactor).
+
+- `lib/retry.ts` (NEW): `isRetryableError(err, allow5xx=false)`, `backoffDelay(attempt, base=300, max=8000)`, `withRetry(fn, opts)`, `withRetryProxy(client)`.
+  - **Finance-safe policy:** retry 429 + pre-response network errors (ECONNRESET/ETIMEDOUT/etc.) ALWAYS (request never processed → safe); retry 5xx ONLY for idempotent reads (`get`/`batchGet`) — NOT for `append` (avoids duplicate transactions on a retried write that may have succeeded).
+  - `withRetryProxy` recursively wraps a googleapis client (preserves `this`), so every call auto-retries with zero call-site edits. 5xx allowed only when method name ∈ {get, batchGet}.
+  - Exponential backoff + 25% jitter; `sleep` injectable for tests.
+- `lib/sheets.ts`: `getSheetsClient` now returns `withRetryProxy(google.sheets(...))`. Added module-level `sheetIdCache` + `getSheetId(sheets, spreadsheetId, title)` (one metadata fetch populates all tab ids) + `invalidateSheetIdCache`. Replaced 3 `spreadsheets.get` metadata lookups (`deleteRowById`, `ensureNetWorthHistorySheet`, net-worth pruning) with cached `getSheetId` → row-delete writes drop ~3 calls → ~2 after warmup. `ensureNetWorthHistorySheet` invalidates the cache after adding the tab.
+- `lib/auth.ts`: wrapped sign-in `drive`/`sheets` clients with `withRetryProxy` (resilient first-login provisioning). Added `opening_balance` header to new Accounts sheet seeding (col I, self-documenting).
+- Tests: `retry.test.ts` (13 cases) — retryable classification (429/5xx/4xx/network/shapes), exponential+cap backoff, withRetry success/retry/exhaust/non-retryable/custom-predicate. Suite now **286 passing**; typecheck clean; build OK.
+- Deferred (not needed at 10-20 users): values.update in-place write refactor, shared cross-instance cache (Upstash), server-side month-scoped transaction reads.
+
+### Sheets scale note (answer to "will it overwhelm after a year?")
+Google caps at 10M cells (~1.1M tx rows) — not the bottleneck. The real cost is the full-`A2:I` fetch + full-ledger recompute per navigation. Chosen mitigation (no spreadsheet structure change): UI pagination + pure aggregation/filter helpers, history fully preserved. Rollup/archive tabs deferred as future options if row counts get very large.
 
 ---
 
