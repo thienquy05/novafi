@@ -2,6 +2,7 @@ export type FilingStatus = 'single' | 'mfj' | 'mfs' | 'hoh';
 export type Language = 'en' | 'vi';
 
 export interface TaxSettings {
+  displayName: string; // user-chosen name shown in greetings; empty = fall back to Google account name
   filingStatus: FilingStatus;
   payPeriodsPerYear: number;
   k401Pct: number;

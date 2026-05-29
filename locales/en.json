@@ -422,6 +422,11 @@
   "settings": {
     "title": "Settings",
     "subtitle": "Taxes, payroll & preferences",
+    "namePreference": "Name Preference",
+    "displayName": "Display name",
+    "displayNameDesc": "Shown in your dashboard greeting. Leave blank to use your Google account name.",
+    "displayNamePlaceholder": "Your name",
+    "useGoogleName": "Use Google name",
     "languageRegion": "Language & Region",
     "displayLanguage": "Display language",
     "langEn": "English",

@@ -422,6 +422,11 @@
   "settings": {
     "title": "Cài đặt",
     "subtitle": "Thuế, bảng lương & tùy chọn",
+    "namePreference": "Tùy chọn tên",
+    "displayName": "Tên hiển thị",
+    "displayNameDesc": "Hiển thị trong lời chào trên bảng điều khiển. Để trống để dùng tên tài khoản Google của bạn.",
+    "displayNamePlaceholder": "Tên của bạn",
+    "useGoogleName": "Dùng tên Google",
     "languageRegion": "Ngôn ngữ & Khu vực",
     "displayLanguage": "Ngôn ngữ hiển thị",
     "langEn": "English",
