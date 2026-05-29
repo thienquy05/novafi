@@ -10,6 +10,10 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-05-29 — Removed arrow from "View All" links (branch claude/remove-view-all-arrow-OYAm6)
+
+The `common.viewAll` translation string included a trailing `→` arrow (`"View All →"` in `locales/en.json:60`, `"Xem tất cả →"` in `locales/vi.json:60`). On the dashboard the two "View All" pill links (`app/(app)/dashboard/page.tsx` lines ~535 and ~589) render this string, so the arrow appeared inside the tinted pill and wrapped to a second line on narrow widths (visible in the Bills card). Removed the `→` (and trailing space) from both locale strings so the pills now read just "View All" / "Xem tất cả". No component/markup changes needed since the arrow lived entirely in the locale text.
+
 ## 2026-05-29 — Health banner "over income" subtitle truncation fix (branch claude/over-income-display-text-nG2Ay)
 
 The `HealthBanner` subtitle in `app/(app)/dashboard/DashboardCharts.tsx` (line ~231) read `${over income amount} over income — check your budgets`. The `<p>` rendering it uses Tailwind `truncate` (single line, `overflow:hidden` + ellipsis, line ~257), so on narrow/phone widths the actionable tail `— check your budgets` was the part cut off, leaving the unhelpful `$2,255.46 over income — …`.
