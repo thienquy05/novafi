@@ -309,8 +309,8 @@ export default function TransactionsPage() {
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900">{t('transactions.title')}</h1>
-          <p className="text-slate-500 text-sm font-medium mt-1">{t('transactions.subtitle')}</p>
+          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{t('transactions.title')}</h1>
+          <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mt-1">{t('transactions.subtitle')}</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           {templates.length > 0 && (
@@ -330,15 +330,15 @@ export default function TransactionsPage() {
       <div className="grid grid-cols-3 gap-3">
         <Card className="p-4 sm:p-5 min-w-0">
           <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('common.income')}</p>
-          <p className="font-extrabold text-emerald-600 mt-1.5 text-base sm:text-lg truncate">{formatCompact(totalIncome)}</p>
+          <p className="font-extrabold text-emerald-600 dark:text-emerald-400 mt-1.5 text-base sm:text-lg truncate">{formatCompact(totalIncome)}</p>
         </Card>
         <Card className="p-4 sm:p-5 min-w-0">
           <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('transactions.spending')}</p>
-          <p className="font-extrabold text-rose-600 mt-1.5 text-base sm:text-lg truncate">{formatCompact(totalExpense)}</p>
+          <p className="font-extrabold text-rose-600 dark:text-rose-400 mt-1.5 text-base sm:text-lg truncate">{formatCompact(totalExpense)}</p>
         </Card>
         <Card className="p-4 sm:p-5 min-w-0 border-indigo-100 dark:border-indigo-800/50">
           <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('common.net')}</p>
-          <p className={`font-extrabold mt-1.5 text-base sm:text-lg truncate ${totalIncome - totalExpense >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCompact(totalIncome - totalExpense)}</p>
+          <p className={`font-extrabold mt-1.5 text-base sm:text-lg truncate ${totalIncome - totalExpense >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{formatCompact(totalIncome - totalExpense)}</p>
         </Card>
       </div>
 
@@ -346,7 +346,7 @@ export default function TransactionsPage() {
       <div className="flex flex-col gap-2">
         <div className="flex gap-2 items-center">
           <div className="relative flex-1">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-500" />
             <input className="w-full h-11 pl-10 pr-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all duration-200 shadow-sm" placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
           <button
@@ -391,9 +391,9 @@ export default function TransactionsPage() {
         <TransactionsSkeleton />
       ) : error ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="w-14 h-14 rounded-full bg-rose-50 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-rose-400" /></div>
-          <p className="text-slate-700 font-bold text-base mb-1">{t('transactions.errorTitle')}</p>
-          <p className="text-slate-500 text-sm mb-6">{t('transactions.errorBody')}</p>
+          <div className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-900/30 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-rose-400" /></div>
+          <p className="text-slate-700 dark:text-slate-300 font-bold text-base mb-1">{t('transactions.errorTitle')}</p>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">{t('transactions.errorBody')}</p>
           <Button variant="secondary" onClick={load}>{t('common.tryAgain')}</Button>
         </div>
       ) : filtered.length === 0 ? (
@@ -409,7 +409,7 @@ export default function TransactionsPage() {
         ) : (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="w-20 h-20 rounded-3xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-5">
-              <Search className="w-8 h-8 text-slate-400" />
+              <Search className="w-8 h-8 text-slate-400 dark:text-slate-500" />
             </div>
             <h3 className="text-slate-800 dark:text-slate-200 font-bold text-lg mb-1">{t('transactions.noResultsTitle')}</h3>
             <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">{t('transactions.noResultsBody')}</p>
@@ -421,40 +421,40 @@ export default function TransactionsPage() {
       ) : viewMode === 'merchant' ? (
         /* ── Merchant View ─────────────────────────────────────────────── */
         <div className="space-y-2">
-          <p className="text-xs font-bold text-slate-400 px-1">{t('transactions.merchantCount', { n: merchantRows.length })}</p>
+          <p className="text-xs font-bold text-slate-400 dark:text-slate-500 px-1">{t('transactions.merchantCount', { n: merchantRows.length })}</p>
           {merchantRows.map((row) => {
             const isExpanded = expandedMerchant === row.merchant;
             return (
-              <div key={row.merchant} className="bg-white rounded-3xl border border-slate-100 overflow-hidden">
+              <div key={row.merchant} className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700/60 overflow-hidden">
                 <button
                   onClick={() => setExpandedMerchant(isExpanded ? null : row.merchant)}
-                  className="w-full flex items-center justify-between p-4 hover:bg-slate-50 transition-colors text-left"
+                  className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors text-left"
                 >
                   <div className="flex items-center gap-3">
                     <CategoryIconBadge category={row.transactions[0]?.category ?? ''} type={row.transactions[0]?.type ?? 'expense'} className="w-10 h-10 rounded-xl" />
                     <div>
-                      <p className="text-sm font-bold text-slate-900">{row.merchant || t('transactions.noDescription')}</p>
-                      <p className="text-xs font-medium text-slate-500 mt-0.5">{t('transactions.transactionCount', { n: row.count, date: formatDate(row.lastDate) })}</p>
+                      <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{row.merchant || t('transactions.noDescription')}</p>
+                      <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('transactions.transactionCount', { n: row.count, date: formatDate(row.lastDate) })}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-extrabold text-slate-900">{formatCurrency(row.total)}</span>
-                    {isExpanded ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                    <span className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(row.total)}</span>
+                    {isExpanded ? <ChevronDown className="w-4 h-4 text-slate-400 dark:text-slate-500" /> : <ChevronRight className="w-4 h-4 text-slate-400 dark:text-slate-500" />}
                   </div>
                 </button>
                 {isExpanded && (
-                  <div className="border-t border-slate-100 divide-y divide-slate-50">
+                  <div className="border-t border-slate-100 dark:border-slate-700/60 divide-y divide-slate-50 dark:divide-slate-700/60">
                     {row.transactions.map((tx) => (
-                      <div key={tx.id} className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors">
+                      <div key={tx.id} className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-bold text-slate-700 shrink-0">{formatDate(tx.date)}</p>
-                          <p className="text-xs font-medium text-slate-400 truncate">{tx.category} · {accountName(tx.account)}</p>
+                          <p className="text-xs font-bold text-slate-700 dark:text-slate-300 shrink-0">{formatDate(tx.date)}</p>
+                          <p className="text-xs font-medium text-slate-400 dark:text-slate-500 truncate">{tx.category} · {accountName(tx.account)}</p>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className={`text-sm font-extrabold ${tx.type === 'income' ? 'text-emerald-600' : tx.type === 'transfer' ? 'text-blue-600' : 'text-slate-900'}`}>
+                          <span className={`text-sm font-extrabold ${tx.type === 'income' ? 'text-emerald-600 dark:text-emerald-400' : tx.type === 'transfer' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-900 dark:text-slate-100'}`}>
                             {tx.type === 'income' ? '+' : tx.type === 'transfer' ? '' : '-'}{formatCurrency(tx.amount)}
                           </span>
-                          <Button variant="ghost" size="icon" className="text-slate-400 h-8 w-8 rounded-xl" onClick={() => openEdit(tx)}><Pencil className="w-3.5 h-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 h-8 w-8 rounded-xl" onClick={() => openEdit(tx)}><Pencil className="w-3.5 h-3.5" /></Button>
                         </div>
                       </div>
                     ))}
@@ -493,18 +493,18 @@ export default function TransactionsPage() {
       {/* ── Add/Edit Transaction Modal ───────────────────────────────────── */}
       <Modal open={open} onClose={closeModal} title={editTarget ? t('transactions.editTransaction') : t('transactions.newTransaction')}>
         <div className="space-y-4 pb-4">
-          <div className="flex p-1.5 rounded-2xl bg-slate-100">
+          <div className="flex p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-700">
             {(['expense', 'income', 'transfer'] as const).map((tp) => (
-              <button key={tp} onClick={() => handleTypeChange(tp)} className={`flex-1 py-2.5 text-sm font-bold rounded-xl transition-all duration-200 ${form.type === tp ? tp === 'expense' ? 'bg-white text-rose-600 shadow-sm' : tp === 'income' ? 'bg-white text-emerald-600 shadow-sm' : 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+              <button key={tp} onClick={() => handleTypeChange(tp)} className={`flex-1 py-2.5 text-sm font-bold rounded-xl transition-all duration-200 ${form.type === tp ? tp === 'expense' ? 'bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 shadow-sm' : tp === 'income' ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-sm' : 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}>
                 {tp.charAt(0).toUpperCase() + tp.slice(1)}
               </button>
             ))}
           </div>
           <div>
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">{t('common.amountUsd')}</label>
+            <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-1.5">{t('common.amountUsd')}</label>
             <div className="relative flex items-center">
-              <span className="absolute left-4 text-2xl font-bold text-slate-400 pointer-events-none select-none">$</span>
-              <input type="number" inputMode="decimal" min="0" step="0.01" placeholder="0.00" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} className="w-full pl-10 pr-4 py-3.5 text-2xl font-extrabold text-slate-900 placeholder-slate-300 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
+              <span className="absolute left-4 text-2xl font-bold text-slate-400 dark:text-slate-500 pointer-events-none select-none">$</span>
+              <input type="number" inputMode="decimal" min="0" step="0.01" placeholder="0.00" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} className="w-full pl-10 pr-4 py-3.5 text-2xl font-extrabold text-slate-900 dark:text-slate-100 placeholder-slate-300 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -530,8 +530,8 @@ export default function TransactionsPage() {
             const amt = parseFloat(form.amount) || 0;
             if (!toAcc || !amt) return null;
             return (
-              <div className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-1">
-                {isDebt ? <><p className="text-blue-600 font-bold text-xs">Credit card payoff</p><p className="font-medium text-xs">Balance after: <span className="text-slate-900 font-bold">{formatCurrency(Math.max(0, toAcc.balance - amt))} owed</span></p></> : <><p className="text-blue-600 font-bold text-xs">Transfer preview</p><p className="font-medium text-xs">{toAcc.name} after: <span className="text-slate-900 font-bold">{formatCurrency(toAcc.balance + amt)}</span></p></>}
+              <div className="text-sm text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 space-y-1">
+                {isDebt ? <><p className="text-blue-600 dark:text-blue-400 font-bold text-xs">Credit card payoff</p><p className="font-medium text-xs">Balance after: <span className="text-slate-900 dark:text-slate-100 font-bold">{formatCurrency(Math.max(0, toAcc.balance - amt))} owed</span></p></> : <><p className="text-blue-600 dark:text-blue-400 font-bold text-xs">Transfer preview</p><p className="font-medium text-xs">{toAcc.name} after: <span className="text-slate-900 dark:text-slate-100 font-bold">{formatCurrency(toAcc.balance + amt)}</span></p></>}
               </div>
             );
           })()}
@@ -540,14 +540,14 @@ export default function TransactionsPage() {
             <button
               type="button"
               onClick={saveAsTemplate}
-              className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-700 transition-colors"
+              className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
             >
               <Bookmark className="w-3.5 h-3.5" />
               {t('transactions.saveAsTemplate')}
             </button>
           )}
         </div>
-        <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+        <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={closeModal}>{t('common.cancel')}</Button>
             <Button className="flex-1" onClick={handleSave} disabled={saving || !form.amount}>{saving ? t('common.saving') : editTarget ? t('transactions.saveChanges') : t('transactions.addTransaction')}</Button>
@@ -559,16 +559,16 @@ export default function TransactionsPage() {
       <Modal open={showTemplates} onClose={() => setShowTemplates(false)} title={t('transactions.recurringTemplates')}>
         <div className="space-y-2 pb-4">
           {templates.length === 0 ? (
-            <div className="text-center py-8 text-slate-500 font-medium text-sm">{t('transactions.noTemplates')}<br />Use &quot;{t('transactions.saveAsTemplate')}&quot; when adding a transaction.</div>
+            <div className="text-center py-8 text-slate-500 dark:text-slate-400 font-medium text-sm">{t('transactions.noTemplates')}<br />Use &quot;{t('transactions.saveAsTemplate')}&quot; when adding a transaction.</div>
           ) : templates.map((tpl) => (
-            <div key={tpl.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 border border-slate-100 hover:border-slate-200 transition-colors">
+            <div key={tpl.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 transition-colors">
               <div>
-                <p className="text-sm font-bold text-slate-900">{tpl.description || tpl.category}</p>
-                <p className="text-xs font-medium text-slate-500 mt-0.5">{tpl.category} · {formatCurrency(tpl.amount)}</p>
+                <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{tpl.description || tpl.category}</p>
+                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{tpl.category} · {formatCurrency(tpl.amount)}</p>
               </div>
               <div className="flex items-center gap-2">
                 <Button size="sm" className="h-8" onClick={() => applyTemplate(tpl)}>Use</Button>
-                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50" onClick={() => deleteTemplate(tpl.id)}><X className="w-3.5 h-3.5" /></Button>
+                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30" onClick={() => deleteTemplate(tpl.id)}><X className="w-3.5 h-3.5" /></Button>
               </div>
             </div>
           ))}
@@ -612,7 +612,7 @@ export default function TransactionsPage() {
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{t('common.category')}</p>
                 {categoryFilters.length > 0 && (
-                  <button onClick={() => setCategoryFilters([])} className="text-[11px] font-bold text-rose-500 dark:text-rose-400 hover:text-rose-600 tap-highlight-none flex items-center gap-1">
+                  <button onClick={() => setCategoryFilters([])} className="text-[11px] font-bold text-rose-500 dark:text-rose-400 hover:text-rose-600 dark:hover:text-rose-400 tap-highlight-none flex items-center gap-1">
                     <X className="w-3 h-3" />{t('transactions.clearFilters')} ({categoryFilters.length})
                   </button>
                 )}
@@ -641,7 +641,7 @@ export default function TransactionsPage() {
                 </>
               )}
               {activeFilterCount > 0 && (
-                <button onClick={() => { setFilter('all'); setCategoryFilters([]); }} className="mt-5 w-full py-2.5 text-sm font-semibold text-rose-500 dark:text-rose-400 hover:text-rose-600 tap-highlight-none">
+                <button onClick={() => { setFilter('all'); setCategoryFilters([]); }} className="mt-5 w-full py-2.5 text-sm font-semibold text-rose-500 dark:text-rose-400 hover:text-rose-600 dark:hover:text-rose-400 tap-highlight-none">
                   {t('transactions.clearFilters')}
                 </button>
               )}
@@ -681,7 +681,7 @@ function SwipeableRow({ tx, accountName, onEdit, onDelete }: SwipeRowProps) {
           <span className={`text-sm font-extrabold whitespace-nowrap ${tx.type === 'income' ? 'text-emerald-600 dark:text-emerald-400' : tx.type === 'transfer' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-900 dark:text-slate-100'}`}>
             {tx.type === 'income' ? '+' : tx.type === 'transfer' ? '' : '-'}{formatCurrency(tx.amount)}
           </span>
-          <Button variant="ghost" size="icon" className="text-slate-400 h-9 w-9 rounded-xl" onClick={(e) => { e.stopPropagation(); onEdit(tx); }}>
+          <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 h-9 w-9 rounded-xl" onClick={(e) => { e.stopPropagation(); onEdit(tx); }}>
             <Pencil className="w-3.5 h-3.5" />
           </Button>
         </div>

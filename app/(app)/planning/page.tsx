@@ -335,30 +335,30 @@ export default function PlanningPage() {
       )}
       {/* Header */}
       <div className="mb-4 md:mb-6">
-        <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900">{t('planning.title')}</h1>
-        <p className="text-slate-500 text-sm font-medium mt-1">{t('planning.subtitle', { daysLeft })}</p>
+        <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{t('planning.title')}</h1>
+        <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mt-1">{t('planning.subtitle', { daysLeft })}</p>
       </div>
 
       {/* Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Card className="p-4 sm:p-5">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('planning.budgetedPerMonth')}</p>
-          <p className="text-xl font-extrabold text-slate-900 mt-1.5 tracking-tight">{formatCurrency(totalBudgeted)}</p>
+          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('planning.budgetedPerMonth')}</p>
+          <p className="text-xl font-extrabold text-slate-900 dark:text-slate-100 mt-1.5 tracking-tight">{formatCurrency(totalBudgeted)}</p>
         </Card>
         <Card className="p-4 sm:p-5">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('planning.spent')}</p>
-          <p className={`text-xl font-extrabold mt-1.5 tracking-tight ${totalSpent > totalBudgeted ? 'text-rose-600' : 'text-slate-900'}`}>
+          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('planning.spent')}</p>
+          <p className={`text-xl font-extrabold mt-1.5 tracking-tight ${totalSpent > totalBudgeted ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>
             {formatCurrency(totalSpent)}
           </p>
         </Card>
-        <Card className="p-4 sm:p-5 border-emerald-100">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('planning.goalsSaved')}</p>
-          <p className="text-xl font-extrabold text-emerald-600 mt-1.5 tracking-tight">{formatCurrency(totalGoalSaved)}</p>
-          <p className="text-xs font-bold text-slate-400 mt-0.5">of {formatCurrency(totalGoalTarget)}</p>
+        <Card className="p-4 sm:p-5 border-emerald-100 dark:border-emerald-800/50">
+          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('planning.goalsSaved')}</p>
+          <p className="text-xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-1.5 tracking-tight">{formatCurrency(totalGoalSaved)}</p>
+          <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mt-0.5">of {formatCurrency(totalGoalTarget)}</p>
         </Card>
-        <Card className={`p-4 sm:p-5 ${overBudgetCount > 0 ? 'border-rose-100' : ''}`}>
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('planning.overBudget')}</p>
-          <p className={`text-xl font-extrabold mt-1.5 tracking-tight ${overBudgetCount > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+        <Card className={`p-4 sm:p-5 ${overBudgetCount > 0 ? 'border-rose-100 dark:border-rose-800/50' : ''}`}>
+          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('planning.overBudget')}</p>
+          <p className={`text-xl font-extrabold mt-1.5 tracking-tight ${overBudgetCount > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
             {overBudgetCount} <span className="text-sm font-bold opacity-80">{overBudgetCount === 1 ? t('planning.cat') : t('planning.cats')}</span>
           </p>
         </Card>
@@ -368,9 +368,9 @@ export default function PlanningPage() {
         <PlanningSkeleton />
       ) : error ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="w-14 h-14 rounded-full bg-rose-50 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-rose-400" /></div>
-          <p className="text-slate-700 font-bold text-base mb-1">Couldn&apos;t load planning data</p>
-          <p className="text-slate-500 text-sm mb-6">Check your connection and try again.</p>
+          <div className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-900/30 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-rose-400" /></div>
+          <p className="text-slate-700 dark:text-slate-300 font-bold text-base mb-1">Couldn&apos;t load planning data</p>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">Check your connection and try again.</p>
           <Button variant="secondary" onClick={load}>Try Again</Button>
         </div>
       ) : (
@@ -379,7 +379,7 @@ export default function PlanningPage() {
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-slate-900">{t('planning.budgets')}</h2>
+                <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">{t('planning.budgets')}</h2>
                 <HelpHint label="What do these badges mean?" align="left">
                   <p className="font-bold mb-2">{t('planning.helpTitle')}</p>
                   <ul className="space-y-1.5 list-none">
@@ -394,10 +394,10 @@ export default function PlanningPage() {
                       <span className="font-bold text-rose-300">$X over</span> — you&apos;ve already exceeded the budget this month.
                     </li>
                     <li>
-                      <span className="font-bold text-slate-300">+$X vs last mo</span> — month-over-month change in spending.
+                      <span className="font-bold text-slate-300 dark:text-slate-600">+$X vs last mo</span> — month-over-month change in spending.
                     </li>
                   </ul>
-                  <p className="mt-2 text-slate-300">Projection = (spent ÷ days elapsed) × days in month.</p>
+                  <p className="mt-2 text-slate-300 dark:text-slate-600">Projection = (spent ÷ days elapsed) × days in month.</p>
                 </HelpHint>
               </div>
               <Button size="sm" onClick={openAddBudget} className="shadow-sm">
@@ -406,12 +406,12 @@ export default function PlanningPage() {
             </div>
 
             {budgets.length === 0 ? (
-              <Card className="text-center py-12 bg-slate-50 border-slate-100">
-                <div className="w-14 h-14 rounded-full bg-white flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100">
-                  <Target className="w-7 h-7 text-slate-400" />
+              <Card className="text-center py-12 bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700/60">
+                <div className="w-14 h-14 rounded-full bg-white dark:bg-slate-800 flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100 dark:border-slate-700/60">
+                  <Target className="w-7 h-7 text-slate-400 dark:text-slate-500" />
                 </div>
-                <p className="text-slate-900 font-bold text-base mb-1">{t('planning.noBudgetsYet')}</p>
-                <p className="text-slate-500 font-medium text-sm mb-5">{t('planning.noBudgetsBody')}</p>
+                <p className="text-slate-900 dark:text-slate-100 font-bold text-base mb-1">{t('planning.noBudgetsYet')}</p>
+                <p className="text-slate-500 dark:text-slate-400 font-medium text-sm mb-5">{t('planning.noBudgetsBody')}</p>
                 <Button onClick={openAddBudget} className="shadow-sm">{t('planning.setBudget')}</Button>
               </Card>
             ) : (
@@ -461,18 +461,18 @@ export default function PlanningPage() {
             {/* Unbudgeted categories with spending */}
             {unbudgetedWithSpending.length > 0 && (
               <div className="mt-2">
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 px-1">{t('planning.unbudgetedSpending')}</p>
+                <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3 px-1">{t('planning.unbudgetedSpending')}</p>
                 <div className="space-y-2">
                   {unbudgetedWithSpending.map((c) => {
                     const spent = spentForCategory(c);
                     return (
-                      <div key={c} className="flex items-center justify-between px-4 py-3 rounded-2xl bg-slate-50 border border-dashed border-slate-200">
-                        <p className="text-sm font-bold text-slate-700">{c}</p>
+                      <div key={c} className="flex items-center justify-between px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-700/50 border border-dashed border-slate-200 dark:border-slate-700">
+                        <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{c}</p>
                         <div className="flex items-center gap-3">
-                          <p className="text-sm font-extrabold text-slate-900">{formatCurrency(spent)}</p>
+                          <p className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(spent)}</p>
                           <button
                             onClick={() => { setBudgetForm((f) => ({ ...f, category: c })); setBudgetModalOpen(true); }}
-                            className="text-xs font-bold text-indigo-600 hover:text-indigo-500 transition-colors bg-indigo-50 px-3 py-1.5 rounded-lg"
+                            className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg"
                           >
                             {t('planning.setLimit')}
                           </button>
@@ -488,19 +488,19 @@ export default function PlanningPage() {
           {/* ── GOALS ────────────────────────────────────────────────────── */}
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-slate-900">{t('planning.goals')}</h2>
+              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">{t('planning.goals')}</h2>
               <Button size="sm" onClick={openAddGoal} className="shadow-sm">
                 <Plus className="w-4 h-4" /> {t('planning.addGoal')}
               </Button>
             </div>
 
             {goals.length === 0 ? (
-              <Card className="text-center py-12 bg-slate-50 border-slate-100">
-                <div className="w-14 h-14 rounded-full bg-white flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100">
-                  <PiggyBank className="w-7 h-7 text-slate-400" />
+              <Card className="text-center py-12 bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700/60">
+                <div className="w-14 h-14 rounded-full bg-white dark:bg-slate-800 flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100 dark:border-slate-700/60">
+                  <PiggyBank className="w-7 h-7 text-slate-400 dark:text-slate-500" />
                 </div>
-                <p className="text-slate-900 font-bold text-base mb-1">{t('planning.noGoalsYet')}</p>
-                <p className="text-slate-500 font-medium text-sm mb-5">
+                <p className="text-slate-900 dark:text-slate-100 font-bold text-base mb-1">{t('planning.noGoalsYet')}</p>
+                <p className="text-slate-500 dark:text-slate-400 font-medium text-sm mb-5">
                   {t('planning.noGoalsBody')}
                 </p>
                 <Button onClick={openAddGoal} className="shadow-sm">{t('planning.addFirstGoal')}</Button>
@@ -584,12 +584,12 @@ export default function PlanningPage() {
             />
           </div>
           {!editBudget && budgets.find((b) => b.category === budgetForm.category) && (
-            <p className="text-xs font-bold text-amber-600 bg-amber-50 p-3 rounded-xl border border-amber-100">
+            <p className="text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 p-3 rounded-xl border border-amber-100 dark:border-amber-800/50">
               {t('planning.replaceBudget', { category: budgetForm.category })}
             </p>
           )}
         </div>
-        <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+        <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={() => { setBudgetModalOpen(false); setBudgetForm(EMPTY_BUDGET_FORM); setEditBudget(null); }}>{t('common.cancel')}</Button>
             <Button className="flex-1 shadow-sm" onClick={saveBudget} disabled={saving || !budgetForm.amount}>
@@ -607,14 +607,14 @@ export default function PlanningPage() {
       >
         <div className="space-y-5 pb-4">
           <div>
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{t('common.icon')}</p>
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">{t('common.icon')}</p>
             <div className="flex gap-2 flex-wrap">
               {GOAL_ICONS.map((ic) => (
                 <button
                   key={ic}
                   onClick={() => setGoalForm((f) => ({ ...f, icon: ic }))}
                   className={`text-xl w-11 h-11 rounded-2xl border-2 transition-all flex items-center justify-center hover:scale-110 ${
-                    goalForm.icon === ic ? 'border-indigo-500 bg-indigo-50' : 'border-transparent bg-white hover:border-slate-200'
+                    goalForm.icon === ic ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30' : 'border-transparent bg-white dark:bg-slate-800 hover:border-slate-200 dark:hover:border-slate-700'
                   }`}
                 >
                   {ic}
@@ -660,7 +660,7 @@ export default function PlanningPage() {
             />
           )}
           {goalForm.linkedAccountId && (
-            <p className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3">
+            <p className="text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50 rounded-xl px-4 py-3">
               Progress will automatically use the linked account&apos;s balance.
             </p>
           )}
@@ -671,7 +671,7 @@ export default function PlanningPage() {
             onChange={(e) => setGoalForm((f) => ({ ...f, deadline: e.target.value }))}
           />
         </div>
-        <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+        <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={() => { setGoalModalOpen(false); setGoalForm(EMPTY_GOAL_FORM); setEditGoal(null); }}>{t('common.cancel')}</Button>
             <Button className="flex-1 shadow-sm" onClick={saveGoal} disabled={saving || !goalForm.name || !goalForm.targetAmount}>
@@ -696,43 +696,43 @@ function BudgetItem({ budget, monthly, rolledOver, spent, usage, prevSpent, roll
   return (
     <Reorder.Item value={budget} dragListener={false} dragControls={controls} className="list-none">
       <SwipeToDelete onDelete={() => onDelete(budget.id)}>
-      <Card className={`transition-all p-4 sm:p-5 ${over ? 'border-rose-100' : willOvershoot ? 'border-amber-100' : ''}`}>
+      <Card className={`transition-all p-4 sm:p-5 ${over ? 'border-rose-100 dark:border-rose-800/50' : willOvershoot ? 'border-amber-100 dark:border-amber-800/50' : ''}`}>
         {/* Header: grip · category · spent/limit · edit */}
         <div className="flex items-center gap-2 mb-2">
           <button
-            className="touch-none cursor-grab active:cursor-grabbing text-slate-300 shrink-0 p-1 -ml-1"
+            className="touch-none cursor-grab active:cursor-grabbing text-slate-300 dark:text-slate-600 shrink-0 p-1 -ml-1"
             onPointerDown={(e) => { e.stopPropagation(); controls.start(e); }}
             aria-label="Reorder budget"
           >
             <GripVertical className="w-4 h-4" />
           </button>
-          <p className="text-sm font-bold text-slate-900 truncate flex-1 min-w-0">{budget.category}</p>
+          <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate flex-1 min-w-0">{budget.category}</p>
           <p className="text-sm font-extrabold shrink-0 text-right tabular-nums whitespace-nowrap">
-            <span className={over ? 'text-rose-600' : 'text-slate-900'}>{formatCurrency(usage)}</span>
-            <span className="text-slate-400 font-bold text-xs"> / {formatCurrency(monthly)}</span>
+            <span className={over ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}>{formatCurrency(usage)}</span>
+            <span className="text-slate-400 dark:text-slate-500 font-bold text-xs"> / {formatCurrency(monthly)}</span>
           </p>
-          <Button variant="ghost" size="icon" className="text-slate-400 h-8 w-8 rounded-xl shrink-0" onClick={(e) => { e.stopPropagation(); onEdit(budget); }}>
+          <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 h-8 w-8 rounded-xl shrink-0" onClick={(e) => { e.stopPropagation(); onEdit(budget); }}>
             <Pencil className="w-4 h-4" />
           </Button>
         </div>
 
         {/* Meta: budget amount per period + rolled-over deficit note, aligned under the name */}
-        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mb-3 pl-6 text-xs font-medium text-slate-500">
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mb-3 pl-6 text-xs font-medium text-slate-500 dark:text-slate-400">
           <span className="tabular-nums">{formatCurrency(budget.amount)}/{budget.period}</span>
           {budget.period !== 'monthly' && (
             <>
-              <span className="text-slate-300">·</span>
+              <span className="text-slate-300 dark:text-slate-600">·</span>
               <span className="tabular-nums">{formatCurrency(monthly)}/mo</span>
             </>
           )}
           {rolledOver > 0 && (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-bold tabular-nums bg-rose-50 text-rose-600">
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-bold tabular-nums bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400">
               +{formatCurrency(rolledOver)} {t('planning.rolledOver')}
             </span>
           )}
         </div>
 
-        <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+        <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2.5 overflow-hidden">
           <div
             className={`h-full rounded-full transition-all duration-700 ${over ? 'bg-rose-500' : pct > 80 ? 'bg-amber-500' : 'bg-indigo-500'}`}
             style={{ width: `${Math.min(100, pct)}%` }}
@@ -742,42 +742,42 @@ function BudgetItem({ budget, monthly, rolledOver, spent, usage, prevSpent, roll
         <div className="flex items-center justify-between mt-2">
           <p className="text-xs font-bold">
             {over
-              ? <span className="text-rose-600">{formatCurrency(Math.abs(remaining))} over</span>
-              : <span className="text-slate-500">{formatCurrency(remaining)} left · {daysLeft}{t('planning.daysLeft')}</span>
+              ? <span className="text-rose-600 dark:text-rose-400">{formatCurrency(Math.abs(remaining))} over</span>
+              : <span className="text-slate-500 dark:text-slate-400">{formatCurrency(remaining)} left · {daysLeft}{t('planning.daysLeft')}</span>
             }
           </p>
           <div className="flex items-center gap-1.5">
             {prevSpent > 0 && Math.abs(momDiff) >= 0.5 && (
-              <span className={`text-xs font-bold flex items-center gap-0.5 ${momDiff > 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
+              <span className={`text-xs font-bold flex items-center gap-0.5 ${momDiff > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                 {momDiff > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
                 {momDiff > 0 ? '+' : ''}{formatCurrency(momDiff)} vs last mo
               </span>
             )}
             {willOvershoot && (
-              <span className="text-xs font-bold text-amber-600 flex items-center gap-0.5">
+              <span className="text-xs font-bold text-amber-600 dark:text-amber-400 flex items-center gap-0.5">
                 <TrendingUp className="w-3 h-3" />~{formatCurrency(overshootAmt)} overshoot
               </span>
             )}
             {!over && !willOvershoot && pct > 0 && !prevSpent && (
-              <span className="text-xs font-bold text-emerald-600 flex items-center gap-0.5">
+              <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
                 <Zap className="w-3 h-3" />{t('planning.onTrack')}
               </span>
             )}
-            <span className="text-xs font-bold text-slate-400">{pct.toFixed(0)}%</span>
+            <span className="text-xs font-bold text-slate-400 dark:text-slate-500">{pct.toFixed(0)}%</span>
           </div>
         </div>
 
         {/* Category % of total + 3-month rolling avg */}
         {(categoryPct > 0 || rollingAvg > 0) && (
-          <div className="flex items-center gap-3 mt-2 pt-2 border-t border-slate-50">
+          <div className="flex items-center gap-3 mt-2 pt-2 border-t border-slate-50 dark:border-slate-700/60">
             {categoryPct > 0 && (
-              <span className="text-xs font-medium text-slate-400">
+              <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
                 {categoryPct.toFixed(0)}% of spend
               </span>
             )}
             {rollingAvg > 0 && (
-              <span className="text-xs font-medium text-slate-400">
-                3mo avg: <span className={`font-bold ${spent > rollingAvg * 1.1 ? 'text-rose-500' : spent < rollingAvg * 0.9 ? 'text-emerald-600' : 'text-slate-500'}`}>{formatCurrency(rollingAvg)}</span>
+              <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
+                3mo avg: <span className={`font-bold ${spent > rollingAvg * 1.1 ? 'text-rose-500 dark:text-rose-400' : spent < rollingAvg * 0.9 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>{formatCurrency(rollingAvg)}</span>
               </span>
             )}
           </div>
@@ -798,36 +798,36 @@ function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadl
   const controls = useDragControls();
   return (
     <Reorder.Item value={goal} dragListener={false} dragControls={controls} className="list-none">
-      <Card className={`transition-all p-4 sm:p-5 ${achieved ? 'border-emerald-200 bg-emerald-50/30' : ''}`}>
+      <Card className={`transition-all p-4 sm:p-5 ${achieved ? 'border-emerald-200 dark:border-emerald-800/50 bg-emerald-50/30' : ''}`}>
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-2 flex-1 min-w-0">
             <button
-              className="touch-none cursor-grab active:cursor-grabbing text-slate-300 shrink-0 p-1 -ml-1"
+              className="touch-none cursor-grab active:cursor-grabbing text-slate-300 dark:text-slate-600 shrink-0 p-1 -ml-1"
               onPointerDown={(e) => controls.start(e)}
             >
               <GripVertical className="w-4 h-4" />
             </button>
-            <div className="w-11 h-11 rounded-2xl bg-white flex items-center justify-center text-xl shrink-0 shadow-sm border border-slate-100">
+            <div className="w-11 h-11 rounded-2xl bg-white dark:bg-slate-800 flex items-center justify-center text-xl shrink-0 shadow-sm border border-slate-100 dark:border-slate-700/60">
               {goal.icon}
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
+              <p className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5 flex-wrap">
                 {goal.name}
-                {achieved && <span className="text-xs text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-md font-bold">{t('planning.done')}</span>}
+                {achieved && <span className="text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900/40 px-1.5 py-0.5 rounded-md font-bold">{t('planning.done')}</span>}
                 {onTrack === 'behind' && (
-                  <span className="text-xs text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-md font-bold flex items-center gap-0.5">
+                  <span className="text-xs text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/30 px-1.5 py-0.5 rounded-md font-bold flex items-center gap-0.5">
                     <TrendingDown className="w-2.5 h-2.5" /> {t('planning.behind')}
                   </span>
                 )}
                 {onTrack === 'ontarget' && !achieved && (
-                  <span className="text-xs text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md font-bold flex items-center gap-0.5">
+                  <span className="text-xs text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-1.5 py-0.5 rounded-md font-bold flex items-center gap-0.5">
                     <TrendingUp className="w-2.5 h-2.5" /> {t('planning.onTrack')}
                   </span>
                 )}
               </p>
-              {linked && <p className="text-xs font-medium text-slate-500 mt-0.5">{t('planning.linked')} {linked.name}</p>}
+              {linked && <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('planning.linked')} {linked.name}</p>}
               {goal.deadline && daysToDeadline !== null && (
-                <p className="text-xs font-medium text-slate-500">
+                <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                   {daysToDeadline > 0 ? `${daysToDeadline}${t('planning.daysLeft')} · ` : `${t('planning.deadlinePassed')} · `}
                   {formatDate(goal.deadline)}
                 </p>
@@ -835,16 +835,16 @@ function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadl
             </div>
           </div>
           <div className="flex items-center gap-1 shrink-0 ml-2">
-            <Button variant="ghost" size="icon" className="text-slate-400 h-9 w-9 rounded-xl" onClick={() => onEdit(goal)}>
+            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 h-9 w-9 rounded-xl" onClick={() => onEdit(goal)}>
               <Pencil className="w-4 h-4" />
             </Button>
-            <Button variant="ghost" size="icon" className="text-slate-400 h-9 w-9 rounded-xl" onClick={() => onDelete(goal.id)}>
+            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 h-9 w-9 rounded-xl" onClick={() => onDelete(goal.id)}>
               <Trash2 className="w-4 h-4" />
             </Button>
           </div>
         </div>
 
-        <div className="w-full bg-slate-100 rounded-full h-2.5 mb-2 overflow-hidden relative">
+        <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2.5 mb-2 overflow-hidden relative">
           {current < 0 ? (
             // Inverted red bar: anchored to the right, width proportional to how far below zero.
             <div
@@ -862,21 +862,21 @@ function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadl
 
         <div className="flex items-center justify-between">
           <div className="flex items-baseline gap-1.5">
-            <span className={`text-base font-extrabold ${achieved ? 'text-emerald-600' : current < 0 ? 'text-rose-600' : 'text-slate-900'}`}>
+            <span className={`text-base font-extrabold ${achieved ? 'text-emerald-600 dark:text-emerald-400' : current < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>
               {formatCurrency(current)}
             </span>
-            <span className="text-xs font-bold text-slate-400">/ {formatCurrency(goal.targetAmount)}</span>
+            <span className="text-xs font-bold text-slate-400 dark:text-slate-500">/ {formatCurrency(goal.targetAmount)}</span>
           </div>
-          <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg ${achieved ? 'bg-emerald-100 text-emerald-700' : current < 0 ? 'bg-rose-50 text-rose-700' : 'bg-indigo-50 text-indigo-700'}`}>
+          <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg ${achieved ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300' : current < 0 ? 'bg-rose-50 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300' : 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300'}`}>
             {pct.toFixed(0)}%
           </span>
         </div>
 
         {!achieved && remaining > 0 && (
-          <div className="flex justify-between items-center mt-2.5 pt-2.5 border-t border-slate-100">
-            <p className="text-xs font-bold text-slate-500">{formatCurrency(remaining)} {t('planning.toGo')}</p>
+          <div className="flex justify-between items-center mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-700/60">
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400">{formatCurrency(remaining)} {t('planning.toGo')}</p>
             {monthlyNeeded && (
-              <p className="text-xs font-bold text-slate-400">{formatCurrency(monthlyNeeded)}{t('planning.moNeeded')}</p>
+              <p className="text-xs font-bold text-slate-400 dark:text-slate-500">{formatCurrency(monthlyNeeded)}{t('planning.moNeeded')}</p>
             )}
           </div>
         )}

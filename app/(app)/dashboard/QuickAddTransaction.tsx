@@ -85,7 +85,7 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[]; 
       <Modal open={open} onClose={handleClose} title={t('quickAdd.title')}>
         <div className="space-y-4 pb-4">
           {/* Expense / Income toggle */}
-          <div className="flex p-1.5 rounded-2xl bg-slate-100">
+          <div className="flex p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-700">
             {(['expense', 'income'] as const).map((tp) => (
               <button
                 key={tp}
@@ -93,9 +93,9 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[]; 
                 className={`flex-1 py-2.5 text-sm font-bold rounded-xl transition-all duration-200 ${
                   form.type === tp
                     ? tp === 'expense'
-                      ? 'bg-white text-rose-600 shadow-sm'
-                      : 'bg-white text-emerald-600 shadow-sm'
-                    : 'text-slate-500'
+                      ? 'bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 shadow-sm'
+                      : 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-sm'
+                    : 'text-slate-500 dark:text-slate-400'
                 }`}
               >
                 {tp === 'expense' ? t('quickAdd.expenseLabel') : t('quickAdd.incomeLabel')}
@@ -105,11 +105,11 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[]; 
 
           {/* Amount */}
           <div>
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
+            <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-1.5">
               {t('quickAdd.amountLabel')}
             </label>
             <div className="relative flex items-center">
-              <span className="absolute left-4 text-2xl font-bold text-slate-400 pointer-events-none select-none">$</span>
+              <span className="absolute left-4 text-2xl font-bold text-slate-400 dark:text-slate-500 pointer-events-none select-none">$</span>
               <input
                 type="number"
                 inputMode="decimal"
@@ -118,7 +118,7 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[]; 
                 placeholder="0.00"
                 value={form.amount}
                 onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-                className="w-full pl-10 pr-4 py-3.5 text-2xl font-extrabold text-slate-900 placeholder-slate-300 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-3.5 text-2xl font-extrabold text-slate-900 dark:text-slate-100 placeholder-slate-300 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               />
             </div>
           </div>
@@ -159,7 +159,7 @@ export function QuickAddTransaction({ accounts, isFab }: { accounts: Account[]; 
           </div>
         </div>
 
-        <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+        <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={handleClose}>
               {t('common.cancel')}

@@ -21,11 +21,11 @@ const ACCOUNT_COLORS = [
 ];
 
 const ACCOUNT_TYPE_CONFIG = {
-  checking: { icon: Landmark, colorClass: 'text-blue-600', bgClass: 'bg-blue-50' },
-  savings: { icon: PiggyBank, colorClass: 'text-emerald-600', bgClass: 'bg-emerald-50' },
-  credit: { icon: CreditCard, colorClass: 'text-rose-600', bgClass: 'bg-rose-50' },
-  investment: { icon: TrendingUp, colorClass: 'text-indigo-600', bgClass: 'bg-indigo-50' },
-  loan: { icon: CreditCard, colorClass: 'text-amber-600', bgClass: 'bg-amber-50' },
+  checking: { icon: Landmark, colorClass: 'text-blue-600 dark:text-blue-400', bgClass: 'bg-blue-50 dark:bg-blue-900/30' },
+  savings: { icon: PiggyBank, colorClass: 'text-emerald-600 dark:text-emerald-400', bgClass: 'bg-emerald-50 dark:bg-emerald-900/30' },
+  credit: { icon: CreditCard, colorClass: 'text-rose-600 dark:text-rose-400', bgClass: 'bg-rose-50 dark:bg-rose-900/30' },
+  investment: { icon: TrendingUp, colorClass: 'text-indigo-600 dark:text-indigo-400', bgClass: 'bg-indigo-50 dark:bg-indigo-900/30' },
+  loan: { icon: CreditCard, colorClass: 'text-amber-600 dark:text-amber-400', bgClass: 'bg-amber-50 dark:bg-amber-900/30' },
 };
 
 // Tolerate "1,000.50", "1.000,50", "$100", and currency symbols — strip
@@ -194,8 +194,8 @@ export default function AccountsPage() {
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900">{t('accounts.title')}</h1>
-          <p className="text-slate-500 text-base font-medium mt-1">{t('accounts.subtitle')}</p>
+          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{t('accounts.title')}</h1>
+          <p className="text-slate-500 dark:text-slate-400 text-base font-medium mt-1">{t('accounts.subtitle')}</p>
         </div>
         <Button onClick={openAdd} className="w-full md:w-auto shadow-sm hover:shadow-md">
           <Plus className="w-5 h-5" />{t('accounts.addAccount')}
@@ -204,17 +204,17 @@ export default function AccountsPage() {
 
       {/* Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card className="border-indigo-100 hover:border-indigo-200">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('accounts.netWorth')}</p>
-          <FitText maxSize={28} minSize={13} className={`font-extrabold mt-2 ${netWorth >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(netWorth)}</FitText>
+        <Card className="border-indigo-100 dark:border-indigo-800/50 hover:border-indigo-200 dark:hover:border-indigo-800/50">
+          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('accounts.netWorth')}</p>
+          <FitText maxSize={28} minSize={13} className={`font-extrabold mt-2 ${netWorth >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{formatCurrency(netWorth)}</FitText>
         </Card>
         <Card>
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('accounts.totalAssets')}</p>
-          <FitText maxSize={28} minSize={13} className="font-extrabold mt-2 text-slate-900">{formatCurrency(totalAssets)}</FitText>
+          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('accounts.totalAssets')}</p>
+          <FitText maxSize={28} minSize={13} className="font-extrabold mt-2 text-slate-900 dark:text-slate-100">{formatCurrency(totalAssets)}</FitText>
         </Card>
         <Card>
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('accounts.totalDebt')}</p>
-          <FitText maxSize={28} minSize={13} className="font-extrabold mt-2 text-rose-600">{formatCurrency(totalDebt)}</FitText>
+          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('accounts.totalDebt')}</p>
+          <FitText maxSize={28} minSize={13} className="font-extrabold mt-2 text-rose-600 dark:text-rose-400">{formatCurrency(totalDebt)}</FitText>
         </Card>
       </div>
 
@@ -222,20 +222,20 @@ export default function AccountsPage() {
         <AccountsSkeleton />
       ) : error ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="w-14 h-14 rounded-full bg-rose-50 flex items-center justify-center mb-4">
+          <div className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-900/30 flex items-center justify-center mb-4">
             <AlertCircle className="w-7 h-7 text-rose-400" />
           </div>
-          <p className="text-slate-700 font-bold text-base mb-1">Couldn&apos;t load accounts</p>
-          <p className="text-slate-500 text-sm mb-6">Check your connection and try again.</p>
+          <p className="text-slate-700 dark:text-slate-300 font-bold text-base mb-1">Couldn&apos;t load accounts</p>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">Check your connection and try again.</p>
           <Button variant="secondary" onClick={load}>Try Again</Button>
         </div>
       ) : accounts.length === 0 ? (
-        <Card className="text-center py-16 bg-slate-50 border-slate-100">
-          <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100">
-            <Landmark className="w-8 h-8 text-slate-400" />
+        <Card className="text-center py-16 bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700/60">
+          <div className="w-16 h-16 rounded-full bg-white dark:bg-slate-800 flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100 dark:border-slate-700/60">
+            <Landmark className="w-8 h-8 text-slate-400 dark:text-slate-500" />
           </div>
-          <p className="text-slate-900 font-bold text-lg mb-1">No accounts yet.</p>
-          <p className="text-slate-500 font-medium mb-6">Add your checking account first — paychecks will be tracked there.</p>
+          <p className="text-slate-900 dark:text-slate-100 font-bold text-lg mb-1">No accounts yet.</p>
+          <p className="text-slate-500 dark:text-slate-400 font-medium mb-6">Add your checking account first — paychecks will be tracked there.</p>
           <Button onClick={openAdd} className="shadow-sm">Add Your First Account</Button>
         </Card>
       ) : (
@@ -247,40 +247,40 @@ export default function AccountsPage() {
               const Icon = config.icon;
               const label = ACCOUNT_TYPE_LABELS[type];
               return (
-                <div key={type} className="bg-white rounded-3xl border border-slate-100 p-4 sm:p-6 shadow-sm">
+                <div key={type} className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700/60 p-4 sm:p-6 shadow-sm">
                   <div className="flex items-center gap-3 mb-4 px-2">
                     <div className={`p-2 rounded-xl ${config.bgClass}`}><Icon className={`w-5 h-5 ${config.colorClass}`} /></div>
-                    <h2 className="text-base font-bold text-slate-900">{label}s</h2>
+                    <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">{label}s</h2>
                   </div>
                   <div className="space-y-3">
                     {list.map((account) => (
-                      <div key={account.id} className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:border-slate-200 hover:bg-white hover:shadow-sm transition-all duration-300 gap-4 sm:gap-0">
+                      <div key={account.id} className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 hover:bg-white dark:hover:bg-slate-800 hover:shadow-sm transition-all duration-300 gap-4 sm:gap-0">
                         <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-sm border border-slate-100 bg-white">
+                          <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-sm border border-slate-100 dark:border-slate-700/60 bg-white dark:bg-slate-800">
                             <Icon className="w-6 h-6" style={{ color: account.color }} />
                           </div>
                           <div>
-                            <p className="text-base font-bold text-slate-900">{account.name}</p>
-                            <p className="text-sm font-medium text-slate-500 mt-0.5">{account.institution || label}{account.last4 ? ` ····${account.last4}` : ''}</p>
+                            <p className="text-base font-bold text-slate-900 dark:text-slate-100">{account.name}</p>
+                            <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-0.5">{account.institution || label}{account.last4 ? ` ····${account.last4}` : ''}</p>
                           </div>
                         </div>
                         <div className="flex items-center justify-between sm:justify-end gap-6 sm:gap-8 w-full sm:w-auto pl-16 sm:pl-0">
                           <div className="text-left sm:text-right">
                             {type === 'credit' || type === 'loan' ? (
                               account.balance < 0 ? (
-                                <><p className="text-lg font-extrabold text-emerald-600">+{formatCurrency(Math.abs(account.balance))}</p><p className="text-xs font-bold text-emerald-500">{t('accounts.creditNote')}</p></>
+                                <><p className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400">+{formatCurrency(Math.abs(account.balance))}</p><p className="text-xs font-bold text-emerald-500 dark:text-emerald-400">{t('accounts.creditNote')}</p></>
                               ) : account.balance === 0 ? (
                                 <PaidOffBadge accountId={account.id} paidOffLabel={t('accounts.paidOff')} />
                               ) : (
-                                <><p className="text-lg font-extrabold text-rose-600">-{formatCurrency(account.balance)}</p><p className="text-xs font-bold text-slate-400">{t('accounts.owed')}</p></>
+                                <><p className="text-lg font-extrabold text-rose-600 dark:text-rose-400">-{formatCurrency(account.balance)}</p><p className="text-xs font-bold text-slate-400 dark:text-slate-500">{t('accounts.owed')}</p></>
                               )
                             ) : (
-                              <p className="text-lg font-extrabold text-slate-900">{formatCurrency(account.balance)}</p>
+                              <p className="text-lg font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(account.balance)}</p>
                             )}
                           </div>
                           <div className="flex gap-2">
-                            <Button variant="ghost" size="icon" className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 h-10 w-10 rounded-xl" onClick={() => openEdit(account)}><Pencil className="w-4 h-4" /></Button>
-                            <Button variant="ghost" size="icon" className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 h-10 w-10 rounded-xl" onClick={() => handleDelete(account.id)}><Trash2 className="w-4 h-4" /></Button>
+                            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 h-10 w-10 rounded-xl" onClick={() => openEdit(account)}><Pencil className="w-4 h-4" /></Button>
+                            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 h-10 w-10 rounded-xl" onClick={() => handleDelete(account.id)}><Trash2 className="w-4 h-4" /></Button>
                           </div>
                         </div>
                       </div>
@@ -300,7 +300,7 @@ export default function AccountsPage() {
           <Input label={form.type === 'credit' || form.type === 'loan' ? `${t('accounts.balanceOwed')} — enter negative if bank owes you` : t('accounts.currentBalance')} type="text" inputMode="decimal" placeholder="0.00" value={form.balance} onChange={(e) => setForm((f) => ({ ...f, balance: e.target.value.replace(/[^0-9.,\-]/g, '') }))} />
           <Input label={t('accounts.last4')} placeholder="1234" maxLength={4} value={form.last4} onChange={(e) => setForm((f) => ({ ...f, last4: e.target.value.replace(/\D/g, '').slice(0, 4) }))} />
           <div>
-            <p className="text-sm font-bold text-slate-700 ml-1 mb-2">{t('common.color')}</p>
+            <p className="text-sm font-bold text-slate-700 dark:text-slate-300 ml-1 mb-2">{t('common.color')}</p>
             <div className="flex gap-3 flex-wrap">
               {ACCOUNT_COLORS.map((c) => (
                 <button key={c} onClick={() => setForm((f) => ({ ...f, color: c }))} className="w-10 h-10 rounded-full border-[3px] transition-all flex items-center justify-center shadow-sm hover:scale-110" style={{ backgroundColor: c, borderColor: form.color === c ? '#0f172a' : 'transparent' }}>
@@ -310,7 +310,7 @@ export default function AccountsPage() {
             </div>
           </div>
         </div>
-        <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+        <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={() => { setOpen(false); setForm(EMPTY_FORM); setEditTarget(null); }}>{t('common.cancel')}</Button>
             <Button className="flex-1 shadow-sm" onClick={handleSave} disabled={saving || !form.name}>{saving ? t('common.saving') : editTarget ? t('accounts.editAccount') : t('accounts.addAccount')}</Button>
@@ -370,12 +370,12 @@ function PaidOffBadge({ accountId, paidOffLabel }: { accountId: string; paidOffL
         initial={{ scale: 0.7, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ type: 'spring', stiffness: 320, damping: 18 }}
-        className="text-xl font-black text-emerald-600 inline-flex items-center gap-1.5 whitespace-nowrap"
+        className="text-xl font-black text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1.5 whitespace-nowrap"
       >
         <CheckCircle2 className="w-5 h-5 shrink-0" aria-hidden />
         $0.00
       </motion.p>
-      <p className="text-xs font-bold text-emerald-500 mt-0.5">{paidOffLabel}</p>
+      <p className="text-xs font-bold text-emerald-500 dark:text-emerald-400 mt-0.5">{paidOffLabel}</p>
 
       <AnimatePresence>
         {showConfetti && (
