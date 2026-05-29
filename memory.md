@@ -2,6 +2,20 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-05-29 — Keep dashboard card action buttons on one line
+
+**Goal:** The "View All" button in the Bill Forecast card was wrapping onto two lines in narrow layouts. Make all dashboard card header action buttons render their text cleanly on a single row.
+
+**Changes:**
+- `app/(app)/dashboard/page.tsx` — Added `whitespace-nowrap` to the four `CardHeader` action links so their labels never wrap:
+  - Budget card "Manage" (indigo) link → `/planning`.
+  - Savings Goals card "Manage" (purple) link → `/planning`.
+  - Bill Forecast card "View All" (amber) link → `/bills` (the one that was wrapping; kept existing `inline-block mt-1`).
+  - Recent Transactions card "View All" (emerald) link → `/transactions`.
+
+**Notes:**
+- Pure styling change; no logic, copy, or i18n keys touched.
+
 ## 2026-05-29 — Add display name preference in Settings
 
 **Goal:** Let users choose the name shown in the dashboard greeting, defaulting to their Google account name when left blank.

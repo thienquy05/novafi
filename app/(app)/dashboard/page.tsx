@@ -491,7 +491,7 @@ export default async function DashboardPage() {
                 <p className="mt-2 text-slate-300 dark:text-slate-600">Projection = (spent ÷ days elapsed) × days in month.</p>
               </HelpHint>
             </div>
-            <a href="/planning" className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg">{t('common.manage', lang)}</a>
+            <a href="/planning" className="whitespace-nowrap text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg">{t('common.manage', lang)}</a>
           </CardHeader>
           <div className="mt-4">
             <BudgetBars data={budgetData} daysLeft={daysLeft} daysElapsed={daysElapsed} showMoM totalSpend={totalMonthSpend} />
@@ -506,7 +506,7 @@ export default async function DashboardPage() {
               </div>
               <CardTitle>{t('dashboard.savingsGoals', lang)}</CardTitle>
             </div>
-            <a href="/planning" className="text-xs font-bold text-purple-600 dark:text-purple-400 hover:text-purple-500 dark:hover:text-purple-400 transition-colors bg-purple-50 dark:bg-purple-900/30 px-3 py-1.5 rounded-lg">{t('common.manage', lang)}</a>
+            <a href="/planning" className="whitespace-nowrap text-xs font-bold text-purple-600 dark:text-purple-400 hover:text-purple-500 dark:hover:text-purple-400 transition-colors bg-purple-50 dark:bg-purple-900/30 px-3 py-1.5 rounded-lg">{t('common.manage', lang)}</a>
           </CardHeader>
           <div className="mt-4">
             <GoalsSummary data={goalData} />
@@ -532,7 +532,7 @@ export default async function DashboardPage() {
               {upcomingBillsTotal > 0 && (
                 <p className="text-base font-extrabold text-amber-600 dark:text-amber-400">{formatCurrency(upcomingBillsTotal)}</p>
               )}
-              <a href="/bills" className="inline-block mt-1 text-xs font-bold text-amber-600 dark:text-amber-400 hover:text-amber-500 dark:hover:text-amber-400 transition-colors bg-amber-50 dark:bg-amber-900/30 px-3 py-1.5 rounded-lg">{t('common.viewAll', lang)}</a>
+              <a href="/bills" className="inline-block whitespace-nowrap mt-1 text-xs font-bold text-amber-600 dark:text-amber-400 hover:text-amber-500 dark:hover:text-amber-400 transition-colors bg-amber-50 dark:bg-amber-900/30 px-3 py-1.5 rounded-lg">{t('common.viewAll', lang)}</a>
             </div>
           </CardHeader>
           <div className="mt-2">
@@ -586,7 +586,7 @@ export default async function DashboardPage() {
               </div>
               <CardTitle>{t('dashboard.recent', lang)}</CardTitle>
             </div>
-            <a href="/transactions" className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 dark:hover:text-emerald-400 transition-colors bg-emerald-50 dark:bg-emerald-900/30 px-3 py-1.5 rounded-lg">{t('common.viewAll', lang)}</a>
+            <a href="/transactions" className="whitespace-nowrap text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 dark:hover:text-emerald-400 transition-colors bg-emerald-50 dark:bg-emerald-900/30 px-3 py-1.5 rounded-lg">{t('common.viewAll', lang)}</a>
           </CardHeader>
           <div className="mt-2">
             {recentTx.length === 0 ? (
