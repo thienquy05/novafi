@@ -532,7 +532,7 @@ export default async function DashboardPage() {
               {upcomingBillsTotal > 0 && (
                 <p className="text-base font-extrabold text-amber-600 dark:text-amber-400">{formatCurrency(upcomingBillsTotal)}</p>
               )}
-              <a href="/bills" className="text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 transition-colors">{t('common.viewAll', lang)}</a>
+              <a href="/bills" className="inline-block mt-1 text-xs font-bold text-amber-600 dark:text-amber-400 hover:text-amber-500 dark:hover:text-amber-400 transition-colors bg-amber-50 dark:bg-amber-900/30 px-3 py-1.5 rounded-lg">{t('common.viewAll', lang)}</a>
             </div>
           </CardHeader>
           <div className="mt-2">
@@ -586,7 +586,7 @@ export default async function DashboardPage() {
               </div>
               <CardTitle>{t('dashboard.recent', lang)}</CardTitle>
             </div>
-            <a href="/transactions" className="text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 transition-colors">{t('common.viewAll', lang)}</a>
+            <a href="/transactions" className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 dark:hover:text-emerald-400 transition-colors bg-emerald-50 dark:bg-emerald-900/30 px-3 py-1.5 rounded-lg">{t('common.viewAll', lang)}</a>
           </CardHeader>
           <div className="mt-2">
             {recentTx.length === 0 ? (

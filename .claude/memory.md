@@ -10,6 +10,18 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-05-29 — Dashboard "View All" links wrapped in themed pill containers (branch claude/view-all-button-container-CHWDT)
+
+The two "View All" links on the dashboard (`app/(app)/dashboard/page.tsx`) were rendered as bare gray text links (`text-slate-500 dark:text-slate-400 hover:text-slate-900 …`), unlike the "Manage" links which sit inside a tinted, rounded pill matching their card's accent color (e.g. `text-indigo-600 … bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg`).
+
+Reworked both "View All" links to use the same pill pattern as "Manage", colored to match their mother card's theme:
+- **Bills This Month card** (amber theme, line ~535): now `inline-block mt-1 text-xs font-bold text-amber-600 dark:text-amber-400 hover:text-amber-500 dark:hover:text-amber-400 transition-colors bg-amber-50 dark:bg-amber-900/30 px-3 py-1.5 rounded-lg`. Added `inline-block mt-1` because this link stacks under the `upcomingBillsTotal` amount in a `text-right` column.
+- **Recent Transactions card** (emerald theme, line ~589): now `text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 dark:hover:text-emerald-400 transition-colors bg-emerald-50 dark:bg-emerald-900/30 px-3 py-1.5 rounded-lg`.
+
+Color choice follows each card's existing icon-tint convention (Bills = amber, Recent = emerald). The `common.viewAll` translation string (which includes the `→` arrow) is unchanged. These were the only two `common.viewAll` usages in the app.
+
+---
+
 ## 2026-05-29 — Dark mode UI completion (branch claude/dark-mode-ui-fixes-HEUJT)
 
 Dark mode (class-based `.dark` on `<html>`, toggled in Settings, persisted to `localStorage` `nf_theme`, applied pre-paint via inline script in `app/layout.tsx`) had only been partially implemented: `transactions` list rows, `Sidebar`, `Card`, `Modal` carried `dark:` variants, but most pages/components rendered with hardcoded light-only Tailwind classes, so large blocks stayed white/black in dark mode. This pass made every section theme-complete.
