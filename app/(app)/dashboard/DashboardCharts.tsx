@@ -228,7 +228,7 @@ export function HealthBanner({
     monthIncome === 0
       ? 'Record a paycheck to track your monthly cash flow'
       : monthSpending > monthIncome
-      ? `${formatCurrency(monthSpending - monthIncome)} over income — check your budgets`
+      ? `${formatCurrency(monthSpending - monthIncome)} over income`
       : `${formatCurrency(cashFlow)} net · ${formatCurrency(safeToSpend)} free after bills`;
 
   return (

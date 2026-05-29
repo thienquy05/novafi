@@ -10,6 +10,14 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-05-29 — Health banner "over income" subtitle truncation fix (branch claude/over-income-display-text-nG2Ay)
+
+The `HealthBanner` subtitle in `app/(app)/dashboard/DashboardCharts.tsx` (line ~231) read `${over income amount} over income — check your budgets`. The `<p>` rendering it uses Tailwind `truncate` (single line, `overflow:hidden` + ellipsis, line ~257), so on narrow/phone widths the actionable tail `— check your budgets` was the part cut off, leaving the unhelpful `$2,255.46 over income — …`.
+
+**Fix:** dropped the `— check your budgets` tail; subtitle is now just `${formatCurrency(monthSpending - monthIncome)} over income`. The clause was redundant — the banner **title** already says "Time to regroup" (the call to action) and the **"N over budget" badge** already points to where to look. The number-only string fits one line at normal widths so nothing important gets ellipsis'd. Kept the `truncate` class as a safety net. No change to the income=0 or on-track subtitle variants.
+
+---
+
 ## 2026-05-29 — Dashboard "View All" links wrapped in themed pill containers (branch claude/view-all-button-container-CHWDT)
 
 The two "View All" links on the dashboard (`app/(app)/dashboard/page.tsx`) were rendered as bare gray text links (`text-slate-500 dark:text-slate-400 hover:text-slate-900 …`), unlike the "Manage" links which sit inside a tinted, rounded pill matching their card's accent color (e.g. `text-indigo-600 … bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg`).
