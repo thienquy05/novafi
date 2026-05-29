@@ -10,6 +10,13 @@ import type { SpendingPaceItem } from '@/lib/calculations';
 import { formatCurrency } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { useTranslation } from '@/lib/i18n/context';
+import { useIsDark } from '@/hooks/useIsDark';
+
+/** Theme-aware colors for recharts SVG props (set via JS, not Tailwind). */
+const CHART = {
+  light: { grid: '#e2e8f0', axis: '#64748b', cursor: '#f8fafc', track: '#f1f5f9', cursorStroke: '#cbd5e1' },
+  dark:  { grid: '#334155', axis: '#94a3b8', cursor: 'rgba(148, 163, 184, 0.08)', track: '#334155', cursorStroke: '#475569' },
+} as const;
 
 /** Defers chart rendering until the component is mounted in the browser.
  *  Prevents the recharts "width(-1) height(-1)" warning caused by
@@ -65,9 +72,9 @@ export type HealthScoreData = {
 function CustomTooltip({ active, payload }: { active?: boolean; payload?: { name: string; value: number }[] }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl px-4 py-3 text-sm shadow-xl">
-      <p className="text-slate-500 font-bold mb-1">{payload[0].name}</p>
-      <p className="text-slate-900 font-extrabold text-lg">{formatCurrency(payload[0].value)}</p>
+    <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm shadow-xl">
+      <p className="text-slate-500 dark:text-slate-400 font-bold mb-1">{payload[0].name}</p>
+      <p className="text-slate-900 dark:text-slate-100 font-extrabold text-lg">{formatCurrency(payload[0].value)}</p>
     </div>
   );
 }
@@ -75,12 +82,12 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: { name
 function BarTooltip({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number; fill: string }[]; label?: string }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl px-4 py-3 text-sm shadow-xl space-y-2">
-      <p className="text-slate-500 font-bold pb-2 border-b border-slate-100">{label}</p>
+    <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm shadow-xl space-y-2">
+      <p className="text-slate-500 dark:text-slate-400 font-bold pb-2 border-b border-slate-100 dark:border-slate-700/60">{label}</p>
       {payload.map((p) => (
         <div key={p.name} className="flex items-center justify-between gap-6">
           <span style={{ color: p.fill }} className="font-bold">{p.name}</span>
-          <span className="text-slate-900 font-extrabold">{formatCurrency(p.value)}</span>
+          <span className="text-slate-900 dark:text-slate-100 font-extrabold">{formatCurrency(p.value)}</span>
         </div>
       ))}
     </div>
@@ -92,6 +99,7 @@ function BarTooltip({ active, payload, label }: { active?: boolean; payload?: { 
 /** Compact radial gauge that visualizes the savings rate instead of a flat number. */
 export function SavingsRateGauge({ value, note }: { value: number; note?: string }) {
   const ready = useChartReady();
+  const c = useIsDark() ? CHART.dark : CHART.light;
   const pct = Math.max(0, Math.min(100, value));
   const color = value >= 20 ? '#10b981' : value >= 10 ? '#6366f1' : value >= 1 ? '#f59e0b' : '#f43f5e';
   const R = 28;
@@ -101,7 +109,7 @@ export function SavingsRateGauge({ value, note }: { value: number; note?: string
     <div className="flex items-center gap-3 mt-0.5">
       <div className="relative w-[68px] h-[68px] shrink-0">
         <svg viewBox="0 0 68 68" className="w-full h-full -rotate-90">
-          <circle cx="34" cy="34" r={R} fill="none" stroke="#f1f5f9" strokeWidth="7" />
+          <circle cx="34" cy="34" r={R} fill="none" stroke={c.track} strokeWidth="7" />
           <motion.circle
             cx="34"
             cy="34"
@@ -120,7 +128,7 @@ export function SavingsRateGauge({ value, note }: { value: number; note?: string
           <span className="text-base font-extrabold tracking-tight" style={{ color }}>{value.toFixed(0)}%</span>
         </div>
       </div>
-      {note && <p className="text-xs font-medium text-slate-400 leading-snug flex-1 min-w-0">{note}</p>}
+      {note && <p className="text-xs font-medium text-slate-400 dark:text-slate-500 leading-snug flex-1 min-w-0">{note}</p>}
     </div>
   );
 }
@@ -155,47 +163,47 @@ export function HealthBanner({
 
   const configs = {
     great: {
-      bg: 'bg-emerald-50 border-emerald-200',
-      iconBg: 'bg-emerald-100',
-      iconColor: 'text-emerald-600',
-      titleColor: 'text-emerald-800',
-      pillBg: 'bg-emerald-100 text-emerald-700',
+      bg: 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-800/50',
+      iconBg: 'bg-emerald-100 dark:bg-emerald-900/40',
+      iconColor: 'text-emerald-600 dark:text-emerald-400',
+      titleColor: 'text-emerald-800 dark:text-emerald-300',
+      pillBg: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300',
       title: t('charts.greatShape'),
       Icon: TrendingUp,
     },
     good: {
-      bg: 'bg-indigo-50 border-indigo-200',
-      iconBg: 'bg-indigo-100',
-      iconColor: 'text-indigo-600',
-      titleColor: 'text-indigo-800',
-      pillBg: 'bg-indigo-100 text-indigo-700',
+      bg: 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200 dark:border-indigo-800/50',
+      iconBg: 'bg-indigo-100 dark:bg-indigo-900/40',
+      iconColor: 'text-indigo-600 dark:text-indigo-400',
+      titleColor: 'text-indigo-800 dark:text-indigo-300',
+      pillBg: 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300',
       title: t('charts.lookingGood'),
       Icon: TrendingUp,
     },
     warning: {
-      bg: 'bg-amber-50 border-amber-200',
-      iconBg: 'bg-amber-100',
-      iconColor: 'text-amber-600',
-      titleColor: 'text-amber-800',
-      pillBg: 'bg-amber-100 text-amber-700',
+      bg: 'bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800/50',
+      iconBg: 'bg-amber-100 dark:bg-amber-900/40',
+      iconColor: 'text-amber-600 dark:text-amber-400',
+      titleColor: 'text-amber-800 dark:text-amber-300',
+      pillBg: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300',
       title: t('charts.watchSpending'),
       Icon: AlertTriangle,
     },
     danger: {
-      bg: 'bg-rose-50 border-rose-200',
-      iconBg: 'bg-rose-100',
-      iconColor: 'text-rose-600',
-      titleColor: 'text-rose-800',
-      pillBg: 'bg-rose-100 text-rose-700',
+      bg: 'bg-rose-50 dark:bg-rose-900/30 border-rose-200 dark:border-rose-800/50',
+      iconBg: 'bg-rose-100 dark:bg-rose-900/40',
+      iconColor: 'text-rose-600 dark:text-rose-400',
+      titleColor: 'text-rose-800 dark:text-rose-300',
+      pillBg: 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300',
       title: t('charts.overBudget'),
       Icon: AlertTriangle,
     },
     neutral: {
-      bg: 'bg-slate-50 border-slate-200',
-      iconBg: 'bg-slate-100',
-      iconColor: 'text-slate-400',
-      titleColor: 'text-slate-700',
-      pillBg: 'bg-slate-100 text-slate-500',
+      bg: 'bg-slate-50 dark:bg-slate-700/50 border-slate-200 dark:border-slate-700',
+      iconBg: 'bg-slate-100 dark:bg-slate-700',
+      iconColor: 'text-slate-400 dark:text-slate-500',
+      titleColor: 'text-slate-700 dark:text-slate-300',
+      pillBg: 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400',
       title: t('charts.setUpIncome'),
       Icon: DollarSign,
     },
@@ -241,16 +249,16 @@ export function HealthBanner({
             </span>
           )}
           {overBudgetCount > 0 && (
-            <span className="text-xs font-bold px-2 py-0.5 rounded-lg bg-rose-100 text-rose-700">
+            <span className="text-xs font-bold px-2 py-0.5 rounded-lg bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300">
               {overBudgetCount} over budget
             </span>
           )}
         </div>
-        <p className="text-sm font-medium text-slate-600 truncate">{subtitle}</p>
+        <p className="text-sm font-medium text-slate-600 dark:text-slate-300 truncate">{subtitle}</p>
       </div>
       <div className="text-right shrink-0">
-        <p className="text-sm font-extrabold text-slate-900">{daysLeft}d left</p>
-        <div className="w-16 bg-slate-200 rounded-full h-1.5 mt-1">
+        <p className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{daysLeft}d left</p>
+        <div className="w-16 bg-slate-200 dark:bg-slate-600 rounded-full h-1.5 mt-1">
           <div
             className={`h-1.5 rounded-full transition-all ${cfg.iconColor.replace('text-', 'bg-')}`}
             style={{ width: `${Math.round(((daysInMonth - daysLeft) / daysInMonth) * 100)}%` }}
@@ -269,13 +277,14 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
   const cleanData = data.map(d => ({ ...d, name: d.name.replace(/^categories\./, '') }));
   const displayData = isEmpty ? [{ name: t('charts.noExpenseData'), value: 1 }] : cleanData;
   const ready = useChartReady();
+  const c = useIsDark() ? CHART.dark : CHART.light;
   const categoryTotal = data.reduce((s, d) => s + d.value, 0);
   const tCategory = (name: string) => { const k = `categories.${name}`; const r = t(k); return r === k ? name : r; };
 
   return (
     <div className="flex flex-col md:flex-row items-center gap-8 w-full">
       <div className="w-full md:w-56 h-56 relative">
-        {!ready ? <div className="w-full h-full rounded-full bg-slate-100 animate-pulse" /> : <ResponsiveContainer width="100%" height="100%">
+        {!ready ? <div className="w-full h-full rounded-full bg-slate-100 dark:bg-slate-700 animate-pulse" /> : <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
               data={displayData}
@@ -291,7 +300,7 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
               {displayData.map((entry) => (
                 <Cell
                   key={entry.name}
-                  fill={isEmpty ? '#f1f5f9' : (CATEGORY_COLORS[entry.name] ?? DEFAULT_COLOR)}
+                  fill={isEmpty ? c.track : (CATEGORY_COLORS[entry.name] ?? DEFAULT_COLOR)}
                   className="hover:opacity-80 transition-opacity duration-300 cursor-pointer"
                 />
               ))}
@@ -301,16 +310,16 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
         </ResponsiveContainer>}
         {isEmpty && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <span className="text-slate-400 font-bold text-lg">{formatCurrency(0)}</span>
+            <span className="text-slate-400 dark:text-slate-500 font-bold text-lg">{formatCurrency(0)}</span>
           </div>
         )}
       </div>
       <div className="flex-1 space-y-3 w-full max-h-56 overflow-y-auto hide-scrollbar pr-2">
         {isEmpty ? (
-          <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700/60">
             <div className="w-3 h-3 rounded-full shrink-0 bg-slate-300" />
-            <span className="text-sm font-bold text-slate-500 flex-1">{t('charts.noExpenseData')}</span>
-            <span className="text-sm font-extrabold text-slate-400">{formatCurrency(0)}</span>
+            <span className="text-sm font-bold text-slate-500 dark:text-slate-400 flex-1">{t('charts.noExpenseData')}</span>
+            <span className="text-sm font-extrabold text-slate-400 dark:text-slate-500">{formatCurrency(0)}</span>
           </div>
         ) : (
           cleanData.map((entry, i) => {
@@ -321,15 +330,15 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: i * 0.05 }}
                 key={entry.name}
-                className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 transition-colors"
+                className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
               >
                 <div
                   className="w-3 h-3 rounded-full shrink-0"
                   style={{ backgroundColor: CATEGORY_COLORS[entry.name] ?? DEFAULT_COLOR }}
                 />
-                <span className="text-sm font-bold text-slate-700 flex-1 truncate">{tCategory(entry.name)}</span>
-                <span className="text-xs text-slate-400 font-bold bg-slate-100 px-2 py-0.5 rounded-md">{pct.toFixed(0)}%</span>
-                <span className="text-sm font-extrabold text-slate-900 w-20 text-right">{formatCurrency(entry.value)}</span>
+                <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex-1 truncate">{tCategory(entry.name)}</span>
+                <span className="text-xs text-slate-400 dark:text-slate-500 font-bold bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-md">{pct.toFixed(0)}%</span>
+                <span className="text-sm font-extrabold text-slate-900 dark:text-slate-100 w-20 text-right">{formatCurrency(entry.value)}</span>
               </motion.div>
             );
           })
@@ -345,29 +354,30 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
   const { t } = useTranslation();
   const isEmpty = data.every(d => d.income === 0 && d.expenses === 0);
   const ready = useChartReady();
+  const c = useIsDark() ? CHART.dark : CHART.light;
   const hasNet = data.some((d) => d.net !== undefined);
 
   return (
     <div className="h-64 w-full mt-4">
-      {!ready ? <div className="w-full h-full rounded-2xl bg-slate-100 animate-pulse" /> : <ResponsiveContainer width="100%" height="100%">
+      {!ready ? <div className="w-full h-full rounded-2xl bg-slate-100 dark:bg-slate-700 animate-pulse" /> : <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} barGap={6}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke={c.grid} vertical={false} />
           <XAxis
             dataKey="month"
-            tick={{ fill: '#64748b', fontSize: 12, fontWeight: 600 }}
+            tick={{ fill: c.axis, fontSize: 12, fontWeight: 600 }}
             axisLine={false}
             tickLine={false}
             dy={10}
           />
           <YAxis
-            tick={{ fill: '#64748b', fontSize: 12, fontWeight: 600 }}
+            tick={{ fill: c.axis, fontSize: 12, fontWeight: 600 }}
             axisLine={false}
             tickLine={false}
             tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
             width={60}
           />
-          {!isEmpty && <Tooltip content={<BarTooltip />} cursor={{ fill: '#f8fafc' }} />}
-          {hasNet && <ReferenceLine y={0} stroke="#e2e8f0" strokeDasharray="4 4" />}
+          {!isEmpty && <Tooltip content={<BarTooltip />} cursor={{ fill: c.cursor }} />}
+          {hasNet && <ReferenceLine y={0} stroke={c.grid} strokeDasharray="4 4" />}
           <Bar dataKey="income" name={t('common.income')} fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={32} />
           <Bar dataKey="expenses" name={t('common.expenses')} fill="#f43f5e" radius={[6, 6, 0, 0]} maxBarSize={32} />
           {hasNet && (
@@ -394,12 +404,12 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM, totalSpend }:
 
   if (data.length === 0) {
     return (
-      <div className="text-slate-500 text-sm py-8 text-center bg-slate-50 rounded-2xl border border-slate-100">
-        <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center mx-auto mb-3 shadow-sm">
-          <Sparkles className="w-6 h-6 text-slate-400" />
+      <div className="text-slate-500 dark:text-slate-400 text-sm py-8 text-center bg-slate-50 dark:bg-slate-700/50 rounded-2xl border border-slate-100 dark:border-slate-700/60">
+        <div className="w-12 h-12 rounded-full bg-white dark:bg-slate-800 flex items-center justify-center mx-auto mb-3 shadow-sm">
+          <Sparkles className="w-6 h-6 text-slate-400 dark:text-slate-500" />
         </div>
-        <p className="font-bold text-slate-900 mb-1">{t('charts.noBudgetsSet')}</p>
-        <p className="font-medium text-slate-500 mb-3">{t('charts.setBudgetsToTrack')}</p>
+        <p className="font-bold text-slate-900 dark:text-slate-100 mb-1">{t('charts.noBudgetsSet')}</p>
+        <p className="font-medium text-slate-500 dark:text-slate-400 mb-3">{t('charts.setBudgetsToTrack')}</p>
       </div>
     );
   }
@@ -427,21 +437,21 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM, totalSpend }:
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-slate-800">{b.category.replace(/^categories\./, '')}</span>
+                <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{b.category.replace(/^categories\./, '')}</span>
                 {totalSpend && totalSpend > 0 && b.spent > 0 && (
-                  <span className="text-xs font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded-md">
+                  <span className="text-xs font-bold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-700/50 px-1.5 py-0.5 rounded-md">
                     {((b.spent / totalSpend) * 100).toFixed(0)}%
                   </span>
                 )}
               </div>
               <div className="text-right">
-                <span className={`text-sm font-extrabold ${over ? 'text-rose-600' : 'text-slate-900'}`}>
+                <span className={`text-sm font-extrabold ${over ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>
                   {formatCurrency(b.spent)}
                 </span>
-                <span className="text-xs font-bold text-slate-400"> / {formatCurrency(b.budget)}</span>
+                <span className="text-xs font-bold text-slate-400 dark:text-slate-500"> / {formatCurrency(b.budget)}</span>
               </div>
             </div>
-            <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+            <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2.5 overflow-hidden">
               <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${Math.min(100, pct)}%` }}
@@ -452,11 +462,11 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM, totalSpend }:
             <div className="flex items-center justify-between mt-1.5">
               <p className="text-xs font-bold">
                 {over ? (
-                  <span className="text-rose-600">{formatCurrency(Math.abs(remaining))} {t('charts.over')}</span>
+                  <span className="text-rose-600 dark:text-rose-400">{formatCurrency(Math.abs(remaining))} {t('charts.over')}</span>
                 ) : (
-                  <span className="text-slate-500">
+                  <span className="text-slate-500 dark:text-slate-400">
                     {formatCurrency(remaining)} {t('charts.left')}
-                    {daysLeft ? <span className="text-slate-400"> · {daysLeft}d</span> : null}
+                    {daysLeft ? <span className="text-slate-400 dark:text-slate-500"> · {daysLeft}d</span> : null}
                   </span>
                 )}
               </p>
@@ -464,16 +474,16 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM, totalSpend }:
                 {showMoM && b.prevMonthSpent !== undefined && (
                   (() => {
                     const diff = b.spent - b.prevMonthSpent;
-                    if (Math.abs(diff) < 0.5) return <span className="text-xs font-bold text-slate-400">{t('charts.sameAsLastMo')}</span>;
+                    if (Math.abs(diff) < 0.5) return <span className="text-xs font-bold text-slate-400 dark:text-slate-500">{t('charts.sameAsLastMo')}</span>;
                     return (
-                      <span className={`text-xs font-bold ${diff > 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
+                      <span className={`text-xs font-bold ${diff > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                         {diff > 0 ? '+' : ''}{formatCurrency(diff)} {t('charts.vsLastMo')}
                       </span>
                     );
                   })()
                 )}
                 {willOvershoot && projected && (
-                  <p className="text-xs font-bold text-amber-600">
+                  <p className="text-xs font-bold text-amber-600 dark:text-amber-400">
                     ~{formatCurrency(projected - b.budget)} {t('charts.overshoot')}
                   </p>
                 )}
@@ -492,9 +502,9 @@ function NetWorthTooltip({ active, payload, label }: { active?: boolean; payload
   if (!active || !payload?.length) return null;
   const val = payload[0].value;
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl px-4 py-3 text-sm shadow-xl">
-      <p className="text-slate-500 font-bold mb-1">{label}</p>
-      <p className={`font-extrabold text-lg ${val >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+    <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm shadow-xl">
+      <p className="text-slate-500 dark:text-slate-400 font-bold mb-1">{label}</p>
+      <p className={`font-extrabold text-lg ${val >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
         {formatCurrency(val)}
       </p>
     </div>
@@ -504,12 +514,13 @@ function NetWorthTooltip({ active, payload, label }: { active?: boolean; payload
 export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]; projection?: { label: string; netWorth?: number; projected?: number }[] }) {
   const { t } = useTranslation();
   const ready = useChartReady();
+  const c = useIsDark() ? CHART.dark : CHART.light;
 
   if (data.length < 2) {
     return (
       <div className="h-48 flex flex-col items-center justify-center text-center">
-        <p className="text-slate-400 font-bold text-sm">{t('charts.notEnoughData')}</p>
-        <p className="text-slate-400 text-xs mt-1 font-medium">{t('charts.comeBackNextMonth')}</p>
+        <p className="text-slate-400 dark:text-slate-500 font-bold text-sm">{t('charts.notEnoughData')}</p>
+        <p className="text-slate-400 dark:text-slate-500 text-xs mt-1 font-medium">{t('charts.comeBackNextMonth')}</p>
       </div>
     );
   }
@@ -541,18 +552,18 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
   return (
     <div className="w-full">
       <div className="flex items-center justify-between gap-3 mb-4 px-2">
-        <span className={`text-sm font-extrabold px-3 py-1 rounded-lg ${isPositive ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+        <span className={`text-sm font-extrabold px-3 py-1 rounded-lg ${isPositive ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' : 'bg-rose-50 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300'}`}>
           {isPositive ? '+' : ''}{formatCurrency(delta)} {t('charts.since', { label: data[0].label })}
         </span>
         {projection && projection.length > 0 && (
-          <span className="text-xs font-bold text-slate-400 flex items-center gap-1">
-            <span className="inline-block w-6 border-t-2 border-dashed border-slate-300" />
+          <span className="text-xs font-bold text-slate-400 dark:text-slate-500 flex items-center gap-1">
+            <span className="inline-block w-6 border-t-2 border-dashed border-slate-300 dark:border-slate-600" />
             {t('charts.projected')}
           </span>
         )}
       </div>
       <div className="h-52 w-full">
-        {!ready ? <div className="w-full h-full rounded-2xl bg-slate-100 animate-pulse" /> : <ResponsiveContainer width="100%" height="100%">
+        {!ready ? <div className="w-full h-full rounded-2xl bg-slate-100 dark:bg-slate-700 animate-pulse" /> : <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={chartData} margin={{ top: 8, right: 10, left: -10, bottom: 0 }}>
             <defs>
               <linearGradient id="nwPositive" x1="0" y1="0" x2="0" y2="1">
@@ -564,23 +575,23 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
                 <stop offset="95%" stopColor="#f43f5e" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke={c.grid} vertical={false} />
             <XAxis
               dataKey="label"
-              tick={{ fill: '#64748b', fontSize: 12, fontWeight: 600 }}
+              tick={{ fill: c.axis, fontSize: 12, fontWeight: 600 }}
               axisLine={false}
               tickLine={false}
               dy={10}
             />
             <YAxis
-              tick={{ fill: '#64748b', fontSize: 12, fontWeight: 600 }}
+              tick={{ fill: c.axis, fontSize: 12, fontWeight: 600 }}
               axisLine={false}
               tickLine={false}
               tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
               width={56}
             />
-            <ReferenceLine y={0} stroke="#e2e8f0" strokeDasharray="4 4" />
-            <Tooltip content={<NetWorthTooltip />} cursor={{ stroke: '#e2e8f0', strokeWidth: 1 }} />
+            <ReferenceLine y={0} stroke={c.grid} strokeDasharray="4 4" />
+            <Tooltip content={<NetWorthTooltip />} cursor={{ stroke: c.cursorStroke, strokeWidth: 1 }} />
             <Area
               type="monotone"
               dataKey="netWorth"
@@ -639,24 +650,24 @@ export function EmergencyFundWidget({
     great: 'bg-emerald-500',
   };
   const textColors: Record<Status, string> = {
-    danger: 'text-rose-600',
-    warning: 'text-amber-600',
-    good: 'text-indigo-600',
-    great: 'text-emerald-600',
+    danger: 'text-rose-600 dark:text-rose-400',
+    warning: 'text-amber-600 dark:text-amber-400',
+    good: 'text-indigo-600 dark:text-indigo-400',
+    great: 'text-emerald-600 dark:text-emerald-400',
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-100 p-4">
+    <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700/60 p-4">
       <div className="flex items-center justify-between mb-2">
-        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('charts.emergencyFund')}</p>
-        <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${textColors[status]} bg-slate-50`}>
+        <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('charts.emergencyFund')}</p>
+        <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${textColors[status]} bg-slate-50 dark:bg-slate-700/50`}>
           {labels[status]}
         </span>
       </div>
       <p className={`text-lg font-extrabold tracking-tight ${textColors[status]}`}>
-        {months.toFixed(1)} <span className="text-sm font-bold text-slate-400">{t('charts.moCovered')}</span>
+        {months.toFixed(1)} <span className="text-sm font-bold text-slate-400 dark:text-slate-500">{t('charts.moCovered')}</span>
       </p>
-      <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2 overflow-hidden">
+      <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5 mt-2 overflow-hidden">
         <motion.div
           initial={{ width: 0 }}
           animate={{ width: `${Math.min(100, pct)}%` }}
@@ -665,11 +676,11 @@ export function EmergencyFundWidget({
         />
       </div>
       <div className="flex justify-between mt-1">
-        <span className="text-[10px] font-bold text-slate-400">0</span>
-        <span className="text-[10px] font-bold text-slate-400">3 mo</span>
-        <span className="text-[10px] font-bold text-slate-400">6 mo</span>
+        <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">0</span>
+        <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">3 mo</span>
+        <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">6 mo</span>
       </div>
-      <p className="text-[11px] font-medium text-slate-400 mt-1">
+      <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 mt-1">
         {formatCurrency(liquidSavings)} {t('charts.liquid')} · {avgMonthlyExpense > 0 ? `${formatCurrency(avgMonthlyExpense)}/${t('charts.avg')}` : t('charts.noExpenseData')}
       </p>
     </div>
@@ -688,13 +699,14 @@ export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
   type Grade = 'A' | 'B' | 'C' | 'D' | 'F';
   const grade: Grade = score >= 85 ? 'A' : score >= 70 ? 'B' : score >= 55 ? 'C' : score >= 40 ? 'D' : 'F';
   const gradeColors: Record<Grade, string> = {
-    A: 'text-emerald-600',
-    B: 'text-indigo-600',
-    C: 'text-amber-600',
-    D: 'text-orange-600',
-    F: 'text-rose-600',
+    A: 'text-emerald-600 dark:text-emerald-400',
+    B: 'text-indigo-600 dark:text-indigo-400',
+    C: 'text-amber-600 dark:text-amber-400',
+    D: 'text-orange-600 dark:text-orange-400',
+    F: 'text-rose-600 dark:text-rose-400',
   };
   const ringColor = score >= 85 ? '#10b981' : score >= 70 ? '#6366f1' : score >= 55 ? '#f59e0b' : score >= 40 ? '#f97316' : '#f43f5e';
+  const ringTrack = useIsDark() ? CHART.dark.track : CHART.light.track;
 
   const fmtDti = (r: number) => {
     if (!isFinite(r)) return 'n/a';
@@ -720,22 +732,22 @@ export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
   ];
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-100 p-5 space-y-4">
+    <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700/60 p-5 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('charts.financialHealth')}</p>
-          <p className="text-slate-500 text-xs font-medium mt-0.5">{t('charts.healthScore')}</p>
+          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('charts.financialHealth')}</p>
+          <p className="text-slate-500 dark:text-slate-400 text-xs font-medium mt-0.5">{t('charts.healthScore')}</p>
         </div>
         <div className="text-center">
           <div
             className="relative w-16 h-16 flex items-center justify-center rounded-full"
             style={{
-              background: `conic-gradient(${ringColor} ${score * 3.6}deg, #f1f5f9 0deg)`,
+              background: `conic-gradient(${ringColor} ${score * 3.6}deg, ${ringTrack} 0deg)`,
             }}
           >
-            <div className="absolute inset-1.5 bg-white rounded-full flex flex-col items-center justify-center">
+            <div className="absolute inset-1.5 bg-white dark:bg-slate-800 rounded-full flex flex-col items-center justify-center">
               <span className={`text-lg font-extrabold leading-none ${gradeColors[grade]}`}>{grade}</span>
-              <span className="text-[10px] font-bold text-slate-400">{score}</span>
+              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">{score}</span>
             </div>
           </div>
         </div>
@@ -746,8 +758,8 @@ export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
           const barColor = ratio >= 0.8 ? 'bg-emerald-500' : ratio >= 0.6 ? 'bg-indigo-500' : ratio >= 0.4 ? 'bg-amber-500' : ratio >= 0.2 ? 'bg-orange-500' : 'bg-rose-500';
           return (
             <div key={c.label} className="flex items-center gap-3">
-              <span className="text-xs font-bold text-slate-600 w-32 shrink-0">{c.label}</span>
-              <div className="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+              <span className="text-xs font-bold text-slate-600 dark:text-slate-300 w-32 shrink-0">{c.label}</span>
+              <div className="flex-1 bg-slate-100 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
                 <motion.div
                   initial={{ width: 0 }}
                   animate={{ width: `${Math.round(ratio * 100)}%` }}
@@ -755,8 +767,8 @@ export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
                   className={`h-full rounded-full ${barColor}`}
                 />
               </div>
-              <span className="text-[11px] font-bold text-slate-500 w-16 text-right shrink-0 whitespace-nowrap">{c.detail}</span>
-              <span className="text-[11px] font-bold text-slate-400 w-10 text-right shrink-0 whitespace-nowrap tabular-nums">{c.score}/{c.max}</span>
+              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 w-16 text-right shrink-0 whitespace-nowrap">{c.detail}</span>
+              <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 w-10 text-right shrink-0 whitespace-nowrap tabular-nums">{c.score}/{c.max}</span>
             </div>
           );
         })}
@@ -771,12 +783,12 @@ export function GoalsSummary({ data }: { data: GoalData[] }) {
 
   if (data.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-8 text-center bg-slate-50 rounded-2xl border border-slate-100">
-        <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center mx-auto mb-3 shadow-sm">
-          <Target className="w-6 h-6 text-slate-400" />
+      <div className="flex flex-col items-center justify-center py-8 text-center bg-slate-50 dark:bg-slate-700/50 rounded-2xl border border-slate-100 dark:border-slate-700/60">
+        <div className="w-12 h-12 rounded-full bg-white dark:bg-slate-800 flex items-center justify-center mx-auto mb-3 shadow-sm">
+          <Target className="w-6 h-6 text-slate-400 dark:text-slate-500" />
         </div>
-        <p className="text-slate-900 font-bold mb-1">{t('charts.noGoalsYet')}</p>
-        <p className="text-slate-500 font-medium text-sm mb-4">{t('charts.setTargetGoals')}</p>
+        <p className="text-slate-900 dark:text-slate-100 font-bold mb-1">{t('charts.noGoalsYet')}</p>
+        <p className="text-slate-500 dark:text-slate-400 font-medium text-sm mb-4">{t('charts.setTargetGoals')}</p>
       </div>
     );
   }
@@ -805,19 +817,19 @@ export function GoalsSummary({ data }: { data: GoalData[] }) {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.1 }}
             key={g.id}
-            className="flex items-center gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:shadow-sm transition-all"
+            className="flex items-center gap-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700/60 hover:shadow-sm transition-all"
           >
-            <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-2xl shrink-0 shadow-sm border border-slate-100">
+            <div className="w-12 h-12 rounded-2xl bg-white dark:bg-slate-800 flex items-center justify-center text-2xl shrink-0 shadow-sm border border-slate-100 dark:border-slate-700/60">
               {g.icon}
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-sm font-bold text-slate-900 truncate">{g.name}</span>
-                <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg shrink-0 ml-2 ${achieved ? 'bg-emerald-100 text-emerald-700' : negative ? 'bg-rose-100 text-rose-700' : 'bg-indigo-100 text-indigo-700'}`}>
+                <span className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{g.name}</span>
+                <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg shrink-0 ml-2 ${achieved ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300' : negative ? 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300' : 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300'}`}>
                   {pct.toFixed(0)}%
                 </span>
               </div>
-              <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden relative">
+              <div className="w-full bg-slate-200 dark:bg-slate-600 rounded-full h-2 overflow-hidden relative">
                 {negative ? (
                   <motion.div
                     initial={{ width: 0 }}
@@ -836,11 +848,11 @@ export function GoalsSummary({ data }: { data: GoalData[] }) {
                 )}
               </div>
               <div className="flex items-center justify-between mt-1.5">
-                <p className="text-xs font-bold text-slate-500">
-                  <span className={negative ? 'text-rose-600' : 'text-slate-700'}>{formatCurrency(g.current)}</span> / {formatCurrency(g.target)}
+                <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                  <span className={negative ? 'text-rose-600 dark:text-rose-400' : 'text-slate-700 dark:text-slate-300'}>{formatCurrency(g.current)}</span> / {formatCurrency(g.target)}
                 </p>
                 {monthlyNeeded && !achieved && (
-                  <p className="text-xs font-bold text-slate-400">{formatCurrency(monthlyNeeded)}{t('charts.moNeeded')}</p>
+                  <p className="text-xs font-bold text-slate-400 dark:text-slate-500">{formatCurrency(monthlyNeeded)}{t('charts.moNeeded')}</p>
                 )}
               </div>
             </div>
@@ -848,7 +860,7 @@ export function GoalsSummary({ data }: { data: GoalData[] }) {
         );
       })}
       {data.length > 3 && (
-        <a href="/planning?tab=goals" className="text-sm font-bold text-indigo-600 hover:text-indigo-500 block text-center pt-2 pb-1 transition-colors">
+        <a href="/planning?tab=goals" className="text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-400 block text-center pt-2 pb-1 transition-colors">
           {t('charts.viewMoreGoals', { n: data.length - 3 })}
         </a>
       )}
@@ -872,29 +884,29 @@ export function SpendingPaceWidget({ data, daysLeft }: { data: SpendingPaceItem[
       {/* Summary row */}
       <div className="flex items-center gap-2 flex-wrap">
         {alerts.length === 0 ? (
-          <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-100">
+          <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/30 px-3 py-1.5 rounded-full border border-emerald-100 dark:border-emerald-800/50">
             <Zap className="w-3 h-3" />{t('charts.allOnTrack')}
           </span>
         ) : (
           <>
             {over.length > 0 && (
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-700 bg-rose-50 px-3 py-1.5 rounded-full border border-rose-100">
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-900/30 px-3 py-1.5 rounded-full border border-rose-100 dark:border-rose-800/50">
                 <AlertTriangle className="w-3 h-3" />{over.length} {t('charts.overBudget')}
               </span>
             )}
             {atRisk.length > 0 && (
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-700 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-100">
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 px-3 py-1.5 rounded-full border border-amber-100 dark:border-amber-800/50">
                 <TrendingUp className="w-3 h-3" />{atRisk.length} {t('charts.atRisk')}
               </span>
             )}
             {onTrack.length > 0 && (
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100">
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/50 px-3 py-1.5 rounded-full border border-slate-100 dark:border-slate-700/60">
                 <Zap className="w-3 h-3" />{onTrack.length} {t('charts.paceOnTrack')}
               </span>
             )}
           </>
         )}
-        <span className="text-xs font-medium text-slate-400 ml-auto">{daysLeft}d left</span>
+        <span className="text-xs font-medium text-slate-400 dark:text-slate-500 ml-auto">{daysLeft}d left</span>
       </div>
 
       {/* Alert list */}
@@ -904,28 +916,28 @@ export function SpendingPaceWidget({ data, daysLeft }: { data: SpendingPaceItem[
             const isOver = item.status === 'over';
             const pct = item.budget > 0 ? Math.min(100, (item.spent / item.budget) * 100) : 0;
             return (
-              <div key={item.category} className={`p-3 rounded-2xl border ${isOver ? 'bg-rose-50/60 border-rose-100' : 'bg-amber-50/60 border-amber-100'}`}>
+              <div key={item.category} className={`p-3 rounded-2xl border ${isOver ? 'bg-rose-50/60 dark:bg-rose-900/20 border-rose-100 dark:border-rose-800/50' : 'bg-amber-50/60 dark:bg-amber-900/20 border-amber-100 dark:border-amber-800/50'}`}>
                 <div className="flex items-center justify-between mb-1.5">
-                  <p className="text-sm font-bold text-slate-900">{item.category}</p>
+                  <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{item.category}</p>
                   <div className="text-right">
-                    <p className={`text-xs font-extrabold ${isOver ? 'text-rose-600' : 'text-amber-600'}`}>
+                    <p className={`text-xs font-extrabold ${isOver ? 'text-rose-600 dark:text-rose-400' : 'text-amber-600 dark:text-amber-400'}`}>
                       {isOver
                         ? `-${formatCurrency(item.spent - item.budget)} over`
                         : `~+${formatCurrency(item.overshootAmt)} projected`}
                     </p>
                   </div>
                 </div>
-                <div className="w-full bg-white/80 rounded-full h-1.5 overflow-hidden">
+                <div className="w-full bg-white/80 dark:bg-slate-900/40 rounded-full h-1.5 overflow-hidden">
                   <div
                     className={`h-full rounded-full ${isOver ? 'bg-rose-500' : 'bg-amber-500'}`}
                     style={{ width: `${pct}%` }}
                   />
                 </div>
                 <div className="flex items-center justify-between mt-1">
-                  <p className="text-xs font-medium text-slate-500">
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                     {formatCurrency(item.spent)} / {formatCurrency(item.budget)}
                   </p>
-                  <p className="text-xs font-medium text-slate-500">
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                     {formatCurrency(item.pace)}/day
                   </p>
                 </div>
@@ -933,7 +945,7 @@ export function SpendingPaceWidget({ data, daysLeft }: { data: SpendingPaceItem[
             );
           })}
           {alerts.length > 4 && (
-            <a href="/planning" className="text-xs font-bold text-indigo-600 hover:text-indigo-500 block text-center pt-1 transition-colors">
+            <a href="/planning" className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-400 block text-center pt-1 transition-colors">
               +{alerts.length - 4} more → Planning
             </a>
           )}
@@ -944,8 +956,8 @@ export function SpendingPaceWidget({ data, daysLeft }: { data: SpendingPaceItem[
       {onTrack.length > 0 && alerts.length > 0 && (
         <div className="flex flex-wrap gap-1.5 pt-1">
           {onTrack.map((item) => (
-            <span key={item.category} className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 bg-slate-50 px-2.5 py-1 rounded-full border border-slate-100">
-              <TrendingDown className="w-2.5 h-2.5 text-emerald-500" />{item.category}
+            <span key={item.category} className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/50 px-2.5 py-1 rounded-full border border-slate-100 dark:border-slate-700/60">
+              <TrendingDown className="w-2.5 h-2.5 text-emerald-500 dark:text-emerald-400" />{item.category}
             </span>
           ))}
         </div>

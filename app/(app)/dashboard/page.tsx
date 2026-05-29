@@ -266,9 +266,9 @@ export default async function DashboardPage() {
       label: excludeLoans ? t('dashboard.liquidNetWorth', lang) : t('dashboard.netWorth', lang),
       value: formatCurrency(netWorth),
       icon: Wallet,
-      color: netWorth >= 0 ? 'text-emerald-600' : 'text-rose-600',
-      bg: netWorth >= 0 ? 'bg-emerald-50' : 'bg-rose-50',
-      border: netWorth >= 0 ? 'border-emerald-100' : 'border-rose-100',
+      color: netWorth >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400',
+      bg: netWorth >= 0 ? 'bg-emerald-50 dark:bg-emerald-900/30' : 'bg-rose-50 dark:bg-rose-900/30',
+      border: netWorth >= 0 ? 'border-emerald-100 dark:border-emerald-800/50' : 'border-rose-100 dark:border-rose-800/50',
       delta: netWorthDelta,
       positiveIsGood: true,
       annotation: excludeLoans && totalLoanDebt > 0 ? t('dashboard.loansExcl', lang) : null,
@@ -278,9 +278,9 @@ export default async function DashboardPage() {
       label: t('dashboard.monthIncome', lang),
       value: formatCurrency(monthIncome),
       icon: ArrowUpRight,
-      color: 'text-emerald-600',
-      bg: 'bg-emerald-50',
-      border: 'border-emerald-100',
+      color: 'text-emerald-600 dark:text-emerald-400',
+      bg: 'bg-emerald-50 dark:bg-emerald-900/30',
+      border: 'border-emerald-100 dark:border-emerald-800/50',
       delta: incomeDelta,
       positiveIsGood: true,
       annotation: null,
@@ -290,9 +290,9 @@ export default async function DashboardPage() {
       label: t('dashboard.monthSpending', lang),
       value: formatCurrency(monthSpending),
       icon: TrendingDown,
-      color: 'text-rose-600',
-      bg: 'bg-rose-50',
-      border: 'border-rose-100',
+      color: 'text-rose-600 dark:text-rose-400',
+      bg: 'bg-rose-50 dark:bg-rose-900/30',
+      border: 'border-rose-100 dark:border-rose-800/50',
       delta: spendingDelta,
       positiveIsGood: false,
       annotation: null,
@@ -302,9 +302,9 @@ export default async function DashboardPage() {
       label: t('dashboard.safeToSpend', lang),
       value: formatCurrency(safeToSpend),
       icon: PiggyBank,
-      color: safeToSpend > 0 ? 'text-indigo-600' : 'text-rose-600',
-      bg: safeToSpend > 0 ? 'bg-indigo-50' : 'bg-rose-50',
-      border: safeToSpend > 0 ? 'border-indigo-100' : 'border-rose-100',
+      color: safeToSpend > 0 ? 'text-indigo-600 dark:text-indigo-400' : 'text-rose-600 dark:text-rose-400',
+      bg: safeToSpend > 0 ? 'bg-indigo-50 dark:bg-indigo-900/30' : 'bg-rose-50 dark:bg-rose-900/30',
+      border: safeToSpend > 0 ? 'border-indigo-100 dark:border-indigo-800/50' : 'border-rose-100 dark:border-rose-800/50',
       delta: null,
       positiveIsGood: true,
       annotation: null,
@@ -314,9 +314,9 @@ export default async function DashboardPage() {
       label: t('dashboard.savingsRateKPI', lang),
       value: `${savingsRate.toFixed(0)}%`,
       icon: TrendingUp,
-      color: savingsRate >= 20 ? 'text-emerald-600' : savingsRate >= 10 ? 'text-indigo-600' : 'text-amber-600',
-      bg: savingsRate >= 20 ? 'bg-emerald-50' : savingsRate >= 10 ? 'bg-indigo-50' : 'bg-amber-50',
-      border: savingsRate >= 20 ? 'border-emerald-100' : savingsRate >= 10 ? 'border-indigo-100' : 'border-amber-100',
+      color: savingsRate >= 20 ? 'text-emerald-600 dark:text-emerald-400' : savingsRate >= 10 ? 'text-indigo-600 dark:text-indigo-400' : 'text-amber-600 dark:text-amber-400',
+      bg: savingsRate >= 20 ? 'bg-emerald-50 dark:bg-emerald-900/30' : savingsRate >= 10 ? 'bg-indigo-50 dark:bg-indigo-900/30' : 'bg-amber-50 dark:bg-amber-900/30',
+      border: savingsRate >= 20 ? 'border-emerald-100 dark:border-emerald-800/50' : savingsRate >= 10 ? 'border-indigo-100 dark:border-indigo-800/50' : 'border-amber-100 dark:border-amber-800/50',
       delta: null,
       positiveIsGood: true,
       annotation: t('dashboard.savingsRateKPINote', lang),
@@ -329,10 +329,10 @@ export default async function DashboardPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900">
+          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">
             {t('dashboard.greeting', lang, { name: session.user?.name?.split(' ')[0] ?? '' })}
           </h1>
-          <p className="text-slate-500 text-sm md:text-base font-medium">
+          <p className="text-slate-500 dark:text-slate-400 text-sm md:text-base font-medium">
             {t('dashboard.monthSummary', lang, { month: MONTH_NAMES[now.getMonth()], year: now.getFullYear(), daysLeft })}
           </p>
         </div>
@@ -354,28 +354,28 @@ export default async function DashboardPage() {
       {/* Stats Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         {stats.map(({ label, value, icon: Icon, color, bg, border, delta, positiveIsGood, annotation, viz }, idx) => (
-          <Card key={label} className={`border ${border} hover:border-slate-300 ${idx === stats.length - 1 && stats.length % 2 !== 0 ? 'col-span-2 sm:col-span-1' : ''}`}>
+          <Card key={label} className={`border ${border} hover:border-slate-300 dark:hover:border-slate-600 ${idx === stats.length - 1 && stats.length % 2 !== 0 ? 'col-span-2 sm:col-span-1' : ''}`}>
             <div className="flex items-center gap-3 mb-3">
               <div className={`p-2.5 rounded-xl ${bg}`}>
                 <Icon className={`w-5 h-5 ${color}`} />
               </div>
-              <p className="text-xs font-bold text-slate-500 leading-tight">{label}</p>
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400 leading-tight">{label}</p>
             </div>
             {viz !== null ? (
               <SavingsRateGauge value={viz} note={annotation ?? undefined} />
             ) : (
               <>
-                <FitText maxSize={28} minSize={13} className="font-extrabold text-slate-900 mt-0.5">{value}</FitText>
+                <FitText maxSize={28} minSize={13} className="font-extrabold text-slate-900 dark:text-slate-100 mt-0.5">{value}</FitText>
                 {delta !== null && Math.abs(delta) > 0.5 && (
                   <p className={`text-xs font-bold mt-1.5 flex items-center gap-0.5 ${
-                    (positiveIsGood ? delta > 0 : delta < 0) ? 'text-emerald-600' : 'text-rose-600'
+                    (positiveIsGood ? delta > 0 : delta < 0) ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
                   }`}>
                     {delta > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
                     {Math.abs(delta).toFixed(0)}{t('dashboard.vsLastMonth', lang)}
                   </p>
                 )}
                 {annotation && (
-                  <p className="text-xs font-medium text-slate-400 mt-1.5">{annotation}</p>
+                  <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-1.5">{annotation}</p>
                 )}
               </>
             )}
@@ -385,22 +385,22 @@ export default async function DashboardPage() {
 
       {/* Assets / Liabilities / Savings / Emergency Fund */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-white rounded-2xl border border-emerald-100 p-4">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('common.assets', lang)}</p>
-          <FitText maxSize={18} minSize={11} className="font-extrabold text-emerald-600 mt-1">{formatCurrency(totalAssets)}</FitText>
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-emerald-100 dark:border-emerald-800/50 p-4">
+          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('common.assets', lang)}</p>
+          <FitText maxSize={18} minSize={11} className="font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">{formatCurrency(totalAssets)}</FitText>
         </div>
-        <div className="bg-white rounded-2xl border border-rose-100 p-4">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('common.liabilities', lang)}</p>
-          <FitText maxSize={18} minSize={11} className="font-extrabold text-rose-600 mt-1">{totalDebt > 0 ? `-${formatCurrency(totalDebt)}` : formatCurrency(0)}</FitText>
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-rose-100 dark:border-rose-800/50 p-4">
+          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('common.liabilities', lang)}</p>
+          <FitText maxSize={18} minSize={11} className="font-extrabold text-rose-600 dark:text-rose-400 mt-1">{totalDebt > 0 ? `-${formatCurrency(totalDebt)}` : formatCurrency(0)}</FitText>
         </div>
-        <div className="bg-white rounded-2xl border border-slate-100 p-4">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('dashboard.savings', lang)}</p>
-          <FitText maxSize={18} minSize={11} className="font-extrabold text-purple-600 mt-1">{formatCurrency(totalSaved)}</FitText>
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700/60 p-4">
+          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('dashboard.savings', lang)}</p>
+          <FitText maxSize={18} minSize={11} className="font-extrabold text-purple-600 dark:text-purple-400 mt-1">{formatCurrency(totalSaved)}</FitText>
         </div>
-        <div className="bg-white rounded-2xl border border-slate-100 p-4">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('dashboard.emergency', lang)}</p>
-          <p className={`text-lg font-extrabold mt-1 tracking-tight ${emergencyFundMonths >= 6 ? 'text-emerald-600' : emergencyFundMonths >= 3 ? 'text-indigo-600' : emergencyFundMonths >= 1 ? 'text-amber-600' : 'text-rose-600'}`}>
-            {emergencyFundMonths.toFixed(1)} <span className="text-sm font-bold text-slate-400">mo</span>
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700/60 p-4">
+          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('dashboard.emergency', lang)}</p>
+          <p className={`text-lg font-extrabold mt-1 tracking-tight ${emergencyFundMonths >= 6 ? 'text-emerald-600 dark:text-emerald-400' : emergencyFundMonths >= 3 ? 'text-indigo-600 dark:text-indigo-400' : emergencyFundMonths >= 1 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>
+            {emergencyFundMonths.toFixed(1)} <span className="text-sm font-bold text-slate-400 dark:text-slate-500">mo</span>
           </p>
         </div>
       </div>
@@ -409,12 +409,12 @@ export default async function DashboardPage() {
       <Card>
         <CardHeader>
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-100">
-              <TrendingUp className="w-5 h-5 text-emerald-600" />
+            <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800/50">
+              <TrendingUp className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
             </div>
             <div>
               <CardTitle>{t('dashboard.netWorthTrend', lang)}</CardTitle>
-              <p className="text-xs font-medium text-slate-500 mt-0.5">{t('dashboard.monthlySnapshot', lang)}</p>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('dashboard.monthlySnapshot', lang)}</p>
             </div>
           </div>
         </CardHeader>
@@ -428,10 +428,10 @@ export default async function DashboardPage() {
         <CardHeader>
           <div>
             <CardTitle>{t('dashboard.spendingThisMonth', lang)}</CardTitle>
-            <p className="text-xs font-medium text-slate-500 mt-1">{t('dashboard.whereMoneyWent', lang)}</p>
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">{t('dashboard.whereMoneyWent', lang)}</p>
           </div>
           <div className="text-right">
-            <span className="text-xl font-extrabold text-slate-900">{formatCurrency(monthSpending)}</span>
+            <span className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(monthSpending)}</span>
           </div>
         </CardHeader>
         <div className="flex-1 flex items-center justify-center">
@@ -467,8 +467,8 @@ export default async function DashboardPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-indigo-50 border border-indigo-100">
-                <BarChart3 className="w-5 h-5 text-indigo-600" />
+              <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50">
+                <BarChart3 className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
               </div>
               <CardTitle>{t('dashboard.budgetProgress', lang)}</CardTitle>
               <HelpHint label="What do these badges mean?" align="left">
@@ -485,13 +485,13 @@ export default async function DashboardPage() {
                     <span className="font-bold text-rose-300">$X over</span> — you&apos;ve already exceeded the budget this month.
                   </li>
                   <li>
-                    <span className="font-bold text-slate-300">+$X vs last mo</span> — month-over-month change in spending.
+                    <span className="font-bold text-slate-300 dark:text-slate-600">+$X vs last mo</span> — month-over-month change in spending.
                   </li>
                 </ul>
-                <p className="mt-2 text-slate-300">Projection = (spent ÷ days elapsed) × days in month.</p>
+                <p className="mt-2 text-slate-300 dark:text-slate-600">Projection = (spent ÷ days elapsed) × days in month.</p>
               </HelpHint>
             </div>
-            <a href="/planning" className="text-xs font-bold text-indigo-600 hover:text-indigo-500 transition-colors bg-indigo-50 px-3 py-1.5 rounded-lg">{t('common.manage', lang)}</a>
+            <a href="/planning" className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg">{t('common.manage', lang)}</a>
           </CardHeader>
           <div className="mt-4">
             <BudgetBars data={budgetData} daysLeft={daysLeft} daysElapsed={daysElapsed} showMoM totalSpend={totalMonthSpend} />
@@ -501,12 +501,12 @@ export default async function DashboardPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-purple-50 border border-purple-100">
-                <PiggyBank className="w-5 h-5 text-purple-600" />
+              <div className="p-2 rounded-xl bg-purple-50 dark:bg-purple-900/30 border border-purple-100 dark:border-purple-800/50">
+                <PiggyBank className="w-5 h-5 text-purple-600 dark:text-purple-400" />
               </div>
               <CardTitle>{t('dashboard.savingsGoals', lang)}</CardTitle>
             </div>
-            <a href="/planning" className="text-xs font-bold text-purple-600 hover:text-purple-500 transition-colors bg-purple-50 px-3 py-1.5 rounded-lg">{t('common.manage', lang)}</a>
+            <a href="/planning" className="text-xs font-bold text-purple-600 dark:text-purple-400 hover:text-purple-500 dark:hover:text-purple-400 transition-colors bg-purple-50 dark:bg-purple-900/30 px-3 py-1.5 rounded-lg">{t('common.manage', lang)}</a>
           </CardHeader>
           <div className="mt-4">
             <GoalsSummary data={goalData} />
@@ -520,30 +520,30 @@ export default async function DashboardPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-amber-50 border border-amber-100">
-                <Calendar className="w-5 h-5 text-amber-600" />
+              <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-100 dark:border-amber-800/50">
+                <Calendar className="w-5 h-5 text-amber-600 dark:text-amber-400" />
               </div>
               <div>
                 <CardTitle>{t('dashboard.billForecast', lang)}</CardTitle>
-                <p className="text-xs font-medium text-slate-500 mt-0.5">{t('dashboard.billForecastSubtitle', lang, { daysLeft })}</p>
+                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('dashboard.billForecastSubtitle', lang, { daysLeft })}</p>
               </div>
             </div>
             <div className="text-right">
               {upcomingBillsTotal > 0 && (
-                <p className="text-base font-extrabold text-amber-600">{formatCurrency(upcomingBillsTotal)}</p>
+                <p className="text-base font-extrabold text-amber-600 dark:text-amber-400">{formatCurrency(upcomingBillsTotal)}</p>
               )}
-              <a href="/bills" className="text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors">{t('common.viewAll', lang)}</a>
+              <a href="/bills" className="text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 transition-colors">{t('common.viewAll', lang)}</a>
             </div>
           </CardHeader>
           <div className="mt-2">
             {upcomingBills.length === 0 ? (
-              <div className="flex items-center gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                <div className="w-11 h-11 rounded-full flex items-center justify-center bg-slate-200 text-slate-400">
+              <div className="flex items-center gap-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700/60">
+                <div className="w-11 h-11 rounded-full flex items-center justify-center bg-slate-200 dark:bg-slate-600 text-slate-400 dark:text-slate-500">
                   <Calendar className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="text-sm text-slate-900 font-bold">{t('dashboard.noUpcomingBills', lang)}</p>
-                  <p className="text-xs text-slate-500 mt-0.5 font-medium">{t('dashboard.allCaughtUp', lang)}</p>
+                  <p className="text-sm text-slate-900 dark:text-slate-100 font-bold">{t('dashboard.noUpcomingBills', lang)}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">{t('dashboard.allCaughtUp', lang)}</p>
                 </div>
               </div>
             ) : (
@@ -554,19 +554,19 @@ export default async function DashboardPage() {
                   const daysUntil = Math.round((dueDate.getTime() - todayMidnight.getTime()) / 86400000);
                   const isUrgent = daysUntil <= 3;
                   return (
-                    <div key={bill.id} className="flex items-center justify-between p-3.5 rounded-2xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100">
+                    <div key={bill.id} className="flex items-center justify-between p-3.5 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors border border-transparent hover:border-slate-100 dark:hover:border-slate-700/60">
                       <div className="flex items-center gap-3">
-                        <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${isUrgent ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-600'}`}>
+                        <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${isUrgent ? 'bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
                           <Calendar className="w-4 h-4" />
                         </div>
                         <div>
-                          <p className="text-sm text-slate-900 font-bold">{bill.name}</p>
-                          <p className="text-xs font-medium text-slate-500 mt-0.5">
+                          <p className="text-sm text-slate-900 dark:text-slate-100 font-bold">{bill.name}</p>
+                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
                             {daysUntil === 0 ? t('dashboard.dueToday', lang) : `${daysUntil}d`} · {formatDate(bill.nextDue)}
                           </p>
                         </div>
                       </div>
-                      <span className={`text-sm font-extrabold ${isUrgent ? 'text-rose-600' : 'text-slate-900'}`}>
+                      <span className={`text-sm font-extrabold ${isUrgent ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>
                         {formatCurrency(bill.amount)}
                       </span>
                     </div>
@@ -581,22 +581,22 @@ export default async function DashboardPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-100">
-                <ArrowLeftRight className="w-5 h-5 text-emerald-600" />
+              <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800/50">
+                <ArrowLeftRight className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
               </div>
               <CardTitle>{t('dashboard.recent', lang)}</CardTitle>
             </div>
-            <a href="/transactions" className="text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors">{t('common.viewAll', lang)}</a>
+            <a href="/transactions" className="text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 transition-colors">{t('common.viewAll', lang)}</a>
           </CardHeader>
           <div className="mt-2">
             {recentTx.length === 0 ? (
-              <div className="flex items-center gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                <div className="w-11 h-11 rounded-full flex items-center justify-center bg-slate-200 text-slate-400">
+              <div className="flex items-center gap-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700/60">
+                <div className="w-11 h-11 rounded-full flex items-center justify-center bg-slate-200 dark:bg-slate-600 text-slate-400 dark:text-slate-500">
                   <ArrowLeftRight className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="text-sm text-slate-900 font-bold">{t('dashboard.noTransactions', lang)}</p>
-                  <p className="text-xs text-slate-500 mt-0.5 font-medium">{t('dashboard.addOneToStart', lang)}</p>
+                  <p className="text-sm text-slate-900 dark:text-slate-100 font-bold">{t('dashboard.noTransactions', lang)}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">{t('dashboard.addOneToStart', lang)}</p>
                 </div>
               </div>
             ) : (
@@ -604,7 +604,7 @@ export default async function DashboardPage() {
                 {recentTx.map((tx) => {
                   const isIncome = tx.type === 'income';
                   return (
-                    <div key={tx.id} className="flex items-center justify-between p-3.5 rounded-2xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100">
+                    <div key={tx.id} className="flex items-center justify-between p-3.5 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors border border-transparent hover:border-slate-100 dark:hover:border-slate-700/60">
                       <div className="flex items-center gap-3">
                         <CategoryIconBadge
                           category={tx.category}
@@ -612,11 +612,11 @@ export default async function DashboardPage() {
                           className="w-11 h-11 rounded-xl"
                         />
                         <div>
-                          <p className="text-sm text-slate-900 font-bold">{tx.description || tx.category}</p>
-                          <p className="text-xs font-medium text-slate-500 mt-0.5">{tx.category} · {formatDate(tx.date)}</p>
+                          <p className="text-sm text-slate-900 dark:text-slate-100 font-bold">{tx.description || tx.category}</p>
+                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{tx.category} · {formatDate(tx.date)}</p>
                         </div>
                       </div>
-                      <span className={`text-sm font-extrabold ${isIncome ? 'text-emerald-600' : tx.type === 'transfer' ? 'text-blue-600' : 'text-slate-900'}`}>
+                      <span className={`text-sm font-extrabold ${isIncome ? 'text-emerald-600 dark:text-emerald-400' : tx.type === 'transfer' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-900 dark:text-slate-100'}`}>
                         {isIncome ? '+' : tx.type === 'transfer' ? '' : '-'}{formatCurrency(tx.amount)}
                       </span>
                     </div>

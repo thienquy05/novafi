@@ -126,7 +126,7 @@ export function Sidebar() {
                   transition={{ type: 'spring', bounce: 0.15, duration: 0.35 }}
                 />
               )}
-              <Icon className={cn('w-5 h-5 shrink-0 relative z-10 transition-colors duration-150', active ? 'text-indigo-600' : 'group-hover:text-slate-900')} />
+              <Icon className={cn('w-5 h-5 shrink-0 relative z-10 transition-colors duration-150', active ? 'text-indigo-600 dark:text-indigo-400' : 'group-hover:text-slate-900 dark:group-hover:text-slate-100')} />
               <span className="relative z-10 flex-1">{t(labelKey)}</span>
               {badgeCount > 0 && (
                 <NavBadge
@@ -287,34 +287,34 @@ export function MobileNav() {
               </button>
             </div>
 
-            <p className="text-xs text-slate-400 mb-3">{t('nav.firstFourItems')}</p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">{t('nav.firstFourItems')}</p>
 
             <div className="space-y-0.5">
               {navOrder.map(({ href, labelKey, icon: Icon }, index) => (
                 <div key={href}>
                   {index === 4 && (
                     <div className="flex items-center gap-2 my-3">
-                      <div className="flex-1 h-px bg-slate-200" />
-                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{t('nav.more')}</span>
-                      <div className="flex-1 h-px bg-slate-200" />
+                      <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />
+                      <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{t('nav.more')}</span>
+                      <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />
                     </div>
                   )}
                   <div className="flex items-center gap-3 py-2.5 px-2 rounded-xl">
-                    <span className="w-5 h-5 flex items-center justify-center text-[11px] font-bold text-slate-300 shrink-0">{index + 1}</span>
-                    <Icon className="w-5 h-5 text-slate-500 shrink-0" />
+                    <span className="w-5 h-5 flex items-center justify-center text-[11px] font-bold text-slate-300 dark:text-slate-600 shrink-0">{index + 1}</span>
+                    <Icon className="w-5 h-5 text-slate-500 dark:text-slate-400 shrink-0" />
                     <span className="flex-1 text-sm font-semibold text-slate-700 dark:text-slate-300">{t(labelKey)}</span>
                     <div className="flex items-center gap-0.5">
                       <button
                         onClick={() => moveItem(index, 'up')}
                         disabled={index === 0}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-25 tap-highlight-none"
+                        className="p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-25 tap-highlight-none"
                       >
                         <ChevronUp className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => moveItem(index, 'down')}
                         disabled={index === navOrder.length - 1}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-25 tap-highlight-none"
+                        className="p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-25 tap-highlight-none"
                       >
                         <ChevronDown className="w-4 h-4" />
                       </button>
@@ -326,7 +326,7 @@ export function MobileNav() {
 
             <button
               onClick={resetOrder}
-              className="mt-4 w-full py-2.5 text-sm font-semibold text-slate-400 hover:text-slate-600 tap-highlight-none"
+              className="mt-4 w-full py-2.5 text-sm font-semibold text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 tap-highlight-none"
             >
               {t('nav.resetToDefault')}
             </button>
@@ -451,7 +451,7 @@ export function MobileNav() {
             {moreActive && !sheetOpen && (
               <motion.div
                 layoutId="mobile-nav-active"
-                className="absolute inset-0 bg-indigo-50 rounded-xl"
+                className="absolute inset-0 bg-indigo-50 dark:bg-indigo-900/30 rounded-xl"
                 initial={false}
                 exit={{ opacity: 0 }}
                 transition={{ type: 'spring', bounce: 0.15, duration: 0.35 }}

@@ -10,6 +10,36 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-05-29 — Dark mode UI completion (branch claude/dark-mode-ui-fixes-HEUJT)
+
+Dark mode (class-based `.dark` on `<html>`, toggled in Settings, persisted to `localStorage` `nf_theme`, applied pre-paint via inline script in `app/layout.tsx`) had only been partially implemented: `transactions` list rows, `Sidebar`, `Card`, `Modal` carried `dark:` variants, but most pages/components rendered with hardcoded light-only Tailwind classes, so large blocks stayed white/black in dark mode. This pass made every section theme-complete.
+
+### Color mapping conventions (mirrors the original `transactions` reference)
+- Surfaces: `bg-white→dark:bg-slate-800`, `bg-slate-50→dark:bg-slate-700/50`, `bg-slate-100→dark:bg-slate-700`, `bg-slate-200→dark:bg-slate-600`.
+- Text: `text-slate-900→100`, `800→200`, `700→300`, `600→300`, `500→400`, `400→500`, `300→600`.
+- Borders/dividers: `border/divide-slate-50,100→dark:…-slate-700/60`, `…-200→…-700`, `…-300→…-600`.
+- Colored tints: `bg-{c}-50→dark:bg-{c}-900/30`, `bg-{c}-100→/40`, `border-{c}-100/200→dark:border-{c}-800/50`, `text-{c}-500/600→dark:text-{c}-400`, `text-{c}-700/800→dark:text-{c}-300` (c = indigo/emerald/green/rose/red/amber/yellow/orange/sky/blue/purple/violet/teal/cyan/pink/fuchsia/lime). Solid vibrant buttons (`bg-indigo-600 text-white`) left unchanged.
+- Primary/dark buttons invert: `bg-slate-900 text-white → +dark:bg-slate-100 dark:text-slate-900` (so they don't vanish against the dark `slate-900` page bg). Applied to `Button` primary variant, savings account-filter buttons, and the layout API-error sign-out button.
+
+### Pages/components updated with `dark:` variants
+- Pages: `dashboard/page.tsx`, `dashboard/DashboardCharts.tsx`, `dashboard/QuickAddTransaction.tsx`, `savings`, `planning`, `bills`, `paychecks`, `reports`, `accounts`, `settings`, `transactions` (modal/merchant/header/templates/empty states — the parts the original pass missed), landing `app/page.tsx`. Applied via a boundary-safe, idempotent regex transformer (skips already-paired classes; won't double-add when a `dark:` sibling is adjacent).
+- Shared components (hand-edited): `Button` (all 4 variants), `Input`/`Select` (border/bg/text/placeholder/focus + label + error text), `Skeleton` (base + Accounts/Transactions wrappers), `CategoryIcon` (all category `bg/border/color` config strings + income/transfer/expense fallbacks), `HelpHint` (trigger + tooltip), `Sidebar` "customize navigation order" panel (the only Sidebar section previously missed).
+- `app/(app)/layout.tsx` API-error screen: full-screen bg, card, rose tint, body text, sign-out button.
+
+### globals.css
+- `.dark body` now sets `color:#e2e8f0` (was inheriting dark `#0f172a`).
+- Added dark `::-webkit-scrollbar-thumb` (light translucent) and dark `.glass`/`.glass-hover` (slate-tinted translucent panel for the landing login card).
+
+### Charts (recharts colors are JS props, not Tailwind — can't use `dark:`)
+- New `hooks/useIsDark.ts`: tracks the `.dark` class on `<html>` via `MutationObserver`, so charts re-color live when the theme toggles.
+- `DashboardCharts.tsx`: added a `CHART.{light,dark}` palette (grid/axis/cursor/track/cursorStroke). Wired `useIsDark()` into `SavingsRateGauge` (ring track), `SpendingPieChart` (empty-state fill), `MonthlyBarChart` + `NetWorthTrendChart` (CartesianGrid, axis ticks, Tooltip cursor, ReferenceLine), and `FinancialHealthScore` (conic-gradient track). Custom tooltips were already className-based (got `dark:` variants). Alert cards (`bg-rose-50/60`, `bg-amber-50/60`) and their `bg-white/80` progress track got explicit dark variants (opacity-suffixed classes are skipped by the transformer).
+- `reports/page.tsx`: `useIsDark()` drives a theme-aware `contentStyle`/`itemStyle`/`labelStyle` for the default recharts Tooltip (otherwise a white box on dark) plus grid/axis/cursor.
+
+### Verification
+- `npm run typecheck` clean, `npm run lint` 0 errors (25 pre-existing warnings unchanged), `npm run build` succeeds, `npm test` 290/290 pass.
+
+---
+
 ## 2026-05-29 — Ledger consolidation, balance reconciliation, cache hardening, pagination, undo, aggregation (branch claude/xenodochial-lalande-9ce7eb)
 
 Hardened the money-math and scaled the read path. All new functions are pure and unit-tested. Decisions confirmed with user: tests in `lib/__tests__`; Vercel hosting → cache fix with **no new dependency** (bounded staleness); **CSV import skipped** (export kept); recurring transactions skipped; reconcile basis = new `openingBalance` column.

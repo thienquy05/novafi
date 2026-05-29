@@ -2,7 +2,7 @@ import { cn } from '@/lib/utils';
 
 export function Skeleton({ className }: { className?: string }) {
   return (
-    <div className={cn('animate-pulse rounded-2xl bg-slate-100', className)} />
+    <div className={cn('animate-pulse rounded-2xl bg-slate-100 dark:bg-slate-700/50', className)} />
   );
 }
 
@@ -12,7 +12,7 @@ export function AccountsSkeleton() {
       <div className="grid grid-cols-3 gap-4">
         {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 rounded-3xl" />)}
       </div>
-      <div className="bg-white rounded-3xl border border-slate-100 p-4 sm:p-6 space-y-3">
+      <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700/60 p-4 sm:p-6 space-y-3">
         <Skeleton className="h-5 w-32 rounded-xl" />
         {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-20 rounded-2xl" />)}
       </div>
@@ -29,7 +29,7 @@ export function TransactionsSkeleton() {
       <div className="flex gap-2">
         {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-11 w-24 rounded-2xl" />)}
       </div>
-      <div className="bg-white rounded-3xl border border-slate-100 divide-y divide-slate-50">
+      <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700/60 divide-y divide-slate-50 dark:divide-slate-700/60">
         {[...Array(8)].map((_, i) => (
           <div key={i} className="flex items-center gap-4 p-4">
             <Skeleton className="w-11 h-11 shrink-0 rounded-2xl" />

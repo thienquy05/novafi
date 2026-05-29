@@ -177,8 +177,8 @@ export default function SavingsPage() {
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6 sm:space-y-8 pb-24 md:pb-8">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900">{t('savings.title')}</h1>
-          <p className="text-slate-500 text-base font-medium mt-1">{t('savings.subtitle')}</p>
+          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{t('savings.title')}</h1>
+          <p className="text-slate-500 dark:text-slate-400 text-base font-medium mt-1">{t('savings.subtitle')}</p>
         </div>
         {accounts.length > 0 && (
           <div className="flex gap-2 w-full md:w-auto">
@@ -195,38 +195,38 @@ export default function SavingsPage() {
       </div>
 
       {accounts.length === 0 ? (
-        <Card className="text-center py-16 bg-slate-50 border-slate-100">
-          <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100">
-            <PiggyBank className="w-8 h-8 text-slate-400" />
+        <Card className="text-center py-16 bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700/60">
+          <div className="w-16 h-16 rounded-full bg-white dark:bg-slate-800 flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100 dark:border-slate-700/60">
+            <PiggyBank className="w-8 h-8 text-slate-400 dark:text-slate-500" />
           </div>
-          <p className="text-slate-900 font-bold text-lg mb-1">{t('savings.noAccountsYet')}</p>
-          <p className="text-slate-500 font-medium mb-6">
-            Go to <a href="/accounts" className="text-indigo-600 font-bold hover:text-indigo-500 transition-colors">Accounts</a> and add a savings account to get started.
+          <p className="text-slate-900 dark:text-slate-100 font-bold text-lg mb-1">{t('savings.noAccountsYet')}</p>
+          <p className="text-slate-500 dark:text-slate-400 font-medium mb-6">
+            Go to <a href="/accounts" className="text-indigo-600 dark:text-indigo-400 font-bold hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors">Accounts</a> and add a savings account to get started.
           </p>
         </Card>
       ) : (
         <>
           {/* Savings accounts summary */}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-            <Card className={`md:col-span-1 ${totalSaved >= 0 ? 'border-emerald-100 hover:border-emerald-200' : 'border-rose-100 hover:border-rose-200'}`}>
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('savings.totalSaved')}</p>
-              <FitText maxSize={28} minSize={13} className={`font-extrabold mt-2 ${totalSaved >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(totalSaved)}</FitText>
+            <Card className={`md:col-span-1 ${totalSaved >= 0 ? 'border-emerald-100 dark:border-emerald-800/50 hover:border-emerald-200 dark:hover:border-emerald-800/50' : 'border-rose-100 dark:border-rose-800/50 hover:border-rose-200 dark:hover:border-rose-800/50'}`}>
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('savings.totalSaved')}</p>
+              <FitText maxSize={28} minSize={13} className={`font-extrabold mt-2 ${totalSaved >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{formatCurrency(totalSaved)}</FitText>
             </Card>
             {accounts.map((a) => (
               <Card key={a.id} className="border-l-[6px]" style={{ borderLeftColor: a.color }}>
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider truncate">{a.name}</p>
+                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">{a.name}</p>
                   <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={() => openEdit(a)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors">
+                    <button onClick={() => openEdit(a)} className="p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors">
                       <Pencil className="w-3.5 h-3.5" />
                     </button>
-                    <button onClick={() => handleDelete(a.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors">
+                    <button onClick={() => handleDelete(a.id)} className="p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 transition-colors">
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
-                <FitText maxSize={28} minSize={13} className={`font-extrabold mt-2 ${a.balance < 0 ? 'text-rose-600' : 'text-slate-900'}`}>{formatCurrency(a.balance)}</FitText>
-                {a.institution && <p className="text-sm font-medium text-slate-500 mt-1">{a.institution}</p>}
+                <FitText maxSize={28} minSize={13} className={`font-extrabold mt-2 ${a.balance < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>{formatCurrency(a.balance)}</FitText>
+                {a.institution && <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-1">{a.institution}</p>}
               </Card>
             ))}
           </div>
@@ -234,8 +234,8 @@ export default function SavingsPage() {
           {/* Goals linked to savings */}
           {goals.length > 0 && (
             <div className="space-y-4">
-              <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2 px-1">
-                <Target className="w-5 h-5 text-indigo-600" />
+              <h2 className="text-sm font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-2 px-1">
+                <Target className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
                 {t('savings.savingsGoals')}
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -250,16 +250,16 @@ export default function SavingsPage() {
                     <Card key={g.id} className="hover:shadow-md transition-all">
                       <div className="flex items-start justify-between mb-4">
                         <div>
-                          <p className="text-base font-bold text-slate-900 flex items-center gap-2">
+                          <p className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                             <span className="text-xl">{g.icon}</span> {g.name}
                           </p>
                           {g.deadline && (
-                            <p className="text-sm font-medium text-slate-500 mt-1">{t('savings.byDate', { date: formatDate(g.deadline) })}</p>
+                            <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-1">{t('savings.byDate', { date: formatDate(g.deadline) })}</p>
                           )}
                         </div>
-                        <span className={`text-sm font-extrabold px-2.5 py-1 rounded-lg ${negative ? 'text-rose-700 bg-rose-50' : 'text-indigo-600 bg-indigo-50'}`}>{pct.toFixed(0)}%</span>
+                        <span className={`text-sm font-extrabold px-2.5 py-1 rounded-lg ${negative ? 'text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-900/30' : 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30'}`}>{pct.toFixed(0)}%</span>
                       </div>
-                      <div className="w-full bg-slate-100 rounded-full h-2.5 mb-3 overflow-hidden relative">
+                      <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2.5 mb-3 overflow-hidden relative">
                         {negative ? (
                           <div
                             className="absolute right-0 top-0 bg-rose-500 h-full rounded-full transition-all duration-500"
@@ -273,8 +273,8 @@ export default function SavingsPage() {
                           />
                         )}
                       </div>
-                      <div className="flex justify-between text-sm font-bold text-slate-500">
-                        <span className={negative ? 'text-rose-600' : 'text-slate-700'}>{formatCurrency(current)} {t('savings.saved')}</span>
+                      <div className="flex justify-between text-sm font-bold text-slate-500 dark:text-slate-400">
+                        <span className={negative ? 'text-rose-600 dark:text-rose-400' : 'text-slate-700 dark:text-slate-300'}>{formatCurrency(current)} {t('savings.saved')}</span>
                         <span>{formatCurrency(remaining)} {t('savings.toGo')}</span>
                       </div>
                     </Card>
@@ -291,8 +291,8 @@ export default function SavingsPage() {
                 onClick={() => setSelectedAccount('all')}
                 className={`px-5 h-10 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap shadow-sm ${
                   selectedAccount === 'all'
-                    ? 'bg-slate-900 text-white'
-                    : 'bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-slate-200'
+                    ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
+                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700/50 border border-slate-200 dark:border-slate-700'
                 }`}
               >
                 {t('savings.allAccounts')}
@@ -303,8 +303,8 @@ export default function SavingsPage() {
                   onClick={() => setSelectedAccount(a.id)}
                   className={`px-5 h-10 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap shadow-sm ${
                     selectedAccount === a.id
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-slate-200'
+                      ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
+                      : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700/50 border border-slate-200 dark:border-slate-700'
                   }`}
                 >
                   {a.name}
@@ -315,10 +315,10 @@ export default function SavingsPage() {
 
           {/* Transaction history */}
           <div className="space-y-4">
-            <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider px-1">{t('savings.transactionHistory')}</h2>
+            <h2 className="text-sm font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider px-1">{t('savings.transactionHistory')}</h2>
             {savingsTx.length === 0 ? (
-              <Card className="text-center py-12 bg-slate-50 border-slate-100">
-                <p className="text-slate-500 font-bold">{t('savings.noTransactionsYet')}</p>
+              <Card className="text-center py-12 bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700/60">
+                <p className="text-slate-500 dark:text-slate-400 font-bold">{t('savings.noTransactionsYet')}</p>
               </Card>
             ) : (
               <div className="space-y-3">
@@ -336,24 +336,24 @@ export default function SavingsPage() {
                   return (
                     <div
                       key={tx.id}
-                      className="flex items-center justify-between p-4 sm:p-5 rounded-3xl bg-white border border-slate-100 hover:border-slate-200 hover:shadow-sm transition-all duration-300"
+                      className="flex items-center justify-between p-4 sm:p-5 rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 hover:shadow-sm transition-all duration-300"
                     >
                       <div className="flex items-center gap-4">
                         <div className={`flex items-center justify-center w-12 h-12 rounded-2xl shrink-0 border ${
-                          isTransfer ? 'bg-indigo-50 border-indigo-100' : isIncoming ? 'bg-emerald-50 border-emerald-100' : 'bg-rose-50 border-rose-100'
+                          isTransfer ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-100 dark:border-indigo-800/50' : isIncoming ? 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-100 dark:border-emerald-800/50' : 'bg-rose-50 dark:bg-rose-900/30 border-rose-100 dark:border-rose-800/50'
                         }`}>
                           {isTransfer
-                            ? <ArrowRightLeft className="w-6 h-6 text-indigo-600" />
+                            ? <ArrowRightLeft className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
                             : isIncoming
-                            ? <ArrowDownLeft className="w-6 h-6 text-emerald-600" />
-                            : <ArrowUpRight className="w-6 h-6 text-rose-600" />}
+                            ? <ArrowDownLeft className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
+                            : <ArrowUpRight className="w-6 h-6 text-rose-600 dark:text-rose-400" />}
                         </div>
                         <div>
-                          <p className="text-base font-bold text-slate-900">{displayDesc}</p>
-                          <p className="text-sm font-medium text-slate-500 mt-0.5">{subtitle}</p>
+                          <p className="text-base font-bold text-slate-900 dark:text-slate-100">{displayDesc}</p>
+                          <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>
                         </div>
                       </div>
-                      <span className={`text-lg font-extrabold ${isTransfer ? (isIncoming ? 'text-emerald-600' : 'text-rose-600') : isIncoming ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      <span className={`text-lg font-extrabold ${isTransfer ? (isIncoming ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400') : isIncoming ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                         {isIncoming ? '+' : '-'}{formatCurrency(tx.amount)}
                       </span>
                     </div>
@@ -400,7 +400,7 @@ export default function SavingsPage() {
             onChange={(e) => setEditForm((f) => ({ ...f, last4: e.target.value.replace(/\D/g, '').slice(0, 4) }))}
           />
           <div>
-            <p className="text-sm font-bold text-slate-700 ml-1 mb-2">{t('common.color')}</p>
+            <p className="text-sm font-bold text-slate-700 dark:text-slate-300 ml-1 mb-2">{t('common.color')}</p>
             <div className="flex gap-3 flex-wrap">
               {ACCOUNT_COLORS.map((c) => (
                 <button key={c} onClick={() => setEditForm((f) => ({ ...f, color: c }))} className="w-10 h-10 rounded-full border-[3px] transition-all flex items-center justify-center shadow-sm hover:scale-110" style={{ backgroundColor: c, borderColor: editForm.color === c ? '#0f172a' : 'transparent' }}>
@@ -410,7 +410,7 @@ export default function SavingsPage() {
             </div>
           </div>
         </div>
-        <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+        <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={() => { setEditOpen(false); setEditTarget(null); }}>{t('common.cancel')}</Button>
             <Button className="flex-1 shadow-sm" onClick={handleEditSave} disabled={saving || !editForm.name}>{saving ? t('common.saving') : t('accounts.editAccount')}</Button>
@@ -425,11 +425,11 @@ export default function SavingsPage() {
         title={form.type === 'deposit' ? t('savings.depositToSavings') : t('savings.withdrawFromSavings')}
       >
         <div className="space-y-5 pb-4">
-          <div className="flex p-1.5 rounded-2xl bg-slate-100">
+          <div className="flex p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-700">
             <button
               onClick={() => setForm((f) => ({ ...f, type: 'deposit' }))}
               className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all duration-300 ${
-                form.type === 'deposit' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                form.type === 'deposit' ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
               }`}
             >
               {t('savings.deposit')}
@@ -437,7 +437,7 @@ export default function SavingsPage() {
             <button
               onClick={() => setForm((f) => ({ ...f, type: 'withdraw' }))}
               className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all duration-300 ${
-                form.type === 'withdraw' ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                form.type === 'withdraw' ? 'bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
               }`}
             >
               {t('savings.withdraw')}
@@ -471,7 +471,7 @@ export default function SavingsPage() {
             onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
           />
         </div>
-        <div className="sticky bottom-0 bg-white border-t border-slate-100 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+        <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={() => { setOpen(false); setForm(EMPTY_FORM); }}>
               {t('common.cancel')}
