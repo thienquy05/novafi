@@ -72,6 +72,7 @@ export async function getSettings(
   const get = (key: string, fallback: string) => map[key] ?? fallback;
 
   return {
+    displayName: get('display_name', ''),
     filingStatus: (get('filing_status', DEFAULT_TAX_SETTINGS.filingStatus)) as TaxSettings['filingStatus'],
     payPeriodsPerYear: Number(get('pay_periods_per_year', '26')),
     k401Pct: Number(get('k401_pct', '5')),
@@ -101,6 +102,7 @@ export async function saveSettings(
 ): Promise<void> {
   const sheets = getSheetsClient(accessToken);
   const rows: [string, string][] = [
+    ['display_name', settings.displayName ?? ''],
     ['filing_status', settings.filingStatus],
     ['pay_periods_per_year', String(settings.payPeriodsPerYear)],
     ['k401_pct', String(settings.k401Pct)],

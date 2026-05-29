@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, Scale, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { useSession } from 'next-auth/react';
+import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, Scale, CheckCircle2, AlertTriangle, User } from 'lucide-react';
 import { BRACKETS_2026, STANDARD_DEDUCTION_2026 } from '@/lib/tax';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -15,6 +16,8 @@ import { useTranslation } from '@/lib/i18n/context';
 
 export default function SettingsPage() {
   const { t, lang, setLang } = useTranslation();
+  const { data: gSession } = useSession();
+  const googleName = gSession?.user?.name ?? '';
   const [settings, setSettings] = useState<TaxSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -52,6 +55,7 @@ export default function SettingsPage() {
       .then((s: TaxSettings) => {
         setSettings({
           ...s,
+          displayName: s.displayName ?? '',
           customExpenseCategories: s.customExpenseCategories ?? [],
           customIncomeCategories: s.customIncomeCategories ?? [],
           hiddenExpenseCategories: s.hiddenExpenseCategories ?? [],
@@ -226,6 +230,38 @@ export default function SettingsPage() {
       </div>
 
       <div className="space-y-6">
+        {/* Name Preference */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <User className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
+              {t('settings.namePreference')}
+            </CardTitle>
+          </CardHeader>
+          <div>
+            <Input
+              label={t('settings.displayName')}
+              value={settings.displayName ?? ''}
+              placeholder={googleName || t('settings.displayNamePlaceholder')}
+              onChange={(e) => update('displayName', e.target.value)}
+            />
+            <div className="flex items-center justify-between gap-2 mt-2">
+              <p className="text-xs text-slate-400 dark:text-slate-500">
+                {t('settings.displayNameDesc')}
+              </p>
+              {googleName && (settings.displayName ?? '').trim() !== '' && (
+                <button
+                  type="button"
+                  onClick={() => update('displayName', '')}
+                  className="shrink-0 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
+                >
+                  {t('settings.useGoogleName')}
+                </button>
+              )}
+            </div>
+          </div>
+        </Card>
+
         {/* Language & Region */}
         <Card>
           <CardHeader>

@@ -330,7 +330,7 @@ export default async function DashboardPage() {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div className="space-y-1">
           <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">
-            {t('dashboard.greeting', lang, { name: session.user?.name?.split(' ')[0] ?? '' })}
+            {t('dashboard.greeting', lang, { name: settings.displayName?.trim() || session.user?.name?.split(' ')[0] || '' })}
           </h1>
           <p className="text-slate-500 dark:text-slate-400 text-sm md:text-base font-medium">
             {t('dashboard.monthSummary', lang, { month: MONTH_NAMES[now.getMonth()], year: now.getFullYear(), daysLeft })}

@@ -47,6 +47,7 @@ export function generateId(): string {
 }
 
 export const DEFAULT_TAX_SETTINGS = {
+  displayName: '',
   filingStatus: 'single' as const,
   payPeriodsPerYear: 26,
   k401Pct: 5,

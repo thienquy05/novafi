@@ -6,6 +6,7 @@ import type { TaxSettings } from '@/types';
 // (calcBracketTax is not exported, so we test its effect via the progressive path)
 
 const BASE_SETTINGS: TaxSettings = {
+  displayName: '',
   filingStatus: 'single',
   payPeriodsPerYear: 26,
   k401Pct: 0,
