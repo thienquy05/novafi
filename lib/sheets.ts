@@ -11,11 +11,47 @@ import type {
   NetWorthSnapshot,
 } from '@/types';
 import { DEFAULT_TAX_SETTINGS } from './utils';
+import { withRetryProxy } from './retry';
 
 function getSheetsClient(accessToken: string) {
   const auth = new google.auth.OAuth2();
   auth.setCredentials({ access_token: accessToken });
-  return google.sheets({ version: 'v4', auth });
+  // Wrap so every Sheets API call transparently retries transient rate-limit /
+  // network errors (see lib/retry.ts) — the main resilience win for scaling.
+  return withRetryProxy(google.sheets({ version: 'v4', auth }));
+}
+
+// ── Sheet-ID cache ──────────────────────────────────────────────────────────
+// A tab's numeric sheetId is stable for the spreadsheet's lifetime, but several
+// write paths (row deletes) need it. Caching avoids a `spreadsheets.get` metadata
+// round-trip on every write — cutting those operations from ~3 API calls to ~2.
+const sheetIdCache = new Map<string, number>(); // key: `${spreadsheetId}:${title}`
+
+type SheetsClient = ReturnType<typeof getSheetsClient>;
+
+async function getSheetId(
+  sheets: SheetsClient,
+  spreadsheetId: string,
+  title: string,
+): Promise<number | null> {
+  const key = `${spreadsheetId}:${title}`;
+  const cached = sheetIdCache.get(key);
+  if (cached !== undefined) return cached;
+  // One metadata fetch populates every tab's id for this spreadsheet.
+  const meta = await sheets.spreadsheets.get({ spreadsheetId });
+  for (const s of meta.data.sheets ?? []) {
+    const t = s.properties?.title;
+    const id = s.properties?.sheetId;
+    if (t && typeof id === 'number') sheetIdCache.set(`${spreadsheetId}:${t}`, id);
+  }
+  return sheetIdCache.get(key) ?? null;
+}
+
+// Drops cached ids for a spreadsheet (call after adding/removing a tab).
+function invalidateSheetIdCache(spreadsheetId: string): void {
+  for (const key of sheetIdCache.keys()) {
+    if (key.startsWith(`${spreadsheetId}:`)) sheetIdCache.delete(key);
+  }
 }
 
 // ── Settings ─────────────────────────────────────────────────────────────────
@@ -241,7 +277,7 @@ export async function getAccounts(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Accounts!A2:H200',
+    range: 'Accounts!A2:I200',
     // Raw cell value: a currency-formatted cell stays a number rather than
     // coming back as "$100.00" → NaN.
     valueRenderOption: 'UNFORMATTED_VALUE',
@@ -255,6 +291,9 @@ export async function getAccounts(
     last4: String(r[5] ?? ''),
     color: String(r[6] ?? '#6366f1'),
     createdAt: String(r[7] ?? ''),
+    // Column I is optional: legacy rows have no opening balance until backfilled
+    // by the reconcile endpoint. Empty/blank → undefined (not 0).
+    openingBalance: r[8] === undefined || r[8] === '' ? undefined : Number(r[8]),
   }));
 }
 
@@ -263,7 +302,7 @@ export async function upsertAccount(
   spreadsheetId: string,
   account: Account
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Accounts', account.id, 'H');
+  await deleteRowById(accessToken, spreadsheetId, 'Accounts', account.id, 'I');
   const sheets = getSheetsClient(accessToken);
   await sheets.spreadsheets.values.append({
     spreadsheetId,
@@ -271,7 +310,7 @@ export async function upsertAccount(
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
-      values: [[account.id, account.name, account.type, account.institution, account.balance, account.last4, account.color, account.createdAt]],
+      values: [[account.id, account.name, account.type, account.institution, account.balance, account.last4, account.color, account.createdAt, account.openingBalance ?? '']],
     },
   });
 }
@@ -503,11 +542,8 @@ async function ensureNetWorthHistorySheet(
   spreadsheetId: string
 ): Promise<void> {
   const sheets = getSheetsClient(accessToken);
-  const meta = await sheets.spreadsheets.get({ spreadsheetId });
-  const exists = meta.data.sheets?.some(
-    (s) => s.properties?.title === 'NetWorthHistory'
-  );
-  if (exists) return;
+  const existingId = await getSheetId(sheets, spreadsheetId, 'NetWorthHistory');
+  if (existingId !== null) return;
 
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
@@ -515,6 +551,7 @@ async function ensureNetWorthHistorySheet(
       requests: [{ addSheet: { properties: { title: 'NetWorthHistory' } } }],
     },
   });
+  invalidateSheetIdCache(spreadsheetId); // new tab → refresh cached ids on next read
   await sheets.spreadsheets.values.update({
     spreadsheetId,
     range: 'NetWorthHistory!A1',
@@ -569,10 +606,7 @@ export async function appendNetWorthSnapshot(
   });
   const rowCount = (countRes.data.values ?? []).length;
   if (rowCount >= 1000) {
-    const meta = await sheets.spreadsheets.get({ spreadsheetId });
-    const sheetId = meta.data.sheets?.find(
-      (s) => s.properties?.title === 'NetWorthHistory'
-    )?.properties?.sheetId ?? 0;
+    const sheetId = (await getSheetId(sheets, spreadsheetId, 'NetWorthHistory')) ?? 0;
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
       requestBody: {
@@ -665,7 +699,7 @@ export async function batchGetDashboardData(
   const ranges = [
     'Paychecks!A2:K',
     'Transactions!A2:I',
-    'Accounts!A2:H200',
+    'Accounts!A2:I200',
     'Bills!A2:H200',
     'Budgets!A2:D200',
     'Goals!A2:G200',
@@ -712,6 +746,7 @@ export async function batchGetDashboardData(
     last4: String(r[5] ?? ''),
     color: String(r[6] ?? '#6366f1'),
     createdAt: String(r[7] ?? ''),
+    openingBalance: r[8] === undefined || r[8] === '' ? undefined : Number(r[8]),
   }));
   const bills: Bill[] = (vr[3]?.values ?? []).map((r) => ({
     id: r[0] ?? '',
@@ -752,12 +787,8 @@ async function deleteRowById(
   _lastCol: string
 ) {
   const sheets = getSheetsClient(accessToken);
-  const sheetMeta = await sheets.spreadsheets.get({ spreadsheetId });
-  const sheetObj = sheetMeta.data.sheets?.find(
-    (s) => s.properties?.title === sheetName
-  );
-  if (!sheetObj) return;
-  const sheetId = sheetObj.properties?.sheetId ?? 0;
+  const sheetId = await getSheetId(sheets, spreadsheetId, sheetName);
+  if (sheetId === null) return;
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,

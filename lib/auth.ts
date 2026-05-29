@@ -2,6 +2,7 @@ import NextAuth from 'next-auth';
 import Google from 'next-auth/providers/google';
 import { google as googleApis } from 'googleapis';
 import { DEFAULT_TAX_SETTINGS } from './utils';
+import { withRetryProxy } from './retry';
 
 const SPREADSHEET_NAME = 'NovaFi Finance Data';
 
@@ -9,8 +10,9 @@ async function findOrCreateSpreadsheet(accessToken: string): Promise<string> {
   const auth = new googleApis.auth.OAuth2();
   auth.setCredentials({ access_token: accessToken });
 
-  const drive = googleApis.drive({ version: 'v3', auth });
-  const sheets = googleApis.sheets({ version: 'v4', auth });
+  // Retry transient errors so first-login provisioning isn't lost to a blip.
+  const drive = withRetryProxy(googleApis.drive({ version: 'v3', auth }));
+  const sheets = withRetryProxy(googleApis.sheets({ version: 'v4', auth }));
 
   // Search for existing spreadsheet
   const searchRes = await drive.files.list({
@@ -69,7 +71,7 @@ async function findOrCreateSpreadsheet(accessToken: string): Promise<string> {
         },
         {
           range: 'Accounts!A1',
-          values: [['id', 'name', 'type', 'institution', 'balance', 'last4', 'color', 'created_at']],
+          values: [['id', 'name', 'type', 'institution', 'balance', 'last4', 'color', 'created_at', 'opening_balance']],
         },
         {
           range: 'Transactions!A1',

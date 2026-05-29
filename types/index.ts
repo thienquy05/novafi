@@ -74,6 +74,7 @@ export interface Account {
   last4: string;
   color: string;
   createdAt: string;
+  openingBalance?: number; // balance before any transactions; basis for reconciliation. Backfilled for legacy rows.
 }
 
 export interface Budget {

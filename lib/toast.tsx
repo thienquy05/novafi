@@ -5,8 +5,9 @@ import { X, CheckCircle2, AlertCircle, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type ToastType = 'success' | 'error' | 'info';
-type ToastEntry = { id: string; message: string; type: ToastType };
-type ToastFn = (message: string, type?: ToastType) => void;
+type ToastAction = { label: string; onClick: () => void };
+type ToastEntry = { id: string; message: string; type: ToastType; action?: ToastAction };
+type ToastFn = (message: string, type?: ToastType, action?: ToastAction) => void;
 
 const ToastContext = createContext<ToastFn>(() => {});
 
@@ -17,10 +18,11 @@ export function useToast(): ToastFn {
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastEntry[]>([]);
 
-  const toast = useCallback<ToastFn>((message, type = 'success') => {
+  // Toasts with an action (e.g. Undo) stay up longer so there's time to act.
+  const toast = useCallback<ToastFn>((message, type = 'success', action) => {
     const id = Math.random().toString(36).slice(2);
-    setToasts((prev) => [...prev, { id, message, type }]);
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3500);
+    setToasts((prev) => [...prev, { id, message, type, action }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), action ? 6000 : 3500);
   }, []);
 
   return (
@@ -47,6 +49,19 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             <Toast.Description asChild>
               <span className="flex-1">{t.message}</span>
             </Toast.Description>
+            {t.action && (
+              <Toast.Action asChild altText={t.action.label}>
+                <button
+                  onClick={() => {
+                    t.action!.onClick();
+                    setToasts((prev) => prev.filter((x) => x.id !== t.id));
+                  }}
+                  className="ml-1 shrink-0 font-bold underline underline-offset-2 hover:opacity-80 transition-opacity"
+                >
+                  {t.action.label}
+                </button>
+              </Toast.Action>
+            )}
             <Toast.Close asChild>
               <button className="ml-1 text-current opacity-50 hover:opacity-100 transition-opacity">
                 <X className="w-3.5 h-3.5" />

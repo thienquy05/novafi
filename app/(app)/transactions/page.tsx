@@ -9,6 +9,7 @@ import { Modal } from '@/components/ui/Modal';
 import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { TransactionsSkeleton } from '@/components/ui/Skeleton';
 import { formatCurrency, formatCompact, formatDate, generateId, today } from '@/lib/utils';
+import { transactionsToCsv } from '@/lib/csv';
 import { motion, AnimatePresence } from 'framer-motion';
 import { EXPENSE_CATEGORIES } from '@/types';
 import type { Transaction, Account } from '@/types';
@@ -57,18 +58,7 @@ function buildMerchantRows(transactions: Transaction[]): MerchantRow[] {
 // ── CSV export ────────────────────────────────────────────────────────────────
 
 function exportCSV(transactions: Transaction[], accountName: (id: string) => string) {
-  const headers = ['Date', 'Description', 'Amount', 'Type', 'Category', 'Account'];
-  const rows = transactions.map((tx) => [
-    tx.date,
-    tx.description,
-    tx.amount.toFixed(2),
-    tx.type,
-    tx.category,
-    accountName(tx.account),
-  ]);
-  const csv = [headers, ...rows]
-    .map((row) => row.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
-    .join('\n');
+  const csv = transactionsToCsv(transactions, accountName);
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -79,6 +69,9 @@ function exportCSV(transactions: Transaction[], accountName: (id: string) => str
 }
 
 // ── Empty form ────────────────────────────────────────────────────────────────
+
+// List view renders in pages to cap DOM nodes as the ledger grows over years.
+const PAGE_SIZE = 50;
 
 const EMPTY_FORM = {
   date: today(),
@@ -109,6 +102,8 @@ export default function TransactionsPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [showTemplates, setShowTemplates] = useState(false);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [prevFilterKey, setPrevFilterKey] = useState('');
   const toast = useToast();
   const { expenseCategories, incomeCategories } = useCategories();
   const { t } = useTranslation();
@@ -235,14 +230,29 @@ export default function TransactionsPage() {
     }
   }
 
+  async function restoreTransaction(tx: Transaction) {
+    const prev = transactions;
+    setTransactions((txs) => txs.some((t) => t.id === tx.id) ? txs : [tx, ...txs]);
+    try {
+      const res = await fetch('/api/transactions', { method: 'POST', body: JSON.stringify(tx), headers: { 'Content-Type': 'application/json' } });
+      if (!res.ok) throw new Error();
+      toast(t('transactions.toastRestored'), 'success');
+    } catch {
+      setTransactions(prev);
+      toast(t('transactions.toastFailedRestore'), 'error');
+    }
+  }
+
   async function handleDelete(id: string) {
     if (!confirm(t('transactions.confirmDelete'))) return;
+    const removed = transactions.find((tx) => tx.id === id);
     const prev = transactions;
     setTransactions((txs) => txs.filter((tx) => tx.id !== id));
     try {
       const res = await fetch('/api/transactions', { method: 'DELETE', body: JSON.stringify({ id }), headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error();
-      toast(t('transactions.toastDeleted'), 'success');
+      // Offer one-tap undo: re-creating the row also re-applies its balance effects.
+      toast(t('transactions.toastDeleted'), 'success', removed ? { label: t('common.undo'), onClick: () => restoreTransaction(removed) } : undefined);
     } catch {
       setTransactions(prev);
       toast(t('transactions.toastFailedDelete'), 'error');
@@ -259,15 +269,24 @@ export default function TransactionsPage() {
   }, [filtered]);
   const accountName = (id: string) => accountMap[id] ?? id;
   const merchantRows = useMemo(() => buildMerchantRows(filtered), [filtered]);
+  // Reset paging whenever the active filters change. Adjusting state during
+  // render (rather than in an effect) avoids a cascading re-render.
+  const filterKey = `${search}|${filter}|${categoryFilters.join(',')}`;
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey);
+    setVisibleCount(PAGE_SIZE);
+  }
+  const visibleTransactions = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
+  const hasMore = filtered.length > visibleTransactions.length;
   const groupedByDate = useMemo(() => {
     const groups: Array<{ date: string; txs: Transaction[] }> = [];
-    for (const tx of filtered) {
+    for (const tx of visibleTransactions) {
       const last = groups[groups.length - 1];
       if (!last || last.date !== tx.date) groups.push({ date: tx.date, txs: [tx] });
       else last.txs.push(tx);
     }
     return groups;
-  }, [filtered]);
+  }, [visibleTransactions]);
   const activeFilterCount = (filter !== 'all' ? 1 : 0) + categoryFilters.length;
 
   const filterLabels: Record<string, string> = {
@@ -461,6 +480,13 @@ export default function TransactionsPage() {
               </div>
             </div>
           ))}
+          {hasMore && (
+            <div className="pt-4 flex justify-center">
+              <Button variant="secondary" onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}>
+                {t('transactions.showMore', { count: filtered.length - visibleTransactions.length })}
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
