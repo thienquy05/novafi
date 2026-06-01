@@ -219,7 +219,10 @@
     "noResultsTitle": "Không tìm thấy kết quả",
     "noResultsBody": "Thử điều chỉnh tìm kiếm hoặc bộ lọc.",
     "clearFilters": "Xóa bộ lọc",
-    "filters": "Bộ lọc"
+    "filters": "Bộ lọc",
+    "allTime": "Tất cả",
+    "prevMonth": "Tháng trước",
+    "nextMonth": "Tháng sau"
   },
   "paychecks": {
     "title": "Phiếu lương",

@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Search, Pencil, RefreshCw, AlertCircle, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronRight, X, Filter, ArrowLeftRight } from 'lucide-react';
+import { Plus, Search, Pencil, RefreshCw, AlertCircle, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronLeft, ChevronRight, X, Filter, ArrowLeftRight } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -55,6 +55,27 @@ function buildMerchantRows(transactions: Transaction[]): MerchantRow[] {
   return Object.values(map).sort((a, b) => b.total - a.total);
 }
 
+// ── Month scoping helpers ──────────────────────────────────────────────────────
+// Summary totals (income/spending/net) and the ledger are scoped to a single
+// month so the numbers "restart" each month. `selectedMonth` is a YYYY-MM string,
+// or null for the all-time view.
+
+function currentMonth(): string {
+  return today().slice(0, 7);
+}
+
+// Shift a YYYY-MM string by `delta` months (e.g. -1 → previous month).
+function shiftMonth(ym: string, delta: number): string {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function formatMonthLabel(ym: string): string {
+  const [y, m] = ym.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
 // ── CSV export ────────────────────────────────────────────────────────────────
 
 function exportCSV(transactions: Transaction[], accountName: (id: string) => string) {
@@ -91,6 +112,8 @@ export default function TransactionsPage() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'income' | 'expense' | 'transfer'>('all');
   const [categoryFilters, setCategoryFilters] = useState<string[]>([]);
+  // YYYY-MM string scopes totals + ledger to one month; null = all time.
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(currentMonth());
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editTarget, setEditTarget] = useState<Transaction | null>(null);
@@ -144,8 +167,9 @@ export default function TransactionsPage() {
     const matchSearch = !search || tx.description.toLowerCase().includes(search.toLowerCase()) || tx.category.toLowerCase().includes(search.toLowerCase());
     const matchFilter = filter === 'all' || tx.type === filter;
     const matchCategory = categoryFilters.length === 0 || categoryFilters.includes(tx.category);
-    return matchSearch && matchFilter && matchCategory;
-  }), [transactions, search, filter, categoryFilters]);
+    const matchMonth = selectedMonth === null || tx.date.slice(0, 7) === selectedMonth;
+    return matchSearch && matchFilter && matchCategory && matchMonth;
+  }), [transactions, search, filter, categoryFilters, selectedMonth]);
 
   function toggleCategory(c: string) {
     setCategoryFilters((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
@@ -271,7 +295,7 @@ export default function TransactionsPage() {
   const merchantRows = useMemo(() => buildMerchantRows(filtered), [filtered]);
   // Reset paging whenever the active filters change. Adjusting state during
   // render (rather than in an effect) avoids a cascading re-render.
-  const filterKey = `${search}|${filter}|${categoryFilters.join(',')}`;
+  const filterKey = `${search}|${filter}|${categoryFilters.join(',')}|${selectedMonth ?? 'all'}`;
   if (filterKey !== prevFilterKey) {
     setPrevFilterKey(filterKey);
     setVisibleCount(PAGE_SIZE);
@@ -325,6 +349,37 @@ export default function TransactionsPage() {
           </Button>
           <Button onClick={openAdd} className="shadow-sm"><Plus className="w-5 h-5" />{t('transactions.addTransaction')}</Button>
         </div>
+      </div>
+
+      {/* Month navigator — scopes the totals + ledger to one month */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden shadow-sm">
+          <button
+            onClick={() => setSelectedMonth((m) => shiftMonth(m ?? currentMonth(), -1))}
+            disabled={selectedMonth === null}
+            className="h-11 px-3 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            title={t('transactions.prevMonth')}
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <span className={`h-11 px-2 min-w-[8.5rem] flex items-center justify-center text-sm font-bold ${selectedMonth === null ? 'text-slate-400 dark:text-slate-500' : 'text-slate-900 dark:text-slate-100'}`}>
+            {selectedMonth === null ? t('transactions.allTime') : formatMonthLabel(selectedMonth)}
+          </span>
+          <button
+            onClick={() => setSelectedMonth((m) => shiftMonth(m ?? currentMonth(), 1))}
+            disabled={selectedMonth === null || selectedMonth >= currentMonth()}
+            className="h-11 px-3 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            title={t('transactions.nextMonth')}
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+        <button
+          onClick={() => setSelectedMonth((m) => (m === null ? currentMonth() : null))}
+          className={`h-11 px-4 rounded-2xl text-sm font-bold transition-all duration-200 shrink-0 ${selectedMonth === null ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-sm'}`}
+        >
+          {t('transactions.allTime')}
+        </button>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
