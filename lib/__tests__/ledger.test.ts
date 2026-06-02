@@ -58,6 +58,19 @@ describe('nextBalanceForAccount', () => {
     const applied = nextBalanceForAccount(chk, tx, 'apply');
     expect(nextBalanceForAccount({ ...chk, balance: applied }, tx, 'reverse')).toBe(500);
   });
+
+  it('lending charged to a credit card increases the owed balance (not a payoff)', () => {
+    // A loan principal moved OUT of a credit card is modeled as a transfer whose
+    // "from" side is the card. It is a new charge, so owed grows from 200 → 300.
+    const tx = makeTx({ type: 'transfer', amount: 100, account: 'card', toAccount: '' });
+    expect(nextBalanceForAccount(card, tx, 'apply')).toBe(300);
+  });
+
+  it('reverse is the inverse of apply for lending charged to a credit card', () => {
+    const tx = makeTx({ type: 'transfer', amount: 100, account: 'card', toAccount: '' });
+    const applied = nextBalanceForAccount(card, tx, 'apply');
+    expect(nextBalanceForAccount({ ...card, balance: applied }, tx, 'reverse')).toBe(200);
+  });
 });
 
 // ── applyTransactionToBalances ──────────────────────────────────────────────

@@ -427,7 +427,10 @@ export default function PlanningPage() {
                   const prevSpent = prevSpentForCategory(budget.category);
                   const rollingAvg = rolling3AvgForCategory(budget.category);
                   const categoryPct = totalMonthSpend > 0 && spent > 0 ? (spent / totalMonthSpend) * 100 : 0;
-                  const momDiff = spent - prevSpent;
+                  // Compare last month against this month's effective usage — the
+                  // rolled-over deficit counts as current-month usage, so the
+                  // "vs last mo" figure reflects the bar the user actually sees.
+                  const momDiff = usage - prevSpent;
                   const pct = monthly > 0 ? Math.min(100, (usage / monthly) * 100) : 0;
                   const over = usage > monthly;
                   const remaining = monthly - usage;

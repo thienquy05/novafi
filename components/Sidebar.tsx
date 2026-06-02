@@ -7,7 +7,6 @@ import {
   DollarSign,
   ArrowLeftRight,
   Settings,
-  LogOut,
   Landmark,
   PiggyBank,
   Calendar,
@@ -19,7 +18,6 @@ import {
   ChevronDown,
   Sliders,
 } from 'lucide-react';
-import { signOut } from 'next-auth/react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LogoMark } from './LogoMark';
@@ -138,34 +136,17 @@ export function Sidebar() {
           );
         })}
       </nav>
-
-      {/* Sign out */}
-      <button
-        onClick={() => signOut({ callbackUrl: '/' })}
-        className="group flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-semibold text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors duration-150 mt-auto tap-highlight-none select-none"
-      >
-        <LogOut className="w-5 h-5 shrink-0 group-hover:scale-110 transition-transform duration-150" />
-        {t('nav.signOut')}
-      </button>
     </aside>
   );
 }
 
 export function MobileHeader() {
-  const { t } = useTranslation();
   return (
     <header className="md:hidden flex items-center justify-between px-4 py-4 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-slate-200 dark:border-slate-700/50 sticky top-0 z-40">
       <div className="flex items-center gap-3">
         <LogoMark className="w-9 h-9 rounded-xl shadow-md" />
         <p className="text-slate-900 dark:text-white font-bold text-xl tracking-tight leading-none">Nova<span className="text-gradient">Fi</span></p>
       </div>
-      <button
-        onClick={() => signOut({ callbackUrl: '/' })}
-        className="p-2.5 text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 bg-slate-50 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-full transition-colors duration-150 tap-highlight-none"
-        aria-label={t('nav.signOut')}
-      >
-        <LogOut className="w-5 h-5" />
-      </button>
     </header>
   );
 }
@@ -378,20 +359,13 @@ export function MobileNav() {
               })}
             </div>
 
-            <div className="mt-4 flex gap-2">
+            <div className="mt-4">
               <button
                 onClick={() => { setSheetOpen(false); setCustomizeOpen(true); }}
-                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors duration-150 border border-slate-100 dark:border-slate-700 tap-highlight-none select-none"
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors duration-150 border border-slate-100 dark:border-slate-700 tap-highlight-none select-none"
               >
                 <Sliders className="w-4 h-4" />
                 {t('nav.customize')}
-              </button>
-              <button
-                onClick={() => signOut({ callbackUrl: '/' })}
-                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors duration-150 border border-slate-100 dark:border-slate-700 tap-highlight-none select-none"
-              >
-                <LogOut className="w-4 h-4" />
-                {t('nav.signOut')}
               </button>
             </div>
           </motion.div>

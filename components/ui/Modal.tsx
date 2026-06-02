@@ -1,5 +1,6 @@
 'use client';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence, useDragControls } from 'framer-motion';
@@ -15,6 +16,14 @@ interface ModalProps {
 export function Modal({ open, onClose, title, children, className }: ModalProps) {
   const ref = useRef<HTMLDivElement>(null);
   const dragControls = useDragControls();
+  // Portal to <body> so the modal escapes the app shell's stacking context. The
+  // page lives inside <main class="relative z-10">, a sibling of the sticky
+  // mobile header (z-40); without the portal the modal's z-[200] only competes
+  // INSIDE main's z-10 layer, so the header painted over the modal's top (the
+  // title was clipped and the backdrop never covered it). Mount-gated to avoid
+  // SSR/hydration mismatch (document is unavailable on the server).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -34,7 +43,7 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
     return () => { document.body.style.overflow = ''; };
   }, [open]);
 
-  return (
+  const content = (
     <AnimatePresence>
       {open && (
         /*
@@ -44,7 +53,10 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
          * On sm+: centered dialog with standard padding.
          */
         <div className="fixed inset-0 z-[200] flex items-end justify-center p-0 sm:p-6 sm:items-center"
-          style={{ paddingBottom: 'calc(4.5rem + env(safe-area-inset-bottom, 0px))' }}
+          style={{
+            paddingTop: 'env(safe-area-inset-top, 0px)',
+            paddingBottom: 'calc(4.5rem + env(safe-area-inset-bottom, 0px))',
+          }}
         >
           {/* Backdrop */}
           <motion.div
@@ -76,8 +88,11 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
               'relative z-10 w-full max-w-lg bg-white dark:bg-slate-800 shadow-2xl',
               'rounded-t-[2rem] sm:rounded-3xl',
               'flex flex-col',
-              // 88dvh gives more room for tall forms; capped at 90vh on desktop
-              'max-h-[88dvh] sm:max-h-[90vh]',
+              // Cap the sheet so its top (title + close button) always clears the
+              // status bar / app top frame instead of being clipped under it. The
+              // height budget subtracts the bottom nav offset, both safe-area
+              // insets, and a small gap. Desktop stays a centered 90vh dialog.
+              'max-h-[calc(100dvh-4.5rem-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px)-1rem)] sm:max-h-[90vh]',
               className
             )}
           >
@@ -109,4 +124,8 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
       )}
     </AnimatePresence>
   );
+
+  // Until mounted, render nothing (server + first client paint) so the markup
+  // matches; afterwards portal into <body> to escape the app shell's z-context.
+  return mounted ? createPortal(content, document.body) : null;
 }

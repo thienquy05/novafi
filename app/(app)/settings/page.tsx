@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
-import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, User, SlidersHorizontal, Receipt, Tags, Landmark, Building2, Database, ShieldCheck, ChevronDown } from 'lucide-react';
+import { useSession, signOut } from 'next-auth/react';
+import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, User, SlidersHorizontal, Receipt, Tags, Landmark, Building2, Database, ShieldCheck, ChevronDown, LogOut } from 'lucide-react';
 import { BRACKETS_2026, STANDARD_DEDUCTION_2026 } from '@/lib/tax';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -193,6 +193,12 @@ export default function SettingsPage() {
     setSettings(DEFAULT_TAX_SETTINGS as TaxSettings);
   }
 
+  // Guard against a misclick — signing out drops you back to the login screen.
+  function handleSignOut() {
+    if (!confirm(t('settings.signOutConfirm'))) return;
+    signOut({ callbackUrl: '/' });
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -338,6 +344,27 @@ export default function SettingsPage() {
                 checked={settings.budgetRollover}
                 onChange={() => update('budgetRollover', !settings.budgetRollover)}
               />
+            </div>
+          </Card>
+
+          {/* Account — sign out (moved here from the nav; confirms before leaving) */}
+          <Card>
+            <CardHeader>
+              <SectionTitle icon={LogOut}>{t('settings.account')}</SectionTitle>
+            </CardHeader>
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{t('nav.signOut')}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{t('settings.signOutDesc')}</p>
+              </div>
+              <Button
+                variant="secondary"
+                onClick={handleSignOut}
+                className="shrink-0 shadow-sm text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20"
+              >
+                <LogOut className="w-4 h-4" />
+                {t('nav.signOut')}
+              </Button>
             </div>
           </Card>
         </div>
