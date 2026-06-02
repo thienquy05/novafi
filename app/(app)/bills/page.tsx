@@ -10,7 +10,7 @@ import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { BillsSkeleton } from '@/components/ui/Skeleton';
 import { FitText } from '@/components/ui/FitText';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
-import { billToTransactionDefaults, calcSplitShares, calcPaycheckDeposited } from '@/lib/calculations';
+import { billToTransactionDefaults, calcSplitShares, calcPaycheckDeposited, myBillShare } from '@/lib/calculations';
 import type { Bill, Account, PaycheckEntry, Transaction, Contact, Split } from '@/types';
 import { useCategories } from '@/hooks/useCategories';
 import { useToast } from '@/lib/toast';
@@ -105,13 +105,30 @@ function parseLocalDate(dateStr: string): Date {
   return new Date(y, m - 1, d);
 }
 
-// The portion of a bill that actually leaves YOUR account. For a shared bill
-// that's just your share (the rest is the other person's), so monthly totals
-// and the cashflow forecast reflect what you really pay, not the full bill.
-function myBillShare(bill: Bill): number {
-  return bill.splitContactId && bill.splitAmount
-    ? calcSplitShares(bill.amount, bill.splitAmount).mine
-    : bill.amount;
+// Builds the cash-movement transfer for a shared bill's fronted share or its
+// payback. It's a `transfer` with an external (empty) counterparty so it shifts
+// the account balance WITHOUT counting as income or expense — the same model as
+// loans. `cashOut` fronts the other person's share out of the account when you
+// pay; `cashIn` returns it when they settle up.
+function buildSplitTx(
+  kind: 'cashOut' | 'cashIn',
+  amount: number,
+  account: string,
+  description: string,
+  date: string,
+): Transaction {
+  const out = kind === 'cashOut';
+  return {
+    id: generateId(),
+    date,
+    description,
+    amount,
+    type: 'transfer',
+    category: 'Transfer',
+    account: out ? account : '',
+    toAccount: out ? '' : account,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 function nextDueAfter(currentDue: string, frequency: Bill['frequency']): string {
@@ -502,11 +519,18 @@ export default function BillsPage() {
       account: payForm.account,
       createdAt: new Date().toISOString(),
     };
-    // The expense above already counts only your share. For a shared bill we
-    // also open an informational "owed to you" record for the other person's
-    // share — marked settled later via the checkbox (no transaction).
+    // The expense above counts only YOUR share. For a shared bill we also front
+    // the other person's share out of the same account as a `transfer` (so the
+    // balance reflects the full amount you really paid) and open an "owed to
+    // you" receivable for it. When an account is selected the transfer is bundled
+    // with the split so the balance moves atomically; with no account it stays a
+    // note-only receivable (no cash movement).
     const splitShare = payBill.splitContactId && payBill.splitAmount ? payBill.splitAmount : 0;
     const splitContact = contacts.find((c) => c.id === payBill.splitContactId);
+    const frontedTx: Transaction | null =
+      splitShare > 0 && splitContact && payForm.account
+        ? buildSplitTx('cashOut', splitShare, payForm.account, t('bills.txFronted', { name: splitContact.name, bill: payBill.name }), payForm.date)
+        : null;
     const newSplit: Split | null = splitShare > 0 && splitContact ? {
       id: generateId(),
       billId: payBill.id,
@@ -519,6 +543,8 @@ export default function BillsPage() {
       date: payForm.date,
       settled: false,
       settledDate: '',
+      frontedTxId: frontedTx?.id ?? '',
+      settleTxId: '',
     } : null;
     try {
       // Confirm the expense wrote before creating the split record, otherwise a
@@ -529,7 +555,11 @@ export default function BillsPage() {
       await advancePromise;
       if (!txRes.ok) throw new Error();
       if (newSplit) {
-        const sRes = await fetch('/api/splits', { method: 'POST', body: JSON.stringify(newSplit), headers: { 'Content-Type': 'application/json' } });
+        const sRes = await fetch('/api/splits', {
+          method: 'POST',
+          body: JSON.stringify(frontedTx ? { split: newSplit, tx: frontedTx } : newSplit),
+          headers: { 'Content-Type': 'application/json' },
+        });
         if (!sRes.ok) throw new Error();
       }
       upsertTemplate({ id: generateId(), description: tx.description, amount: tx.amount, type: 'expense', category: tx.category, account: tx.account });
@@ -559,17 +589,30 @@ export default function BillsPage() {
     closePayModal();
   }
 
-  // Tick/untick "they transferred the money" for one shared-bill payment. This
-  // is purely an informational status — your expense already counts only your
-  // share, so settling their part creates no transaction.
+  // Tick/untick "they transferred the money" for one shared-bill payment.
+  // Settling writes a `transfer` of their share back INTO the account (cash in,
+  // not income — but it shows in transfer history); un-settling reverses and
+  // removes that transfer. A note-only receivable (no account) just flips the
+  // flag. Your expense always counts only your share, untouched here.
   async function handleSplitToggle(split: Split) {
     setSettlingSplitId(split.id);
-    const updated: Split = split.settled
-      ? { ...split, settled: false, settledDate: '' }
-      : { ...split, settled: true, settledDate: today() };
+    let payload: Split | { split: Split; tx?: Transaction; removeTxId?: string };
+    let updated: Split;
+    if (split.settled) {
+      // Un-settle: drop the settled flag and reverse the cash-in if there was one.
+      updated = { ...split, settled: false, settledDate: '', settleTxId: '' };
+      payload = split.settleTxId ? { split: updated, removeTxId: split.settleTxId } : updated;
+    } else {
+      // Settle: front the cash back into the account when one is on file.
+      const settleTx: Transaction | null = split.account
+        ? buildSplitTx('cashIn', split.amount, split.account, t('bills.txSettled', { name: split.contactName, bill: split.billName }), today())
+        : null;
+      updated = { ...split, settled: true, settledDate: today(), settleTxId: settleTx?.id ?? '' };
+      payload = settleTx ? { split: updated, tx: settleTx } : updated;
+    }
     setSplits((prev) => prev.map((s) => s.id === split.id ? updated : s));
     try {
-      const res = await fetch('/api/splits', { method: 'POST', body: JSON.stringify(updated), headers: { 'Content-Type': 'application/json' } });
+      const res = await fetch('/api/splits', { method: 'POST', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error();
       toast(updated.settled ? t('bills.toastSplitSettled', { name: split.contactName }) : t('bills.toastSplitUnsettled', { name: split.contactName }), updated.settled ? 'success' : 'info');
     } catch {
@@ -786,14 +829,17 @@ export default function BillsPage() {
                 {activeBills.map((bill) => {
                   const daysUntil = Math.ceil((parseLocalDate(bill.nextDue).getTime() - todayMidnight.getTime()) / 86400000);
                   const isOverdue = daysUntil < 0;
-                  const isDueSoon = daysUntil >= 0 && daysUntil <= 7;
+                  // Red when overdue or due within 3 days; yellow when due in 4–7
+                  // days; normal beyond that.
+                  const isUrgent = daysUntil <= 3;
+                  const isDueSoon = daysUntil > 3 && daysUntil <= 7;
                   const accountName = accounts.find((a) => a.id === bill.account)?.name ?? bill.account;
                   return (
                     <SwipeToDelete key={bill.id} onDelete={() => handleDelete(bill.id)}>
-                      <div className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-5 rounded-3xl bg-white dark:bg-slate-800 border transition-all duration-200 gap-3 sm:gap-0 ${isOverdue ? 'border-rose-200 dark:border-rose-800/50 bg-rose-50/30' : isDueSoon ? 'border-amber-200 dark:border-amber-800/50 bg-amber-50/30' : 'border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 hover:shadow-sm'}`}>
+                      <div className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-5 rounded-3xl bg-white dark:bg-slate-800 border transition-all duration-200 gap-3 sm:gap-0 ${isUrgent ? 'border-rose-200 dark:border-rose-800/50 bg-rose-50/30' : isDueSoon ? 'border-amber-200 dark:border-amber-800/50 bg-amber-50/30' : 'border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 hover:shadow-sm'}`}>
                         <div className="flex items-center gap-4">
-                          <div className={`flex items-center justify-center w-12 h-12 rounded-2xl shrink-0 border ${isOverdue ? 'bg-rose-100 dark:bg-rose-900/40 border-rose-200 dark:border-rose-800/50' : isDueSoon ? 'bg-amber-100 dark:bg-amber-900/40 border-amber-200 dark:border-amber-800/50' : 'bg-slate-100 dark:bg-slate-700 border-slate-200 dark:border-slate-700'}`}>
-                            <AlarmClock className={`w-5 h-5 ${isOverdue ? 'text-rose-600 dark:text-rose-400' : isDueSoon ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'}`} />
+                          <div className={`flex items-center justify-center w-12 h-12 rounded-2xl shrink-0 border ${isUrgent ? 'bg-rose-100 dark:bg-rose-900/40 border-rose-200 dark:border-rose-800/50' : isDueSoon ? 'bg-amber-100 dark:bg-amber-900/40 border-amber-200 dark:border-amber-800/50' : 'bg-slate-100 dark:bg-slate-700 border-slate-200 dark:border-slate-700'}`}>
+                            <AlarmClock className={`w-5 h-5 ${isUrgent ? 'text-rose-600 dark:text-rose-400' : isDueSoon ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'}`} />
                           </div>
                           <div>
                             <p className="text-base font-bold text-slate-900 dark:text-slate-100">{bill.name}</p>
@@ -810,7 +856,7 @@ export default function BillsPage() {
                           </div>
                         </div>
                         <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto pl-16 sm:pl-0 gap-3 sm:gap-5">
-                          <span className={`text-base font-extrabold ${isOverdue ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>{formatCurrency(bill.amount)}</span>
+                          <span className={`text-base font-extrabold ${isUrgent ? 'text-rose-600 dark:text-rose-400' : isDueSoon ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-slate-100'}`}>{formatCurrency(bill.amount)}</span>
                           <div className="flex gap-1.5">
                             <button title="Edit" onClick={(e) => { e.stopPropagation(); openEdit(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
                             <button title="Mark paid" onClick={(e) => { e.stopPropagation(); openPayModal(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-xl transition-colors"><CheckCircle2 className="w-4 h-4" /></button>
