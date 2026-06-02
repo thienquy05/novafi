@@ -4,7 +4,7 @@ import { batchGetDashboardData, getNetWorthHistory, appendNetWorthSnapshot, getS
 import { formatCurrency, formatDate } from '@/lib/utils';
 import {
   calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
-  calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, pctChange as calcPctChange,
+  calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, calcMonthCashSpending, pctChange as calcPctChange,
   normalizeMonthlyBudget, calcAvgMonthlyExpense, calcEmergencyFundMonths,
   calcSavingsRateScore, calcEmergencyScore, calcBudgetScore,
   calcDebtToIncomeScore, calcDebtToIncomeRatio,
@@ -154,8 +154,14 @@ export default async function DashboardPage() {
   // Total remaining bills this month (rest-of-month forecast) — your share only.
   const upcomingBillsTotal = upcomingBills.reduce((s, b) => s + myBillShare(b), 0);
 
-  // Safe to spend
-  const safeToSpend = calcSafeToSpend(monthIncome, monthSpending, billsThisMonth);
+  // Safe to spend — cash basis. Unlike `monthSpending` (accrual; counts a card
+  // charge the moment it's made and is used for savings rate), this counts only
+  // real cash leaving the bank: expenses paid from deposit accounts PLUS
+  // payments toward debt (transfers into a credit/loan account). So a $900 card
+  // payback this month now reduces what's safe to spend, without double-counting
+  // the original purchase.
+  const monthCashSpending = calcMonthCashSpending(transactions, accounts, thisMonth);
+  const safeToSpend = calcSafeToSpend(monthIncome, monthCashSpending, billsThisMonth);
 
   // Recent transactions (last 6)
   const recentTx = [...transactions]

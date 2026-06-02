@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
-  calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, pctChange,
+  calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, calcMonthCashSpending, pctChange,
   normalizeMonthlyBudget,
   calcRolloverDeficit, calcEffectiveSpent,
   calcProjectedSpend, calcSpendingPace,
@@ -221,6 +221,52 @@ describe('calcSafeToSpend', () => {
 
   it('no bills', () => {
     expect(calcSafeToSpend(3000, 1000, 0)).toBe(2000);
+  });
+});
+
+describe('calcMonthCashSpending', () => {
+  // chk/sav = deposit accounts, crd/lon = debt accounts (from MIXED_ACCOUNTS)
+  it('counts expenses paid from a deposit account', () => {
+    const txs = [
+      makeTx({ type: 'expense', account: 'chk', amount: 200, date: '2026-05-03' }),
+      makeTx({ type: 'expense', account: 'sav', amount: 50, date: '2026-05-09' }),
+    ];
+    expect(calcMonthCashSpending(txs, MIXED_ACCOUNTS, '2026-05')).toBe(250);
+  });
+
+  it('ignores purchases charged to a credit/loan account (no cash out yet)', () => {
+    const txs = [makeTx({ type: 'expense', account: 'crd', amount: 900, date: '2026-05-04' })];
+    expect(calcMonthCashSpending(txs, MIXED_ACCOUNTS, '2026-05')).toBe(0);
+  });
+
+  it('counts payments INTO a debt account (transfer = real cash leaving)', () => {
+    const txs = [
+      makeTx({ type: 'transfer', account: 'chk', toAccount: 'crd', amount: 900, date: '2026-05-15' }),
+    ];
+    expect(calcMonthCashSpending(txs, MIXED_ACCOUNTS, '2026-05')).toBe(900);
+  });
+
+  it('does not double-count a card purchase and its later payoff', () => {
+    const txs = [
+      makeTx({ type: 'expense', account: 'crd', amount: 900, date: '2026-05-04' }),     // charge: 0
+      makeTx({ type: 'transfer', account: 'chk', toAccount: 'crd', amount: 900, date: '2026-05-20' }), // payoff: 900
+    ];
+    expect(calcMonthCashSpending(txs, MIXED_ACCOUNTS, '2026-05')).toBe(900);
+  });
+
+  it('ignores transfers between deposit accounts (checking → savings)', () => {
+    const txs = [
+      makeTx({ type: 'transfer', account: 'chk', toAccount: 'sav', amount: 300, date: '2026-05-02' }),
+    ];
+    expect(calcMonthCashSpending(txs, MIXED_ACCOUNTS, '2026-05')).toBe(0);
+  });
+
+  it('ignores income and other months', () => {
+    const txs = [
+      makeTx({ type: 'income', account: 'chk', amount: 1000, date: '2026-05-01' }),
+      makeTx({ type: 'expense', account: 'chk', amount: 100, date: '2026-04-30' }),
+    ];
+    expect(calcMonthCashSpending(txs, MIXED_ACCOUNTS, '2026-05')).toBe(0);
   });
 });
 
