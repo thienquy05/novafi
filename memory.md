@@ -2,6 +2,18 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-02 — Stop budget edits from making the rollover bar jump/fill (branch claude/budget-rollover-progress-bar-V50Ng)
+
+**Bug (user):** "When I change the budget amount, the progress bar goes full and it brings last month's number, subtracting it from the new budget I just set." Carry-in rollover (frozen `prevCap`, shipped earlier today) was correct in the math, but **editing the amount** still misbehaved in the UI.
+
+**Root cause:** `saveBudget` in `app/(app)/planning/page.tsx` rebuilt the optimistic `Budget` object from the form only — `{ id, category, amount, period }` — **dropping** `position`/`activeMonth`/`prevMonth`/`prevCap`. So immediately after an edit the local row had no snapshot → `rolledOverDeficit()` returned 0 and the bar briefly shrank; then the next `/api/budgets` load returned the server-preserved snapshot and the bar **jumped back** to include the carried-over deficit (looking like the edit "filled" it). The deficit denominator is the new `amount`, so a lowered cap made the jump land at/over 100%.
+
+**Decision (user):** keep the **carry-in / fill-the-bar** behavior (a genuine prior overspend should eat into this month's bar) — only kill the edit-time jump.
+
+**Fix — `app/(app)/planning/page.tsx` `saveBudget`:** carry the existing row's snapshot through the edit. `const base = editBudget ?? sameCategory;` then the new budget includes `position/activeMonth/prevMonth/prevCap` from `base`. Now the optimistic state matches what the server stores, so the bar is stable across an edit. Because `prevCap` is the **frozen** last-month cap (untouched by the edit), changing this month's `amount` only moves the bar's denominator — it can never fabricate or resurrect a deficit. (Server `upsertBudget` already preserved these fields; this aligns the optimistic UI with it.)
+
+**Tests:** existing `calcRolloverDeficit(500, 499.36) === 0` frozen-cap regression in `lib/__tests__/calculations.test.ts` still covers the "edit can't invent a deficit" math. Verified `tsc --noEmit` clean, eslint 0 errors (pre-existing warnings only), 306 tests pass.
+
 ## 2026-06-02 — Make budget rollover accurate via a frozen monthly-cap snapshot (branch claude/budget-calculation-bug-INfrq)
 
 **Bug:** After lowering a budget (e.g. Insurance $500 → $110), the Planning card showed the spent amount and progress bar inflated by a phantom "+$X from last month" deficit, turning the bar full and red ("$279.36 over") even though nothing was spent this month. The Dashboard and reports correctly showed the category as **not** over budget, so the views disagreed.

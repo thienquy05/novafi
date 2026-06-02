@@ -170,11 +170,22 @@ export default function PlanningPage() {
     if (!budgetForm.amount) return;
     setSaving(true);
     const sameCategory = budgets.find((b) => b.category === budgetForm.category && b.id !== editBudget?.id);
+    // Carry the existing row's month-cap snapshot (and position) through the edit.
+    // Without this, the optimistic update would drop prevMonth/prevCap, so the bar
+    // would briefly lose the rolled-over deficit and then "jump" back to full once
+    // the server's preserved snapshot reloaded. Preserving it keeps the carry-in
+    // stable and measured against last month's FROZEN cap, so changing this month's
+    // amount only moves the bar's denominator — it never fabricates a deficit.
+    const base = editBudget ?? sameCategory;
     const budget: Budget = {
-      id: editBudget?.id ?? sameCategory?.id ?? generateId(),
+      id: base?.id ?? generateId(),
       category: budgetForm.category,
       amount: parseFloat(budgetForm.amount),
       period: budgetForm.period,
+      position: base?.position,
+      activeMonth: base?.activeMonth,
+      prevMonth: base?.prevMonth,
+      prevCap: base?.prevCap,
     };
     // Optimistic
     const isExisting = budgets.some((b) => b.id === budget.id);
