@@ -141,13 +141,15 @@ export default function PaychecksPage() {
     () => paychecks.filter((p) => new Date(p.date).getFullYear() === currentYear),
     [paychecks, currentYear],
   );
-  const { ytdIncome, ytdTax } = useMemo(() => {
-    let income = 0, tax = 0;
+  const { ytdIncome, ytdTax, ytdWages, ytdTips } = useMemo(() => {
+    let income = 0, tax = 0, wages = 0, tips = 0;
     for (const p of ytdPaychecks) {
       income += calcPaycheckDeposited(p);
       tax += calcPaycheckTaxToSave(p);
+      wages += p.grossAmount;
+      tips += p.gratuityAmount ?? 0;
     }
-    return { ytdIncome: income, ytdTax: tax };
+    return { ytdIncome: income, ytdTax: tax, ytdWages: wages, ytdTips: tips };
   }, [ytdPaychecks]);
 
   const accountMap = useMemo(() => {
@@ -176,6 +178,8 @@ export default function PaychecksPage() {
         {[
           { label: t('paychecks.ytdIncome'), value: ytdIncome, color: 'text-emerald-600 dark:text-emerald-400' },
           { label: t('paychecks.ytdTax'), value: ytdTax, color: 'text-rose-600 dark:text-rose-400' },
+          { label: t('paychecks.ytdTaxableWages'), value: ytdWages, color: 'text-slate-900 dark:text-slate-100' },
+          { label: t('paychecks.ytdTips'), value: ytdTips, color: 'text-blue-600 dark:text-blue-400' },
         ].map(({ label, value, color }) => (
           <Card key={label}>
             <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{label}</p>

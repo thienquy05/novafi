@@ -45,6 +45,30 @@ A running log of changes made to the NovaFi codebase.
 - "Change the paycheck amount": there's still no in-place edit UI; the supported flow is delete + re-add, which is now balance-correct because delete reverses the old deposit and the re-add posts a fresh linked one.
 
 **Verification:** `npm run typecheck` clean, `npm run lint` 0 errors (pre-existing warnings only), `npm test` 309/309 passing.
+## 2026-06-02 — Revert budget rollover calculation to its original model (branch claude/blissful-brown-R7bUj)
+
+**User request:** The rollover iterations that followed the original feature (the deficit-only redefinition + the frozen monthly-cap snapshot, all shipped earlier today) confused them. Lowering a budget amount showed a phantom "from last month" deficit that *re-raising the amount back to the initial value did not clear* — because the snapshot had frozen the lowered cap. They asked to **keep the Budget Rollover setting/toggle** but **revert the calculation code back to how it worked when the feature was first added** (`e3d5d39`), undoing all my later "fix" iterations (d5ae700 snapshot, 2ddd0ca edit-stability, 197d27d carry-from-history).
+
+**Why the original model fixes the complaint:** `e3d5d39` has **no snapshot** — it derives everything live from the current cap and last month's actual spend, so restoring a budget amount immediately restores the display. The stuck-deficit class of bug can't occur because nothing is frozen.
+
+### Restored the original two-way carryover model
+- `carryover = baseBudget − prevMonthSpend` — positive (surplus) → larger effective cap; negative (overspend) → smaller effective cap.
+- `effectiveBudget = baseBudget + carryover` — the **cap/denominator** moves, not the spent/numerator. (Deficit-only `usage = spent + deficit` is gone.)
+
+### Files
+- **`lib/calculations.ts`** — removed `calcRolloverDeficit`/`calcEffectiveSpent`; restored `calcRolloverCarryover` + `calcEffectiveBudget`.
+- **`lib/__tests__/calculations.test.ts`** — swapped the deficit/effective-spent suites (incl. the snapshot regression test) back for the original `calcRolloverCarryover`/`calcEffectiveBudget` suites. Suite: **309 pass.**
+- **`types/index.ts`** — removed `Budget.activeMonth`/`prevMonth`/`prevCap`.
+- **`lib/sheets.ts`** — removed `monthKey` (export), `monthlyEquivalent`, and `reconcileBudgetMonths`; `getBudgets` range `A2:H200` → `A2:E200` (no snapshot parse); `upsertBudget` drops the snapshot write (`deleteRowById` last col `H` → `E`; appends 5 cols). Legacy cols F–H in existing sheets are now simply ignored (harmless leftover data; rows are deleted whole on upsert so they don't accumulate).
+- **`app/api/budgets/route.ts`** — GET no longer imports/calls `reconcileBudgetMonths`; returns `getBudgets` directly.
+- **`app/(app)/planning/page.tsx`** — import → `calcRolloverCarryover`/`calcEffectiveBudget`; `saveBudget` no longer writes the snapshot (`{ id, category, amount, period, position }` only); replaced `rolledOverDeficit()` with `effectiveMonthlyAmount()` + `carryoverAmount()`; `totalBudgeted`/`overBudgetCount` and per-budget `monthly`/`pct`/`over`/`remaining`/`projected` use the effective cap with plain `spent` (no more `usage`/`rolledOver`); `BudgetItem` takes `carryover` instead of `rolledOver`/`usage`, header shows `spent / effectiveCap`, and the meta badge is the two-way `+/−$X rollover` pill (emerald surplus / rose deficit).
+- **`locales/en.json` + `vi.json`** — added `planning.rollover` ("rollover" / "chuyển tiếp") for the badge. `planning.rolledOver` left in place (now unused).
+
+**Kept (per user):** the Budget Rollover toggle in Settings, the `budgetRollover` setting + its Sheets persistence (`e3d5d39`).
+
+Verified: `npm run typecheck` clean, `npm run lint` 0 errors (25 pre-existing warnings), `npm test` 309/309 pass, `npm run build` succeeds.
+
+---
 
 ## 2026-06-02 — Roll over last month's overspend even without a frozen snapshot (branch claude/budget-rollover-carry-from-history)
 
@@ -302,3 +326,37 @@ Verified: `tsc --noEmit` clean; eslint 0 errors (only the pre-existing planning 
 - Non-destructive by design: no history is ever deleted; the user reassigns/deletes the referencing transactions (and any linked paycheck/loan) first, then the account.
 
 **Verification:** `npm run typecheck` clean, `npm run lint` 0 errors (pre-existing warnings only), `npm test` 309/309 passing, locale JSON valid.
+## 2026-06-02 — Balance Check (reconcile): stop the debt-overpayment clamp from inflating credit-card balances (branch claude/admiring-meitner-3kc96)
+
+**Symptom (user report):** Running the "Balance Check" / reconcile on a credit card (Capital One) proposed a much higher "after" balance (e.g. $1,212.36 → $2,166.54). It behaved as if reconciliation only summed expenses and ignored the income/paybacks.
+
+**Root cause:** `applyTransferToBalance(balance, amount, isDebt)` clamped debt payoffs at zero with `Math.max(0, balance - amount)`, but its inverse `reverseTransferToBalance` (`balance + amount`) did NOT clamp. So `apply` and `reverse` were not true inverses — the exact invariant `deriveOpeningBalance` and `reconcileAccountBalance` rely on. When a card **payment** replays chronologically *before* the charge it covers (a backdated payment, or simply because the opening balance was set to the current owed amount while transaction history exists), the running owed balance is still low/zero at that point, so the clamp silently discards the payment while the later expenses still pile on — inflating the reconciled balance.
+
+**Fix:**
+- `lib/calculations.ts` — `applyTransferToBalance` now returns `roundCents(isDebt ? balance - amount : balance + amount)` (no zero clamp). Overpaying a card now yields a legitimate negative (credit) balance — money the bank owes you — and `apply`/`reverse` round-trip exactly. Updated the surrounding reconcile/`deriveOpeningBalance` comments that referenced the now-removed clamp and its "known limitation".
+- `lib/__tests__/ledger.test.ts` — Replaced the "clamps debt payoff transfers at zero" test with "lets a debt payoff transfer overshoot into a credit balance" (200 − 300 → −100) plus a new apply/reverse-inverse test. Added a `reconcileAccountBalance` regression test: a backdated card payment that replays before its charge now reconciles to the true owed balance (0), not the inflated value (1000).
+- `lib/__tests__/calculations.test.ts` — Updated `applyTransferToBalance` overpayment test (50 − 100 → −50) and replaced the `reverseTransferToBalance` "KNOWN LIMITATION" clamp test with an exact apply/reverse round-trip test.
+
+**Notes:**
+- Both the live transaction route and the reconciler go through `nextBalanceForAccount` → `applyTransferToBalance`, so live balances and reconcile stay consistent; live credit-card payoffs that overpay can now show a negative (credit) balance, which is financially correct.
+- Verification: standalone Node repro confirmed clamped reconcile = 1000 vs fixed = 0 for the backdated-payment scenario. `tsc --noEmit` shows no errors in the changed files (the unrelated module-not-found errors are because `node_modules` isn't installed in this environment).
+
+## 2026-06-02 — Remove the Balance Check (account reconcile) feature (branch claude/admiring-meitner-3kc96)
+
+**Goal:** Per user request, remove the "Balance Check" / reconcile tool entirely. Balances are transaction-driven and can be adjusted manually, so the reconcile maintenance tool is no longer wanted.
+
+**Changes:**
+- Deleted `app/api/accounts/reconcile/route.ts` (the dry-run preview + apply endpoint).
+- `lib/calculations.ts` — Removed the entire "Reconciliation" section: `reconcileAccountBalance`, `deriveOpeningBalance`, `detectBalanceDrift`, `planReconcile`, the private helpers `compareTxChronological` and `ledgerForAccount`, and the types `BalanceDrift`, `ReconcileBackfill`, `ReconcilePlan`. Updated the unified-ledger comment ("Both the route and the reconciler…" → "The route's apply/reverse paths…").
+- `app/(app)/settings/page.tsx` — Removed the Balance Check card and all its plumbing: the `ReconcilePlan` import, the four reconcile state vars, `checkBalances()`/`applyReconcile()`, and the card JSX. Dropped now-unused imports (`Scale`, `CheckCircle2`, `AlertTriangle` from lucide-react; `formatCurrency`).
+- `locales/en.json` & `locales/vi.json` — Removed the 10 `settings.reconcile*` keys from both.
+- `lib/__tests__/ledger.test.ts` — Removed the imports and describe blocks for `reconcileAccountBalance`, `deriveOpeningBalance`, `detectBalanceDrift`, `planReconcile` (including the credit-card clamp regression test added earlier). The `nextBalanceForAccount` / `applyTransactionToBalances` tests stay.
+- Stale-comment cleanup: `app/api/transactions/route.ts` and `lib/sheets.ts` no longer reference the deleted reconcile endpoint.
+
+**Notes:**
+- Kept the shared ledger functions (`nextBalanceForAccount`, `applyTransactionToBalances`, `applyExpense/Income/Transfer*` apply+reverse) — they drive live balance updates on add/edit/delete and are unrelated to reconcile.
+- Kept the `Account.openingBalance` field and its self-maintenance in `app/api/accounts/route.ts` plus the sheet column I read/write. It is now unused for computation but harmless; removing it would be a sheet-schema change. (Offered as a separate cleanup if desired.)
+- `reconcileBudgetMonths` in `lib/sheets.ts` is a separate budget feature and was left intact.
+- Note: this supersedes the credit-card debt-payoff clamp fix from earlier today for the reconcile path specifically — but the clamp removal in `applyTransferToBalance` is retained because it also affects live balance updates (overpaying a card now correctly yields a credit balance instead of being silently discarded).
+
+**Verification:** `locales/*.json` parse OK; no remaining `settings.reconcile` references; no `tsc` errors reference any removed identifier (remaining tsc output is pre-existing missing-`node_modules`/`@types` noise in this environment).

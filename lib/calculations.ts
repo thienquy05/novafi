@@ -70,23 +70,17 @@ export function normalizeMonthlyBudget(amount: number, period: 'monthly' | 'week
   return amount / 12;
 }
 
-// ── Budget Rollover (deficit-only) ────────────────────────────────────────────
-// The budget cap itself stays FIXED every month. Rollover only carries last
-// month's OVERSPEND forward into this month's usage:
-//   rolledOverDeficit = max(0, prevMonthSpend − baseBudget)
-//
-//   • Underspending (a surplus) does NOT roll over — you do not get extra room.
-//   • A budget with no prior-month spend (e.g. brand new) carries nothing over,
-//     since prevMonthSpend ≤ baseBudget ⇒ deficit = 0. This avoids the old bug
-//     where an untouched budget appeared doubled.
-export function calcRolloverDeficit(baseBudget: number, prevMonthSpend: number): number {
-  return Math.max(0, prevMonthSpend - baseBudget);
+// ── Budget Rollover ───────────────────────────────────────────────────────────
+// carryover = baseBudget - prevMonthSpend
+//   positive → surplus carried forward (extra budget this month)
+//   negative → deficit carried forward (reduced budget this month)
+export function calcRolloverCarryover(baseBudget: number, prevMonthSpend: number): number {
+  return baseBudget - prevMonthSpend;
 }
 
-// Effective usage this month = actual spend + deficit carried over from last month.
-// The cap is unchanged; only the "used" side grows by the rolled-over overspend.
-export function calcEffectiveSpent(spent: number, rolledOverDeficit: number): number {
-  return spent + rolledOverDeficit;
+// effectiveBudget = baseBudget + carryover = 2 * baseBudget - prevMonthSpend
+export function calcEffectiveBudget(baseBudget: number, carryover: number): number {
+  return baseBudget + carryover;
 }
 
 // ── Spending Pace / Velocity ──────────────────────────────────────────────────
@@ -302,7 +296,16 @@ export function applyTransferFromBalance(balance: number, amount: number): numbe
 }
 
 export function applyTransferToBalance(balance: number, amount: number, isDebt: boolean): number {
-  return isDebt ? roundCents(Math.max(0, balance - amount)) : roundCents(balance + amount);
+  // A transfer INTO a debt account is a payment → it reduces the owed balance.
+  // We intentionally do NOT clamp at zero: overpaying a card leaves a legitimate
+  // credit balance (the bank owes you), and clamping silently discards money.
+  // Crucially, the clamp also broke reconciliation — it made apply/reverse
+  // non-inverse, so a chronological replay that applied a payment before the
+  // charge it covers (e.g. a backdated payment, or an opening balance set to the
+  // current owed amount while history exists) would clamp the payment away and
+  // inflate the result. Subtracting unconditionally keeps it symmetric with
+  // reverseTransferToBalance.
+  return roundCents(isDebt ? balance - amount : balance + amount);
 }
 
 export function reverseExpenseBalance(balance: number, amount: number, isDebt: boolean): number {
@@ -325,7 +328,7 @@ export function reverseTransferToBalance(balance: number, amount: number, isDebt
 // Single source of truth for how one transaction affects account balances.
 // Previously this logic was duplicated across the POST/PUT/DELETE handlers in
 // the transactions API route (8 call sites), which made balance drift easy to
-// introduce. Both the route and the reconciler now go through here.
+// introduce. The route's apply/reverse paths all go through here.
 
 export type LedgerMode = 'apply' | 'reverse';
 
@@ -365,110 +368,6 @@ export function applyTransactionToBalances(
     const balance = nextBalanceForAccount(acc, tx, mode);
     return balance === acc.balance ? acc : { ...acc, balance };
   });
-}
-
-// ── Reconciliation ────────────────────────────────────────────────────────────
-// Replays an account's full ledger from its opening balance, in chronological
-// order, honoring the same apply rules (including the debt-overpayment clamp in
-// applyTransferToBalance). Returns the balance the account SHOULD have, so drift
-// from partial-write failures or concurrent updates can be detected and repaired.
-
-function compareTxChronological(a: Transaction, b: Transaction): number {
-  if (a.date !== b.date) return a.date < b.date ? -1 : 1;
-  const ca = a.createdAt ?? '';
-  const cb = b.createdAt ?? '';
-  if (ca !== cb) return ca < cb ? -1 : 1;
-  return 0;
-}
-
-function ledgerForAccount(accountId: string, transactions: Transaction[]): Transaction[] {
-  return transactions
-    .filter((t) => t.account === accountId || t.toAccount === accountId)
-    .sort(compareTxChronological);
-}
-
-export function reconcileAccountBalance(account: Account, transactions: Transaction[]): number {
-  // Without a baselined opening balance the ledger can't be replayed safely
-  // (replaying on top of the current balance would double-count). Treat as
-  // consistent until deriveOpeningBalance() backfills it.
-  if (account.openingBalance == null) return account.balance;
-  let working: Account = { ...account, balance: roundCents(account.openingBalance) };
-  for (const tx of ledgerForAccount(account.id, transactions)) {
-    working = { ...working, balance: nextBalanceForAccount(working, tx, 'apply') };
-  }
-  return working.balance;
-}
-
-// Backfills the opening balance for accounts that predate opening-balance
-// tracking: reverse-replays the ledger from the current balance to the start so
-// that a forward replay reproduces today's balance. Accurate unless a historical
-// debt-overpayment clamp fired (rare, and inherently ambiguous in that case).
-export function deriveOpeningBalance(account: Account, transactions: Transaction[]): number {
-  const ledger = ledgerForAccount(account.id, transactions);
-  let working: Account = { ...account };
-  for (let i = ledger.length - 1; i >= 0; i--) {
-    working = { ...working, balance: nextBalanceForAccount(working, ledger[i], 'reverse') };
-  }
-  return roundCents(working.balance);
-}
-
-export type BalanceDrift = {
-  accountId: string;
-  name: string;
-  stored: number;
-  expected: number;
-  diff: number;
-};
-
-// Lists accounts whose stored balance diverges from the reconciled balance by
-// more than `tolerance` (in currency units). Accounts without an opening balance
-// are skipped (not yet baselined).
-export function detectBalanceDrift(
-  accounts: Account[],
-  transactions: Transaction[],
-  tolerance = 0.01,
-): BalanceDrift[] {
-  const drifts: BalanceDrift[] = [];
-  for (const acc of accounts) {
-    if (acc.openingBalance == null) continue;
-    const expected = reconcileAccountBalance(acc, transactions);
-    const diff = roundCents(acc.balance - expected);
-    if (Math.abs(diff) > tolerance) {
-      drifts.push({ accountId: acc.id, name: acc.name, stored: acc.balance, expected, diff });
-    }
-  }
-  return drifts;
-}
-
-// Plan describing exactly what a reconcile run would change. Computing it as a
-// pure function means the dry-run PREVIEW and the actual APPLY share identical
-// logic — what the user is shown can never diverge from what gets written.
-export type ReconcileBackfill = { accountId: string; name: string; openingBalance: number };
-export type ReconcilePlan = { toBackfill: ReconcileBackfill[]; toRepair: BalanceDrift[] };
-
-export function planReconcile(
-  accounts: Account[],
-  transactions: Transaction[],
-  tolerance = 0.01,
-): ReconcilePlan {
-  const toBackfill: ReconcileBackfill[] = [];
-  const toRepair: BalanceDrift[] = [];
-  for (const acc of accounts) {
-    // Establish a reconciliation basis if this account has never had one.
-    let withBasis = acc;
-    if (acc.openingBalance == null) {
-      const openingBalance = deriveOpeningBalance(acc, transactions);
-      withBasis = { ...acc, openingBalance };
-      toBackfill.push({ accountId: acc.id, name: acc.name, openingBalance });
-    }
-    // Compare stored balance against the replayed ledger.
-    const expected = reconcileAccountBalance(withBasis, transactions);
-    const diff = roundCents(withBasis.balance - expected);
-    if (Math.abs(diff) > tolerance) {
-      toRepair.push({ accountId: acc.id, name: acc.name, stored: withBasis.balance, expected, diff });
-    }
-  }
-  return { toBackfill, toRepair };
 }
 
 // ── Transaction querying (pure) ───────────────────────────────────────────────

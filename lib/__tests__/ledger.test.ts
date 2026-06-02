@@ -2,10 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   nextBalanceForAccount,
   applyTransactionToBalances,
-  reconcileAccountBalance,
-  deriveOpeningBalance,
-  detectBalanceDrift,
-  planReconcile,
   filterTransactions,
   paginate,
   aggregateMonthlyTotals,
@@ -43,9 +39,18 @@ describe('nextBalanceForAccount', () => {
     expect(nextBalanceForAccount(card, makeTx({ type: 'expense', amount: 100, account: 'chk' }), 'apply')).toBe(200);
   });
 
-  it('clamps debt payoff transfers at zero (no negative debt)', () => {
+  it('lets a debt payoff transfer overshoot into a credit balance', () => {
+    // Overpaying a card leaves a credit balance (the bank owes you). We do NOT
+    // clamp at zero: clamping discarded money and broke reconciliation by making
+    // apply/reverse non-inverse.
     const tx = makeTx({ type: 'transfer', amount: 300, account: 'chk', toAccount: 'card' });
-    expect(nextBalanceForAccount(card, tx, 'apply')).toBe(0); // 200 - 300 clamped
+    expect(nextBalanceForAccount(card, tx, 'apply')).toBe(-100); // 200 - 300
+  });
+
+  it('reverse is the inverse of apply for a debt payoff transfer', () => {
+    const tx = makeTx({ type: 'transfer', amount: 300, account: 'chk', toAccount: 'card' });
+    const applied = nextBalanceForAccount(card, tx, 'apply');
+    expect(nextBalanceForAccount({ ...card, balance: applied }, tx, 'reverse')).toBe(200);
   });
 
   it('reverse is the inverse of apply for a cash expense', () => {
@@ -72,105 +77,6 @@ describe('applyTransactionToBalances', () => {
     const expense = makeTx({ type: 'expense', amount: 50, account: 'chk' });
     const r2 = applyTransactionToBalances(accounts, expense, 'apply');
     expect(r2[1]).toBe(accounts[1]); // same reference, unchanged
-  });
-});
-
-// ── Reconciliation ──────────────────────────────────────────────────────────
-
-describe('reconcileAccountBalance', () => {
-  it('replays the ledger from the opening balance', () => {
-    const acc = makeAccount({ id: 'chk', type: 'checking', balance: 0, openingBalance: 1000 });
-    const txns = [
-      makeTx({ id: 't1', type: 'income', amount: 500, account: 'chk', date: '2026-05-01' }),
-      makeTx({ id: 't2', type: 'expense', amount: 200, account: 'chk', date: '2026-05-02' }),
-    ];
-    expect(reconcileAccountBalance(acc, txns)).toBe(1300);
-  });
-
-  it('returns the stored balance untouched when no opening balance is set', () => {
-    const acc = makeAccount({ id: 'chk', type: 'checking', balance: 42 });
-    const txns = [makeTx({ type: 'income', amount: 500, account: 'chk' })];
-    expect(reconcileAccountBalance(acc, txns)).toBe(42);
-  });
-
-  it('honors chronological order via date then createdAt', () => {
-    const acc = makeAccount({ id: 'chk', type: 'checking', balance: 0, openingBalance: 100 });
-    const txns = [
-      makeTx({ id: 'b', type: 'expense', amount: 50, account: 'chk', date: '2026-05-01', createdAt: '2026-05-01T10:00:00Z' }),
-      makeTx({ id: 'a', type: 'income', amount: 500, account: 'chk', date: '2026-05-01', createdAt: '2026-05-01T09:00:00Z' }),
-    ];
-    // income first (+500 → 600), then expense (-50 → 550)
-    expect(reconcileAccountBalance(acc, txns)).toBe(550);
-  });
-});
-
-describe('deriveOpeningBalance', () => {
-  it('reverse-replays so a forward replay reproduces the current balance', () => {
-    const txns = [
-      makeTx({ id: 't1', type: 'income', amount: 500, account: 'chk', date: '2026-05-01' }),
-      makeTx({ id: 't2', type: 'expense', amount: 200, account: 'chk', date: '2026-05-02' }),
-    ];
-    const acc = makeAccount({ id: 'chk', type: 'checking', balance: 1300 });
-    const opening = deriveOpeningBalance(acc, txns);
-    expect(opening).toBe(1000);
-    // round-trip: reconcile with derived opening reproduces stored balance
-    expect(reconcileAccountBalance({ ...acc, openingBalance: opening }, txns)).toBe(1300);
-  });
-
-  it('equals the current balance for an account with no transactions', () => {
-    const acc = makeAccount({ id: 'chk', type: 'checking', balance: 750 });
-    expect(deriveOpeningBalance(acc, [])).toBe(750);
-  });
-});
-
-describe('detectBalanceDrift', () => {
-  const txns = [makeTx({ id: 't1', type: 'expense', amount: 200, account: 'chk', date: '2026-05-01' })];
-
-  it('flags accounts whose stored balance diverges from the ledger', () => {
-    const acc = makeAccount({ id: 'chk', type: 'checking', balance: 900, openingBalance: 1000 });
-    // expected = 1000 - 200 = 800, stored 900 → drift +100
-    const drift = detectBalanceDrift([acc], txns);
-    expect(drift).toHaveLength(1);
-    expect(drift[0]).toMatchObject({ accountId: 'chk', expected: 800, stored: 900, diff: 100 });
-  });
-
-  it('reports no drift when balances reconcile', () => {
-    const acc = makeAccount({ id: 'chk', type: 'checking', balance: 800, openingBalance: 1000 });
-    expect(detectBalanceDrift([acc], txns)).toHaveLength(0);
-  });
-
-  it('skips accounts that have no opening balance baseline', () => {
-    const acc = makeAccount({ id: 'chk', type: 'checking', balance: 999 });
-    expect(detectBalanceDrift([acc], txns)).toHaveLength(0);
-  });
-});
-
-describe('planReconcile', () => {
-  const txns = [
-    makeTx({ id: 't1', type: 'income', amount: 500, account: 'chk', date: '2026-05-01' }),
-    makeTx({ id: 't2', type: 'expense', amount: 200, account: 'chk', date: '2026-05-02' }),
-  ];
-
-  it('plans a backfill (no repair) for a legacy account whose balance is consistent', () => {
-    // balance 1300 = derived opening 1000 replayed → no drift, just establish basis
-    const acc = makeAccount({ id: 'chk', type: 'checking', balance: 1300 });
-    const plan = planReconcile([acc], txns);
-    expect(plan.toBackfill).toEqual([{ accountId: 'chk', name: 'Acct', openingBalance: 1000 }]);
-    expect(plan.toRepair).toHaveLength(0);
-  });
-
-  it('plans a repair when a baselined balance has drifted', () => {
-    const acc = makeAccount({ id: 'chk', type: 'checking', balance: 1350, openingBalance: 1000 });
-    const plan = planReconcile([acc], txns);
-    expect(plan.toBackfill).toHaveLength(0);
-    expect(plan.toRepair).toEqual([{ accountId: 'chk', name: 'Acct', stored: 1350, expected: 1300, diff: 50 }]);
-  });
-
-  it('plans nothing when a baselined balance already matches', () => {
-    const acc = makeAccount({ id: 'chk', type: 'checking', balance: 1300, openingBalance: 1000 });
-    const plan = planReconcile([acc], txns);
-    expect(plan.toBackfill).toHaveLength(0);
-    expect(plan.toRepair).toHaveLength(0);
   });
 });
 

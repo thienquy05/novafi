@@ -3,7 +3,7 @@ import {
   calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
   calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, pctChange,
   normalizeMonthlyBudget,
-  calcRolloverDeficit, calcEffectiveSpent,
+  calcRolloverCarryover, calcEffectiveBudget,
   calcProjectedSpend, calcSpendingPace,
   calcAvgMonthlyExpense, calcEmergencyFundMonths,
   calcSavingsRateScore, calcEmergencyScore, calcBudgetScore, calcDebtScore, calcHealthGrade,
@@ -507,8 +507,11 @@ describe('applyTransferToBalance', () => {
   it('debt account: balance decreases (payoff)', () => {
     expect(applyTransferToBalance(1000, 500, true)).toBe(500);
   });
-  it('debt overpayment: clamped to 0', () => {
-    expect(applyTransferToBalance(50, 100, true)).toBe(0);
+  it('debt overpayment: goes negative (credit balance, not clamped)', () => {
+    // Overpaying leaves a credit balance the bank owes you. We do NOT clamp at
+    // zero — clamping discarded money and broke reconciliation (apply/reverse
+    // were no longer inverses).
+    expect(applyTransferToBalance(50, 100, true)).toBe(-50);
   });
   it('debt exact payoff: results in 0', () => {
     expect(applyTransferToBalance(500, 500, true)).toBe(0);
@@ -552,11 +555,12 @@ describe('reverseTransferToBalance', () => {
   it('debt account (normal): balance increases (payoff reversed)', () => {
     expect(reverseTransferToBalance(500, 100, true)).toBe(600);
   });
-  it('debt overpayment clamped case — KNOWN LIMITATION', () => {
-    // Original: balance=50, paid 100, clamped to 0. Reversal adds 100 → 100 (≠ original 50).
-    // This is a known limitation when the original payment was clamped by Math.max(0,...).
-    const result = reverseTransferToBalance(0, 100, true);
-    expect(result).toBe(100); // documents actual behavior (not ideal, but expected)
+  it('debt overpayment: apply/reverse are exact inverses (no clamp)', () => {
+    // balance=50, paid 100 → apply gives -50 (credit balance). Reversing that
+    // payment restores the original 50. Now that the clamp is gone, apply and
+    // reverse round-trip cleanly, which is what reconciliation depends on.
+    const applied = applyTransferToBalance(50, 100, true); // -50
+    expect(reverseTransferToBalance(applied, 100, true)).toBe(50);
   });
 });
 
@@ -854,62 +858,53 @@ describe('calcOverBudget', () => {
 
 // ── Budget Rollover ───────────────────────────────────────────────────────────
 
-describe('calcRolloverDeficit', () => {
-  it('underspend (surplus) carries nothing over', () => {
-    // $500 budget, $300 spent → surplus does NOT roll over
-    expect(calcRolloverDeficit(500, 300)).toBe(0);
+describe('calcRolloverCarryover', () => {
+  it('underspend produces positive carryover', () => {
+    // $500 budget, $300 spent → +$200 carryover
+    expect(calcRolloverCarryover(500, 300)).toBe(200);
   });
 
-  it('overspend carries the overage forward', () => {
-    // $500 budget, $600 spent → +$100 deficit rolls into this month's usage
-    expect(calcRolloverDeficit(500, 600)).toBe(100);
+  it('overspend produces negative carryover', () => {
+    // $500 budget, $600 spent → -$100 carryover
+    expect(calcRolloverCarryover(500, 600)).toBe(-100);
   });
 
-  it('exact spend carries nothing over', () => {
-    expect(calcRolloverDeficit(500, 500)).toBe(0);
+  it('exact spend produces zero carryover', () => {
+    expect(calcRolloverCarryover(500, 500)).toBe(0);
   });
 
-  it('no prior spending (new budget) → nothing carried over (no doubling)', () => {
-    expect(calcRolloverDeficit(400, 0)).toBe(0);
-  });
-
-  it('measured against LAST month\'s cap, not the freshly edited cap (no phantom on edit)', () => {
-    // Regression: user spent $499.36 under last month's $500 cap (not over), then
-    // lowered the cap to $110 this month. Rollover must use the frozen prevCap
-    // ($500) — not the new $110 — so no deficit is fabricated.
-    const prevCap = 500;            // cap that was actually active last month
-    const lastMonthSpend = 499.36;  // under last month's cap → not overspent
-    expect(calcRolloverDeficit(prevCap, lastMonthSpend)).toBe(0);
-    // Using the edited cap would wrongly invent a $389.36 deficit:
-    expect(calcRolloverDeficit(110, lastMonthSpend)).toBeCloseTo(389.36, 2);
+  it('no prior spending (new category) → full carryover', () => {
+    expect(calcRolloverCarryover(400, 0)).toBe(400);
   });
 });
 
-describe('calcEffectiveSpent', () => {
-  it('a fixed budget with no rollover shows actual spend', () => {
-    // $100 budget, $0 rolled over → usage = actual spend (no doubling)
-    expect(calcEffectiveSpent(0, 0)).toBe(0);
-    expect(calcEffectiveSpent(40, 0)).toBe(40);
+describe('calcEffectiveBudget', () => {
+  it('surplus carryover increases effective budget', () => {
+    // $500 base + $200 carryover = $700 effective
+    expect(calcEffectiveBudget(500, 200)).toBe(700);
   });
 
-  it('rolled-over deficit adds to this month usage', () => {
-    // $20 overspent last month + $0 spent so far → $20 used
-    expect(calcEffectiveSpent(0, 20)).toBe(20);
+  it('deficit carryover reduces effective budget', () => {
+    // $500 base + (-$100) carryover = $400 effective
+    expect(calcEffectiveBudget(500, -100)).toBe(400);
   });
 
-  it('composed: overspend last month rolls into usage, cap unchanged', () => {
-    const base = 100;
-    const prevSpend = 120;
-    const rolledOver = calcRolloverDeficit(base, prevSpend); // 20
-    // spent $0 this month → usage shows $20 against the fixed $100 cap
-    expect(calcEffectiveSpent(0, rolledOver)).toBe(20);
+  it('zero carryover keeps base budget unchanged', () => {
+    expect(calcEffectiveBudget(500, 0)).toBe(500);
   });
 
-  it('composed: underspend last month leaves usage at actual spend', () => {
-    const base = 100;
-    const prevSpend = 70;
-    const rolledOver = calcRolloverDeficit(base, prevSpend); // 0 (surplus does not roll)
-    expect(calcEffectiveSpent(0, rolledOver)).toBe(0);
+  it('composed: underspend last month increases this month', () => {
+    const base = 500;
+    const prevSpend = 300;
+    const carryover = calcRolloverCarryover(base, prevSpend);
+    expect(calcEffectiveBudget(base, carryover)).toBe(700);
+  });
+
+  it('composed: overspend last month reduces this month', () => {
+    const base = 500;
+    const prevSpend = 600;
+    const carryover = calcRolloverCarryover(base, prevSpend);
+    expect(calcEffectiveBudget(base, carryover)).toBe(400);
   });
 });
 
