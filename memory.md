@@ -2,6 +2,20 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-02 — Loan delete: reverse + delete linked cash transactions server-side (branch claude/awesome-goldberg-6BQLc)
+
+**Goal:** Part of a money-flow consistency pass (sync transactions with accounts/paychecks/loans). A loan's principal and each payback are real `transfer` transactions that move account balances. Deleting a loan reversed those transactions in a **fragile client-side loop** (`handleDeleteLoan`): it DELETE'd each linked tx id one-by-one, then deleted the loan. If the page closed or a request failed mid-loop, you could end up with the loan gone but live orphan transfers still distorting balances (or partial reversal).
+
+**Fix:** Moved the cascade into the loans API so it's atomic within one request.
+- `app/api/loans/route.ts` — `DELETE` now loads loans, finds the target loan, deletes it, then collects `[principalTxId, ...repaymentTxIds]`, and for each still-existing transaction reverses its balance effect via `applyTransactionToBalances(working, tx, 'reverse')` and deletes the row, persisting only changed accounts with `upsertAccount`. Invalidates transactions/accounts/dashboard/badges caches when any tx was reversed. Added imports (`getTransactions`, `deleteTransaction`, `getAccounts`, `upsertAccount`, `applyTransactionToBalances`, `Account`). Mirrors the transactions/paychecks DELETE pattern.
+- `app/(app)/transactions/page.tsx` — `handleDeleteLoan` no longer loops over `/api/transactions` DELETE (that would now double-reverse balances). It just DELETEs the loan and calls `load()` to refresh when the loan had any linked cash transaction.
+
+**Notes:**
+- Loan create/payback still post the tx then the loan from the client (tx-first, with error toast). A mid-step failure there can still orphan a transfer; not changed in this pass (lower risk than delete, and the existing flow already posts the balance-affecting tx first).
+- Bill deletion intentionally leaves past payment expense transactions in place — a paid bill is a real historical expense, not owned by the recurring template.
+
+**Verification:** `npm run typecheck` clean, `npm run lint` 0 errors (pre-existing warnings only), `npm test` 309/309 passing.
+
 ## 2026-06-02 — Paycheck delete now reverses its deposit (branch claude/awesome-goldberg-6BQLc)
 
 **Bug (user):** "for the paycheck, it is only calculate the amount to deposit… we still don't have any formula that handle removal if we delete or change the paycheck amount, my account is messed up."

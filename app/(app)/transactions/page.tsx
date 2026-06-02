@@ -460,15 +460,13 @@ export default function TransactionsPage() {
     const prev = loans;
     setLoans((ls) => ls.filter((l) => l.id !== loan.id));
     try {
-      // Reverse every linked cash transaction so balances return to where they were.
-      const txIds = [loan.principalTxId, ...loan.repaymentTxIds].filter(Boolean);
-      for (const id of txIds) {
-        await fetch('/api/transactions', { method: 'DELETE', body: JSON.stringify({ id }), headers: { 'Content-Type': 'application/json' } });
-      }
+      // The loans API reverses and deletes every linked cash transaction
+      // (principal + paybacks) atomically, so the client just deletes the loan.
       const res = await fetch('/api/loans', { method: 'DELETE', body: JSON.stringify({ id: loan.id }), headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error();
       toast(t('loans.toastDeleted'), 'success');
-      if (txIds.length) load();
+      // Refresh balances + ledger if any cash transactions were reversed.
+      if (loan.principalTxId || loan.repaymentTxIds.length) load();
     } catch {
       setLoans(prev);
       toast(t('loans.toastFailed'), 'error');
