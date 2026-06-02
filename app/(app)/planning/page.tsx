@@ -10,6 +10,7 @@ import { Modal } from '@/components/ui/Modal';
 import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { PlanningSkeleton } from '@/components/ui/Skeleton';
 import { formatCurrency, formatDate, generateId } from '@/lib/utils';
+import { calcRolloverDeficit, calcEffectiveSpent } from '@/lib/calculations';
 import type { Budget, Goal, Transaction, Account } from '@/types';
 import { useCategories } from '@/hooks/useCategories';
 import { Reorder, useDragControls } from 'framer-motion';
@@ -52,6 +53,7 @@ export default function PlanningPage() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [rolloverEnabled, setRolloverEnabled] = useState(false);
 
   const [budgetModalOpen, setBudgetModalOpen] = useState(false);
   const [editBudget, setEditBudget] = useState<Budget | null>(null);
@@ -69,12 +71,13 @@ export default function PlanningPage() {
   const load = useCallback(async () => {
     setError(false);
     try {
-      const [bRes, gRes, tRes, aRes] = await Promise.all([
-        fetch('/api/budgets'), fetch('/api/goals'), fetch('/api/transactions'), fetch('/api/accounts'),
+      const [bRes, gRes, tRes, aRes, sRes] = await Promise.all([
+        fetch('/api/budgets'), fetch('/api/goals'), fetch('/api/transactions'), fetch('/api/accounts'), fetch('/api/settings'),
       ]);
       if (!bRes.ok || !gRes.ok) throw new Error();
-      const [b, g, tx, a] = await Promise.all([bRes.json(), gRes.json(), tRes.json(), aRes.json()]);
+      const [b, g, tx, a, s] = await Promise.all([bRes.json(), gRes.json(), tRes.json(), aRes.json(), sRes.json()]);
       setBudgets(b); setGoals(g); setTransactions(tx); setAccounts(a);
+      setRolloverEnabled(s?.budgetRollover === true);
     } catch {
       setError(true);
     } finally {
@@ -292,14 +295,22 @@ export default function PlanningPage() {
     }, 600);
   }
 
+  // ─── Rollover helper ─────────────────────────────────────────────────────
+  // Last month's overspend that carries into this month's usage. Measured
+  // against `prevCap` — the cap that was actually active last month, frozen by
+  // the server at month rollover — so editing the cap today never fabricates a
+  // deficit. Only applies when the snapshot is for the immediately prior month.
+  function rolledOverDeficit(budget: Budget): number {
+    if (!rolloverEnabled) return 0;
+    if (budget.prevMonth !== prevMonthKey || budget.prevCap === undefined) return 0;
+    return calcRolloverDeficit(budget.prevCap, prevSpentForCategory(budget.category));
+  }
+
   // ─── Derived stats ───────────────────────────────────────────────────────
-  // Over-budget is measured against this month's ACTUAL spend vs the fixed cap,
-  // identical to the Dashboard/reports. Changing a budget never retroactively
-  // fabricates an overspend from a prior month.
   const totalBudgeted = budgets.reduce((s, b) => s + monthlyAmount(b), 0);
   const totalSpent = budgets.reduce((s, b) => s + spentForCategory(b.category), 0);
   const overBudgetCount = budgets.filter(
-    (b) => spentForCategory(b.category) > monthlyAmount(b)
+    (b) => calcEffectiveSpent(spentForCategory(b.category), rolledOverDeficit(b)) > monthlyAmount(b)
   ).length;
 
   const totalGoalTarget = goals.reduce((s, g) => s + g.targetAmount, 0);
@@ -409,16 +420,18 @@ export default function PlanningPage() {
             ) : (
               <Reorder.Group axis="y" values={budgets} onReorder={handleBudgetReorder} className="space-y-3 list-none">
                 {budgets.map((budget) => {
-                  const monthly = monthlyAmount(budget);            // fixed cap
+                  const monthly = monthlyAmount(budget);            // fixed cap (no rollover added)
+                  const rolledOver = rolledOverDeficit(budget);     // ≥ 0, last month's real overspend
                   const spent = spentForCategory(budget.category);  // actual spend this month
+                  const usage = calcEffectiveSpent(spent, rolledOver); // bar usage incl. rolled-over deficit
                   const prevSpent = prevSpentForCategory(budget.category);
                   const rollingAvg = rolling3AvgForCategory(budget.category);
                   const categoryPct = totalMonthSpend > 0 && spent > 0 ? (spent / totalMonthSpend) * 100 : 0;
                   const momDiff = spent - prevSpent;
-                  const pct = monthly > 0 ? Math.min(100, (spent / monthly) * 100) : 0;
-                  const over = spent > monthly;
-                  const remaining = monthly - spent;
-                  const projected = daysElapsed > 0 ? (spent / daysElapsed) * daysInMonth : null;
+                  const pct = monthly > 0 ? Math.min(100, (usage / monthly) * 100) : 0;
+                  const over = usage > monthly;
+                  const remaining = monthly - usage;
+                  const projected = daysElapsed > 0 ? (spent / daysElapsed) * daysInMonth + rolledOver : null;
                   const willOvershoot = projected !== null && projected > monthly && !over;
                   const overshootAmt = projected ? projected - monthly : 0;
 
@@ -427,7 +440,9 @@ export default function PlanningPage() {
                       key={budget.id}
                       budget={budget}
                       monthly={monthly}
+                      rolledOver={rolledOver}
                       spent={spent}
+                      usage={usage}
                       prevSpent={prevSpent}
                       rollingAvg={rollingAvg}
                       categoryPct={categoryPct}
@@ -673,9 +688,9 @@ export default function PlanningPage() {
 }
 
 // ── Draggable Budget Card ──────────────────────────────────────────────────────
-function BudgetItem({ budget, monthly, spent, prevSpent, rollingAvg, categoryPct, momDiff, pct, over, remaining, willOvershoot, overshootAmt, daysLeft, onEdit, onDelete }: {
+function BudgetItem({ budget, monthly, rolledOver, spent, usage, prevSpent, rollingAvg, categoryPct, momDiff, pct, over, remaining, willOvershoot, overshootAmt, daysLeft, onEdit, onDelete }: {
   budget: Budget;
-  monthly: number; spent: number; prevSpent: number; rollingAvg: number; categoryPct: number; momDiff: number;
+  monthly: number; rolledOver: number; spent: number; usage: number; prevSpent: number; rollingAvg: number; categoryPct: number; momDiff: number;
   pct: number; over: boolean; remaining: number; willOvershoot: boolean; overshootAmt: number; daysLeft: number;
   onEdit: (b: Budget) => void; onDelete: (id: string) => void;
 }) {
@@ -696,7 +711,7 @@ function BudgetItem({ budget, monthly, spent, prevSpent, rollingAvg, categoryPct
           </button>
           <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate flex-1 min-w-0">{budget.category}</p>
           <p className="text-sm font-extrabold shrink-0 text-right tabular-nums whitespace-nowrap">
-            <span className={over ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}>{formatCurrency(spent)}</span>
+            <span className={over ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}>{formatCurrency(usage)}</span>
             <span className="text-slate-400 dark:text-slate-500 font-bold text-xs"> / {formatCurrency(monthly)}</span>
           </p>
           <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 h-8 w-8 rounded-xl shrink-0" onClick={(e) => { e.stopPropagation(); onEdit(budget); }}>
@@ -704,7 +719,7 @@ function BudgetItem({ budget, monthly, spent, prevSpent, rollingAvg, categoryPct
           </Button>
         </div>
 
-        {/* Meta: budget amount per period, aligned under the name */}
+        {/* Meta: budget amount per period + rolled-over deficit note, aligned under the name */}
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mb-3 pl-6 text-xs font-medium text-slate-500 dark:text-slate-400">
           <span className="tabular-nums">{formatCurrency(budget.amount)}/{budget.period}</span>
           {budget.period !== 'monthly' && (
@@ -712,6 +727,11 @@ function BudgetItem({ budget, monthly, spent, prevSpent, rollingAvg, categoryPct
               <span className="text-slate-300 dark:text-slate-600">·</span>
               <span className="tabular-nums">{formatCurrency(monthly)}/mo</span>
             </>
+          )}
+          {rolledOver > 0 && (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-bold tabular-nums bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400">
+              +{formatCurrency(rolledOver)} {t('planning.rolledOver')}
+            </span>
           )}
         </div>
 

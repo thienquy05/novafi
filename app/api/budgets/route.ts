@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getBudgets, upsertBudget, deleteBudget, reorderBudgets } from '@/lib/sheets';
+import { getBudgets, upsertBudget, deleteBudget, reorderBudgets, reconcileBudgetMonths } from '@/lib/sheets';
 import { getCache, setCache, invalidateCache } from '@/lib/cache';
 import type { Budget } from '@/types';
 
@@ -13,8 +13,11 @@ export async function GET() {
   if (cached) return NextResponse.json(cached);
 
   const budgets = await getBudgets(session.accessToken, session.spreadsheetId);
-  setCache(key, budgets, 60_000);
-  return NextResponse.json(budgets);
+  // Freeze last month's cap on the first load of a new month so rollover stays
+  // accurate even after the cap is later edited.
+  const reconciled = await reconcileBudgetMonths(session.accessToken, session.spreadsheetId, budgets);
+  setCache(key, reconciled, 60_000);
+  return NextResponse.json(reconciled);
 }
 
 export async function POST(req: NextRequest) {
