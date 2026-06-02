@@ -438,7 +438,7 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM, totalSpend }:
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{b.category.replace(/^categories\./, '')}</span>
-                {!!totalSpend && totalSpend > 0 && b.spent > 0 && (
+                {totalSpend != null && totalSpend > 0 && b.spent > 0 && (
                   <span className="text-xs font-bold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-700/50 px-1.5 py-0.5 rounded-md">
                     {((b.spent / totalSpend) * 100).toFixed(0)}%
                   </span>
