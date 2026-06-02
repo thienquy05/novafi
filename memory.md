@@ -465,3 +465,15 @@ All handlers (save/reset/hard-refresh/category add-hide-restore/lang/dark mode) 
 - `lib/__tests__/calculations.test.ts` — added `myBillShare` suite (4 cases).
 
 **Verification:** `tsc --noEmit` clean; eslint 0 errors (pre-existing setState-in-effect + `_lastCol` warnings only); 302 tests pass (was 298 + 4 new). User confirmed: no existing shared-bill data to migrate.
+
+## 2026-06-02 — PR3: Balance-sync safety — writes never auto-retry on ambiguous failures (branch claude/pr3-balance-sync-safety)
+
+**Request (PR3 of 6):** "Accounts/Savings synced with related transactions (reverse correctly if a transaction is removed); safe/optimized so it won't mess up if a transaction failed."
+
+**Audit findings (verified, no change needed):** every balance-mutating route already writes the ledger row first (source of truth) then applies/reverses balances via the shared `applyTransactionToBalances` + `persistChanged`, and **reverses correctly on delete** — confirmed `'reverse'` paths in transactions, loans, splits, and paychecks routes (loans/splits/paychecks also cascade-reverse their linked cash transfers server-side, from earlier hardening). Balances are stored (not recomputed on read) and `openingBalance` is preserved on edit; switching to recompute-on-write was rejected as unsafe (it would silently overwrite manually-adjusted balances — the reason the manual reconcile tool was removed).
+
+**The one residual hole → fixed (`lib/retry.ts`):** the retry proxy retried **non-idempotent writes** (`append`/`update`/`batchUpdate`) on **network-layer errors** (ECONNRESET/ETIMEDOUT, no HTTP status). Such a drop can occur *after* the server already processed the write (lost response), so retrying could **duplicate a transaction** and permanently distort a balance — the exact "messed up" failure mode. Fixed by gating both 5xx **and** network-error retries behind the `idempotent` flag (renamed from `allow5xx`): idempotent reads (`get`/`batchGet`) still retry on 429/5xx/network; writes now retry **only on 429** (the quota gate rejects before processing, so it's provably safe). A dropped write now surfaces a visible error the caller can safely re-issue, instead of silently double-applying money. Updated the file's header policy comment and the proxy's per-call comment.
+
+- `lib/__tests__/retry.test.ts`: rewrote the network-retry case to assert reads retry / writes don't; added a `withRetryProxy` test that a network error retries on `get` but not on `append`.
+
+**Verification:** `tsc --noEmit` clean; eslint 0 errors (25 pre-existing warnings); 303 tests pass. Branch off master (which already has PR1/PR2/PR4/PR5 merged).

@@ -22,10 +22,16 @@ describe('isRetryableError', () => {
     expect(isRetryableError(httpErr(404), true)).toBe(false);
   });
 
-  it('retries pre-response network failures', () => {
-    expect(isRetryableError(networkErr('ECONNRESET'))).toBe(true);
-    expect(isRetryableError(networkErr('ETIMEDOUT'))).toBe(true);
-    expect(isRetryableError(networkErr('NOPE'))).toBe(false);
+  it('retries network failures only for idempotent reads, never for writes', () => {
+    // Reads (idempotent=true): a lost response is safe to re-fetch.
+    expect(isRetryableError(networkErr('ECONNRESET'), true)).toBe(true);
+    expect(isRetryableError(networkErr('ETIMEDOUT'), true)).toBe(true);
+    // Writes (idempotent=false): a network drop may have happened after the
+    // server processed the write — retrying could duplicate a transaction.
+    expect(isRetryableError(networkErr('ECONNRESET'))).toBe(false);
+    expect(isRetryableError(networkErr('ETIMEDOUT'))).toBe(false);
+    // Unknown network code is never retried.
+    expect(isRetryableError(networkErr('NOPE'), true)).toBe(false);
   });
 
   it('reads status from .status and .response.status shapes', () => {
@@ -152,5 +158,22 @@ describe('withRetryProxy', () => {
 
     expect(await proxy.spreadsheets.values.get()).toBe('read-ok');
     expect(valuesGet).toHaveBeenCalledTimes(2); // read: 5xx retried
+  });
+
+  it('does not retry network errors on writes (append) but does on reads (get)', async () => {
+    const { client, valuesAppend, valuesGet } = makeFakeSheets();
+    const netErr = Object.assign(new Error('ECONNRESET'), { code: 'ECONNRESET' });
+    valuesAppend.mockRejectedValue(netErr);
+    valuesGet.mockRejectedValueOnce(netErr).mockResolvedValue('read-ok');
+    const proxy = withRetryProxy(client, { sleep: noSleep });
+
+    // A write that dropped mid-flight is NOT retried — it may have already
+    // applied, and retrying could duplicate the transaction.
+    await expect(proxy.spreadsheets.values.append()).rejects.toMatchObject({ code: 'ECONNRESET' });
+    expect(valuesAppend).toHaveBeenCalledTimes(1);
+
+    // A read is safe to retry.
+    expect(await proxy.spreadsheets.values.get()).toBe('read-ok');
+    expect(valuesGet).toHaveBeenCalledTimes(2);
   });
 });
