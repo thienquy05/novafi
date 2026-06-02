@@ -273,3 +273,18 @@ Verified: `tsc --noEmit` clean; eslint 0 errors (only the pre-existing planning 
 - Account balances are transaction-driven: a newly logged paycheck posts an income transaction for the full amount (`grossPaycheck + gratuity`) and the balance increments by that full amount, so the whole system already uses the deposited amount going forward. Paychecks logged under the OLD net-deposit model still have a net-valued transaction, so their historical account balance reflects net — that historical ledger data is intentionally NOT auto-migrated here (would require a fuzzy paycheck↔transaction match and mutating financial records); offered separately to the user.
 
 **Verification:** `npm run typecheck` clean, `npm run build` succeeds, `npm run lint` 0 errors (pre-existing warnings only), `npm test` 309/309 passing.
+
+## 2026-06-02 — Account delete: block when transactions still reference it (branch claude/awesome-goldberg-6BQLc)
+
+**Goal:** Final part of the money-flow consistency pass. Deleting an account previously removed only the account row, leaving every transaction that referenced it (as source `account` or transfer `toAccount`) as an orphan pointing at a non-existent account. User chose the non-destructive "Block & warn" behavior over cascade-delete.
+
+**Changes:**
+- `app/api/accounts/route.ts` — `DELETE` now loads transactions first and counts those where `t.account === id || t.toAccount === id`. If any exist it returns HTTP 409 `{ error: 'account_has_transactions', count }` WITHOUT deleting. Otherwise deletes as before. Imported `getTransactions`.
+- `app/(app)/accounts/page.tsx` — `handleDelete` detects the 409, restores the optimistically-removed account, and shows `accounts.toastHasTransactions` (with the count) instead of the generic failure toast.
+- `locales/en.json` & `locales/vi.json` — added `accounts.toastHasTransactions` ("Can't delete: {count} transaction(s) still use this account. Move or delete them first.").
+
+**Notes:**
+- The transaction check also implicitly covers paycheck deposits and loan principal/payback transfers (those are transactions on the account), so an account in active use by a paycheck or loan can't be silently orphaned either.
+- Non-destructive by design: no history is ever deleted; the user reassigns/deletes the referencing transactions (and any linked paycheck/loan) first, then the account.
+
+**Verification:** `npm run typecheck` clean, `npm run lint` 0 errors (pre-existing warnings only), `npm test` 309/309 passing, locale JSON valid.

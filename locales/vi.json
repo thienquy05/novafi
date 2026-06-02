@@ -366,6 +366,7 @@
     "confirmDelete": "Xóa tài khoản này?",
     "toastFailedSave": "Không thể lưu tài khoản",
     "toastFailedDelete": "Không thể xóa tài khoản",
+    "toastHasTransactions": "Không thể xóa: còn {count} giao dịch đang dùng tài khoản này. Hãy chuyển hoặc xóa chúng trước.",
     "creditNote": "tín dụng (ngân hàng nợ bạn)",
     "owed": "còn nợ",
     "paidOff": "đã trả hết",
