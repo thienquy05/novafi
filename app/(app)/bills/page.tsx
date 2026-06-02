@@ -183,7 +183,7 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
       const day = d.getDate();
       if (!dayPaychecks[day]) dayPaychecks[day] = [];
       dayPaychecks[day].push(p);
-      // Net income deposited = take-home pay + tips (matches the auto-created income txn)
+      // Real money deposited = wages kept + tips (matches the auto-created income txn)
       totalPaychecksAmt += p.netAmount + (p.gratuityAmount ?? 0);
     }
   });

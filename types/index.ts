@@ -40,18 +40,24 @@ export interface TaxResult {
   taxableIncome?: number;  // annualized income after deductions (only set when useFederalBrackets is true)
 }
 
+// In the "keep the full paycheck" model the entire amount you received is real
+// money deposited to your account — no tax is withheld. The federal/state/local
+// /FICA fields are the tax you should SET ASIDE (save) for later, not money that
+// was taken out. `netAmount` therefore equals the wages kept (= grossAmount) and
+// `k401`/`hsa` are 0 (nothing is auto-deducted).
 export interface PaycheckEntry {
   id: string;
   date: string;
-  grossAmount: number;
-  federalWithheld: number;
-  stateWithheld: number;
-  localWithheld: number;
-  k401: number;
-  hsa: number;
-  netAmount: number;
-  notes: string;
-  gratuityAmount: number;
+  grossAmount: number;      // taxable wages (tips peeled off)
+  federalWithheld: number;  // federal income tax to set aside
+  stateWithheld: number;    // state income tax to set aside
+  localWithheld: number;    // city/local income tax to set aside
+  ficaWithheld: number;     // FICA (Social Security + Medicare) to set aside
+  k401: number;             // pre-tax 401(k) deduction (0 in the full-deposit model)
+  hsa: number;              // pre-tax HSA deduction (0 in the full-deposit model)
+  netAmount: number;        // wages kept (= grossAmount); deposit = netAmount + gratuityAmount
+  notes: string;            // checking account ID where the paycheck was deposited
+  gratuityAmount: number;   // tips/gratuity (non-taxable), part of the real money deposited
 }
 
 export interface Transaction {

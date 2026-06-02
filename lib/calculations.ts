@@ -615,19 +615,26 @@ export function calcPaycheckEffectiveRate(
   return ((federalWithheld + stateWithheld + localWithheld) / grossAmount) * 100;
 }
 
-// ── Paycheck Total Tax (amount to set aside) ──────────────────────────────────
-// Full tax withheld for a paycheck — income tax (federal + state + local) AND
-// FICA (Social Security + Medicare). Derived as gross − net − pre-tax deductions
-// (401k/HSA), which matches the YTD "Taxes & Deductions" basis (gross − net) and
-// keeps the per-paycheck card balanced: wages − totalTax − (401k+HSA) + tips = take-home.
-// Note: the stored entry does not break out FICA separately, so this back-derives it.
-export function calcPaycheckTotalTax(
-  grossAmount: number,
-  netAmount: number,
-  k401: number,
-  hsa: number,
-): number {
-  return Math.max(0, grossAmount - netAmount - k401 - hsa);
+// ── Paycheck Tax To Set Aside ─────────────────────────────────────────────────
+// In the full-deposit model the whole paycheck is real money you keep, so this is
+// the tax you should SAVE for later: income tax (federal + state + local) + FICA
+// (Social Security + Medicare). New entries store each piece explicitly. Legacy
+// entries (logged under the old "net deposited" model) didn't store FICA and
+// recorded net < gross, so fall back to the old gross − net − deductions basis to
+// recover their full tax figure.
+export function calcPaycheckTaxToSave(p: {
+  grossAmount: number;
+  netAmount: number;
+  k401: number;
+  hsa: number;
+  federalWithheld: number;
+  stateWithheld: number;
+  localWithheld: number;
+  ficaWithheld: number;
+}): number {
+  const explicit = p.federalWithheld + p.stateWithheld + p.localWithheld + p.ficaWithheld;
+  const legacy = Math.max(0, p.grossAmount - p.netAmount - p.k401 - p.hsa);
+  return roundCents(Math.max(explicit, legacy));
 }
 
 // ── Badge Counts ──────────────────────────────────────────────────────────────

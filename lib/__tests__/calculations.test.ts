@@ -15,7 +15,7 @@ import {
   reverseExpenseBalance, reverseIncomeBalance, reverseTransferFromBalance, reverseTransferToBalance,
   billToTransactionDefaults, calcSplitShares, calcLoanRemaining,
   calcOverdueBills, calcOverBudget,
-  calcNetWorthProjection, calcCategoryPct, calcPaycheckEffectiveRate, calcPaycheckTotalTax,
+  calcNetWorthProjection, calcCategoryPct, calcPaycheckEffectiveRate, calcPaycheckTaxToSave,
 } from '@/lib/calculations';
 import type { Account, Transaction, Bill, Budget } from '@/types';
 
@@ -1060,20 +1060,32 @@ describe('calcPaycheckEffectiveRate', () => {
   });
 });
 
-// ── Paycheck Total Tax (amount to set aside) ──────────────────────────────────
+// ── Paycheck Tax To Set Aside ─────────────────────────────────────────────────
 
-describe('calcPaycheckTotalTax', () => {
-  it('back-derives full tax (income + FICA) from gross − net − deductions', () => {
-    // gross 819.93, net 708.60, no 401k/HSA → full tax 111.33 (income tax + FICA)
-    expect(calcPaycheckTotalTax(819.93, 708.60, 0, 0)).toBeCloseTo(111.33, 2);
+describe('calcPaycheckTaxToSave', () => {
+  it('sums the explicit tax pieces (income + FICA) for a full-deposit entry', () => {
+    // full-deposit model: net = gross, no 401k/HSA, taxes stored explicitly
+    const p = {
+      grossAmount: 5000, netAmount: 5000, k401: 0, hsa: 0,
+      federalWithheld: 700, stateWithheld: 250, localWithheld: 150, ficaWithheld: 382.5,
+    };
+    expect(calcPaycheckTaxToSave(p)).toBeCloseTo(1482.5, 2);
   });
 
-  it('excludes pre-tax deductions (401k/HSA) from the tax figure', () => {
-    // gross 5000, net 3500, 401k 300, hsa 100 → tax = 5000 − 3500 − 300 − 100 = 1100
-    expect(calcPaycheckTotalTax(5000, 3500, 300, 100)).toBeCloseTo(1100, 4);
+  it('back-derives full tax for a legacy entry without stored FICA', () => {
+    // legacy: net < gross, FICA not stored → recover via gross − net − deductions
+    const p = {
+      grossAmount: 819.93, netAmount: 708.60, k401: 0, hsa: 0,
+      federalWithheld: 0, stateWithheld: 0, localWithheld: 0, ficaWithheld: 0,
+    };
+    expect(calcPaycheckTaxToSave(p)).toBeCloseTo(111.33, 2);
   });
 
   it('never returns negative', () => {
-    expect(calcPaycheckTotalTax(100, 200, 0, 0)).toBe(0);
+    const p = {
+      grossAmount: 100, netAmount: 200, k401: 0, hsa: 0,
+      federalWithheld: 0, stateWithheld: 0, localWithheld: 0, ficaWithheld: 0,
+    };
+    expect(calcPaycheckTaxToSave(p)).toBe(0);
   });
 });
