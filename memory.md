@@ -374,6 +374,24 @@ Verified: `tsc --noEmit` clean; eslint 0 errors (only the pre-existing planning 
 
 **Verification:** `locales/*.json` parse OK; no remaining `settings.reconcile` references; no `tsc` errors reference any removed identifier (remaining tsc output is pre-existing missing-`node_modules`/`@types` noise in this environment).
 
+## 2026-06-02 — PR5: Settings UI redesign — in-page tabs + polish (branch claude/pr5-settings-redesign)
+
+**Request (PR5 of 6):** "Potentially enhance the UI, more clean and organized." Settings was one long flat scroll of 9 cards. **Iteration history:** (1) first built tabbed in-page pill-nav; (2) user said keep it ONE single page, reverted to non-clickable group bands; (3) user then preferred the tabbed switcher back ("easier to navigate"). **Final = in-page tabs.** The tabs live INSIDE the Settings page (sticky pill row under the page title); the app nav bar (`components/Sidebar.tsx`) is unchanged — "Settings" stays one nav entry. **Lesson: confirm structural direction (tabs vs single page) up front on a "you decide" redesign; the user iterated twice on this.**
+
+**Final design (`app/(app)/settings/page.tsx`, behavior unchanged):**
+- **In-page sticky tab nav** (`section` state: `general | taxes | categories | about`), pill buttons with icons, horizontally scrollable on mobile. Each tab renders only its cards.
+  - **General**: Name Preference, Language & Region, Dashboard Preferences (toggles).
+  - **Taxes & Payroll**: Payroll Deductions, Federal Tax, State & Local, FICA.
+  - **Categories**: Custom Categories (add/hide/restore expense + income).
+  - **About & Data**: App Update, Data Storage.
+- Consistent `SectionTitle` (indigo icon chip + title) on **every** card. Icons: User, Globe, SlidersHorizontal, Receipt, Landmark, Building2, ShieldCheck, Tags, RefreshCw, Database.
+- Module-level `ToggleRow` for the 3 dashboard-preference switches (~30 lines dup removed); federal-brackets switch stays custom (colored callout).
+- Heavy 2026 IRS bracket **table + standard deduction in a `<details>` expandable** (summary shows active filing status); "Maximize savings" callout stays visible.
+- `locales/en.json` + `vi.json`: added `settings.sectionGeneral/sectionTaxes/sectionCategories/sectionAbout`.
+
+All handlers (save/reset/hard-refresh/category add-hide-restore/lang/dark mode) preserved verbatim. Branch off master.
+
+**Verification:** `tsc --noEmit` clean; eslint 0 errors (25 pre-existing warnings); 298 tests pass.
 ## 2026-06-02 — PR4: UI fixes — toast close button + account-group pluralization (branch claude/pr4-ui-fixes)
 
 **Request (PR4 of 6):** (1) The notification toast's little ✕ didn't close the popup. (2) Creating a Savings/Checking account showed a doubled "s" in the section header ("Savingss", "Checkings") and a stray "s" in Vietnamese.
