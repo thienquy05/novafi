@@ -2,6 +2,19 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-02 — Budget rollover: fixed cap, deficit-only on usage (branch claude/budget-calculation-bug-INfrq)
+
+**Request:** the budget cap must stay **fixed**. When rollover is on, only last month's **overspend** should carry into this month's progress-bar usage; an **underspend** carries nothing (a new month starts at 0 used). Master had reverted to the two-way carryover model (`effectiveBudget = 2·base − prevMonthSpend`), which *moves the cap* up on underspend / down on overspend — the wrong behavior.
+
+**Change (replaces the two-way model with deficit-only-on-usage):**
+- `lib/calculations.ts`: removed `calcRolloverCarryover`/`calcEffectiveBudget`; added `calcRolloverDeficit(baseBudget, prevMonthSpend) = max(0, prevMonthSpend − baseBudget)` and `calcEffectiveSpent(spent, rolledOverDeficit) = spent + rolledOverDeficit`.
+- `app/(app)/planning/page.tsx`: replaced `effectiveMonthlyAmount`/`carryoverAmount` with a single `rolledOverDeficit(budget)` (0 when rollover off). `totalBudgeted` sums the **fixed** `monthlyAmount`; `overBudgetCount` compares `calcEffectiveSpent(spent, deficit)` to the fixed cap. Per-budget: `monthly = monthlyAmount` (fixed), `usage = spent + rolledOver`; `pct`/`over`/`remaining`/`projected` use `usage`; `momDiff`/`categoryPct` still use actual `spent`. `BudgetItem` now takes `rolledOver`/`usage`, the header shows `usage / cap`, and the meta badge is a single rose `+{deficit} {t('planning.rolledOver')}` ("from last month") shown only when `rolledOver > 0` (no more green surplus badge).
+- `lib/__tests__/calculations.test.ts`: swapped the carryover/effective-budget suites for `calcRolloverDeficit` (surplus→0, overspend→overage, exact/new→0) and `calcEffectiveSpent` (usage = spend + deficit).
+
+Note: editing a budget still recomputes the deficit against the current cap (no per-month cap history is stored) — accepted per user as the intended/"normal" behavior. Branch was reset to latest master (9687d5a) before applying this, since earlier snapshot/revert work on it was abandoned.
+
+Verified: `tsc --noEmit` clean; eslint 0 errors (pre-existing setState-in-effect warning only); 298 tests pass.
+
 ## 2026-06-02 — Loan create/payback: write cash transaction + loan atomically server-side (branch claude/awesome-goldberg-6BQLc)
 
 **Goal:** Complete the money-flow consistency pass. Loan create and payback still posted the cash `transfer` transaction and the loan as two separate client requests (`/api/transactions` then `/api/loans`). A failure between them could leave a loan with no matching ledger row, or an orphan transfer with no loan. Now mirrors the delete path: one request writes both.
