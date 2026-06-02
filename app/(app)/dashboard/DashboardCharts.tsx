@@ -256,7 +256,7 @@ export function HealthBanner({
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-medium text-slate-600 dark:text-slate-300">
             <span><span className="font-bold text-slate-900 dark:text-slate-100">{formatCurrency(cashFlow)}</span> {t('charts.netLabel')}</span>
             <span className="text-slate-300 dark:text-slate-600">·</span>
-            <span><span className="font-bold text-slate-900 dark:text-slate-100">{formatCurrency(safeToSpend)}</span> {t('charts.afterBills')}</span>
+            <span><span className={`font-bold ${safeToSpend < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>{formatCurrency(safeToSpend)}</span> {t('charts.afterBills')}</span>
           </div>
         )}
       </div>

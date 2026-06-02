@@ -53,8 +53,11 @@ export function calcSavingsRate(income: number, spending: number): number {
   return Math.max(0, ((income - spending) / income) * 100);
 }
 
+// Money left after this month's spending and upcoming bills. Can go negative
+// when bills exceed what's left — we surface that shortfall instead of flooring
+// at 0 so you see exactly how far under you are, not just "$0.00".
 export function calcSafeToSpend(income: number, spending: number, bills: number): number {
-  return Math.max(0, income - spending - bills);
+  return income - spending - bills;
 }
 
 // Cash-basis spending for "safe to spend": the real money that left (or is
