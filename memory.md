@@ -373,3 +373,22 @@ Verified: `tsc --noEmit` clean; eslint 0 errors (only the pre-existing planning 
 - Note: this supersedes the credit-card debt-payoff clamp fix from earlier today for the reconcile path specifically — but the clamp removal in `applyTransferToBalance` is retained because it also affects live balance updates (overpaying a card now correctly yields a credit balance instead of being silently discarded).
 
 **Verification:** `locales/*.json` parse OK; no remaining `settings.reconcile` references; no `tsc` errors reference any removed identifier (remaining tsc output is pre-existing missing-`node_modules`/`@types` noise in this environment).
+
+## 2026-06-02 — PR1: Shared bills as Loan-style receivables + dashboard "my share" sync + due-date colors (branch claude/pr1-bills-loan-model)
+
+**Request (NovaFi enhancement, PR1 of 6):** When paying a SHARED bill, the FULL amount should leave the assigned account (you really pay the whole bill), but your expense tracker must count only YOUR share. The other person's share is tracked like a Loan receivable ("Owed to You"); when you mark them transferred, that cash returns to the account (NOT income, but logged in transfer history). Plus: dashboard summaries must use "my share" for bills everywhere; budget summary must include rollover; due-date colors red ≤3d / yellow 4–7d; fix the mobile-truncated HealthBanner subtitle.
+
+**Model (mirrors loans):** On pay → my-share `expense` (counts as spending) + a `transfer` cash-OUT of the friend's share (empty counterparty, so it moves the balance but is NOT income/expense). On settle → a `transfer` cash-IN of their share (empty counterparty). Net account impact = your share; spending = your share always; the receivable is the friend's share. Delete reverses both transfers atomically server-side.
+
+**Changes:**
+- `types/index.ts` — `Split` gains `frontedTxId?` / `settleTxId?` (ids of the fronted-out and settle-in transfers).
+- `lib/sheets.ts` — `SPLITS_HEADER` + 2 cols (`fronted_tx_id`, `settle_tx_id`); `getSplits` range `A2:M1000` parses `r[11]`/`r[12]`; `upsertSplit` writes them; `deleteRowById` last-col `K`→`M`. Legacy rows read as `''` (note-only).
+- `lib/calculations.ts` — added exported `myBillShare(bill)` (single source of truth; full amount unless split → `calcSplitShares(...).mine`).
+- `app/api/splits/route.ts` — rewritten to mirror loans route: POST accepts bare `Split`, `{split, tx}` (write+apply balance), or `{split, removeTxId}` (reverse+delete); DELETE reverses `frontedTxId`+`settleTxId` atomically via `applyTransactionToBalances` + `persistChanged`.
+- `app/(app)/bills/page.tsx` — removed local `myBillShare` (imports shared one); added `buildSplitTx('cashOut'|'cashIn', …)` (transfer w/ empty counterparty); `handleRecordPayment` fronts friend's share when an account is selected (bundled `{split, tx}`), note-only otherwise; `handleSplitToggle` settle→cash-in `{split, tx}`, unsettle→`{split, removeTxId}`; due-date colors: `isUrgent = daysUntil<=3` (red, incl. overdue), `isDueSoon = 4..7` (yellow), else normal — applied to card border, icon, amount.
+- `app/(app)/dashboard/page.tsx` — `billsThisMonth` + `upcomingBillsTotal` + bill-forecast row amount now use `myBillShare`; `budgetData` adds `rolledOver` (via `calcRolloverDeficit` when `settings.budgetRollover`); `overBudgetCount` compares `spent+rolledOver` to cap.
+- `app/(app)/dashboard/DashboardCharts.tsx` — `BudgetData` gains `rolledOver?`; `BudgetBars` uses `usage = spent + rolledOver` for pct/over/remaining/projected and shows a `+{rolledOver} from last month` amber chip; `HealthBanner` subtitle no longer one truncating string — renders wrapping segments `{net}` · `{after bills}` (and `overIncome`/`recordPaycheckHint` branches) so it doesn't clip on mobile.
+- `locales/en.json` + `vi.json` — added `bills.txFronted`, `bills.txSettled`; rewrote `bills.splitHelp` / `bills.splitPayNote` for the full-charge model; added `charts.netLabel`, `charts.afterBills`, `charts.overIncome`, `charts.recordPaycheckHint`.
+- `lib/__tests__/calculations.test.ts` — added `myBillShare` suite (4 cases).
+
+**Verification:** `tsc --noEmit` clean; eslint 0 errors (pre-existing setState-in-effect + `_lastCol` warnings only); 302 tests pass (was 298 + 4 new). User confirmed: no existing shared-bill data to migrate.
