@@ -462,8 +462,13 @@ export default function BillsPage() {
 
   function openPayModal(bill: Bill) {
     const defaults = billToTransactionDefaults(bill, today());
+    // For a shared bill, log only YOUR share as the expense — the other person
+    // covers their part separately (tracked under "Owed to You", no transaction).
+    const myAmount = bill.splitContactId && bill.splitAmount
+      ? calcSplitShares(bill.amount, bill.splitAmount).mine
+      : defaults.amount;
     setPayBill(bill);
-    setPayForm({ description: defaults.description, date: defaults.date, amount: String(defaults.amount), account: defaults.account, category: defaults.category });
+    setPayForm({ description: defaults.description, date: defaults.date, amount: String(myAmount), account: defaults.account, category: defaults.category });
   }
 
   function closePayModal() { setPayBill(null); }
@@ -541,62 +546,33 @@ export default function BillsPage() {
     closePayModal();
   }
 
-  // Tick/untick "they transferred the money" for one shared-bill payment.
+  // Tick/untick "they transferred the money" for one shared-bill payment. This
+  // is purely an informational status — your expense already counts only your
+  // share, so settling their part creates no transaction.
   async function handleSplitToggle(split: Split) {
     setSettlingSplitId(split.id);
+    const updated: Split = split.settled
+      ? { ...split, settled: false, settledDate: '' }
+      : { ...split, settled: true, settledDate: today() };
+    setSplits((prev) => prev.map((s) => s.id === split.id ? updated : s));
     try {
-      if (!split.settled) {
-        // They paid you back → record an offsetting refund (a negative expense)
-        // so your spending/category totals net down to just your share. Dated to
-        // the original payment so the whole split reconciles in the same month.
-        const refundId = generateId();
-        const refundTx: Transaction = {
-          id: refundId,
-          date: split.date,
-          description: t('bills.reimbursedDesc', { name: split.contactName, bill: split.billName }),
-          amount: -Math.abs(split.amount),
-          type: 'expense',
-          category: split.category,
-          account: split.account,
-          createdAt: new Date().toISOString(),
-        };
-        const updated: Split = { ...split, settled: true, settledDate: today(), refundTxId: refundId };
-        const txRes = await fetch('/api/transactions', { method: 'POST', body: JSON.stringify(refundTx), headers: { 'Content-Type': 'application/json' } });
-        if (!txRes.ok) throw new Error();
-        await fetch('/api/splits', { method: 'POST', body: JSON.stringify(updated), headers: { 'Content-Type': 'application/json' } });
-        setSplits((prev) => prev.map((s) => s.id === split.id ? updated : s));
-        setTransactions((prev) => [refundTx, ...prev]);
-        toast(t('bills.toastSplitSettled', { name: split.contactName }), 'success');
-      } else {
-        // Un-tick → remove the refund so the books return to "they still owe you".
-        if (split.refundTxId) {
-          await fetch('/api/transactions', { method: 'DELETE', body: JSON.stringify({ id: split.refundTxId }), headers: { 'Content-Type': 'application/json' } });
-        }
-        const updated: Split = { ...split, settled: false, settledDate: '', refundTxId: '' };
-        await fetch('/api/splits', { method: 'POST', body: JSON.stringify(updated), headers: { 'Content-Type': 'application/json' } });
-        setSplits((prev) => prev.map((s) => s.id === split.id ? updated : s));
-        setTransactions((prev) => prev.filter((tx) => tx.id !== split.refundTxId));
-        toast(t('bills.toastSplitUnsettled', { name: split.contactName }), 'info');
-      }
+      const res = await fetch('/api/splits', { method: 'POST', body: JSON.stringify(updated), headers: { 'Content-Type': 'application/json' } });
+      if (!res.ok) throw new Error();
+      toast(updated.settled ? t('bills.toastSplitSettled', { name: split.contactName }) : t('bills.toastSplitUnsettled', { name: split.contactName }), updated.settled ? 'success' : 'info');
     } catch {
+      setSplits((prev) => prev.map((s) => s.id === split.id ? split : s));
       toast(t('bills.toastFailedSplit'), 'error');
-      await load();
     } finally {
       setSettlingSplitId(null);
     }
   }
 
-  // Removes an "owed to you" record. If it was settled, the offsetting refund is
-  // removed too so balances stay correct.
+  // Removes an "owed to you" record (informational only — no transactions involved).
   async function handleDeleteSplit(split: Split) {
     if (!confirm(t('bills.confirmDeleteSplit'))) return;
     const prev = splits;
     setSplits((s) => s.filter((x) => x.id !== split.id));
     try {
-      if (split.settled && split.refundTxId) {
-        await fetch('/api/transactions', { method: 'DELETE', body: JSON.stringify({ id: split.refundTxId }), headers: { 'Content-Type': 'application/json' } });
-        setTransactions((txs) => txs.filter((tx) => tx.id !== split.refundTxId));
-      }
       const res = await fetch('/api/splits', { method: 'DELETE', body: JSON.stringify({ id: split.id }), headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error();
     } catch {
