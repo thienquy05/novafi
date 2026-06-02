@@ -85,6 +85,7 @@ const CONTACTS_HEADER = ['id', 'name', 'created_at'];
 const SPLITS_HEADER = [
   'id', 'bill_id', 'bill_name', 'contact_id', 'contact_name', 'amount',
   'category', 'account', 'date', 'settled', 'settled_date',
+  'fronted_tx_id', 'settle_tx_id',
 ];
 const LOANS_HEADER = [
   'id', 'direction', 'contact_id', 'contact_name', 'account', 'principal',
@@ -662,7 +663,7 @@ export async function getSplits(
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'Splits!A2:K1000',
+      range: 'Splits!A2:M1000',
     });
     return (res.data.values ?? []).map((r) => ({
       id: r[0] ?? '',
@@ -676,6 +677,8 @@ export async function getSplits(
       date: r[8] ?? '',
       settled: r[9] === 'true',
       settledDate: r[10] ?? '',
+      frontedTxId: r[11] ?? '',
+      settleTxId: r[12] ?? '',
     }));
   } catch (err) {
     if (!isMissingTabError(err)) throw err;
@@ -691,7 +694,7 @@ export async function upsertSplit(
 ): Promise<void> {
   const sheets = getSheetsClient(accessToken);
   await ensureSheet(sheets, spreadsheetId, 'Splits', SPLITS_HEADER);
-  await deleteRowById(accessToken, spreadsheetId, 'Splits', split.id, 'K');
+  await deleteRowById(accessToken, spreadsheetId, 'Splits', split.id, 'M');
   await sheets.spreadsheets.values.append({
     spreadsheetId,
     range: 'Splits!A1',
@@ -702,6 +705,7 @@ export async function upsertSplit(
         split.id, split.billId, split.billName, split.contactId, split.contactName,
         split.amount, split.category, split.account, split.date,
         String(split.settled), split.settledDate,
+        split.frontedTxId ?? '', split.settleTxId ?? '',
       ]],
     },
   });
@@ -712,7 +716,7 @@ export async function deleteSplit(
   spreadsheetId: string,
   id: string
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Splits', id, 'K');
+  await deleteRowById(accessToken, spreadsheetId, 'Splits', id, 'M');
 }
 
 // ── Loans (personal lend/borrow IOUs) ──────────────────────────────────────────

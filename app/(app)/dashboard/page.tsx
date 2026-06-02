@@ -10,7 +10,7 @@ import {
   calcDebtToIncomeScore, calcDebtToIncomeRatio,
   calcNetWorthTrendScore, calcAvgMomPct,
   calcSpendingVolatilityScore, calcCoefficientOfVariation,
-  calcNetWorthProjection,
+  calcNetWorthProjection, myBillShare, calcRolloverDeficit,
 } from '@/lib/calculations';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { TrendingUp, TrendingDown, Calendar, PiggyBank, ArrowUpRight, Wallet, BarChart3, ArrowLeftRight } from 'lucide-react';
@@ -139,17 +139,20 @@ export default async function DashboardPage() {
     })
     .sort((a, b) => a.nextDue.localeCompare(b.nextDue));
 
-  // Bills due this month (all, for safe-to-spend; includes already-passed due dates)
+  // Bills due this month (all, for safe-to-spend; includes already-passed due
+  // dates). Uses your share only for shared bills — the other person's portion
+  // isn't your cost (it's a tracked receivable), so it shouldn't reduce what's
+  // safe to spend.
   const billsThisMonth = bills
     .filter((b) => {
       if (!b.isActive) return false;
       const due = new Date(b.nextDue + 'T00:00:00');
       return due.getMonth() === now.getMonth() && due.getFullYear() === now.getFullYear();
     })
-    .reduce((s, b) => s + b.amount, 0);
+    .reduce((s, b) => s + myBillShare(b), 0);
 
-  // Total remaining bills this month (rest-of-month forecast)
-  const upcomingBillsTotal = upcomingBills.reduce((s, b) => s + b.amount, 0);
+  // Total remaining bills this month (rest-of-month forecast) — your share only.
+  const upcomingBillsTotal = upcomingBills.reduce((s, b) => s + myBillShare(b), 0);
 
   // Safe to spend
   const safeToSpend = calcSafeToSpend(monthIncome, monthSpending, billsThisMonth);
@@ -188,13 +191,21 @@ export default async function DashboardPage() {
     prevMonthCategorySpend[tx.category] = (prevMonthCategorySpend[tx.category] ?? 0) + tx.amount;
   });
 
-  const budgetData = budgets.map((b) => ({
-    category: b.category,
-    budget: normalizeMonthlyBudget(b.amount, b.period),
-    spent: categorySpend[b.category] ?? 0,
-    prevMonthSpent: prevMonthCategorySpend[b.category] ?? 0,
-  }));
-  const overBudgetCount = budgetData.filter((b) => b.spent > b.budget).length;
+  // When rollover is on, last month's overspend carries into this month's usage
+  // (the cap stays fixed) — same model as the Planning page, so the dashboard
+  // summary matches it. `rolledOver` is 0 when the toggle is off.
+  const budgetData = budgets.map((b) => {
+    const monthly = normalizeMonthlyBudget(b.amount, b.period);
+    const prevSpent = prevMonthCategorySpend[b.category] ?? 0;
+    return {
+      category: b.category,
+      budget: monthly,
+      spent: categorySpend[b.category] ?? 0,
+      prevMonthSpent: prevSpent,
+      rolledOver: settings.budgetRollover ? calcRolloverDeficit(monthly, prevSpent) : 0,
+    };
+  });
+  const overBudgetCount = budgetData.filter((b) => b.spent + b.rolledOver > b.budget).length;
 
   // Net worth projection (6 months forward based on avg MoM rate)
   const projectedValues = calcNetWorthProjection(netWorthPoints, 6);
@@ -567,7 +578,7 @@ export default async function DashboardPage() {
                         </div>
                       </div>
                       <span className={`text-sm font-extrabold ${isUrgent ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>
-                        {formatCurrency(bill.amount)}
+                        {formatCurrency(myBillShare(bill))}
                       </span>
                     </div>
                   );

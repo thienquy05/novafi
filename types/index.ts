@@ -112,10 +112,13 @@ export interface Contact {
   createdAt: string;
 }
 
-// One "owed to you" record, created each time a split bill is paid. Purely
-// informational: your expense already counts only your share, so this just
-// tracks the other person's share and whether they've settled up — marking it
-// settled creates no transaction.
+// One "owed to you" record, created each time a split bill is paid. The other
+// person's share is treated like a Loan receivable: when the bill is paid you
+// front their share out of the assigned account as a `transfer` (so the account
+// reflects the FULL amount you really paid, while your expense counts only your
+// share). When they pay you back, marking it settled writes a `transfer` back
+// into the account (cash in, not income). Both cash movements are tracked here
+// so deleting the record reverses the balances atomically.
 export interface Split {
   id: string;
   billId: string;
@@ -124,10 +127,12 @@ export interface Split {
   contactName: string; // denormalized for display
   amount: number;      // the other person's share they owe you
   category: string;    // the bill's category at payment time (captured for context)
-  account: string;     // account the bill was paid from (captured for context)
+  account: string;     // account the bill was paid from; where fronted cash leaves/returns
   date: string;        // YYYY-MM-DD the bill was paid
   settled: boolean;    // they've paid you their share
   settledDate: string; // YYYY-MM-DD they settled up ('' until settled)
+  frontedTxId?: string; // id of the `transfer` that fronted their share out of `account` ('' = note only)
+  settleTxId?: string;  // id of the `transfer` that returned their share on settle ('' until settled)
 }
 
 export interface Goal {

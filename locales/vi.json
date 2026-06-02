@@ -134,6 +134,10 @@
     "savingsRateKPINote": "thu nhập tiết kiệm tháng này"
   },
   "charts": {
+    "netLabel": "ròng",
+    "afterBills": "sau hóa đơn",
+    "overIncome": "{amount} vượt thu nhập",
+    "recordPaycheckHint": "Ghi nhận lương để theo dõi dòng tiền",
     "greatShape": "Rất tốt",
     "lookingGood": "Khá tốt",
     "watchSpending": "Chú ý chi tiêu",
@@ -293,9 +297,11 @@
     "theirShare": "Phần của họ ($)",
     "theirShareShort": "Phần của họ",
     "yourShare": "Phần của bạn",
-    "splitHelp": "Bạn chỉ ghi nhận phần của mình làm chi tiêu. Phần của họ được theo dõi trong mục \"Họ nợ bạn\" để nhắc nhở.",
+    "splitHelp": "Toàn bộ hóa đơn trừ vào tài khoản, nhưng chỉ phần của bạn được tính là chi tiêu. Phần của họ được ứng ra từ tài khoản và theo dõi trong mục \"Họ nợ bạn\" cho đến khi họ trả lại.",
     "splitBadge": "{name} · bạn {your} / họ {their}",
-    "splitPayNote": "Chỉ ghi nhận phần của bạn. {name} tự lo phần {amount} của họ, được theo dõi trong mục \"Họ nợ bạn\".",
+    "splitPayNote": "Toàn bộ hóa đơn trừ vào tài khoản này; chỉ phần của bạn là chi tiêu. Phần {amount} của {name} được ứng ra và theo dõi trong \"Họ nợ bạn\" — sẽ quay lại tài khoản khi bạn đánh dấu họ đã chuyển.",
+    "txFronted": "Phần của {name} · {bill}",
+    "txSettled": "{name} đã trả · {bill}",
     "owedToYou": "Họ nợ bạn",
     "transferred": "Đã chuyển",
     "markTransferred": "Đánh dấu đã chuyển",
@@ -341,6 +347,8 @@
     "txRepaidToYou": "{name} đã trả bạn",
     "txYouRepaid": "Đã trả {name}",
     "toastAdded": "Đã thêm khoản vay",
+    "toastUpdated": "Đã cập nhật khoản vay",
+    "saveChanges": "Lưu thay đổi",
     "toastFailed": "Không thể cập nhật khoản vay",
     "toastFailedContact": "Không thể thêm người",
     "toastPayback": "Đã ghi nhận trả nợ",
@@ -379,7 +387,12 @@
     "typeSavings": "Tiết kiệm",
     "typeCredit": "Thẻ tín dụng",
     "typeInvestment": "Đầu tư",
-    "typeLoan": "Khoản vay"
+    "typeLoan": "Khoản vay",
+    "groupChecking": "Tài khoản thanh toán",
+    "groupSavings": "Tài khoản tiết kiệm",
+    "groupCredit": "Thẻ tín dụng",
+    "groupInvestment": "Đầu tư",
+    "groupLoan": "Khoản vay"
   },
   "savings": {
     "title": "Tiết kiệm",

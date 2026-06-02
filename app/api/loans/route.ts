@@ -72,6 +72,52 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
+// Edits a loan, adjusting its principal cash movement in the SAME request so
+// balances never desync. The client computes the new loan and (optionally) a
+// freshly built principal transfer, and tells us which old principal transfer
+// to retire. We reverse the old transfer, apply the new one, and upsert the
+// loan in a single in-memory balance pass. Paybacks are untouched — only the
+// principal cash row is rebuilt.
+export async function PUT(req: NextRequest) {
+  const session = await auth();
+  if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { updated, newTx, removeTxId }: { updated: Loan; newTx?: Transaction; removeTxId?: string } =
+    await req.json();
+
+  if (removeTxId || newTx) {
+    const [transactions, accounts] = await Promise.all([
+      getTransactions(session.accessToken, session.spreadsheetId),
+      getAccounts(session.accessToken, session.spreadsheetId),
+    ]);
+    let working: Account[] = accounts;
+
+    // Retire the old principal transfer first (reverse its balance, drop the row).
+    if (removeTxId) {
+      const old = transactions.find((t) => t.id === removeTxId);
+      if (old) {
+        working = applyTransactionToBalances(working, old, 'reverse');
+        await deleteTransaction(session.accessToken, session.spreadsheetId, old.id);
+      }
+    }
+    // Write the new principal transfer and apply its balance.
+    if (newTx) {
+      await addTransaction(session.accessToken, session.spreadsheetId, newTx);
+      working = applyTransactionToBalances(working, newTx, 'apply');
+    }
+
+    await persistChanged(session.accessToken, session.spreadsheetId, accounts, working);
+    invalidateCache(`transactions:${session.spreadsheetId}`);
+    invalidateCache(`accounts:${session.spreadsheetId}`);
+    invalidateCache(`dashboard:${session.spreadsheetId}`);
+    invalidateCache(`badges:${session.spreadsheetId}`);
+  }
+
+  await upsertLoan(session.accessToken, session.spreadsheetId, updated);
+  invalidateCache(`loans:${session.spreadsheetId}`);
+  return NextResponse.json({ ok: true });
+}
+
 export async function DELETE(req: NextRequest) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

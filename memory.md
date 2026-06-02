@@ -392,3 +392,43 @@ Verified: `tsc --noEmit` clean; eslint 0 errors (only the pre-existing planning 
 All handlers (save/reset/hard-refresh/category add-hide-restore/lang/dark mode) preserved verbatim. Branch off master.
 
 **Verification:** `tsc --noEmit` clean; eslint 0 errors (25 pre-existing warnings); 298 tests pass.
+## 2026-06-02 — PR4: UI fixes — toast close button + account-group pluralization (branch claude/pr4-ui-fixes)
+
+**Request (PR4 of 6):** (1) The notification toast's little ✕ didn't close the popup. (2) Creating a Savings/Checking account showed a doubled "s" in the section header ("Savingss", "Checkings") and a stray "s" in Vietnamese.
+
+**Root causes & fixes:**
+- `lib/toast.tsx` — `<Toast.Root open>` was hard-coded open with no `onOpenChange`, so Radix's close (✕ click, swipe, duration) could never actually dismiss it; removal relied solely on a manual `setTimeout`. Fixed: dropped the forced `open`, added per-toast `duration={t.action ? 6000 : 3500}` and `onOpenChange={(open)=>{ if(!open) remove(t.id) }}` so the close button, swipe, and auto-timeout all funnel through one removal path (and auto-dismiss now pauses on hover, via Radix).
+- `app/(app)/accounts/page.tsx` — section header rendered `{label}s` (singular type label + literal "s"). Added `ACCOUNT_TYPE_GROUP_LABELS` (localized plurals) and render `{label}` instead. `ACCOUNT_TYPE_LABELS` (singular) is still used by the add-account type picker.
+- `locales/en.json` + `vi.json` — added `accounts.groupChecking/Savings/Credit/Investment/Loan` (en: "Checking", "Savings", "Credit Cards", "Investments", "Loans"; vi: natural noun forms with no plural "s").
+
+**Verification:** `tsc --noEmit` clean; eslint 0 errors (25 pre-existing warnings); 298 tests pass. Branch off master.
+## 2026-06-02 — PR2: Edit button for Loans / IOUs (full edit) (branch claude/pr2-loan-edit)
+
+**Request (PR2 of 6):** Loans & IOUs had add / payback / delete but no edit. User chose FULL edit — including principal amount & account — with the principal cash transfer adjusted so balances stay correct.
+
+**Changes:**
+- `app/api/loans/route.ts` — added `PUT { updated, newTx?, removeTxId? }`: reverses+deletes the old principal transfer and applies the new one in one in-memory balance pass (`applyTransactionToBalances` + `persistChanged`), then `upsertLoan(updated)`; invalidates tx/accounts/dashboard/badges + loans caches. Paybacks (`repaymentTxIds`) are untouched — only the principal cash row is rebuilt.
+- `app/(app)/transactions/page.tsx` — new `editingLoanId` state; `openEditLoan(loan)` pre-fills the existing inline loan form; `handleEditLoan()` rebuilds the principal `transfer` via `buildLoanTx(direction,'principal',…)` from the edited amount/account/direction/date, recomputes `settled` against the new principal (`repaidAmount >= principal`), and calls the PUT with `removeTxId = original.principalTxId`. The inline form's save button switches between add/edit (`handleEditLoan` + `loans.saveChanges`); added a Pencil edit button on each open-loan card; modal close / cancel / add all reset `editingLoanId`.
+- `locales/en.json` + `vi.json` — added `loans.toastUpdated`, `loans.saveChanges`.
+
+**Notes:** Editing direction with existing paybacks is an unusual combo — paybacks keep their original cash direction (only the principal transfer is rebuilt); typical edits (fix amount/account/note/contact/date on a fresh loan) are exact. Branch is off master (does not include PR1).
+
+**Verification:** `tsc --noEmit` clean; eslint 0 errors (25 pre-existing warnings); 298 tests pass.
+## 2026-06-02 — PR1: Shared bills as Loan-style receivables + dashboard "my share" sync + due-date colors (branch claude/pr1-bills-loan-model)
+
+**Request (NovaFi enhancement, PR1 of 6):** When paying a SHARED bill, the FULL amount should leave the assigned account (you really pay the whole bill), but your expense tracker must count only YOUR share. The other person's share is tracked like a Loan receivable ("Owed to You"); when you mark them transferred, that cash returns to the account (NOT income, but logged in transfer history). Plus: dashboard summaries must use "my share" for bills everywhere; budget summary must include rollover; due-date colors red ≤3d / yellow 4–7d; fix the mobile-truncated HealthBanner subtitle.
+
+**Model (mirrors loans):** On pay → my-share `expense` (counts as spending) + a `transfer` cash-OUT of the friend's share (empty counterparty, so it moves the balance but is NOT income/expense). On settle → a `transfer` cash-IN of their share (empty counterparty). Net account impact = your share; spending = your share always; the receivable is the friend's share. Delete reverses both transfers atomically server-side.
+
+**Changes:**
+- `types/index.ts` — `Split` gains `frontedTxId?` / `settleTxId?` (ids of the fronted-out and settle-in transfers).
+- `lib/sheets.ts` — `SPLITS_HEADER` + 2 cols (`fronted_tx_id`, `settle_tx_id`); `getSplits` range `A2:M1000` parses `r[11]`/`r[12]`; `upsertSplit` writes them; `deleteRowById` last-col `K`→`M`. Legacy rows read as `''` (note-only).
+- `lib/calculations.ts` — added exported `myBillShare(bill)` (single source of truth; full amount unless split → `calcSplitShares(...).mine`).
+- `app/api/splits/route.ts` — rewritten to mirror loans route: POST accepts bare `Split`, `{split, tx}` (write+apply balance), or `{split, removeTxId}` (reverse+delete); DELETE reverses `frontedTxId`+`settleTxId` atomically via `applyTransactionToBalances` + `persistChanged`.
+- `app/(app)/bills/page.tsx` — removed local `myBillShare` (imports shared one); added `buildSplitTx('cashOut'|'cashIn', …)` (transfer w/ empty counterparty); `handleRecordPayment` fronts friend's share when an account is selected (bundled `{split, tx}`), note-only otherwise; `handleSplitToggle` settle→cash-in `{split, tx}`, unsettle→`{split, removeTxId}`; due-date colors: `isUrgent = daysUntil<=3` (red, incl. overdue), `isDueSoon = 4..7` (yellow), else normal — applied to card border, icon, amount.
+- `app/(app)/dashboard/page.tsx` — `billsThisMonth` + `upcomingBillsTotal` + bill-forecast row amount now use `myBillShare`; `budgetData` adds `rolledOver` (via `calcRolloverDeficit` when `settings.budgetRollover`); `overBudgetCount` compares `spent+rolledOver` to cap.
+- `app/(app)/dashboard/DashboardCharts.tsx` — `BudgetData` gains `rolledOver?`; `BudgetBars` uses `usage = spent + rolledOver` for pct/over/remaining/projected and shows a `+{rolledOver} from last month` amber chip; `HealthBanner` subtitle no longer one truncating string — renders wrapping segments `{net}` · `{after bills}` (and `overIncome`/`recordPaycheckHint` branches) so it doesn't clip on mobile.
+- `locales/en.json` + `vi.json` — added `bills.txFronted`, `bills.txSettled`; rewrote `bills.splitHelp` / `bills.splitPayNote` for the full-charge model; added `charts.netLabel`, `charts.afterBills`, `charts.overIncome`, `charts.recordPaycheckHint`.
+- `lib/__tests__/calculations.test.ts` — added `myBillShare` suite (4 cases).
+
+**Verification:** `tsc --noEmit` clean; eslint 0 errors (pre-existing setState-in-effect + `_lastCol` warnings only); 302 tests pass (was 298 + 4 new). User confirmed: no existing shared-bill data to migrate.
