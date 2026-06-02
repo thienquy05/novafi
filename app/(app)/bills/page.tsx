@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Plus, Calendar, CheckCircle2, Circle, AlarmClock, Pencil, RefreshCw, AlertCircle, Banknote, Repeat, Users, UserPlus, HandCoins, Check, Trash2 } from 'lucide-react';
+import { Plus, Calendar, CheckCircle2, Circle, AlarmClock, Pencil, RefreshCw, AlertCircle, Banknote, Repeat, Users, UserPlus, HandCoins, Check, Trash2, ChevronDown } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -375,6 +375,8 @@ export default function BillsPage() {
   const [payForm, setPayForm] = useState({ description: '', date: today(), amount: '', account: '', category: '' });
   const [paying, setPaying] = useState(false);
   const [settlingSplitId, setSettlingSplitId] = useState<string | null>(null);
+  const [sharingOpen, setSharingOpen] = useState(false);
+  const [showSharingHistory, setShowSharingHistory] = useState(false);
   const toast = useToast();
   const { expenseCategories } = useCategories();
 
@@ -754,65 +756,25 @@ export default function BillsPage() {
           {/* Horizontal Timeline */}
           <BillsTimeline bills={activeBills} nowMs={nowMs} />
 
-          {/* Owed to You — shared bills others still owe you */}
+          {/* Owed to You — tap to open the shared-payments tracker */}
           {splits.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between px-1">
-                <h2 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                  <HandCoins className="w-3.5 h-3.5" /> {t('bills.owedToYou')}
-                </h2>
-                {totalOwed > 0 && (
-                  <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-2.5 py-1 rounded-lg">{formatCurrency(totalOwed)}</span>
+            <button onClick={() => setSharingOpen(true)} className="w-full flex items-center justify-between p-4 rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 transition-colors text-left shadow-sm">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800/50 flex items-center justify-center shrink-0">
+                  <HandCoins className="w-5 h-5 text-emerald-500 dark:text-emerald-400" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('bills.owedToYou')}</p>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('bills.sharedOpenCount', { n: pendingSplits.length })}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                {totalOwed > 0 && <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(totalOwed)}</span>}
+                {pendingSplits.length > 0 && (
+                  <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-indigo-600 text-white text-[11px] font-bold">{pendingSplits.length}</span>
                 )}
               </div>
-
-              {owedByContact.length > 0 && (
-                <div className="flex flex-wrap gap-2 px-1">
-                  {owedByContact.map(([name, amt]) => (
-                    <span key={name} className="text-xs font-medium bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-800/50 rounded-lg px-2.5 py-1 flex items-center gap-1.5">
-                      <Users className="w-3 h-3" /> {name} · {formatCurrency(amt)}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              <div className="space-y-2.5">
-                {[...pendingSplits, ...settledSplits].map((split) => {
-                  const busy = settlingSplitId === split.id;
-                  return (
-                    <div key={split.id} className={`flex items-center justify-between p-4 rounded-2xl bg-white dark:bg-slate-800 border transition-colors ${split.settled ? 'border-slate-100 dark:border-slate-700/60 opacity-70' : 'border-emerald-100 dark:border-emerald-800/40'}`}>
-                      <div className="flex items-center gap-3 min-w-0">
-                        <button
-                          type="button"
-                          onClick={() => handleSplitToggle(split)}
-                          disabled={busy}
-                          title={split.settled ? t('bills.transferred') : t('bills.markTransferred')}
-                          className={`w-6 h-6 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors disabled:opacity-50 ${split.settled ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 dark:border-slate-600 hover:border-emerald-400'}`}
-                        >
-                          {split.settled && <Check className="w-4 h-4" />}
-                        </button>
-                        <div className="min-w-0">
-                          <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
-                            {split.contactName} <span className="text-slate-400 dark:text-slate-500 font-medium">·</span> {split.billName}
-                          </p>
-                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
-                            {split.settled
-                              ? t('bills.transferredOn', { date: formatDate(split.settledDate || split.date) })
-                              : t('bills.owedSince', { date: formatDate(split.date) })}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3 shrink-0">
-                        <span className={`text-sm font-extrabold ${split.settled ? 'text-slate-400 dark:text-slate-500 line-through' : 'text-emerald-600 dark:text-emerald-400'}`}>{formatCurrency(split.amount)}</span>
-                        <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            </button>
           )}
 
           {activeBills.length > 0 && (
@@ -976,6 +938,109 @@ export default function BillsPage() {
             <Button variant="secondary" className="flex-1" onClick={closeModal}>{t('common.cancel')}</Button>
             <Button className="flex-1 shadow-sm" onClick={handleSave} disabled={saving || !form.name || !form.amount}>{saving ? t('common.saving') : editingId ? t('bills.saveChanges') : t('bills.addBillBtn')}</Button>
           </div>
+        </div>
+      </Modal>
+
+      {/* ── Shared payments tracker modal ── */}
+      <Modal open={sharingOpen} onClose={() => { setSharingOpen(false); setShowSharingHistory(false); }} title={t('bills.sharedTitle')}>
+        <div className="space-y-4 pb-4">
+          {/* Total owed */}
+          {totalOwed > 0 && (
+            <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800/50">
+              <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider">{t('bills.owedToYou')}</p>
+              <p className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">{formatCurrency(totalOwed)}</p>
+            </div>
+          )}
+
+          {/* Per-person breakdown */}
+          {owedByContact.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {owedByContact.map(([name, amt]) => (
+                <span key={name} className="text-xs font-medium bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-800/50 rounded-lg px-2.5 py-1 flex items-center gap-1.5">
+                  <Users className="w-3 h-3" /> {name} · {formatCurrency(amt)}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Pending (unchecked) shares — everyone who still owes you */}
+          {pendingSplits.length === 0 ? (
+            <p className="text-center text-sm text-slate-500 dark:text-slate-400 font-medium py-6">{t('bills.sharedEmpty')}</p>
+          ) : (
+            <div className="space-y-2.5">
+              {pendingSplits.map((split) => {
+                const busy = settlingSplitId === split.id;
+                return (
+                  <div key={split.id} className="flex items-center justify-between p-4 rounded-2xl bg-white dark:bg-slate-800 border border-emerald-100 dark:border-emerald-800/40">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => handleSplitToggle(split)}
+                        disabled={busy}
+                        title={t('bills.markTransferred')}
+                        className="w-6 h-6 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors disabled:opacity-50 border-slate-300 dark:border-slate-600 hover:border-emerald-400"
+                      />
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
+                          {split.contactName} <span className="text-slate-400 dark:text-slate-500 font-medium">·</span> {split.billName}
+                        </p>
+                        <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('bills.owedSince', { date: formatDate(split.date) })}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">{formatCurrency(split.amount)}</span>
+                      <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* History (settled) — hidden by default, expandable, last 10 only */}
+          {settledSplits.length > 0 && (
+            <div className="pt-1">
+              <button
+                onClick={() => setShowSharingHistory((v) => !v)}
+                className="w-full flex items-center justify-between px-1 py-2 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+              >
+                <span>{t('bills.sharedHistory', { n: settledSplits.length })}</span>
+                <ChevronDown className={`w-4 h-4 transition-transform ${showSharingHistory ? 'rotate-180' : ''}`} />
+              </button>
+              {showSharingHistory && (
+                <div className="space-y-2 pt-1">
+                  {settledSplits.slice(0, 10).map((split) => {
+                    const busy = settlingSplitId === split.id;
+                    return (
+                      <div key={split.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 opacity-75">
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{split.contactName} · {split.billName}</p>
+                          <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{t('bills.transferredOn', { date: formatDate(split.settledDate || split.date) })}</p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through">{formatCurrency(split.amount)}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleSplitToggle(split)}
+                            disabled={busy}
+                            title={t('bills.transferred')}
+                            className="w-6 h-6 rounded-md border-2 bg-emerald-500 border-emerald-500 text-white flex items-center justify-center shrink-0 disabled:opacity-50"
+                          >
+                            <Check className="w-4 h-4" />
+                          </button>
+                          <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </Modal>
     </div>
