@@ -93,7 +93,7 @@ function exportCSV(transactions: Transaction[], accountName: (id: string) => str
 // ── Empty form ────────────────────────────────────────────────────────────────
 
 // List view renders in pages to cap DOM nodes as the ledger grows over years.
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 25;
 
 const EMPTY_FORM = {
   date: today(),

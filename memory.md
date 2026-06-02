@@ -374,6 +374,18 @@ Verified: `tsc --noEmit` clean; eslint 0 errors (only the pre-existing planning 
 
 **Verification:** `locales/*.json` parse OK; no remaining `settings.reconcile` references; no `tsc` errors reference any removed identifier (remaining tsc output is pre-existing missing-`node_modules`/`@types` noise in this environment).
 
+## 2026-06-02 — PR6: Performance (pagination) + README rewrite (branch claude/pr6-performance-cleanup)
+
+**Request (PR6 of 6):** "Performance — reduce loaded transactions (~20–30, expand more), same in Savings; reduce API calls. Cleanup unused/legacy code. Redesign/rewrite README." User said "you decide" on pagination size/style.
+
+**Done (focused, low-risk subset):**
+- `app/(app)/transactions/page.tsx` — `PAGE_SIZE` 50 → **25** (page already had visibleCount + "Show more"; just retuned to the requested 20–30 range).
+- `app/(app)/savings/page.tsx` — added pagination to the savings transaction history (it previously rendered ALL matching tx): `SAVINGS_PAGE_SIZE = 25`, `visibleCount` state, `selectAccount()` helper that resets the window when the account filter changes, `visibleTx = savingsTx.slice(0, visibleCount)`, and a "Show more" button (reuses `t('transactions.showMore', {count})`).
+- `README.md` — full rewrite. Fixes: product name was wrongly **"NoviFi"** throughout → **NovaFi**; corrected Financial Health Score weights (Savings 25 / Emergency 20 / **DTI 20** / **Budget 15** / Trend 10 / Volatility 10 — README had budget/DTI swapped); "liquid net worth excludes loan balances" (was "excludes illiquid investments"); **removed the phantom Daily Push / Vercel Cron section** (no such route exists — verified `app/api` has no cron/push route); updated to **11 sheet tabs** (added Contacts/Splits/Loans); added **Loans & IOUs** and **shared/split bills** (PR1 model) and the **tabbed Settings** (PR5); de-brittled the test-count claim; updated stack to Next.js 16 / React 19 / Tailwind v4 / Radix.
+
+**Deferred (flagged as a follow-up task/PR, intentionally NOT done here to keep PR focused + within budget):** open-ended dead-code/legacy sweep (unused *exports* like possibly `calcDebtScore`/`lib/csv.ts`/`lib/retry.ts` — ESLint already 0 unused vars) and API-call batching (bills page fires 6 parallel fetches; savings 3 — could reuse `batchGet*` helpers in `lib/sheets.ts`). Spawned as a separate task.
+
+**Verification:** `tsc --noEmit` clean; eslint 0 errors (25 pre-existing warnings); 298 tests pass; no "NoviFi" left in README. Branch off master.
 ## 2026-06-02 — PR5: Settings UI redesign — in-page tabs + polish (branch claude/pr5-settings-redesign)
 
 **Request (PR5 of 6):** "Potentially enhance the UI, more clean and organized." Settings was one long flat scroll of 9 cards. **Iteration history:** (1) first built tabbed in-page pill-nav; (2) user said keep it ONE single page, reverted to non-clickable group bands; (3) user then preferred the tabbed switcher back ("easier to navigate"). **Final = in-page tabs.** The tabs live INSIDE the Settings page (sticky pill row under the page title); the app nav bar (`components/Sidebar.tsx`) is unchanged — "Settings" stays one nav entry. **Lesson: confirm structural direction (tabs vs single page) up front on a "you decide" redesign; the user iterated twice on this.**

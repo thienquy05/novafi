@@ -48,6 +48,9 @@ const EMPTY_FORM: ActionForm = {
   date: today(),
 };
 
+// Initial number of savings transactions shown; "Show more" reveals another batch.
+const SAVINGS_PAGE_SIZE = 25;
+
 export default function SavingsPage() {
   const { t } = useTranslation();
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -62,6 +65,13 @@ export default function SavingsPage() {
   const [editForm, setEditForm] = useState<EditForm>(EMPTY_EDIT_FORM);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(SAVINGS_PAGE_SIZE);
+
+  // Switching the account filter resets the visible window back to one page.
+  function selectAccount(id: string) {
+    setSelectedAccount(id);
+    setVisibleCount(SAVINGS_PAGE_SIZE);
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -96,6 +106,8 @@ export default function SavingsPage() {
       return tx.account === selectedAccount || tx.toAccount === selectedAccount;
     })
     .sort((a, b) => b.date.localeCompare(a.date));
+
+  const visibleTx = savingsTx.slice(0, visibleCount);
 
   const totalSaved = accounts.reduce((s, a) => s + a.balance, 0);
 
@@ -288,7 +300,7 @@ export default function SavingsPage() {
           {accounts.length > 1 && (
             <div className="flex gap-2 overflow-x-auto pb-2 hide-scrollbar">
               <button
-                onClick={() => setSelectedAccount('all')}
+                onClick={() => selectAccount('all')}
                 className={`px-5 h-10 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap shadow-sm ${
                   selectedAccount === 'all'
                     ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
@@ -300,7 +312,7 @@ export default function SavingsPage() {
               {accounts.map((a) => (
                 <button
                   key={a.id}
-                  onClick={() => setSelectedAccount(a.id)}
+                  onClick={() => selectAccount(a.id)}
                   className={`px-5 h-10 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap shadow-sm ${
                     selectedAccount === a.id
                       ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
@@ -321,8 +333,9 @@ export default function SavingsPage() {
                 <p className="text-slate-500 dark:text-slate-400 font-bold">{t('savings.noTransactionsYet')}</p>
               </Card>
             ) : (
+              <>
               <div className="space-y-3">
-                {savingsTx.map((tx) => {
+                {visibleTx.map((tx) => {
                   const fromName = accountMap[tx.account] ?? tx.account;
                   const toName = tx.toAccount ? accountMap[tx.toAccount] : null;
                   const isTransfer = tx.type === 'transfer';
@@ -360,6 +373,14 @@ export default function SavingsPage() {
                   );
                 })}
               </div>
+              {savingsTx.length > visibleCount && (
+                <div className="flex justify-center pt-2">
+                  <Button variant="secondary" onClick={() => setVisibleCount((c) => c + SAVINGS_PAGE_SIZE)}>
+                    {t('transactions.showMore', { count: savingsTx.length - visibleTx.length })}
+                  </Button>
+                </div>
+              )}
+              </>
             )}
           </div>
         </>
