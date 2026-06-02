@@ -13,7 +13,7 @@ import {
   calcGoalProgress,
   applyExpenseBalance, applyIncomeBalance, applyTransferFromBalance, applyTransferToBalance,
   reverseExpenseBalance, reverseIncomeBalance, reverseTransferFromBalance, reverseTransferToBalance,
-  billToTransactionDefaults, calcSplitShares, calcLoanRemaining,
+  billToTransactionDefaults, calcSplitShares, calcLoanRemaining, myBillShare,
   calcOverdueBills, calcOverBudget,
   calcNetWorthProjection, calcCategoryPct, calcPaycheckEffectiveRate, calcPaycheckTaxToSave,
   calcPaycheckDeposited,
@@ -657,6 +657,31 @@ describe('calcSplitShares', () => {
   it('treats missing/zero inputs safely', () => {
     expect(calcSplitShares(0, 0)).toEqual({ mine: 0, theirs: 0 });
     expect(calcSplitShares(80, 0)).toEqual({ mine: 80, theirs: 0 });
+  });
+});
+
+// ── myBillShare ───────────────────────────────────────────────────────────────
+
+describe('myBillShare', () => {
+  const base: Bill = {
+    id: 'b1', name: 'Rent', amount: 100, frequency: 'monthly',
+    nextDue: '2026-06-01', account: 'a1', category: 'Bills', isActive: true,
+  };
+
+  it('returns the full amount for a non-shared bill', () => {
+    expect(myBillShare(base)).toBe(100);
+  });
+
+  it('returns only your share when the bill is split', () => {
+    expect(myBillShare({ ...base, splitContactId: 'c1', splitAmount: 40 })).toBe(60);
+  });
+
+  it('returns the full amount when split is configured but their share is 0', () => {
+    expect(myBillShare({ ...base, splitContactId: 'c1', splitAmount: 0 })).toBe(100);
+  });
+
+  it('falls back to full amount when no contact is set even if a split amount exists', () => {
+    expect(myBillShare({ ...base, splitAmount: 40 })).toBe(100);
   });
 });
 
