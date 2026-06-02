@@ -374,18 +374,17 @@ Verified: `tsc --noEmit` clean; eslint 0 errors (only the pre-existing planning 
 
 **Verification:** `locales/*.json` parse OK; no remaining `settings.reconcile` references; no `tsc` errors reference any removed identifier (remaining tsc output is pre-existing missing-`node_modules`/`@types` noise in this environment).
 
-## 2026-06-02 — PR5: Settings UI redesign — sectioned nav + reusable ToggleRow (branch claude/pr5-settings-redesign)
+## 2026-06-02 — PR5: Settings UI redesign — single page, cleaner & organized (branch claude/pr5-settings-redesign)
 
-**Request (PR5 of 6):** "Potentially enhance the UI, more clean and organized — you decide." Settings was one long flat scroll of 9 cards.
+**Request (PR5 of 6):** "Potentially enhance the UI, more clean and organized." Settings was one long flat scroll of 9 cards. **User clarified after a first attempt: keep it ONE single page (NO tabs / separate sections) — just cleaner, creative, easy to navigate.** First attempt used a tabbed pill-nav splitting into 3 pages; reverted per feedback. **Lesson: when the brief says "you decide" on a redesign, still confirm the structural direction (single page vs tabs) before building.**
 
-**Changes (`app/(app)/settings/page.tsx`, behavior unchanged):**
-- Grouped the 9 cards into **3 sections** with a sticky, horizontally-scrollable pill nav (`section` state: `general | taxes | categories`):
-  - **General**: Name Preference, Language & Region, Dashboard Preferences (toggles), App Update, Data Storage.
-  - **Taxes & Payroll**: Payroll Deductions, Federal Tax (flat/brackets), State & Local, FICA.
-  - **Categories**: Custom Categories (expense/income add-hide-restore).
-- Extracted a module-level `ToggleRow` component (label/desc/checked/onChange/divider) and used it for the 3 dashboard-preference switches — replaces ~30 lines of duplicated switch markup. The federal-brackets switch stays custom (it lives in a colored callout).
-- Dropped a janky composed "saved across devices" sentence under the language picker; added dark-mode text color to the Data Storage card title (`dark:text-indigo-300`).
-- `locales/en.json` + `vi.json`: added `settings.sectionGeneral`, `sectionTaxes`, `sectionCategories`.
+**Final design (`app/(app)/settings/page.tsx`, behavior unchanged, single continuous scroll):**
+- Quiet, **non-clickable `GroupLabel` bands** (uppercase: General · Taxes & Payroll · Categories · About & Data) organize the one scroll — not tabs.
+- Consistent `SectionTitle` (indigo icon chip + title) on **every** card (previously only some had icons). Icons: User, Globe, SlidersHorizontal, Receipt, Landmark, Building2, ShieldCheck, Tags, RefreshCw, Database.
+- Extracted module-level `ToggleRow` (label/desc/checked/onChange/divider) for the 3 dashboard-preference switches (~30 lines dup removed). Federal-brackets switch stays custom (colored callout).
+- Tucked the heavy 2026 IRS bracket **table + standard deduction into a `<details>` expandable** (summary shows active filing status) so it no longer dominates; the "Maximize savings" callout stays visible.
+- App Update + Data Storage moved to an "About & Data" band at the bottom. Dropped the janky "saved across devices" sentence; added dark-mode colors to Data Storage.
+- `locales/en.json` + `vi.json`: added `settings.sectionGeneral/sectionTaxes/sectionCategories/sectionAbout`.
 
 All handlers (save/reset/hard-refresh/category add-hide-restore/lang/dark mode) preserved verbatim. Branch off master.
 
