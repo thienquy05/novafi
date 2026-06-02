@@ -373,3 +373,20 @@ Verified: `tsc --noEmit` clean; eslint 0 errors (only the pre-existing planning 
 - Note: this supersedes the credit-card debt-payoff clamp fix from earlier today for the reconcile path specifically — but the clamp removal in `applyTransferToBalance` is retained because it also affects live balance updates (overpaying a card now correctly yields a credit balance instead of being silently discarded).
 
 **Verification:** `locales/*.json` parse OK; no remaining `settings.reconcile` references; no `tsc` errors reference any removed identifier (remaining tsc output is pre-existing missing-`node_modules`/`@types` noise in this environment).
+
+## 2026-06-02 — PR5: Settings UI redesign — sectioned nav + reusable ToggleRow (branch claude/pr5-settings-redesign)
+
+**Request (PR5 of 6):** "Potentially enhance the UI, more clean and organized — you decide." Settings was one long flat scroll of 9 cards.
+
+**Changes (`app/(app)/settings/page.tsx`, behavior unchanged):**
+- Grouped the 9 cards into **3 sections** with a sticky, horizontally-scrollable pill nav (`section` state: `general | taxes | categories`):
+  - **General**: Name Preference, Language & Region, Dashboard Preferences (toggles), App Update, Data Storage.
+  - **Taxes & Payroll**: Payroll Deductions, Federal Tax (flat/brackets), State & Local, FICA.
+  - **Categories**: Custom Categories (expense/income add-hide-restore).
+- Extracted a module-level `ToggleRow` component (label/desc/checked/onChange/divider) and used it for the 3 dashboard-preference switches — replaces ~30 lines of duplicated switch markup. The federal-brackets switch stays custom (it lives in a colored callout).
+- Dropped a janky composed "saved across devices" sentence under the language picker; added dark-mode text color to the Data Storage card title (`dark:text-indigo-300`).
+- `locales/en.json` + `vi.json`: added `settings.sectionGeneral`, `sectionTaxes`, `sectionCategories`.
+
+All handlers (save/reset/hard-refresh/category add-hide-restore/lang/dark mode) preserved verbatim. Branch off master.
+
+**Verification:** `tsc --noEmit` clean; eslint 0 errors (25 pre-existing warnings); 298 tests pass.

@@ -489,6 +489,9 @@
   "settings": {
     "title": "Settings",
     "subtitle": "Taxes, payroll & preferences",
+    "sectionGeneral": "General",
+    "sectionTaxes": "Taxes & Payroll",
+    "sectionCategories": "Categories",
     "namePreference": "Name Preference",
     "displayName": "Display name",
     "displayNameDesc": "Shown in your dashboard greeting. Leave blank to use your Google account name.",
