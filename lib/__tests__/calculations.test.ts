@@ -16,6 +16,7 @@ import {
   billToTransactionDefaults, calcSplitShares, calcLoanRemaining,
   calcOverdueBills, calcOverBudget,
   calcNetWorthProjection, calcCategoryPct, calcPaycheckEffectiveRate, calcPaycheckTaxToSave,
+  calcPaycheckDeposited,
 } from '@/lib/calculations';
 import type { Account, Transaction, Bill, Budget } from '@/types';
 
@@ -1087,5 +1088,22 @@ describe('calcPaycheckTaxToSave', () => {
       federalWithheld: 0, stateWithheld: 0, localWithheld: 0, ficaWithheld: 0,
     };
     expect(calcPaycheckTaxToSave(p)).toBe(0);
+  });
+});
+
+// ── Paycheck Deposited (real money) ───────────────────────────────────────────
+
+describe('calcPaycheckDeposited', () => {
+  it('is the full amount = gross wages + tips', () => {
+    expect(calcPaycheckDeposited({ grossAmount: 3500, gratuityAmount: 150 })).toBeCloseTo(3650, 2);
+  });
+
+  it('ignores missing tips (treats as 0)', () => {
+    expect(calcPaycheckDeposited({ grossAmount: 3500 })).toBeCloseTo(3500, 2);
+  });
+
+  it('returns the full gross regardless of withheld tax (no withholding)', () => {
+    // Even a legacy-shaped entry deposits the full gross + tips, never an after-tax figure.
+    expect(calcPaycheckDeposited({ grossAmount: 819.93, gratuityAmount: 0 })).toBeCloseTo(819.93, 2);
   });
 });
