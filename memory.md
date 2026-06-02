@@ -2,6 +2,20 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-02 — Loan create/payback: write cash transaction + loan atomically server-side (branch claude/awesome-goldberg-6BQLc)
+
+**Goal:** Complete the money-flow consistency pass. Loan create and payback still posted the cash `transfer` transaction and the loan as two separate client requests (`/api/transactions` then `/api/loans`). A failure between them could leave a loan with no matching ledger row, or an orphan transfer with no loan. Now mirrors the delete path: one request writes both.
+
+**Changes:**
+- `app/api/loans/route.ts` — `POST` now accepts either a bare `Loan` (back-compat / note-only) or `{ loan, tx }`. When `tx` is present it `addTransaction`s it, applies the balance via `applyTransactionToBalances(accounts, tx, 'apply')`, persists changed accounts, and invalidates transactions/accounts/dashboard/badges caches — then upserts the loan. Added `addTransaction` import and `Transaction` type. Extracted a shared `persistChanged()` helper (identity-check on the accounts array) now used by both POST and DELETE.
+- `app/(app)/transactions/page.tsx` — `handleAddLoan` and `handleRecordPayback` no longer POST to `/api/transactions` separately; they send `{ loan, tx }` (or `{ loan }` for note-only) to `/api/loans` in a single call. The loan object already carries the tx id in `principalTxId` / `repaymentTxIds`, so the reference matches what the server persists.
+
+**Notes:**
+- `buildLoanTx` sets `createdAt`, so same-day replay ordering during reconcile is preserved.
+- This closes the create/payback gap flagged in the earlier audit; the loan↔transaction lifecycle (create, payback, delete) is now fully server-side and balance-consistent.
+
+**Verification:** `npm run typecheck` clean, `npm run lint` 0 errors (pre-existing warnings only), `npm test` 309/309 passing.
+
 ## 2026-06-02 — Loan delete: reverse + delete linked cash transactions server-side (branch claude/awesome-goldberg-6BQLc)
 
 **Goal:** Part of a money-flow consistency pass (sync transactions with accounts/paychecks/loans). A loan's principal and each payback are real `transfer` transactions that move account balances. Deleting a loan reversed those transactions in a **fragile client-side loop** (`handleDeleteLoan`): it DELETE'd each linked tx id one-by-one, then deleted the loan. If the page closed or a request failed mid-loop, you could end up with the loan gone but live orphan transfers still distorting balances (or partial reversal).

@@ -397,11 +397,9 @@ export default function TransactionsPage() {
       repaymentTxIds: [],
     };
     try {
-      if (tx) {
-        const txRes = await fetch('/api/transactions', { method: 'POST', body: JSON.stringify(tx), headers: { 'Content-Type': 'application/json' } });
-        if (!txRes.ok) throw new Error();
-      }
-      const res = await fetch('/api/loans', { method: 'POST', body: JSON.stringify(loan), headers: { 'Content-Type': 'application/json' } });
+      // The loans API writes the cash transaction and applies its balance in the
+      // same request as the loan upsert, so the two can't desync.
+      const res = await fetch('/api/loans', { method: 'POST', body: JSON.stringify(tx ? { loan, tx } : { loan }), headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error();
       setLoans((prev) => [loan, ...prev]);
       setShowAddLoan(false);
@@ -437,11 +435,9 @@ export default function TransactionsPage() {
       repaymentTxIds: tx ? [...loan.repaymentTxIds, tx.id] : loan.repaymentTxIds,
     };
     try {
-      if (tx) {
-        const txRes = await fetch('/api/transactions', { method: 'POST', body: JSON.stringify(tx), headers: { 'Content-Type': 'application/json' } });
-        if (!txRes.ok) throw new Error();
-      }
-      const res = await fetch('/api/loans', { method: 'POST', body: JSON.stringify(updated), headers: { 'Content-Type': 'application/json' } });
+      // Cash transaction + loan update go in one request so balances and the
+      // loan's repaidAmount/repaymentTxIds always move together.
+      const res = await fetch('/api/loans', { method: 'POST', body: JSON.stringify(tx ? { loan: updated, tx } : { loan: updated }), headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error();
       setLoans((prev) => prev.map((l) => l.id === loan.id ? updated : l));
       setPaybackFor(null);

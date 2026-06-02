@@ -5,13 +5,29 @@ import {
   upsertLoan,
   deleteLoan,
   getTransactions,
+  addTransaction,
   deleteTransaction,
   getAccounts,
   upsertAccount,
 } from '@/lib/sheets';
 import { getCache, setCache, invalidateCache, CACHE_TTL } from '@/lib/cache';
 import { applyTransactionToBalances } from '@/lib/calculations';
-import type { Account, Loan } from '@/types';
+import type { Account, Loan, Transaction } from '@/types';
+
+// Persist only the accounts whose balance actually changed. applyTransactionToBalances
+// returns the same reference for untouched accounts, so an identity check suffices.
+async function persistChanged(
+  accessToken: string,
+  spreadsheetId: string,
+  before: Account[],
+  after: Account[],
+): Promise<void> {
+  for (let i = 0; i < after.length; i++) {
+    if (after[i] !== before[i]) {
+      await upsertAccount(accessToken, spreadsheetId, after[i]);
+    }
+  }
+}
 
 export async function GET() {
   const session = await auth();
@@ -29,8 +45,29 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const body: Loan = await req.json();
-  await upsertLoan(session.accessToken, session.spreadsheetId, body);
+
+  // Accepts either a bare Loan or `{ loan, tx }`. When a cash transaction is
+  // included (lending/repaying through an account), write it and apply its
+  // balance effect in the SAME request as the loan upsert — so a loan that
+  // claims to have moved cash always has the matching ledger row, and vice
+  // versa. `tx` is omitted for note-only loans (no account selected).
+  const body = (await req.json()) as Loan | { loan: Loan; tx?: Transaction };
+  const loan: Loan = 'loan' in body ? body.loan : body;
+  const tx: Transaction | undefined = 'loan' in body ? body.tx : undefined;
+
+  if (tx) {
+    // Write the ledger row first (source of truth), then update balances.
+    await addTransaction(session.accessToken, session.spreadsheetId, tx);
+    const accounts = await getAccounts(session.accessToken, session.spreadsheetId);
+    const updated = applyTransactionToBalances(accounts, tx, 'apply');
+    await persistChanged(session.accessToken, session.spreadsheetId, accounts, updated);
+    invalidateCache(`transactions:${session.spreadsheetId}`);
+    invalidateCache(`accounts:${session.spreadsheetId}`);
+    invalidateCache(`dashboard:${session.spreadsheetId}`);
+    invalidateCache(`badges:${session.spreadsheetId}`);
+  }
+
+  await upsertLoan(session.accessToken, session.spreadsheetId, loan);
   invalidateCache(`loans:${session.spreadsheetId}`);
   return NextResponse.json({ ok: true });
 }
@@ -63,11 +100,7 @@ export async function DELETE(req: NextRequest) {
       working = applyTransactionToBalances(working, tx, 'reverse');
       await deleteTransaction(session.accessToken, session.spreadsheetId, tx.id);
     }
-    for (let i = 0; i < working.length; i++) {
-      if (working[i] !== accounts[i]) {
-        await upsertAccount(session.accessToken, session.spreadsheetId, working[i]);
-      }
-    }
+    await persistChanged(session.accessToken, session.spreadsheetId, accounts, working);
     invalidateCache(`transactions:${session.spreadsheetId}`);
     invalidateCache(`accounts:${session.spreadsheetId}`);
     invalidateCache(`dashboard:${session.spreadsheetId}`);
