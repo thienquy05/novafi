@@ -637,6 +637,18 @@ export function calcPaycheckTaxToSave(p: {
   return roundCents(Math.max(explicit, legacy));
 }
 
+// ── Paycheck Deposited (real money) ───────────────────────────────────────────
+// The full amount that actually landed in the account: gross wages + tips. In the
+// full-deposit model NO tax is withheld, so this is always gross + gratuity — the
+// real money — regardless of how a (possibly legacy) entry's netAmount was stored.
+// This is the single source of truth for "what was deposited" across the app.
+export function calcPaycheckDeposited(p: {
+  grossAmount: number;
+  gratuityAmount?: number;
+}): number {
+  return roundCents(p.grossAmount + (p.gratuityAmount ?? 0));
+}
+
 // ── Badge Counts ──────────────────────────────────────────────────────────────
 
 export function calcOverdueBills(bills: Bill[], now: Date): number {

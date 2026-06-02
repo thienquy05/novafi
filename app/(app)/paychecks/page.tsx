@@ -8,7 +8,7 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
 import { calcPaycheckTax } from '@/lib/tax';
-import { calcPaycheckTaxToSave } from '@/lib/calculations';
+import { calcPaycheckTaxToSave, calcPaycheckDeposited } from '@/lib/calculations';
 import type { PaycheckEntry, TaxSettings, Account } from '@/types';
 import { useTranslation } from '@/lib/i18n/context';
 
@@ -139,14 +139,13 @@ export default function PaychecksPage() {
     () => paychecks.filter((p) => new Date(p.date).getFullYear() === currentYear),
     [paychecks, currentYear],
   );
-  const { ytdGross, ytdGratuity, ytdTaxToSave } = useMemo(() => {
-    let gross = 0, gratuity = 0, taxToSave = 0;
+  const { ytdIncome, ytdTax } = useMemo(() => {
+    let income = 0, tax = 0;
     for (const p of ytdPaychecks) {
-      gross += p.grossAmount;
-      gratuity += p.gratuityAmount ?? 0;
-      taxToSave += calcPaycheckTaxToSave(p);
+      income += calcPaycheckDeposited(p);
+      tax += calcPaycheckTaxToSave(p);
     }
-    return { ytdGross: gross, ytdGratuity: gratuity, ytdTaxToSave: taxToSave };
+    return { ytdIncome: income, ytdTax: tax };
   }, [ytdPaychecks]);
 
   const accountMap = useMemo(() => {
@@ -171,12 +170,10 @@ export default function PaychecksPage() {
       </div>
 
       {/* YTD Summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         {[
-          { label: t('paychecks.ytdTaxableWages'), value: ytdGross, color: 'text-slate-900 dark:text-slate-100' },
-          { label: t('paychecks.ytdDeposited'), value: ytdGross + ytdGratuity, color: 'text-emerald-600 dark:text-emerald-400' },
-          { label: t('paychecks.ytdTaxToSave'), value: ytdTaxToSave, color: 'text-rose-600 dark:text-rose-400' },
-          { label: t('paychecks.ytdTips'), value: ytdGratuity, color: 'text-sky-600 dark:text-sky-400' },
+          { label: t('paychecks.ytdIncome'), value: ytdIncome, color: 'text-emerald-600 dark:text-emerald-400' },
+          { label: t('paychecks.ytdTax'), value: ytdTax, color: 'text-rose-600 dark:text-rose-400' },
         ].map(({ label, value, color }) => (
           <Card key={label}>
             <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{label}</p>
@@ -230,7 +227,7 @@ export default function PaychecksPage() {
                   <p className="text-sm font-extrabold text-slate-700 dark:text-slate-300 mt-1">{formatCurrency(p.grossAmount)}</p>
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('paychecks.setAside')}</p>
+                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('paychecks.tax')}</p>
                   <p className="text-sm font-extrabold text-rose-600 dark:text-rose-400 mt-1">
                     {formatCurrency(calcPaycheckTaxToSave(p))}
                   </p>
@@ -252,7 +249,7 @@ export default function PaychecksPage() {
                     {t('paychecks.deposited')}
                   </p>
                   <p className="text-xl font-extrabold text-emerald-600 dark:text-emerald-400 md:mt-1">
-                    {formatCurrency(p.netAmount + (p.gratuityAmount ?? 0))}
+                    {formatCurrency(calcPaycheckDeposited(p))}
                   </p>
                   <Button
                     variant="ghost"
@@ -330,7 +327,6 @@ export default function PaychecksPage() {
                   </>
                 ) : null;
               })()}
-              <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider pt-1">{t('paychecks.taxToSetAsideHint')}</p>
               {[
                 { label: t('paychecks.taxableWages'), value: preview.grossPaycheck, cls: 'text-slate-900 dark:text-slate-100 font-extrabold' },
                 {
@@ -351,7 +347,7 @@ export default function PaychecksPage() {
               ))}
               {(() => {
                 const gratuity = parseFloat(form.gratuityAmount) || 0;
-                const realMoney = preview.grossPaycheck + gratuity;
+                const deposited = preview.grossPaycheck + gratuity;
                 return (
                   <>
                     {gratuity > 0 && (
@@ -361,11 +357,11 @@ export default function PaychecksPage() {
                       </div>
                     )}
                     <div className="border-t border-slate-200 dark:border-slate-700 pt-3 mt-1 flex justify-between items-center">
-                      <span className="text-slate-900 dark:text-slate-100 font-bold">{t('paychecks.realMoneyDeposited')}</span>
-                      <span className="text-emerald-600 dark:text-emerald-400 font-extrabold text-lg">{formatCurrency(realMoney)}</span>
+                      <span className="text-slate-900 dark:text-slate-100 font-bold">{t('paychecks.income')}</span>
+                      <span className="text-emerald-600 dark:text-emerald-400 font-extrabold text-lg">{formatCurrency(deposited)}</span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-900 dark:text-slate-100 font-bold">{t('paychecks.taxToSetAside')}</span>
+                      <span className="text-slate-900 dark:text-slate-100 font-bold">{t('paychecks.tax')}</span>
                       <span className="text-rose-600 dark:text-rose-400 font-extrabold text-lg">{formatCurrency(preview.totalTax)}</span>
                     </div>
                   </>

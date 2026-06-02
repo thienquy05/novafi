@@ -10,7 +10,7 @@ import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { BillsSkeleton } from '@/components/ui/Skeleton';
 import { FitText } from '@/components/ui/FitText';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
-import { billToTransactionDefaults, calcSplitShares } from '@/lib/calculations';
+import { billToTransactionDefaults, calcSplitShares, calcPaycheckDeposited } from '@/lib/calculations';
 import type { Bill, Account, PaycheckEntry, Transaction, Contact, Split } from '@/types';
 import { useCategories } from '@/hooks/useCategories';
 import { useToast } from '@/lib/toast';
@@ -183,8 +183,8 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
       const day = d.getDate();
       if (!dayPaychecks[day]) dayPaychecks[day] = [];
       dayPaychecks[day].push(p);
-      // Real money deposited = wages kept + tips (matches the auto-created income txn)
-      totalPaychecksAmt += p.netAmount + (p.gratuityAmount ?? 0);
+      // Deposited income = gross wages + tips (the full amount; tax is set aside, not withheld)
+      totalPaychecksAmt += calcPaycheckDeposited(p);
     }
   });
 
@@ -225,7 +225,7 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
           const isPast = day < todayDay;
 
           const billNames = (dayBills[day] ?? []).map((b) => `${b.name} ${formatCurrency(myBillShare(b))}`).join(', ');
-          const paycheckNames = (dayPaychecks[day] ?? []).map((p) => `+${formatCurrency(p.netAmount + (p.gratuityAmount ?? 0))}`).join(', ');
+          const paycheckNames = (dayPaychecks[day] ?? []).map((p) => `+${formatCurrency(calcPaycheckDeposited(p))}`).join(', ');
           const title = [billNames, paycheckNames].filter(Boolean).join(' | ');
 
           return (
@@ -251,7 +251,7 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
                 {Object.entries(dayPaychecks).sort(sortedNum).map(([day, pays]) => (
                   <span key={`pay-${day}`} className="text-xs font-medium bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-800/50 rounded-lg px-2 py-1 flex items-center gap-1">
                     <Banknote className="w-3 h-3" />
-                    {monthShort} {day} · +{formatCurrency(pays.reduce((s, p) => s + p.netAmount + (p.gratuityAmount ?? 0), 0))}
+                    {monthShort} {day} · +{formatCurrency(pays.reduce((s, p) => s + calcPaycheckDeposited(p), 0))}
                   </span>
                 ))}
                 {Object.entries(dayBills).sort(sortedNum).map(([day, bs]) => (
