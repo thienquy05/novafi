@@ -8,7 +8,7 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
 import { calcPaycheckTax } from '@/lib/tax';
-import { calcPaycheckTotalTax } from '@/lib/calculations';
+import { calcPaycheckTaxToSave } from '@/lib/calculations';
 import type { PaycheckEntry, TaxSettings, Account } from '@/types';
 import { useTranslation } from '@/lib/i18n/context';
 
@@ -76,6 +76,9 @@ export default function PaychecksPage() {
     if (!settings || !preview) return;
     setSaving(true);
     const gratuity = parseFloat(form.gratuityAmount) || 0;
+    // Full-deposit model: the whole paycheck is real money you keep. We don't
+    // withhold anything — netAmount = the wages kept, no 401k/HSA is taken out —
+    // and the tax pieces are just what you should set aside (save) for later.
     const entry: PaycheckEntry = {
       id: generateId(),
       date: form.date,
@@ -83,9 +86,10 @@ export default function PaychecksPage() {
       federalWithheld: preview.federalTax,
       stateWithheld: preview.stateTax,
       localWithheld: preview.cityTax,
-      k401: preview.k401,
-      hsa: preview.hsa,
-      netAmount: preview.netPaycheck,
+      ficaWithheld: preview.ficaSs + preview.ficaMedicare,
+      k401: 0,
+      hsa: 0,
+      netAmount: preview.grossPaycheck,
       notes: form.checkingAccountId,
       gratuityAmount: gratuity,
     };
@@ -95,7 +99,8 @@ export default function PaychecksPage() {
       headers: { 'Content-Type': 'application/json' },
     });
 
-    // Auto-create an income transaction: net pay + gratuity deposited together
+    // Auto-create an income transaction: the full amount received (wages + tips)
+    // is deposited as real money. Taxes are tracked separately, not withheld.
     if (form.checkingAccountId) {
       await fetch('/api/transactions', {
         method: 'POST',
@@ -103,7 +108,7 @@ export default function PaychecksPage() {
           id: generateId(),
           date: form.date,
           description: 'Paycheck',
-          amount: preview.netPaycheck + gratuity,
+          amount: preview.grossPaycheck + gratuity,
           type: 'income',
           category: 'Paycheck',
           account: form.checkingAccountId,
@@ -134,14 +139,14 @@ export default function PaychecksPage() {
     () => paychecks.filter((p) => new Date(p.date).getFullYear() === currentYear),
     [paychecks, currentYear],
   );
-  const { ytdNet, ytdGross, ytdGratuity } = useMemo(() => {
-    let net = 0, gross = 0, gratuity = 0;
+  const { ytdGross, ytdGratuity, ytdTaxToSave } = useMemo(() => {
+    let gross = 0, gratuity = 0, taxToSave = 0;
     for (const p of ytdPaychecks) {
-      net += p.netAmount;
       gross += p.grossAmount;
       gratuity += p.gratuityAmount ?? 0;
+      taxToSave += calcPaycheckTaxToSave(p);
     }
-    return { ytdNet: net, ytdGross: gross, ytdGratuity: gratuity };
+    return { ytdGross: gross, ytdGratuity: gratuity, ytdTaxToSave: taxToSave };
   }, [ytdPaychecks]);
 
   const accountMap = useMemo(() => {
@@ -169,8 +174,8 @@ export default function PaychecksPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: t('paychecks.ytdTaxableWages'), value: ytdGross, color: 'text-slate-900 dark:text-slate-100' },
-          { label: t('paychecks.ytdNet'), value: ytdNet + ytdGratuity, color: 'text-emerald-600 dark:text-emerald-400' },
-          { label: t('paychecks.ytdTaxes'), value: ytdGross - ytdNet, color: 'text-rose-600 dark:text-rose-400' },
+          { label: t('paychecks.ytdDeposited'), value: ytdGross + ytdGratuity, color: 'text-emerald-600 dark:text-emerald-400' },
+          { label: t('paychecks.ytdTaxToSave'), value: ytdTaxToSave, color: 'text-rose-600 dark:text-rose-400' },
           { label: t('paychecks.ytdTips'), value: ytdGratuity, color: 'text-sky-600 dark:text-sky-400' },
         ].map(({ label, value, color }) => (
           <Card key={label}>
@@ -209,7 +214,7 @@ export default function PaychecksPage() {
                   )}
                   {p.grossAmount > 0 && (
                     <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mt-0.5">
-                      {(p.grossAmount > 0 ? (calcPaycheckTotalTax(p.grossAmount, p.netAmount, p.k401, p.hsa) / p.grossAmount) * 100 : 0).toFixed(1)}% {t('paychecks.effectiveTaxRate')}
+                      {((calcPaycheckTaxToSave(p) / p.grossAmount) * 100).toFixed(1)}% {t('paychecks.effectiveTaxRate')}
                       {(p.k401 + p.hsa) > 0 && (
                         <span className="ml-1 text-indigo-500 dark:text-indigo-400">
                           · {(((p.k401 + p.hsa) / p.grossAmount) * 100).toFixed(1)}% {t('paychecks.deductions')}
@@ -225,15 +230,17 @@ export default function PaychecksPage() {
                   <p className="text-sm font-extrabold text-slate-700 dark:text-slate-300 mt-1">{formatCurrency(p.grossAmount)}</p>
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Taxes</p>
+                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('paychecks.setAside')}</p>
                   <p className="text-sm font-extrabold text-rose-600 dark:text-rose-400 mt-1">
-                    -{formatCurrency(calcPaycheckTotalTax(p.grossAmount, p.netAmount, p.k401, p.hsa))}
+                    {formatCurrency(calcPaycheckTaxToSave(p))}
                   </p>
                 </div>
-                <div>
-                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">401k+HSA</p>
-                  <p className="text-sm font-extrabold text-indigo-600 dark:text-indigo-400 mt-1">-{formatCurrency(p.k401 + p.hsa)}</p>
-                </div>
+                {(p.k401 + p.hsa) > 0 && (
+                  <div>
+                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">401k+HSA</p>
+                    <p className="text-sm font-extrabold text-indigo-600 dark:text-indigo-400 mt-1">-{formatCurrency(p.k401 + p.hsa)}</p>
+                  </div>
+                )}
                 {(p.gratuityAmount ?? 0) > 0 && (
                   <div>
                     <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Tips</p>
@@ -242,7 +249,7 @@ export default function PaychecksPage() {
                 )}
                 <div className="flex flex-row md:flex-col justify-between md:justify-end items-center md:items-end col-span-2 md:col-span-1 border-t border-slate-100 dark:border-slate-700/60 md:border-t-0 pt-4 md:pt-0 mt-2 md:mt-0">
                   <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider md:block hidden">
-                    {(p.gratuityAmount ?? 0) > 0 ? 'Total' : 'Net'}
+                    {t('paychecks.deposited')}
                   </p>
                   <p className="text-xl font-extrabold text-emerald-600 dark:text-emerald-400 md:mt-1">
                     {formatCurrency(p.netAmount + (p.gratuityAmount ?? 0))}
@@ -323,48 +330,45 @@ export default function PaychecksPage() {
                   </>
                 ) : null;
               })()}
+              <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider pt-1">{t('paychecks.taxToSetAsideHint')}</p>
               {[
                 { label: t('paychecks.taxableWages'), value: preview.grossPaycheck, cls: 'text-slate-900 dark:text-slate-100 font-extrabold' },
-                { label: `401(k) (${settings?.k401Pct}%)`, value: -preview.k401, cls: 'text-indigo-600 dark:text-indigo-400 font-bold' },
-                { label: t('paychecks.hsa'), value: -preview.hsa, cls: 'text-indigo-600 dark:text-indigo-400 font-bold' },
                 {
                   label: settings?.useFederalBrackets
                     ? `Federal Tax (progressive${preview.marginalRate !== undefined ? ` · ${preview.marginalRate.toFixed(0)}% marginal` : ''})`
                     : `Federal Tax (${settings?.federalRate}%)`,
-                  value: -preview.federalTax,
+                  value: preview.federalTax,
                   cls: 'text-rose-600 dark:text-rose-400 font-bold',
                 },
-                { label: `State Tax (${settings?.stateRate}%)`, value: -preview.stateTax, cls: 'text-rose-600 dark:text-rose-400 font-bold' },
-                { label: `City Tax (${settings?.cityRate}%)`, value: -preview.cityTax, cls: 'text-rose-600 dark:text-rose-400 font-bold' },
-                { label: 'FICA (SS + Medicare)', value: -(preview.ficaSs + preview.ficaMedicare), cls: 'text-rose-600 dark:text-rose-400 font-bold' },
+                { label: `State Tax (${settings?.stateRate}%)`, value: preview.stateTax, cls: 'text-rose-600 dark:text-rose-400 font-bold' },
+                { label: `City Tax (${settings?.cityRate}%)`, value: preview.cityTax, cls: 'text-rose-600 dark:text-rose-400 font-bold' },
+                { label: 'FICA (SS + Medicare)', value: preview.ficaSs + preview.ficaMedicare, cls: 'text-rose-600 dark:text-rose-400 font-bold' },
               ].map(({ label, value, cls }) => (
                 <div key={label} className="flex justify-between text-sm">
                   <span className="text-slate-600 dark:text-slate-300 font-medium">{label}</span>
-                  <span className={cls}>{value >= 0 ? formatCurrency(value) : `-${formatCurrency(Math.abs(value))}`}</span>
+                  <span className={cls}>{formatCurrency(value)}</span>
                 </div>
               ))}
               {(() => {
                 const gratuity = parseFloat(form.gratuityAmount) || 0;
-                return gratuity > 0 ? (
+                const realMoney = preview.grossPaycheck + gratuity;
+                return (
                   <>
-                    <div className="border-t border-slate-200 dark:border-slate-700 pt-3 mt-1 flex justify-between text-sm">
-                      <span className="text-slate-600 dark:text-slate-300 font-medium">{t('paychecks.netOfTaxable')}</span>
-                      <span className="text-slate-700 dark:text-slate-300 font-bold">{formatCurrency(preview.netPaycheck)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-600 dark:text-slate-300 font-medium">{t('paychecks.addBackTips')}</span>
-                      <span className="text-sky-600 dark:text-sky-400 font-bold">+{formatCurrency(gratuity)}</span>
-                    </div>
+                    {gratuity > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-600 dark:text-slate-300 font-medium">{t('paychecks.addBackTips')}</span>
+                        <span className="text-sky-600 dark:text-sky-400 font-bold">+{formatCurrency(gratuity)}</span>
+                      </div>
+                    )}
                     <div className="border-t border-slate-200 dark:border-slate-700 pt-3 mt-1 flex justify-between items-center">
-                      <span className="text-slate-900 dark:text-slate-100 font-bold">{t('paychecks.totalTakeHome')}</span>
-                      <span className="text-emerald-600 dark:text-emerald-400 font-extrabold text-lg">{formatCurrency(preview.netPaycheck + gratuity)}</span>
+                      <span className="text-slate-900 dark:text-slate-100 font-bold">{t('paychecks.realMoneyDeposited')}</span>
+                      <span className="text-emerald-600 dark:text-emerald-400 font-extrabold text-lg">{formatCurrency(realMoney)}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-900 dark:text-slate-100 font-bold">{t('paychecks.taxToSetAside')}</span>
+                      <span className="text-rose-600 dark:text-rose-400 font-extrabold text-lg">{formatCurrency(preview.totalTax)}</span>
                     </div>
                   </>
-                ) : (
-                  <div className="border-t border-slate-200 dark:border-slate-700 pt-3 mt-3 flex justify-between items-center">
-                    <span className="text-slate-900 dark:text-slate-100 font-bold">{t('paychecks.netTakeHome')}</span>
-                    <span className="text-emerald-600 dark:text-emerald-400 font-extrabold text-lg">{formatCurrency(preview.netPaycheck)}</span>
-                  </div>
                 );
               })()}
               <div className="text-xs font-medium text-slate-500 dark:text-slate-400 text-right mt-1 space-y-0.5">

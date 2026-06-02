@@ -189,7 +189,7 @@ export async function getPaychecks(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Paychecks!A2:K',
+    range: 'Paychecks!A2:L',
   });
   return (res.data.values ?? []).map(rowToPaycheck);
 }
@@ -207,6 +207,7 @@ function rowToPaycheck(r: string[]): PaycheckEntry {
     netAmount: Number(r[8] ?? 0),
     notes: r[9] ?? '',
     gratuityAmount: Number(r[10] ?? 0),
+    ficaWithheld: Number(r[11] ?? 0),
   };
 }
 
@@ -234,6 +235,7 @@ export async function addPaycheck(
         entry.netAmount,
         entry.notes,
         entry.gratuityAmount ?? 0,
+        entry.ficaWithheld ?? 0,
       ]],
     },
   });
@@ -244,7 +246,7 @@ export async function deletePaycheck(
   spreadsheetId: string,
   id: string
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Paychecks', id, 'K');
+  await deleteRowById(accessToken, spreadsheetId, 'Paychecks', id, 'L');
 }
 
 // ── Transactions ──────────────────────────────────────────────────────────────
@@ -1000,7 +1002,7 @@ export async function batchGetDashboardData(
 }> {
   const sheets = getSheetsClient(accessToken);
   const ranges = [
-    'Paychecks!A2:K',
+    'Paychecks!A2:L',
     'Transactions!A2:I',
     'Accounts!A2:I200',
     'Bills!A2:J200',
@@ -1028,6 +1030,7 @@ export async function batchGetDashboardData(
     netAmount: Number(r[8] ?? 0),
     notes: r[9] ?? '',
     gratuityAmount: Number(r[10] ?? 0),
+    ficaWithheld: Number(r[11] ?? 0),
   }));
   const transactions: Transaction[] = (vr[1]?.values ?? []).map((r) => ({
     id: r[0] ?? '',
