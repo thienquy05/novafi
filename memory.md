@@ -258,3 +258,23 @@ Verified: `tsc --noEmit` clean; eslint 0 errors (only the pre-existing planning 
 **Notes:**
 - Both the live transaction route and the reconciler go through `nextBalanceForAccount` → `applyTransferToBalance`, so live balances and reconcile stay consistent; live credit-card payoffs that overpay can now show a negative (credit) balance, which is financially correct.
 - Verification: standalone Node repro confirmed clamped reconcile = 1000 vs fixed = 0 for the backdated-payment scenario. `tsc --noEmit` shows no errors in the changed files (the unrelated module-not-found errors are because `node_modules` isn't installed in this environment).
+
+## 2026-06-02 — Remove the Balance Check (account reconcile) feature (branch claude/admiring-meitner-3kc96)
+
+**Goal:** Per user request, remove the "Balance Check" / reconcile tool entirely. Balances are transaction-driven and can be adjusted manually, so the reconcile maintenance tool is no longer wanted.
+
+**Changes:**
+- Deleted `app/api/accounts/reconcile/route.ts` (the dry-run preview + apply endpoint).
+- `lib/calculations.ts` — Removed the entire "Reconciliation" section: `reconcileAccountBalance`, `deriveOpeningBalance`, `detectBalanceDrift`, `planReconcile`, the private helpers `compareTxChronological` and `ledgerForAccount`, and the types `BalanceDrift`, `ReconcileBackfill`, `ReconcilePlan`. Updated the unified-ledger comment ("Both the route and the reconciler…" → "The route's apply/reverse paths…").
+- `app/(app)/settings/page.tsx` — Removed the Balance Check card and all its plumbing: the `ReconcilePlan` import, the four reconcile state vars, `checkBalances()`/`applyReconcile()`, and the card JSX. Dropped now-unused imports (`Scale`, `CheckCircle2`, `AlertTriangle` from lucide-react; `formatCurrency`).
+- `locales/en.json` & `locales/vi.json` — Removed the 10 `settings.reconcile*` keys from both.
+- `lib/__tests__/ledger.test.ts` — Removed the imports and describe blocks for `reconcileAccountBalance`, `deriveOpeningBalance`, `detectBalanceDrift`, `planReconcile` (including the credit-card clamp regression test added earlier). The `nextBalanceForAccount` / `applyTransactionToBalances` tests stay.
+- Stale-comment cleanup: `app/api/transactions/route.ts` and `lib/sheets.ts` no longer reference the deleted reconcile endpoint.
+
+**Notes:**
+- Kept the shared ledger functions (`nextBalanceForAccount`, `applyTransactionToBalances`, `applyExpense/Income/Transfer*` apply+reverse) — they drive live balance updates on add/edit/delete and are unrelated to reconcile.
+- Kept the `Account.openingBalance` field and its self-maintenance in `app/api/accounts/route.ts` plus the sheet column I read/write. It is now unused for computation but harmless; removing it would be a sheet-schema change. (Offered as a separate cleanup if desired.)
+- `reconcileBudgetMonths` in `lib/sheets.ts` is a separate budget feature and was left intact.
+- Note: this supersedes the credit-card debt-payoff clamp fix from earlier today for the reconcile path specifically — but the clamp removal in `applyTransferToBalance` is retained because it also affects live balance updates (overpaying a card now correctly yields a credit balance instead of being silently discarded).
+
+**Verification:** `locales/*.json` parse OK; no remaining `settings.reconcile` references; no `tsc` errors reference any removed identifier (remaining tsc output is pre-existing missing-`node_modules`/`@types` noise in this environment).
