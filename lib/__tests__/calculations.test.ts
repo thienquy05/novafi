@@ -15,7 +15,7 @@ import {
   reverseExpenseBalance, reverseIncomeBalance, reverseTransferFromBalance, reverseTransferToBalance,
   billToTransactionDefaults, calcSplitShares,
   calcOverdueBills, calcOverBudget,
-  calcNetWorthProjection, calcCategoryPct, calcPaycheckEffectiveRate,
+  calcNetWorthProjection, calcCategoryPct, calcPaycheckEffectiveRate, calcPaycheckTotalTax,
 } from '@/lib/calculations';
 import type { Account, Transaction, Bill, Budget } from '@/types';
 
@@ -1018,5 +1018,23 @@ describe('calcPaycheckEffectiveRate', () => {
 
   it('no withholding → 0%', () => {
     expect(calcPaycheckEffectiveRate(5000, 0, 0, 0)).toBe(0);
+  });
+});
+
+// ── Paycheck Total Tax (amount to set aside) ──────────────────────────────────
+
+describe('calcPaycheckTotalTax', () => {
+  it('back-derives full tax (income + FICA) from gross − net − deductions', () => {
+    // gross 819.93, net 708.60, no 401k/HSA → full tax 111.33 (income tax + FICA)
+    expect(calcPaycheckTotalTax(819.93, 708.60, 0, 0)).toBeCloseTo(111.33, 2);
+  });
+
+  it('excludes pre-tax deductions (401k/HSA) from the tax figure', () => {
+    // gross 5000, net 3500, 401k 300, hsa 100 → tax = 5000 − 3500 − 300 − 100 = 1100
+    expect(calcPaycheckTotalTax(5000, 3500, 300, 100)).toBeCloseTo(1100, 4);
+  });
+
+  it('never returns negative', () => {
+    expect(calcPaycheckTotalTax(100, 200, 0, 0)).toBe(0);
   });
 });

@@ -8,7 +8,7 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
 import { calcPaycheckTax } from '@/lib/tax';
-import { calcPaycheckEffectiveRate } from '@/lib/calculations';
+import { calcPaycheckTotalTax } from '@/lib/calculations';
 import type { PaycheckEntry, TaxSettings, Account } from '@/types';
 import { useTranslation } from '@/lib/i18n/context';
 
@@ -209,7 +209,7 @@ export default function PaychecksPage() {
                   )}
                   {p.grossAmount > 0 && (
                     <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mt-0.5">
-                      {calcPaycheckEffectiveRate(p.grossAmount, p.federalWithheld, p.stateWithheld, p.localWithheld).toFixed(1)}% {t('paychecks.effectiveTaxRate')}
+                      {(p.grossAmount > 0 ? (calcPaycheckTotalTax(p.grossAmount, p.netAmount, p.k401, p.hsa) / p.grossAmount) * 100 : 0).toFixed(1)}% {t('paychecks.effectiveTaxRate')}
                       {(p.k401 + p.hsa) > 0 && (
                         <span className="ml-1 text-indigo-500 dark:text-indigo-400">
                           · {(((p.k401 + p.hsa) / p.grossAmount) * 100).toFixed(1)}% {t('paychecks.deductions')}
@@ -227,7 +227,7 @@ export default function PaychecksPage() {
                 <div>
                   <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Taxes</p>
                   <p className="text-sm font-extrabold text-rose-600 dark:text-rose-400 mt-1">
-                    -{formatCurrency(p.federalWithheld + p.stateWithheld + p.localWithheld)}
+                    -{formatCurrency(calcPaycheckTotalTax(p.grossAmount, p.netAmount, p.k401, p.hsa))}
                   </p>
                 </div>
                 <div>
