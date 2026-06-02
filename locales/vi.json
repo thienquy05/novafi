@@ -554,7 +554,10 @@
     "budgetRollover": "Chuyển ngân sách",
     "budgetRolloverDesc": "Chuyển phần ngân sách còn lại (thừa hoặc thiếu) sang tháng tiếp theo. Tiêu ít hơn sẽ cộng thêm vào tháng sau; tiêu nhiều hơn sẽ trừ đi.",
     "darkMode": "Chế độ tối",
-    "darkModeDesc": "Chuyển sang giao diện tối hơn, dễ nhìn hơn vào ban đêm."
+    "darkModeDesc": "Chuyển sang giao diện tối hơn, dễ nhìn hơn vào ban đêm.",
+    "account": "Tài khoản",
+    "signOutDesc": "Đăng xuất khỏi NovaFi trên thiết bị này. Bạn sẽ được hỏi xác nhận trước.",
+    "signOutConfirm": "Đăng xuất khỏi NovaFi?"
   },
   "categories": {
     "Food": "Ăn uống",

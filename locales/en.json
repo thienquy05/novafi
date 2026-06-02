@@ -554,7 +554,10 @@
     "budgetRollover": "Budget Rollover",
     "budgetRolloverDesc": "Carry unused budget (surplus or deficit) forward to the next month. Underspending adds to next month's limit; overspending reduces it.",
     "darkMode": "Dark Mode",
-    "darkModeDesc": "Switch to a darker color scheme, easier on the eyes at night."
+    "darkModeDesc": "Switch to a darker color scheme, easier on the eyes at night.",
+    "account": "Account",
+    "signOutDesc": "Sign out of NovaFi on this device. You'll be asked to confirm first.",
+    "signOutConfirm": "Sign out of NovaFi?"
   },
   "categories": {
     "Food": "Food",

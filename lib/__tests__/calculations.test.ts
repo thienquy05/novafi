@@ -470,11 +470,16 @@ describe('applyIncomeBalance', () => {
 });
 
 describe('applyTransferFromBalance', () => {
-  it('from account decreases', () => {
-    expect(applyTransferFromBalance(1000, 500)).toBe(500);
+  it('asset account: balance decreases', () => {
+    expect(applyTransferFromBalance(1000, 500, false)).toBe(500);
   });
-  it('can go below zero (overdraft)', () => {
-    expect(applyTransferFromBalance(100, 500)).toBe(-400);
+  it('asset account: can go below zero (overdraft)', () => {
+    expect(applyTransferFromBalance(100, 500, false)).toBe(-400);
+  });
+  it('debt account: owed increases (cash advance / lending on a credit card)', () => {
+    // Lending money charged to a credit card is a new charge, so the owed
+    // balance grows — it must NOT look like a payoff.
+    expect(applyTransferFromBalance(200, 100, true)).toBe(300);
   });
 });
 
@@ -518,11 +523,18 @@ describe('reverseIncomeBalance', () => {
 });
 
 describe('reverseTransferFromBalance', () => {
-  it('from account gets money back', () => {
-    expect(reverseTransferFromBalance(500, 500)).toBe(1000);
+  it('asset account: gets money back', () => {
+    expect(reverseTransferFromBalance(500, 500, false)).toBe(1000);
   });
-  it('partial amount', () => {
-    expect(reverseTransferFromBalance(200, 100)).toBe(300);
+  it('asset account: partial amount', () => {
+    expect(reverseTransferFromBalance(200, 100, false)).toBe(300);
+  });
+  it('debt account: undoes the charge (owed goes back down)', () => {
+    expect(reverseTransferFromBalance(300, 100, true)).toBe(200);
+  });
+  it('debt account: apply then reverse is an exact inverse', () => {
+    const applied = applyTransferFromBalance(200, 100, true); // 300 owed
+    expect(reverseTransferFromBalance(applied, 100, true)).toBe(200);
   });
 });
 

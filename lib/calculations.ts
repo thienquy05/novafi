@@ -280,8 +280,14 @@ export function applyIncomeBalance(balance: number, amount: number, isDebt: bool
   return roundCents(isDebt ? balance - amount : balance + amount);
 }
 
-export function applyTransferFromBalance(balance: number, amount: number): number {
-  return roundCents(balance - amount);
+export function applyTransferFromBalance(balance: number, amount: number, isDebt: boolean): number {
+  // Cash leaving an asset account lowers its balance. Moving money OUT of a debt
+  // account (a cash advance, or lending money charged to a credit card) is a new
+  // charge — it INCREASES what you owe. Treating a debt account's "from" side
+  // like an asset wrongly looked like a payoff: lending on a credit card cut the
+  // owed balance instead of growing it. The loan stays a `transfer` so it never
+  // counts as real income/expense — only the account balance moves.
+  return roundCents(isDebt ? balance + amount : balance - amount);
 }
 
 export function applyTransferToBalance(balance: number, amount: number, isDebt: boolean): number {
@@ -305,8 +311,10 @@ export function reverseIncomeBalance(balance: number, amount: number, isDebt: bo
   return roundCents(isDebt ? balance + amount : balance - amount);
 }
 
-export function reverseTransferFromBalance(balance: number, amount: number): number {
-  return roundCents(balance + amount);
+export function reverseTransferFromBalance(balance: number, amount: number, isDebt: boolean): number {
+  // Exact inverse of applyTransferFromBalance: an asset gets the cash back, a
+  // debt account's charge is undone (owed goes back down).
+  return roundCents(isDebt ? balance - amount : balance + amount);
 }
 
 export function reverseTransferToBalance(balance: number, amount: number, isDebt: boolean): number {
@@ -335,12 +343,12 @@ export function nextBalanceForAccount(
   if (mode === 'apply') {
     if (tx.type === 'expense' && isPrimary) return applyExpenseBalance(account.balance, tx.amount, isDebt);
     if (tx.type === 'income' && isPrimary) return applyIncomeBalance(account.balance, tx.amount, isDebt);
-    if (tx.type === 'transfer' && isPrimary) return applyTransferFromBalance(account.balance, tx.amount);
+    if (tx.type === 'transfer' && isPrimary) return applyTransferFromBalance(account.balance, tx.amount, isDebt);
     if (isTransferTarget) return applyTransferToBalance(account.balance, tx.amount, isDebt);
   } else {
     if (tx.type === 'expense' && isPrimary) return reverseExpenseBalance(account.balance, tx.amount, isDebt);
     if (tx.type === 'income' && isPrimary) return reverseIncomeBalance(account.balance, tx.amount, isDebt);
-    if (tx.type === 'transfer' && isPrimary) return reverseTransferFromBalance(account.balance, tx.amount);
+    if (tx.type === 'transfer' && isPrimary) return reverseTransferFromBalance(account.balance, tx.amount, isDebt);
     if (isTransferTarget) return reverseTransferToBalance(account.balance, tx.amount, isDebt);
   }
   return account.balance;
