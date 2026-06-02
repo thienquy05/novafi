@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getAccounts, upsertAccount, deleteAccount } from '@/lib/sheets';
+import { getAccounts, upsertAccount, deleteAccount, getTransactions } from '@/lib/sheets';
 import { getCache, setCache, invalidateCache, CACHE_TTL } from '@/lib/cache';
 import type { Account } from '@/types';
 
@@ -43,6 +43,20 @@ export async function DELETE(req: NextRequest) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { id } = await req.json();
+
+  // Block deletion while the account still has transactions referencing it
+  // (as source `account` or transfer `toAccount`). Removing it anyway would
+  // leave orphan ledger rows pointing at a non-existent account. The user must
+  // reassign or delete those transactions (and any linked paycheck/loan) first.
+  const transactions = await getTransactions(session.accessToken, session.spreadsheetId);
+  const linkedCount = transactions.filter((t) => t.account === id || t.toAccount === id).length;
+  if (linkedCount > 0) {
+    return NextResponse.json(
+      { error: 'account_has_transactions', count: linkedCount },
+      { status: 409 },
+    );
+  }
+
   await deleteAccount(session.accessToken, session.spreadsheetId, id);
   invalidateCache(`accounts:${session.spreadsheetId}`);
   invalidateCache(`dashboard:${session.spreadsheetId}`);

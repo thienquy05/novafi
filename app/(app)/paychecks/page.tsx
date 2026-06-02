@@ -101,11 +101,13 @@ export default function PaychecksPage() {
 
     // Auto-create an income transaction: the full amount received (wages + tips)
     // is deposited as real money. Taxes are tracked separately, not withheld.
+    // The deposit transaction shares the paycheck's id so the paycheck "owns" it:
+    // deleting the paycheck reverses this exact transaction (see DELETE in the API).
     if (form.checkingAccountId) {
       await fetch('/api/transactions', {
         method: 'POST',
         body: JSON.stringify({
-          id: generateId(),
+          id: entry.id,
           date: form.date,
           description: 'Paycheck',
           amount: preview.grossPaycheck + gratuity,

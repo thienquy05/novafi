@@ -397,11 +397,9 @@ export default function TransactionsPage() {
       repaymentTxIds: [],
     };
     try {
-      if (tx) {
-        const txRes = await fetch('/api/transactions', { method: 'POST', body: JSON.stringify(tx), headers: { 'Content-Type': 'application/json' } });
-        if (!txRes.ok) throw new Error();
-      }
-      const res = await fetch('/api/loans', { method: 'POST', body: JSON.stringify(loan), headers: { 'Content-Type': 'application/json' } });
+      // The loans API writes the cash transaction and applies its balance in the
+      // same request as the loan upsert, so the two can't desync.
+      const res = await fetch('/api/loans', { method: 'POST', body: JSON.stringify(tx ? { loan, tx } : { loan }), headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error();
       setLoans((prev) => [loan, ...prev]);
       setShowAddLoan(false);
@@ -437,11 +435,9 @@ export default function TransactionsPage() {
       repaymentTxIds: tx ? [...loan.repaymentTxIds, tx.id] : loan.repaymentTxIds,
     };
     try {
-      if (tx) {
-        const txRes = await fetch('/api/transactions', { method: 'POST', body: JSON.stringify(tx), headers: { 'Content-Type': 'application/json' } });
-        if (!txRes.ok) throw new Error();
-      }
-      const res = await fetch('/api/loans', { method: 'POST', body: JSON.stringify(updated), headers: { 'Content-Type': 'application/json' } });
+      // Cash transaction + loan update go in one request so balances and the
+      // loan's repaidAmount/repaymentTxIds always move together.
+      const res = await fetch('/api/loans', { method: 'POST', body: JSON.stringify(tx ? { loan: updated, tx } : { loan: updated }), headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error();
       setLoans((prev) => prev.map((l) => l.id === loan.id ? updated : l));
       setPaybackFor(null);
@@ -460,15 +456,13 @@ export default function TransactionsPage() {
     const prev = loans;
     setLoans((ls) => ls.filter((l) => l.id !== loan.id));
     try {
-      // Reverse every linked cash transaction so balances return to where they were.
-      const txIds = [loan.principalTxId, ...loan.repaymentTxIds].filter(Boolean);
-      for (const id of txIds) {
-        await fetch('/api/transactions', { method: 'DELETE', body: JSON.stringify({ id }), headers: { 'Content-Type': 'application/json' } });
-      }
+      // The loans API reverses and deletes every linked cash transaction
+      // (principal + paybacks) atomically, so the client just deletes the loan.
       const res = await fetch('/api/loans', { method: 'DELETE', body: JSON.stringify({ id: loan.id }), headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error();
       toast(t('loans.toastDeleted'), 'success');
-      if (txIds.length) load();
+      // Refresh balances + ledger if any cash transactions were reversed.
+      if (loan.principalTxId || loan.repaymentTxIds.length) load();
     } catch {
       setLoans(prev);
       toast(t('loans.toastFailed'), 'error');
