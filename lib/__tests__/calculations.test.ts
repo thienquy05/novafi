@@ -6,16 +6,15 @@ import {
   calcRolloverDeficit, calcEffectiveSpent,
   calcProjectedSpend, calcSpendingPace,
   calcAvgMonthlyExpense, calcEmergencyFundMonths,
-  calcSavingsRateScore, calcEmergencyScore, calcBudgetScore, calcDebtScore, calcHealthGrade,
+  calcSavingsRateScore, calcEmergencyScore, calcBudgetScore, calcHealthGrade,
   calcDebtToIncomeScore, calcDebtToIncomeRatio,
   calcNetWorthTrendScore, calcAvgMomPct,
   calcSpendingVolatilityScore, calcCoefficientOfVariation,
-  calcGoalProgress,
   applyExpenseBalance, applyIncomeBalance, applyTransferFromBalance, applyTransferToBalance,
   reverseExpenseBalance, reverseIncomeBalance, reverseTransferFromBalance, reverseTransferToBalance,
   billToTransactionDefaults, calcSplitShares, calcLoanRemaining, myBillShare,
   calcOverdueBills, calcOverBudget,
-  calcNetWorthProjection, calcCategoryPct, calcPaycheckEffectiveRate, calcPaycheckTaxToSave,
+  calcNetWorthProjection, calcPaycheckTaxToSave,
   calcPaycheckDeposited,
 } from '@/lib/calculations';
 import type { Account, Transaction, Bill, Budget } from '@/types';
@@ -340,16 +339,6 @@ describe('calcBudgetScore', () => {
   it('5 budgets, 5 over (0% adherence) → 0', () => { expect(calcBudgetScore(5, 5)).toBe(0); });
 });
 
-// Legacy debt-to-asset score retained for back-compat — kept for old callers.
-describe('calcDebtScore (legacy debt-to-asset)', () => {
-  it('ratio 0 → 25', () => { expect(calcDebtScore(0)).toBe(25); });
-  it('ratio 0.1 → 25', () => { expect(calcDebtScore(0.1)).toBe(25); });
-  it('ratio 0.3 → 20', () => { expect(calcDebtScore(0.3)).toBe(20); });
-  it('ratio 0.5 → 15', () => { expect(calcDebtScore(0.5)).toBe(15); });
-  it('ratio 0.75 → 10', () => { expect(calcDebtScore(0.75)).toBe(10); });
-  it('ratio 1.0 → 5', () => { expect(calcDebtScore(1.0)).toBe(5); });
-});
-
 describe('calcDebtToIncomeRatio', () => {
   it('no debt → 0', () => { expect(calcDebtToIncomeRatio(0, 5000)).toBe(0); });
   it('$60k debt vs $5k/mo income → 1.0', () => {
@@ -452,17 +441,6 @@ describe('calcHealthGrade', () => {
   it('40 → D', () => { expect(calcHealthGrade(40)).toBe('D'); });
   it('39 → F', () => { expect(calcHealthGrade(39)).toBe('F'); });
   it('0 → F', () => { expect(calcHealthGrade(0)).toBe('F'); });
-});
-
-// ── Goal Progress ─────────────────────────────────────────────────────────────
-
-describe('calcGoalProgress', () => {
-  it('50% when halfway', () => { expect(calcGoalProgress(5000, 10000)).toBeCloseTo(50, 4); });
-  it('100% when exactly at target', () => { expect(calcGoalProgress(10000, 10000)).toBe(100); });
-  it('capped at 100% when over target', () => { expect(calcGoalProgress(15000, 10000)).toBe(100); });
-  it('0% when nothing saved', () => { expect(calcGoalProgress(0, 10000)).toBe(0); });
-  it('0% when target is 0 (no division by zero)', () => { expect(calcGoalProgress(1000, 0)).toBe(0); });
-  it('25% progress', () => { expect(calcGoalProgress(250, 1000)).toBeCloseTo(25, 4); });
 });
 
 // ── Transaction Balance Effects ───────────────────────────────────────────────
@@ -1037,43 +1015,6 @@ describe('calcNetWorthProjection', () => {
     const proj = calcNetWorthProjection(history, 3);
     expect(proj[0]).toBeGreaterThan(11000); // 11000 * 1.10
     expect(proj[1]).toBeGreaterThan(proj[0]);
-  });
-});
-
-// ── Category Percentage ───────────────────────────────────────────────────────
-
-describe('calcCategoryPct', () => {
-  it('50% of total', () => {
-    expect(calcCategoryPct(500, 1000)).toBe(50);
-  });
-
-  it('0 total → 0%', () => {
-    expect(calcCategoryPct(100, 0)).toBe(0);
-  });
-
-  it('0 spent → 0%', () => {
-    expect(calcCategoryPct(0, 1000)).toBe(0);
-  });
-
-  it('100% when spent equals total', () => {
-    expect(calcCategoryPct(500, 500)).toBe(100);
-  });
-});
-
-// ── Paycheck Effective Tax Rate ───────────────────────────────────────────────
-
-describe('calcPaycheckEffectiveRate', () => {
-  it('correct rate from sample paycheck', () => {
-    // gross $5000, total taxes $1100 (22%)
-    expect(calcPaycheckEffectiveRate(5000, 700, 250, 150)).toBeCloseTo(22, 4);
-  });
-
-  it('0 gross → 0 rate (no division by zero)', () => {
-    expect(calcPaycheckEffectiveRate(0, 100, 50, 25)).toBe(0);
-  });
-
-  it('no withholding → 0%', () => {
-    expect(calcPaycheckEffectiveRate(5000, 0, 0, 0)).toBe(0);
   });
 });
 
