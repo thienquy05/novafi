@@ -211,12 +211,12 @@ describe('calcSafeToSpend', () => {
     expect(calcSafeToSpend(5000, 2000, 500)).toBe(2500);
   });
 
-  it('floors at 0 when spending exceeds income', () => {
-    expect(calcSafeToSpend(5000, 5500, 0)).toBe(0);
+  it('goes negative when spending exceeds income', () => {
+    expect(calcSafeToSpend(5000, 5500, 0)).toBe(-500);
   });
 
-  it('bills push result negative → clamped to 0', () => {
-    expect(calcSafeToSpend(1000, 800, 300)).toBe(0);
+  it('bills push result negative → surfaces the shortfall', () => {
+    expect(calcSafeToSpend(1000, 800, 300)).toBe(-100);
   });
 
   it('no bills', () => {

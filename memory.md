@@ -2,6 +2,19 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-02 — Show negative "after bills" instead of flooring at $0.00 (branch claude/negative-balance-display-kPg8b)
+
+**Problem reported:** On the dashboard "Watch spending" card, the "after bills" figure (safe-to-spend) was clamped to `$0.00` whenever bills exceeded what was left. The user couldn't see the actual shortfall — e.g. it showed `$0.00 after bills` when they were really under. They asked to surface the real negative amount so they know exactly how far under they are.
+
+**Root cause:** `calcSafeToSpend(income, spending, bills)` returned `Math.max(0, income - spending - bills)`, flooring any deficit to 0.
+
+**Changes:**
+- `lib/calculations.ts` — `calcSafeToSpend` now returns the raw `income - spending - bills` (can be negative). Added a comment explaining the deficit is intentionally surfaced. `formatCurrency` already renders the minus sign, so no display plumbing was needed.
+- `app/(app)/dashboard/DashboardCharts.tsx` — the "after bills" value in the spending-status card is now coloured rose (`text-rose-600 dark:text-rose-400`) when `safeToSpend < 0`, matching the app's existing over/negative convention (e.g. the budget "over" label); stays slate when ≥ 0. The dashboard StatCard for safe-to-spend already keyed its colour/bg off `safeToSpend > 0`, so it now correctly shows rose for a negative value with no change.
+- `lib/__tests__/calculations.test.ts` — updated the two `calcSafeToSpend` cases that asserted the old floor: `(5000, 5500, 0)` now expects `-500`, `(1000, 800, 300)` now expects `-100`. Renamed them to describe surfacing the shortfall.
+
+**Verification:** `npx vitest run lib/__tests__/calculations.test.ts` → 225 passed.
+
 ## 2026-06-02 — Safe-to-Spend made cash-aware (counts debt paybacks) (branch claude/hardcore-brahmagupta-59dff5)
 
 **Problem reported:** Safe-to-spend mirrored net income but ignored money paid toward debt. Example: $1000 net income, pay back $900 on a credit card → safe-to-spend still showed $1000. Root cause: the dashboard fed `calcMonthExpense` (which sums only `type === 'expense'`) as the "spending" arg, and a credit-card payback is a `type === 'transfer'` (cash → debt account), which every aggregation deliberately skips. So debt paybacks never reduced safe-to-spend.
