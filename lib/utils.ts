@@ -24,10 +24,6 @@ export function formatCompact(amount: number): string {
   return formatCurrency(amount);
 }
 
-export function formatPercent(value: number, decimals = 2): string {
-  return `${value.toFixed(decimals)}%`;
-}
-
 export function formatDate(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString('en-US', {

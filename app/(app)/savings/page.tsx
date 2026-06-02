@@ -75,17 +75,15 @@ export default function SavingsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [accRes, txRes, goalRes] = await Promise.all([
-      fetch('/api/accounts'),
-      fetch('/api/transactions'),
-      fetch('/api/goals'),
-    ]);
-    const [accs, txs, gls] = await Promise.all([accRes.json(), txRes.json(), goalRes.json()]);
+    // One round trip instead of three — see /api/batch.
+    const res = await fetch('/api/batch?keys=accounts,transactions,goals');
+    const data = await res.json();
+    const accs: Account[] = data.accounts ?? [];
     const savingsAccs: Account[] = accs.filter((a: Account) => a.type === 'savings');
     setAllAccounts(accs);
     setAccounts(savingsAccs);
-    setTransactions(txs);
-    setGoals(gls);
+    setTransactions(data.transactions ?? []);
+    setGoals(data.goals ?? []);
     setLoading(false);
   }, []);
 

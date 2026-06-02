@@ -266,22 +266,6 @@ export function calcHealthGrade(score: number): string {
   return 'F';
 }
 
-/** Legacy debt-to-asset score, retained for back-compat with older callers/tests. */
-export function calcDebtScore(debtRatio: number): number {
-  if (debtRatio <= 0.1)  return 25;
-  if (debtRatio <= 0.3)  return 20;
-  if (debtRatio <= 0.5)  return 15;
-  if (debtRatio <= 0.75) return 10;
-  return 5;
-}
-
-// ── Goal Progress ─────────────────────────────────────────────────────────────
-
-export function calcGoalProgress(current: number, target: number): number {
-  if (target <= 0) return 0;
-  return Math.min(100, (current / target) * 100);
-}
-
 // ── Transaction Balance Effects ───────────────────────────────────────────────
 
 function roundCents(n: number): number {
@@ -508,25 +492,6 @@ export function calcNetWorthProjection(
   return Array.from({ length: months }, (_, i) => {
     return last * Math.pow(1 + rate, i + 1);
   });
-}
-
-// ── Category Percentage ───────────────────────────────────────────────────────
-export function calcCategoryPct(spent: number, totalSpend: number): number {
-  if (totalSpend <= 0) return 0;
-  return (spent / totalSpend) * 100;
-}
-
-// ── Paycheck Effective Tax Rate ───────────────────────────────────────────────
-// effectiveTaxRate = (federal + state + local withheld) / gross
-// totalDeductionRate includes pre-tax contributions (401k, HSA)
-export function calcPaycheckEffectiveRate(
-  grossAmount: number,
-  federalWithheld: number,
-  stateWithheld: number,
-  localWithheld: number,
-): number {
-  if (grossAmount <= 0) return 0;
-  return ((federalWithheld + stateWithheld + localWithheld) / grossAmount) * 100;
 }
 
 // ── Paycheck Tax To Set Aside ─────────────────────────────────────────────────

@@ -336,7 +336,11 @@ export async function getAccounts(
     // coming back as "$100.00" → NaN.
     valueRenderOption: 'UNFORMATTED_VALUE',
   });
-  return (res.data.values ?? []).map((r) => ({
+  return (res.data.values ?? []).map(rowToAccount);
+}
+
+function rowToAccount(r: string[]): Account {
+  return {
     id: String(r[0] ?? ''),
     name: String(r[1] ?? ''),
     type: (r[2] ?? 'checking') as Account['type'],
@@ -348,7 +352,7 @@ export async function getAccounts(
     // Column I is optional: the starting balance captured when the account was
     // created. Empty/blank → undefined (not 0).
     openingBalance: r[8] === undefined || r[8] === '' ? undefined : Number(r[8]),
-  }));
+  };
 }
 
 export async function upsertAccount(
@@ -388,19 +392,24 @@ export async function getGoals(
     spreadsheetId,
     range: 'Goals!A2:H200',
   });
-  const rows = res.data.values ?? [];
-  return rows
-    .map((r, i) => ({
-      id: r[0] ?? '',
-      name: r[1] ?? '',
-      targetAmount: Number(r[2] ?? 0),
-      currentAmount: Number(r[3] ?? 0),
-      deadline: r[4] ?? '',
-      icon: r[5] ?? '🎯',
-      linkedAccountId: r[6] ?? '',
-      position: r[7] !== undefined && r[7] !== '' ? Number(r[7]) : i,
-    }))
-    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  return parseGoals(res.data.values ?? []);
+}
+
+function rowToGoal(r: string[], i: number): Goal {
+  return {
+    id: r[0] ?? '',
+    name: r[1] ?? '',
+    targetAmount: Number(r[2] ?? 0),
+    currentAmount: Number(r[3] ?? 0),
+    deadline: r[4] ?? '',
+    icon: r[5] ?? '🎯',
+    linkedAccountId: r[6] ?? '',
+    position: r[7] !== undefined && r[7] !== '' ? Number(r[7]) : i,
+  };
+}
+
+function parseGoals(rows: string[][]): Goal[] {
+  return rows.map(rowToGoal).sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 }
 
 export async function upsertGoal(
@@ -525,16 +534,21 @@ export async function getBudgets(
     spreadsheetId,
     range: 'Budgets!A2:E200',
   });
-  const rows = res.data.values ?? [];
-  return rows
-    .map((r, i) => ({
-      id: r[0] ?? '',
-      category: r[1] ?? '',
-      amount: Number(r[2] ?? 0),
-      period: (r[3] ?? 'monthly') as Budget['period'],
-      position: r[4] !== undefined && r[4] !== '' ? Number(r[4]) : i,
-    }))
-    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  return parseBudgets(res.data.values ?? []);
+}
+
+function rowToBudget(r: string[], i: number): Budget {
+  return {
+    id: r[0] ?? '',
+    category: r[1] ?? '',
+    amount: Number(r[2] ?? 0),
+    period: (r[3] ?? 'monthly') as Budget['period'],
+    position: r[4] !== undefined && r[4] !== '' ? Number(r[4]) : i,
+  };
+}
+
+function parseBudgets(rows: string[][]): Budget[] {
+  return rows.map(rowToBudget).sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 }
 
 export async function upsertBudget(
@@ -1008,6 +1022,90 @@ export async function batchGetDashboardData(
   }));
 
   return { paychecks, transactions, accounts, bills, budgets, goals };
+}
+
+/**
+ * Generic multi-sheet batch read used by the /api/batch endpoint so a page can
+ * pull everything it needs in one round trip (and one Sheets quota hit) instead
+ * of N parallel requests — same idea as batchGetDashboardData, but driven by the
+ * caller's requested keys.
+ *
+ * The always-present sheets are fetched in a single spreadsheets.values.batchGet.
+ * Contacts/Splits are NOT batched: their tabs may not exist on older spreadsheets
+ * and a missing range fails the whole batchGet — so they go through their own
+ * getters, which auto-create the tab on first use. All reads run concurrently.
+ */
+export type BatchKey = keyof BatchResult;
+
+type BatchResult = {
+  accounts: Account[];
+  transactions: Transaction[];
+  bills: Bill[];
+  paychecks: PaycheckEntry[];
+  budgets: Budget[];
+  goals: Goal[];
+  contacts: Contact[];
+  splits: Split[];
+};
+
+// Sheets that always exist and carry no auto-create fallback — safe to batchGet.
+const BATCHABLE_SHEETS: Record<
+  Exclude<BatchKey, 'contacts' | 'splits'>,
+  { range: string; parse: (rows: string[][]) => unknown[] }
+> = {
+  accounts:     { range: 'Accounts!A2:I200',  parse: (rows) => rows.map(rowToAccount) },
+  transactions: { range: 'Transactions!A2:I', parse: (rows) => rows.map(rowToTransaction) },
+  bills:        { range: 'Bills!A2:J200',     parse: (rows) => rows.map(rowToBill) },
+  paychecks:    { range: 'Paychecks!A2:L',    parse: (rows) => rows.map(rowToPaycheck) },
+  budgets:      { range: 'Budgets!A2:E200',   parse: parseBudgets },
+  goals:        { range: 'Goals!A2:H200',     parse: parseGoals },
+};
+
+export const BATCH_KEYS = [
+  ...Object.keys(BATCHABLE_SHEETS),
+  'contacts',
+  'splits',
+] as BatchKey[];
+
+export async function batchGetSheets(
+  accessToken: string,
+  spreadsheetId: string,
+  keys: BatchKey[]
+): Promise<Partial<BatchResult>> {
+  const out: Partial<BatchResult> = {};
+  const assign = out as Record<BatchKey, unknown>;
+
+  const batched = keys.filter(
+    (k): k is Exclude<BatchKey, 'contacts' | 'splits'> => k in BATCHABLE_SHEETS
+  );
+
+  const tasks: Promise<void>[] = [];
+
+  if (batched.length > 0) {
+    tasks.push((async () => {
+      const sheets = getSheetsClient(accessToken);
+      const res = await sheets.spreadsheets.values.batchGet({
+        spreadsheetId,
+        ranges: batched.map((k) => BATCHABLE_SHEETS[k].range),
+        // Numeric cells must come back as numbers, not "$100.00" strings → NaN.
+        valueRenderOption: 'UNFORMATTED_VALUE',
+      });
+      const vr = res.data.valueRanges ?? [];
+      batched.forEach((k, i) => {
+        assign[k] = BATCHABLE_SHEETS[k].parse((vr[i]?.values ?? []) as string[][]);
+      });
+    })());
+  }
+
+  if (keys.includes('contacts')) {
+    tasks.push(getContacts(accessToken, spreadsheetId).then((c) => { assign.contacts = c; }));
+  }
+  if (keys.includes('splits')) {
+    tasks.push(getSplits(accessToken, spreadsheetId).then((s) => { assign.splits = s; }));
+  }
+
+  await Promise.all(tasks);
+  return out;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
