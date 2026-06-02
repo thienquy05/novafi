@@ -243,3 +243,18 @@ Verified: `tsc --noEmit` clean; eslint 0 errors (only the pre-existing planning 
 - Account balances are transaction-driven: a newly logged paycheck posts an income transaction for the full amount (`grossPaycheck + gratuity`) and the balance increments by that full amount, so the whole system already uses the deposited amount going forward. Paychecks logged under the OLD net-deposit model still have a net-valued transaction, so their historical account balance reflects net — that historical ledger data is intentionally NOT auto-migrated here (would require a fuzzy paycheck↔transaction match and mutating financial records); offered separately to the user.
 
 **Verification:** `npm run typecheck` clean, `npm run build` succeeds, `npm run lint` 0 errors (pre-existing warnings only), `npm test` 309/309 passing.
+
+## 2026-06-02 — Paycheck: re-add YTD Taxable Wages + YTD Tips cards
+
+**Goal:** Per user request, surface two more YTD summary containers on the Paychecks page alongside "YTD Income" and "YTD Tax": **YTD Taxable Wages** and **YTD Tips**. (This reverses the earlier collapse-to-two-cards change for those two metrics.)
+
+**Changes:**
+- `app/(app)/paychecks/page.tsx`:
+  - YTD memo now also accumulates `ytdWages` (sum of `p.grossAmount`) and `ytdTips` (sum of `p.gratuityAmount ?? 0`), returning `{ ytdIncome, ytdTax, ytdWages, ytdTips }`.
+  - YTD summary grid (still `grid-cols-2`, now a 2×2 layout) renders two additional cards: "YTD Taxable Wages" (`text-slate-900`) and "YTD Tips" (`text-blue-600`, matching the per-paycheck Tips color).
+- `locales/en.json` & `locales/vi.json` — added `paychecks.ytdTaxableWages` and `paychecks.ytdTips` keys (EN: "YTD Taxable Wages" / "YTD Tips"; VI: "Lương chịu thuế từ đầu năm" / "Tiền boa từ đầu năm").
+
+**Notes:**
+- Taxable wages = `grossAmount` (tips already peeled off in the data model); tips = `gratuityAmount`. So `ytdWages + ytdTips === ytdIncome` (the full deposited amount) by construction.
+
+**Verification:** `npm run typecheck` clean.

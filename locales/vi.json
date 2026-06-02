@@ -229,6 +229,8 @@
     "subtitle": "Ghi thu nhập — toàn bộ số tiền được chuyển vào như tiền thật; chúng tôi tính khoản thuế cần để dành",
     "ytdIncome": "Thu nhập từ đầu năm (đã nhận)",
     "ytdTax": "Thuế từ đầu năm",
+    "ytdTaxableWages": "Lương chịu thuế từ đầu năm",
+    "ytdTips": "Tiền boa từ đầu năm",
     "logPaycheck": "Ghi phiếu lương",
     "payDate": "Ngày nhận lương",
     "totalAmount": "Tổng số tiền (bao gồm tiền boa)",
