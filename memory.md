@@ -2,6 +2,22 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-02 — Paycheck delete now reverses its deposit (branch claude/awesome-goldberg-6BQLc)
+
+**Bug (user):** "for the paycheck, it is only calculate the amount to deposit… we still don't have any formula that handle removal if we delete or change the paycheck amount, my account is messed up."
+
+**Root cause:** Logging a paycheck created TWO unlinked records — a Paychecks row, plus a separate income `Transaction` (with its own random `generateId()`) that actually drives the account balance. `DELETE /api/paychecks` only deleted the Paychecks row, leaving the deposit transaction in the ledger. Since balances are reconciled from the transaction ledger, the deposit lingered and the account balance stayed inflated. There was also no link between the two, so the orphan deposit couldn't be found, and no edit path existed (changing an amount = delete + re-add, which left the orphan behind).
+
+**Fix:** Make the paycheck *own* its deposit transaction via a shared id, and reverse it on delete.
+- `app/(app)/paychecks/page.tsx` — `handleSave` now posts the auto-created deposit transaction with `id: entry.id` (the paycheck's id) instead of a fresh `generateId()`, so the paycheck and its deposit are deterministically linked.
+- `app/api/paychecks/route.ts` — `DELETE` now, after removing the Paychecks row, looks up the transaction whose id equals the paycheck id; if found it calls `deleteTransaction` and reverses the balance via `applyTransactionToBalances(accounts, tx, 'reverse')`, persisting only changed accounts with `upsertAccount` (mirrors the transactions DELETE route). Added imports (`getTransactions`, `deleteTransaction`, `getAccounts`, `upsertAccount`, `applyTransactionToBalances`) and now invalidates `transactions`, `accounts`, and `badges` caches too. No-ops cleanly when a paycheck has no deposit account, and for legacy paychecks whose unrelated-id transaction can't be linked.
+
+**Notes:**
+- Forward-looking only. Paychecks logged BEFORE this change still have a random-id deposit transaction that can't be auto-linked, so deleting them won't reverse the deposit. Existing inflated balances must be repaired by manually deleting the leftover "Paycheck" income transactions on the Transactions page (then Settings → reconcile). Not auto-migrated — would require a fuzzy paycheck↔transaction match against real financial records.
+- "Change the paycheck amount": there's still no in-place edit UI; the supported flow is delete + re-add, which is now balance-correct because delete reverses the old deposit and the re-add posts a fresh linked one.
+
+**Verification:** `npm run typecheck` clean, `npm run lint` 0 errors (pre-existing warnings only), `npm test` 309/309 passing.
+
 ## 2026-06-02 — Roll over last month's overspend even without a frozen snapshot (branch claude/budget-rollover-carry-from-history)
 
 **Bug (user):** All Planning budgets showed `$0.00` used with empty bars at the start of June, even though the "vs last mo" line and 3-month average proved last month had real spending — e.g. Shopping ($291.67/mo cap) spent ~$1,338 and Transportation ($150 cap) spent ~$213 last month (both **overspent**). Nothing rolled over. "the amount isn't roll over too… I will need to keep that amount over the next month if overspent and the progress bar should display with proper percentage."
