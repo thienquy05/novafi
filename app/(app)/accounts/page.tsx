@@ -80,6 +80,17 @@ export default function AccountsPage() {
     loan: t('accounts.typeLoan'),
   };
 
+  // Section headers use a localized plural label rather than appending a literal
+  // "s" — which produced "Checkings"/"Savingss" in English and a stray "s" in
+  // languages that don't pluralize (e.g. Vietnamese).
+  const ACCOUNT_TYPE_GROUP_LABELS: Record<Account['type'], string> = {
+    checking: t('accounts.groupChecking'),
+    savings: t('accounts.groupSavings'),
+    credit: t('accounts.groupCredit'),
+    investment: t('accounts.groupInvestment'),
+    loan: t('accounts.groupLoan'),
+  };
+
   const load = useCallback(async () => {
     try {
       const res = await fetch('/api/accounts');
@@ -255,12 +266,12 @@ export default function AccountsPage() {
             .map(([type, list]) => {
               const config = ACCOUNT_TYPE_CONFIG[type];
               const Icon = config.icon;
-              const label = ACCOUNT_TYPE_LABELS[type];
+              const label = ACCOUNT_TYPE_GROUP_LABELS[type];
               return (
                 <div key={type} className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700/60 p-4 sm:p-6 shadow-sm">
                   <div className="flex items-center gap-3 mb-4 px-2">
                     <div className={`p-2 rounded-xl ${config.bgClass}`}><Icon className={`w-5 h-5 ${config.colorClass}`} /></div>
-                    <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">{label}s</h2>
+                    <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">{label}</h2>
                   </div>
                   <div className="space-y-3">
                     {list.map((account) => (
