@@ -302,7 +302,16 @@ export function applyTransferFromBalance(balance: number, amount: number): numbe
 }
 
 export function applyTransferToBalance(balance: number, amount: number, isDebt: boolean): number {
-  return isDebt ? roundCents(Math.max(0, balance - amount)) : roundCents(balance + amount);
+  // A transfer INTO a debt account is a payment → it reduces the owed balance.
+  // We intentionally do NOT clamp at zero: overpaying a card leaves a legitimate
+  // credit balance (the bank owes you), and clamping silently discards money.
+  // Crucially, the clamp also broke reconciliation — it made apply/reverse
+  // non-inverse, so a chronological replay that applied a payment before the
+  // charge it covers (e.g. a backdated payment, or an opening balance set to the
+  // current owed amount while history exists) would clamp the payment away and
+  // inflate the result. Subtracting unconditionally keeps it symmetric with
+  // reverseTransferToBalance.
+  return roundCents(isDebt ? balance - amount : balance + amount);
 }
 
 export function reverseExpenseBalance(balance: number, amount: number, isDebt: boolean): number {
@@ -369,9 +378,9 @@ export function applyTransactionToBalances(
 
 // ── Reconciliation ────────────────────────────────────────────────────────────
 // Replays an account's full ledger from its opening balance, in chronological
-// order, honoring the same apply rules (including the debt-overpayment clamp in
-// applyTransferToBalance). Returns the balance the account SHOULD have, so drift
-// from partial-write failures or concurrent updates can be detected and repaired.
+// order, honoring the same apply rules used for live updates. Returns the
+// balance the account SHOULD have, so drift from partial-write failures or
+// concurrent updates can be detected and repaired.
 
 function compareTxChronological(a: Transaction, b: Transaction): number {
   if (a.date !== b.date) return a.date < b.date ? -1 : 1;
@@ -401,8 +410,8 @@ export function reconcileAccountBalance(account: Account, transactions: Transact
 
 // Backfills the opening balance for accounts that predate opening-balance
 // tracking: reverse-replays the ledger from the current balance to the start so
-// that a forward replay reproduces today's balance. Accurate unless a historical
-// debt-overpayment clamp fired (rare, and inherently ambiguous in that case).
+// that a forward replay reproduces today's balance. Exact, because every apply
+// rule now has a true inverse (reverse).
 export function deriveOpeningBalance(account: Account, transactions: Transaction[]): number {
   const ledger = ledgerForAccount(account.id, transactions);
   let working: Account = { ...account };

@@ -43,9 +43,18 @@ describe('nextBalanceForAccount', () => {
     expect(nextBalanceForAccount(card, makeTx({ type: 'expense', amount: 100, account: 'chk' }), 'apply')).toBe(200);
   });
 
-  it('clamps debt payoff transfers at zero (no negative debt)', () => {
+  it('lets a debt payoff transfer overshoot into a credit balance', () => {
+    // Overpaying a card leaves a credit balance (the bank owes you). We do NOT
+    // clamp at zero: clamping discarded money and broke reconciliation by making
+    // apply/reverse non-inverse.
     const tx = makeTx({ type: 'transfer', amount: 300, account: 'chk', toAccount: 'card' });
-    expect(nextBalanceForAccount(card, tx, 'apply')).toBe(0); // 200 - 300 clamped
+    expect(nextBalanceForAccount(card, tx, 'apply')).toBe(-100); // 200 - 300
+  });
+
+  it('reverse is the inverse of apply for a debt payoff transfer', () => {
+    const tx = makeTx({ type: 'transfer', amount: 300, account: 'chk', toAccount: 'card' });
+    const applied = nextBalanceForAccount(card, tx, 'apply');
+    expect(nextBalanceForAccount({ ...card, balance: applied }, tx, 'reverse')).toBe(200);
   });
 
   it('reverse is the inverse of apply for a cash expense', () => {
@@ -101,6 +110,21 @@ describe('reconcileAccountBalance', () => {
     ];
     // income first (+500 → 600), then expense (-50 → 550)
     expect(reconcileAccountBalance(acc, txns)).toBe(550);
+  });
+
+  it('counts a card payment even when it replays before the charge it covers', () => {
+    // Regression: a payment dated earlier than the charge it covers (backdated,
+    // or opening balance set to the current owed amount while history exists)
+    // used to be clamped away to zero, inflating the reconciled owed balance as
+    // if only the expenses counted. Real owed balance here is 0, not 1000.
+    const card = makeAccount({ id: 'card', type: 'credit', balance: 0, openingBalance: 0 });
+    const txns = [
+      makeTx({ id: 'pay', type: 'transfer', amount: 1000, account: 'chk', toAccount: 'card',
+        date: '2026-05-10', createdAt: '2026-05-20T00:00:00Z' }),
+      makeTx({ id: 'exp', type: 'expense', amount: 1000, account: 'card',
+        date: '2026-05-15', createdAt: '2026-05-15T00:00:00Z' }),
+    ];
+    expect(reconcileAccountBalance(card, txns)).toBe(0);
   });
 });
 

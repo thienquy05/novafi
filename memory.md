@@ -243,3 +243,18 @@ Verified: `tsc --noEmit` clean; eslint 0 errors (only the pre-existing planning 
 - Account balances are transaction-driven: a newly logged paycheck posts an income transaction for the full amount (`grossPaycheck + gratuity`) and the balance increments by that full amount, so the whole system already uses the deposited amount going forward. Paychecks logged under the OLD net-deposit model still have a net-valued transaction, so their historical account balance reflects net — that historical ledger data is intentionally NOT auto-migrated here (would require a fuzzy paycheck↔transaction match and mutating financial records); offered separately to the user.
 
 **Verification:** `npm run typecheck` clean, `npm run build` succeeds, `npm run lint` 0 errors (pre-existing warnings only), `npm test` 309/309 passing.
+
+## 2026-06-02 — Balance Check (reconcile): stop the debt-overpayment clamp from inflating credit-card balances (branch claude/admiring-meitner-3kc96)
+
+**Symptom (user report):** Running the "Balance Check" / reconcile on a credit card (Capital One) proposed a much higher "after" balance (e.g. $1,212.36 → $2,166.54). It behaved as if reconciliation only summed expenses and ignored the income/paybacks.
+
+**Root cause:** `applyTransferToBalance(balance, amount, isDebt)` clamped debt payoffs at zero with `Math.max(0, balance - amount)`, but its inverse `reverseTransferToBalance` (`balance + amount`) did NOT clamp. So `apply` and `reverse` were not true inverses — the exact invariant `deriveOpeningBalance` and `reconcileAccountBalance` rely on. When a card **payment** replays chronologically *before* the charge it covers (a backdated payment, or simply because the opening balance was set to the current owed amount while transaction history exists), the running owed balance is still low/zero at that point, so the clamp silently discards the payment while the later expenses still pile on — inflating the reconciled balance.
+
+**Fix:**
+- `lib/calculations.ts` — `applyTransferToBalance` now returns `roundCents(isDebt ? balance - amount : balance + amount)` (no zero clamp). Overpaying a card now yields a legitimate negative (credit) balance — money the bank owes you — and `apply`/`reverse` round-trip exactly. Updated the surrounding reconcile/`deriveOpeningBalance` comments that referenced the now-removed clamp and its "known limitation".
+- `lib/__tests__/ledger.test.ts` — Replaced the "clamps debt payoff transfers at zero" test with "lets a debt payoff transfer overshoot into a credit balance" (200 − 300 → −100) plus a new apply/reverse-inverse test. Added a `reconcileAccountBalance` regression test: a backdated card payment that replays before its charge now reconciles to the true owed balance (0), not the inflated value (1000).
+- `lib/__tests__/calculations.test.ts` — Updated `applyTransferToBalance` overpayment test (50 − 100 → −50) and replaced the `reverseTransferToBalance` "KNOWN LIMITATION" clamp test with an exact apply/reverse round-trip test.
+
+**Notes:**
+- Both the live transaction route and the reconciler go through `nextBalanceForAccount` → `applyTransferToBalance`, so live balances and reconcile stay consistent; live credit-card payoffs that overpay can now show a negative (credit) balance, which is financially correct.
+- Verification: standalone Node repro confirmed clamped reconcile = 1000 vs fixed = 0 for the backdated-payment scenario. `tsc --noEmit` shows no errors in the changed files (the unrelated module-not-found errors are because `node_modules` isn't installed in this environment).
