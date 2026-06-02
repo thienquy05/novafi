@@ -2,6 +2,23 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-02 — Fix Planning budget bar inflating after a budget edit (branch claude/budget-calculation-bug-INfrq)
+
+**Bug:** After lowering a budget (e.g. Insurance $500 → $110), the Planning card showed the spent amount and progress bar inflated by a phantom "+$X from last month" deficit, turning the bar full and red ("$279.36 over") even though no money was spent this month. The Dashboard and reports correctly showed the category as **not** over budget, so the two views disagreed.
+
+**Root cause:** Only the Planning page applied the opt-in budget-rollover feature. It computed `rolledOverDeficit = max(0, prevMonthSpend − currentBudget)` (`lib/calculations.ts` `calcRolloverDeficit`) and displayed `usage = spent + rolledOverDeficit` for the bar/header/over status. Because the deficit is measured against the **current** cap and `Budget` stores only a single `amount` (no per-month history), lowering the cap retroactively reinterpreted last month: $499.36 spent under the old $500 cap (not overspent) suddenly exceeded the new $110 cap, fabricating a $389.36 deficit. The Dashboard (`app/(app)/dashboard/page.tsx:197`) and `BudgetBars` always used plain `spent`, hence the inconsistency.
+
+**Fix (per user choice — "bar uses actual spend, consistent with Dashboard"):** `app/(app)/planning/page.tsx`
+- Removed the `calcRolloverDeficit`/`calcEffectiveSpent` import, the `rolloverEnabled` state, the `/api/settings` fetch that fed it, and the `rolledOverDeficit()` helper.
+- `overBudgetCount` now uses `spentForCategory(b) > monthlyAmount(b)` (actual spend vs fixed cap).
+- Per-budget `pct`, `over`, `remaining`, and `projected` now use actual `spent` (no `+ rolledOver`); dropped the `usage` derivation.
+- `BudgetItem` no longer takes `rolledOver`/`usage` props; the header numerator shows `spent`; removed the rose "+$X from last month" (`planning.rolledOver`) badge.
+- Result: Planning matches Dashboard/reports — a budget edit can never manufacture a carried-over overspend; an unspent category shows `$0 / $cap` with an empty bar.
+
+**Note:** the `budgetRollover` toggle in Settings is now inert (this page was its only consumer). Left in place per the chosen fix; can be removed/hidden on request. `calcRolloverDeficit`/`calcEffectiveSpent` remain exported and unit-tested in `lib/calculations.ts`.
+
+Verified: `tsc --noEmit` clean; eslint on the page reports only the pre-existing line-85 setState-in-effect warning (0 errors); 222 calculations tests pass.
+
 ## 2026-06-02 — Shared/split bills with "Owed to You" tracking
 
 **Goal:** Let a bill be shared with another person. **Final money model (per user decision):** marking a shared bill paid records **only your own share** as the expense — the other person covers their part separately. The other person's share is tracked in a new **"Owed to You"** section with a Transferred checkbox; this tracker is **purely informational and creates no transactions**. Because the expense is already just your share, Spending / category totals / Safe-to-Spend / Reports / balances are all correct immediately, with no offsetting/refund entries. Contacts are reusable but kept minimal.
