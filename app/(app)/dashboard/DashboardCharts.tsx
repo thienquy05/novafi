@@ -43,7 +43,7 @@ const DEFAULT_COLOR = '#6366f1';
 
 export type CategoryData = { name: string; value: number };
 export type MonthlyData = { month: string; income: number; expenses: number; net?: number };
-export type BudgetData = { category: string; budget: number; spent: number; prevMonthSpent?: number };
+export type BudgetData = { category: string; budget: number; spent: number; prevMonthSpent?: number; rolledOver?: number };
 export type GoalData = { id: string; name: string; icon: string; current: number; target: number; deadline: string };
 export type NetWorthPoint = { month: string; label: string; netWorth: number };
 export type HealthScoreData = {
@@ -224,12 +224,6 @@ export function HealthBanner({
       : cfg.title;
 
   const cashFlow = monthIncome - monthSpending;
-  const subtitle =
-    monthIncome === 0
-      ? 'Record a paycheck to track your monthly cash flow'
-      : monthSpending > monthIncome
-      ? `${formatCurrency(monthSpending - monthIncome)} over income`
-      : `${formatCurrency(cashFlow)} net · ${formatCurrency(safeToSpend)} free after bills`;
 
   return (
     <motion.div
@@ -254,7 +248,17 @@ export function HealthBanner({
             </span>
           )}
         </div>
-        <p className="text-sm font-medium text-slate-600 dark:text-slate-300 truncate">{subtitle}</p>
+        {monthIncome === 0 ? (
+          <p className="text-sm font-medium text-slate-600 dark:text-slate-300">{t('charts.recordPaycheckHint')}</p>
+        ) : monthSpending > monthIncome ? (
+          <p className="text-sm font-medium text-slate-600 dark:text-slate-300">{t('charts.overIncome', { amount: formatCurrency(monthSpending - monthIncome) })}</p>
+        ) : (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-medium text-slate-600 dark:text-slate-300">
+            <span><span className="font-bold text-slate-900 dark:text-slate-100">{formatCurrency(cashFlow)}</span> {t('charts.netLabel')}</span>
+            <span className="text-slate-300 dark:text-slate-600">·</span>
+            <span><span className="font-bold text-slate-900 dark:text-slate-100">{formatCurrency(safeToSpend)}</span> {t('charts.afterBills')}</span>
+          </div>
+        )}
       </div>
       <div className="text-right shrink-0">
         <p className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{daysLeft}d left</p>
@@ -417,14 +421,18 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM, totalSpend }:
   return (
     <div className="space-y-5">
       {data.map((b, i) => {
-        const pct = b.budget > 0 ? Math.min(100, (b.spent / b.budget) * 100) : 0;
-        const over = b.spent > b.budget;
-        const remaining = b.budget - b.spent;
+        // Usage includes any rolled-over deficit from last month; the cap itself
+        // stays fixed. Mirrors the Planning page so summaries agree.
+        const rolledOver = b.rolledOver ?? 0;
+        const usage = b.spent + rolledOver;
+        const pct = b.budget > 0 ? Math.min(100, (usage / b.budget) * 100) : 0;
+        const over = usage > b.budget;
+        const remaining = b.budget - usage;
 
-        // Projected spend: (spent / daysElapsed) * totalDays
+        // Projected spend: (spent / daysElapsed) * totalDays, plus carried deficit
         const totalDays = (daysLeft ?? 0) + (daysElapsed ?? 0);
         const projected = daysElapsed && daysElapsed > 0 && totalDays > 0
-          ? (b.spent / daysElapsed) * totalDays
+          ? (b.spent / daysElapsed) * totalDays + rolledOver
           : null;
         const willOvershoot = projected !== null && projected > b.budget && !over;
 
@@ -441,6 +449,11 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM, totalSpend }:
                 {totalSpend != null && totalSpend > 0 && b.spent > 0 && (
                   <span className="text-xs font-bold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-700/50 px-1.5 py-0.5 rounded-md">
                     {((b.spent / totalSpend) * 100).toFixed(0)}%
+                  </span>
+                )}
+                {rolledOver > 0 && (
+                  <span className="text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 rounded-md">
+                    +{formatCurrency(rolledOver)} {t('planning.rolledOver')}
                   </span>
                 )}
               </div>

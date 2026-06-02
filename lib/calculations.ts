@@ -477,6 +477,16 @@ export function calcSplitShares(total: number, theirShare: number): { mine: numb
   return { theirs, mine: roundCents((total || 0) - theirs) };
 }
 
+// The portion of a bill that is actually YOUR cost. For a shared bill that's
+// only your share (the rest is the other person's, tracked as a receivable), so
+// summaries, forecasts, and the dashboard reflect what you really pay — not the
+// full bill. Single source of truth used across bills + dashboard.
+export function myBillShare(bill: Bill): number {
+  return bill.splitContactId && bill.splitAmount
+    ? calcSplitShares(bill.amount, bill.splitAmount).mine
+    : bill.amount;
+}
+
 // Outstanding balance on a loan/IOU: principal minus everything paid back so
 // far, floored at 0 (over-repayment never produces a negative remaining).
 export function calcLoanRemaining(principal: number, repaidAmount: number): number {
