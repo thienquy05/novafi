@@ -374,6 +374,18 @@ Verified: `tsc --noEmit` clean; eslint 0 errors (only the pre-existing planning 
 
 **Verification:** `locales/*.json` parse OK; no remaining `settings.reconcile` references; no `tsc` errors reference any removed identifier (remaining tsc output is pre-existing missing-`node_modules`/`@types` noise in this environment).
 
+## 2026-06-02 — PR2: Edit button for Loans / IOUs (full edit) (branch claude/pr2-loan-edit)
+
+**Request (PR2 of 6):** Loans & IOUs had add / payback / delete but no edit. User chose FULL edit — including principal amount & account — with the principal cash transfer adjusted so balances stay correct.
+
+**Changes:**
+- `app/api/loans/route.ts` — added `PUT { updated, newTx?, removeTxId? }`: reverses+deletes the old principal transfer and applies the new one in one in-memory balance pass (`applyTransactionToBalances` + `persistChanged`), then `upsertLoan(updated)`; invalidates tx/accounts/dashboard/badges + loans caches. Paybacks (`repaymentTxIds`) are untouched — only the principal cash row is rebuilt.
+- `app/(app)/transactions/page.tsx` — new `editingLoanId` state; `openEditLoan(loan)` pre-fills the existing inline loan form; `handleEditLoan()` rebuilds the principal `transfer` via `buildLoanTx(direction,'principal',…)` from the edited amount/account/direction/date, recomputes `settled` against the new principal (`repaidAmount >= principal`), and calls the PUT with `removeTxId = original.principalTxId`. The inline form's save button switches between add/edit (`handleEditLoan` + `loans.saveChanges`); added a Pencil edit button on each open-loan card; modal close / cancel / add all reset `editingLoanId`.
+- `locales/en.json` + `vi.json` — added `loans.toastUpdated`, `loans.saveChanges`.
+
+**Notes:** Editing direction with existing paybacks is an unusual combo — paybacks keep their original cash direction (only the principal transfer is rebuilt); typical edits (fix amount/account/note/contact/date on a fresh loan) are exact. Branch is off master (does not include PR1).
+
+**Verification:** `tsc --noEmit` clean; eslint 0 errors (25 pre-existing warnings); 298 tests pass.
 ## 2026-06-02 — PR1: Shared bills as Loan-style receivables + dashboard "my share" sync + due-date colors (branch claude/pr1-bills-loan-model)
 
 **Request (NovaFi enhancement, PR1 of 6):** When paying a SHARED bill, the FULL amount should leave the assigned account (you really pay the whole bill), but your expense tracker must count only YOUR share. The other person's share is tracked like a Loan receivable ("Owed to You"); when you mark them transferred, that cash returns to the account (NOT income, but logged in transfer history). Plus: dashboard summaries must use "my share" for bills everywhere; budget summary must include rollover; due-date colors red ≤3d / yellow 4–7d; fix the mobile-truncated HealthBanner subtitle.

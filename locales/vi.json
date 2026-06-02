@@ -347,6 +347,8 @@
     "txRepaidToYou": "{name} đã trả bạn",
     "txYouRepaid": "Đã trả {name}",
     "toastAdded": "Đã thêm khoản vay",
+    "toastUpdated": "Đã cập nhật khoản vay",
+    "saveChanges": "Lưu thay đổi",
     "toastFailed": "Không thể cập nhật khoản vay",
     "toastFailedContact": "Không thể thêm người",
     "toastPayback": "Đã ghi nhận trả nợ",
