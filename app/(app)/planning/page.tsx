@@ -295,12 +295,15 @@ export default function PlanningPage() {
     }, 600);
   }
 
-  // ─── Rollover helpers ────────────────────────────────────────────────────
-  // The budget cap stays fixed; only last month's overspend rolls into this
-  // month's usage. Returns ≥ 0 (a carried-over deficit), 0 when none/disabled.
+  // ─── Rollover helper ─────────────────────────────────────────────────────
+  // Last month's overspend that carries into this month's usage. Measured
+  // against `prevCap` — the cap that was actually active last month, frozen by
+  // the server at month rollover — so editing the cap today never fabricates a
+  // deficit. Only applies when the snapshot is for the immediately prior month.
   function rolledOverDeficit(budget: Budget): number {
     if (!rolloverEnabled) return 0;
-    return calcRolloverDeficit(monthlyAmount(budget), prevSpentForCategory(budget.category));
+    if (budget.prevMonth !== prevMonthKey || budget.prevCap === undefined) return 0;
+    return calcRolloverDeficit(budget.prevCap, prevSpentForCategory(budget.category));
   }
 
   // ─── Derived stats ───────────────────────────────────────────────────────
@@ -418,7 +421,7 @@ export default function PlanningPage() {
               <Reorder.Group axis="y" values={budgets} onReorder={handleBudgetReorder} className="space-y-3 list-none">
                 {budgets.map((budget) => {
                   const monthly = monthlyAmount(budget);            // fixed cap (no rollover added)
-                  const rolledOver = rolledOverDeficit(budget);     // ≥ 0, carried from last month's overspend
+                  const rolledOver = rolledOverDeficit(budget);     // ≥ 0, last month's real overspend
                   const spent = spentForCategory(budget.category);  // actual spend this month
                   const usage = calcEffectiveSpent(spent, rolledOver); // bar usage incl. rolled-over deficit
                   const prevSpent = prevSpentForCategory(budget.category);

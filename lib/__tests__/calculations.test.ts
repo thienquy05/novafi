@@ -871,6 +871,17 @@ describe('calcRolloverDeficit', () => {
   it('no prior spending (new budget) → nothing carried over (no doubling)', () => {
     expect(calcRolloverDeficit(400, 0)).toBe(0);
   });
+
+  it('measured against LAST month\'s cap, not the freshly edited cap (no phantom on edit)', () => {
+    // Regression: user spent $499.36 under last month's $500 cap (not over), then
+    // lowered the cap to $110 this month. Rollover must use the frozen prevCap
+    // ($500) — not the new $110 — so no deficit is fabricated.
+    const prevCap = 500;            // cap that was actually active last month
+    const lastMonthSpend = 499.36;  // under last month's cap → not overspent
+    expect(calcRolloverDeficit(prevCap, lastMonthSpend)).toBe(0);
+    // Using the edited cap would wrongly invent a $389.36 deficit:
+    expect(calcRolloverDeficit(110, lastMonthSpend)).toBeCloseTo(389.36, 2);
+  });
 });
 
 describe('calcEffectiveSpent', () => {
