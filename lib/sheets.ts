@@ -83,8 +83,19 @@ async function ensureSheet(
 const CONTACTS_HEADER = ['id', 'name', 'created_at'];
 const SPLITS_HEADER = [
   'id', 'bill_id', 'bill_name', 'contact_id', 'contact_name', 'amount',
-  'category', 'account', 'date', 'settled', 'settled_date', 'refund_tx_id',
+  'category', 'account', 'date', 'settled', 'settled_date',
 ];
+
+// A `values.get` against a tab that doesn't exist fails with HTTP 400 ("Unable
+// to parse range"). We use that to distinguish "tab not provisioned yet" (lazy-
+// create it) from real failures (network/auth/5xx), which must propagate rather
+// than be masked as an empty result.
+function isMissingTabError(err: unknown): boolean {
+  const e = err as { code?: number; status?: number; message?: string } | null;
+  const code = e?.code ?? e?.status;
+  const msg = String(e?.message ?? '');
+  return code === 400 || /Unable to parse range/i.test(msg);
+}
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 
@@ -599,8 +610,10 @@ export async function getContacts(
       name: r[1] ?? '',
       createdAt: r[2] ?? '',
     }));
-  } catch {
-    // Tab doesn't exist yet (spreadsheet provisioned before this feature).
+  } catch (err) {
+    // Only treat a missing tab (spreadsheet provisioned before this feature) as
+    // "empty + create"; let real errors surface.
+    if (!isMissingTabError(err)) throw err;
     await ensureSheet(sheets, spreadsheetId, 'Contacts', CONTACTS_HEADER);
     return [];
   }
@@ -641,7 +654,7 @@ export async function getSplits(
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'Splits!A2:L1000',
+      range: 'Splits!A2:K1000',
     });
     return (res.data.values ?? []).map((r) => ({
       id: r[0] ?? '',
@@ -655,9 +668,9 @@ export async function getSplits(
       date: r[8] ?? '',
       settled: r[9] === 'true',
       settledDate: r[10] ?? '',
-      refundTxId: r[11] ?? '',
     }));
-  } catch {
+  } catch (err) {
+    if (!isMissingTabError(err)) throw err;
     await ensureSheet(sheets, spreadsheetId, 'Splits', SPLITS_HEADER);
     return [];
   }
@@ -670,7 +683,7 @@ export async function upsertSplit(
 ): Promise<void> {
   const sheets = getSheetsClient(accessToken);
   await ensureSheet(sheets, spreadsheetId, 'Splits', SPLITS_HEADER);
-  await deleteRowById(accessToken, spreadsheetId, 'Splits', split.id, 'L');
+  await deleteRowById(accessToken, spreadsheetId, 'Splits', split.id, 'K');
   await sheets.spreadsheets.values.append({
     spreadsheetId,
     range: 'Splits!A1',
@@ -680,7 +693,7 @@ export async function upsertSplit(
       values: [[
         split.id, split.billId, split.billName, split.contactId, split.contactName,
         split.amount, split.category, split.account, split.date,
-        String(split.settled), split.settledDate, split.refundTxId,
+        String(split.settled), split.settledDate,
       ]],
     },
   });
@@ -691,7 +704,7 @@ export async function deleteSplit(
   spreadsheetId: string,
   id: string
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Splits', id, 'L');
+  await deleteRowById(accessToken, spreadsheetId, 'Splits', id, 'K');
 }
 
 // ── Net Worth History ─────────────────────────────────────────────────────────

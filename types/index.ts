@@ -106,8 +106,10 @@ export interface Contact {
   createdAt: string;
 }
 
-// One "owed to you" record, created each time a split bill is paid. Tracks the
-// other person's share for that payment and whether they've paid you back.
+// One "owed to you" record, created each time a split bill is paid. Purely
+// informational: your expense already counts only your share, so this just
+// tracks the other person's share and whether they've settled up — marking it
+// settled creates no transaction.
 export interface Split {
   id: string;
   billId: string;
@@ -115,12 +117,11 @@ export interface Split {
   contactId: string;
   contactName: string; // denormalized for display
   amount: number;      // the other person's share they owe you
-  category: string;    // the bill's category — used for the offsetting refund
-  account: string;     // account the bill was paid from / the refund returns to
-  date: string;        // YYYY-MM-DD the bill was paid (offset is dated to match)
-  settled: boolean;    // they transferred the money back to you
-  settledDate: string; // YYYY-MM-DD they paid you back ('' until settled)
-  refundTxId: string;  // id of the offsetting refund transaction ('' until settled)
+  category: string;    // the bill's category at payment time (captured for context)
+  account: string;     // account the bill was paid from (captured for context)
+  date: string;        // YYYY-MM-DD the bill was paid
+  settled: boolean;    // they've paid you their share
+  settledDate: string; // YYYY-MM-DD they settled up ('' until settled)
 }
 
 export interface Goal {

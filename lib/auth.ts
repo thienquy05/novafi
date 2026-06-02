@@ -105,7 +105,7 @@ async function findOrCreateSpreadsheet(accessToken: string): Promise<string> {
         },
         {
           range: 'Splits!A1',
-          values: [['id', 'bill_id', 'bill_name', 'contact_id', 'contact_name', 'amount', 'category', 'account', 'date', 'settled', 'settled_date', 'refund_tx_id']],
+          values: [['id', 'bill_id', 'bill_name', 'contact_id', 'contact_name', 'amount', 'category', 'account', 'date', 'settled', 'settled_date']],
         },
       ],
     },

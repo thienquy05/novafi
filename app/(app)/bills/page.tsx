@@ -492,8 +492,9 @@ export default function BillsPage() {
       account: payForm.account,
       createdAt: new Date().toISOString(),
     };
-    // For a shared bill we record the FULL expense above and open an "owed to
-    // you" record for the other person's share — settled later via the checkbox.
+    // The expense above already counts only your share. For a shared bill we
+    // also open an informational "owed to you" record for the other person's
+    // share — marked settled later via the checkbox (no transaction).
     const splitShare = payBill.splitContactId && payBill.splitAmount ? payBill.splitAmount : 0;
     const splitContact = contacts.find((c) => c.id === payBill.splitContactId);
     const newSplit: Split | null = splitShare > 0 && splitContact ? {
@@ -508,17 +509,19 @@ export default function BillsPage() {
       date: payForm.date,
       settled: false,
       settledDate: '',
-      refundTxId: '',
     } : null;
     try {
+      // Confirm the expense wrote before creating the split record, otherwise a
+      // failed transaction would leave an orphaned "owed to you" entry.
       const txPromise = fetch('/api/transactions', { method: 'POST', body: JSON.stringify(tx), headers: { 'Content-Type': 'application/json' } });
-      const others: Promise<unknown>[] = [advanceBillDue(payBill)];
-      if (newSplit) {
-        others.push(fetch('/api/splits', { method: 'POST', body: JSON.stringify(newSplit), headers: { 'Content-Type': 'application/json' } }));
-      }
+      const advancePromise = advanceBillDue(payBill);
       const txRes = await txPromise;
-      await Promise.all(others);
+      await advancePromise;
       if (!txRes.ok) throw new Error();
+      if (newSplit) {
+        const sRes = await fetch('/api/splits', { method: 'POST', body: JSON.stringify(newSplit), headers: { 'Content-Type': 'application/json' } });
+        if (!sRes.ok) throw new Error();
+      }
       upsertTemplate({ id: generateId(), description: tx.description, amount: tx.amount, type: 'expense', category: tx.category, account: tx.account });
       if (newSplit) {
         setSplits((prev) => [newSplit, ...prev]);
@@ -908,7 +911,7 @@ export default function BillsPage() {
                   </div>
                 )}
                 <Input label={t('bills.theirShare')} type="number" min="0" step="0.01" placeholder="0.00" value={form.splitAmount} onChange={(e) => setForm((f) => ({ ...f, splitAmount: e.target.value }))} />
-                {parseFloat(form.amount) > 0 && parseFloat(form.splitAmount) > 0 && (
+                {parseFloat(form.amount) > 0 && (
                   <div className="flex justify-between text-xs font-bold px-1">
                     <span className="text-slate-500 dark:text-slate-400">{t('bills.yourShare')}: <span className="text-slate-900 dark:text-slate-100">{formatCurrency(formShares.mine)}</span></span>
                     <span className="text-slate-500 dark:text-slate-400">{t('bills.theirShareShort')}: <span className="text-emerald-600 dark:text-emerald-400">{formatCurrency(formShares.theirs)}</span></span>
