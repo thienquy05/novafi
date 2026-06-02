@@ -573,6 +573,12 @@ export function calcSplitShares(total: number, theirShare: number): { mine: numb
   return { theirs, mine: roundCents((total || 0) - theirs) };
 }
 
+// Outstanding balance on a loan/IOU: principal minus everything paid back so
+// far, floored at 0 (over-repayment never produces a negative remaining).
+export function calcLoanRemaining(principal: number, repaidAmount: number): number {
+  return Math.max(0, roundCents((principal || 0) - (repaidAmount || 0)));
+}
+
 // ── Net Worth Projection ──────────────────────────────────────────────────────
 // Extends historical net worth series N months forward using avg MoM growth rate.
 // Each projected point = previous × (1 + avgMoMRate).
