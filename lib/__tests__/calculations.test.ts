@@ -13,7 +13,7 @@ import {
   calcGoalProgress,
   applyExpenseBalance, applyIncomeBalance, applyTransferFromBalance, applyTransferToBalance,
   reverseExpenseBalance, reverseIncomeBalance, reverseTransferFromBalance, reverseTransferToBalance,
-  billToTransactionDefaults, calcSplitShares,
+  billToTransactionDefaults, calcSplitShares, calcLoanRemaining,
   calcOverdueBills, calcOverBudget,
   calcNetWorthProjection, calcCategoryPct, calcPaycheckEffectiveRate, calcPaycheckTotalTax,
 } from '@/lib/calculations';
@@ -652,6 +652,34 @@ describe('calcSplitShares', () => {
   it('treats missing/zero inputs safely', () => {
     expect(calcSplitShares(0, 0)).toEqual({ mine: 0, theirs: 0 });
     expect(calcSplitShares(80, 0)).toEqual({ mine: 80, theirs: 0 });
+  });
+});
+
+// ── calcLoanRemaining ─────────────────────────────────────────────────────────
+
+describe('calcLoanRemaining', () => {
+  it('returns principal when nothing repaid', () => {
+    expect(calcLoanRemaining(100, 0)).toBe(100);
+  });
+
+  it('subtracts partial repayments', () => {
+    expect(calcLoanRemaining(100, 30)).toBe(70);
+  });
+
+  it('is 0 when fully repaid', () => {
+    expect(calcLoanRemaining(100, 100)).toBe(0);
+  });
+
+  it('floors at 0 on over-repayment', () => {
+    expect(calcLoanRemaining(100, 120)).toBe(0);
+  });
+
+  it('rounds to cents', () => {
+    expect(calcLoanRemaining(100, 33.333)).toBe(66.67);
+  });
+
+  it('treats missing inputs as 0', () => {
+    expect(calcLoanRemaining(0, 0)).toBe(0);
   });
 });
 

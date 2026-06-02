@@ -105,6 +105,15 @@ function parseLocalDate(dateStr: string): Date {
   return new Date(y, m - 1, d);
 }
 
+// The portion of a bill that actually leaves YOUR account. For a shared bill
+// that's just your share (the rest is the other person's), so monthly totals
+// and the cashflow forecast reflect what you really pay, not the full bill.
+function myBillShare(bill: Bill): number {
+  return bill.splitContactId && bill.splitAmount
+    ? calcSplitShares(bill.amount, bill.splitAmount).mine
+    : bill.amount;
+}
+
 function nextDueAfter(currentDue: string, frequency: Bill['frequency']): string {
   const d = parseLocalDate(currentDue);
   switch (frequency) {
@@ -164,7 +173,7 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
       const d = due.getDate();
       if (!dayBills[d]) dayBills[d] = [];
       dayBills[d].push(bill);
-      if (d >= todayDay) totalBillsAmt += bill.amount;
+      if (d >= todayDay) totalBillsAmt += myBillShare(bill);
     }
   });
 
@@ -215,7 +224,7 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
           const isToday = day === todayDay;
           const isPast = day < todayDay;
 
-          const billNames = (dayBills[day] ?? []).map((b) => `${b.name} ${formatCurrency(b.amount)}`).join(', ');
+          const billNames = (dayBills[day] ?? []).map((b) => `${b.name} ${formatCurrency(myBillShare(b))}`).join(', ');
           const paycheckNames = (dayPaychecks[day] ?? []).map((p) => `+${formatCurrency(p.netAmount + (p.gratuityAmount ?? 0))}`).join(', ');
           const title = [billNames, paycheckNames].filter(Boolean).join(' | ');
 
@@ -281,7 +290,7 @@ function BillsTimeline({ bills, nowMs }: { bills: Bill[]; nowMs: number }) {
   });
 
   const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
-  const totalThisMonth = Object.values(dayToBills).flat().reduce((s, b) => s + b.amount, 0);
+  const totalThisMonth = Object.values(dayToBills).flat().reduce((s, b) => s + myBillShare(b), 0);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -313,7 +322,7 @@ function BillsTimeline({ bills, nowMs }: { bills: Bill[]; nowMs: number }) {
               <div key={day} data-today={isToday ? 'true' : undefined} className="flex flex-col items-center gap-1 w-9">
                 <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">{DAY_LABELS[dayOfWeek]}</span>
                 <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-extrabold transition-all ${isToday ? 'bg-indigo-600 text-white ring-2 ring-indigo-200' : hasBills ? isPast ? 'bg-slate-100 dark:bg-slate-700 text-slate-400 dark:text-slate-500 ring-1 ring-slate-200 dark:ring-slate-700' : 'bg-rose-50 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300 ring-1 ring-rose-200' : isPast ? 'bg-transparent text-slate-300 dark:text-slate-600' : 'bg-slate-50 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400'}`}
-                  title={hasBills ? billsOnDay.map((b) => `${b.name} ${formatCurrency(b.amount)}`).join(', ') : undefined}>
+                  title={hasBills ? billsOnDay.map((b) => `${b.name} ${formatCurrency(myBillShare(b))}`).join(', ') : undefined}>
                   {day}
                 </div>
                 <div className="flex gap-0.5 h-2 items-center justify-center">
@@ -617,7 +626,7 @@ export default function BillsPage() {
   const inactiveBills = bills.filter((b) => !b.isActive);
   const monthlyTotal = activeBills.reduce((s, b) => {
     const m: Record<Bill['frequency'], number> = { weekly: 52 / 12, biweekly: 26 / 12, monthly: 1, quarterly: 1 / 3, yearly: 1 / 12 };
-    return s + b.amount * m[b.frequency];
+    return s + myBillShare(b) * m[b.frequency];
   }, 0);
   const overdueBills = activeBills.filter((b) => parseLocalDate(b.nextDue) < todayMidnight);
   const upcomingCount = activeBills.filter((b) => { const diff = Math.ceil((parseLocalDate(b.nextDue).getTime() - todayMidnight.getTime()) / 86400000); return diff >= 0 && diff <= 14; }).length;
