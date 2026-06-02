@@ -229,6 +229,8 @@
     "subtitle": "Log income — the full amount is deposited as real money; we track the tax to set aside",
     "ytdIncome": "YTD Income",
     "ytdTax": "YTD Tax",
+    "ytdTaxableWages": "YTD Taxable Wages",
+    "ytdTips": "YTD Tips",
     "logPaycheck": "Log Paycheck",
     "payDate": "Pay Date",
     "totalAmount": "Total Amount (incl. tips)",
