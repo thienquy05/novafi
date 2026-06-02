@@ -2,6 +2,27 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-02 — PR6 deferred: dead-code sweep + batch read endpoint (branch claude/pr6-deferred-cleanup)
+
+The two parts intentionally left out of the original PR6 (performance/cleanup), done off master.
+
+**1. Dead/legacy code removal (zero non-test references, confirmed with `grep -rn`):**
+- `lib/calculations.ts`: removed `calcDebtScore` (the "legacy, retained for back-compat" debt-to-asset score — only tests referenced it), `calcGoalProgress`, `calcCategoryPct`, and `calcPaycheckEffectiveRate`. Each had no internal callers and no app usage. `calcProjectedSpend` was *kept* — it looked unused externally but is called internally by `calcSpendingPace`.
+- `lib/utils.ts`: removed `formatPercent` (no references anywhere, not even a test).
+- `lib/__tests__/calculations.test.ts`: removed the four now-orphaned `describe` blocks and their import names in sync (19 tests removed: 302 → 283).
+- Checked but **kept**: `lib/csv.ts` (`transactionsToCsv` is used by the transactions page) and `lib/retry.ts` (all exports are live — `withRetryProxy` is used by `sheets.ts`/`auth.ts`, and `withRetry`/`isRetryableError`/`backoffDelay` are used internally by it; the test-only external counts were misleading because the calls are intra-file).
+
+**2. Batch read endpoint (cut per-page round-trips + Sheets quota):**
+- Added `batchGetSheets(accessToken, spreadsheetId, keys[])` to `lib/sheets.ts`, mirroring `batchGetDashboardData`. It fetches the always-present sheets (accounts/transactions/bills/paychecks/budgets/goals) in a single `spreadsheets.values.batchGet` (UNFORMATTED_VALUE), and routes Contacts/Splits through their existing getters since those tabs may not exist yet and a missing range fails the whole batch. All reads run concurrently. Exposes `BATCH_KEYS` and a `BatchKey` type.
+- Extracted shared row parsers so the batch path and the single-resource getters can't drift: `rowToAccount`, `rowToGoal`/`parseGoals` (preserves the position sort), `rowToBudget`/`parseBudgets`. `getAccounts`/`getGoals`/`getBudgets` now delegate to these.
+- New route `app/api/batch/route.ts`: `GET /api/batch?keys=a,b,c`. It reuses the **same per-resource cache keys** (`accounts:<id>`, `bills:<id>`, …) the individual GET routes use and mirrors each resource's TTL — so the mutating routes' existing `invalidateCache()` calls keep it fresh with zero extra wiring. Only cache-missing keys hit Sheets. Invalid/empty `keys` → 400; Sheets failure → 500.
+- `app/(app)/bills/page.tsx`: replaced the 6-request fan-out (`/api/bills,accounts,paychecks,transactions,contacts,splits`) with one `/api/batch` call.
+- `app/(app)/savings/page.tsx`: replaced the 3-request fan-out (`/api/accounts,transactions,goals`) with one `/api/batch` call.
+
+No new sheets test added: the codebase tests only pure functions (no googleapis/module mocking anywhere), and the extracted parsers are behavior-identical to the already-exercised getters.
+
+Verified: `tsc --noEmit` clean; eslint 0 errors (only pre-existing `set-state-in-effect` + `_lastCol` warnings); 283 tests pass.
+
 ## 2026-06-02 — Budget rollover: fixed cap, deficit-only on usage (branch claude/budget-calculation-bug-INfrq)
 
 **Request:** the budget cap must stay **fixed**. When rollover is on, only last month's **overspend** should carry into this month's progress-bar usage; an **underspend** carries nothing (a new month starts at 0 used). Master had reverted to the two-way carryover model (`effectiveBudget = 2·base − prevMonthSpend`), which *moves the cap* up on underspend / down on overspend — the wrong behavior.

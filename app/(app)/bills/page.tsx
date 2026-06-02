@@ -389,24 +389,17 @@ export default function BillsPage() {
   const load = useCallback(async () => {
     setError(false);
     try {
-      const [bRes, aRes, pRes, txRes, cRes, sRes] = await Promise.all([
-        fetch('/api/bills'), fetch('/api/accounts'), fetch('/api/paychecks'),
-        fetch('/api/transactions'), fetch('/api/contacts'), fetch('/api/splits'),
-      ]);
-      if (!bRes.ok) throw new Error();
-      const [b, a, p, tx, c, s] = await Promise.all([
-        bRes.json(), aRes.json(),
-        pRes.ok ? pRes.json() : Promise.resolve([]),
-        txRes.ok ? txRes.json() : Promise.resolve([]),
-        cRes.ok ? cRes.json() : Promise.resolve([]),
-        sRes.ok ? sRes.json() : Promise.resolve([]),
-      ]);
+      // One round trip instead of six — see /api/batch.
+      const res = await fetch('/api/batch?keys=bills,accounts,paychecks,transactions,contacts,splits');
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      const b: Bill[] = data.bills ?? [];
       setBills([...b].sort((x: Bill, y: Bill) => x.nextDue.localeCompare(y.nextDue)));
-      setAccounts(a);
-      setPaychecks(p);
-      setTransactions(tx);
-      setContacts(c);
-      setSplits(s);
+      setAccounts(data.accounts ?? []);
+      setPaychecks(data.paychecks ?? []);
+      setTransactions(data.transactions ?? []);
+      setContacts(data.contacts ?? []);
+      setSplits(data.splits ?? []);
     } catch {
       setError(true);
     } finally {
