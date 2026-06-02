@@ -373,3 +373,16 @@ Verified: `tsc --noEmit` clean; eslint 0 errors (only the pre-existing planning 
 - Note: this supersedes the credit-card debt-payoff clamp fix from earlier today for the reconcile path specifically — but the clamp removal in `applyTransferToBalance` is retained because it also affects live balance updates (overpaying a card now correctly yields a credit balance instead of being silently discarded).
 
 **Verification:** `locales/*.json` parse OK; no remaining `settings.reconcile` references; no `tsc` errors reference any removed identifier (remaining tsc output is pre-existing missing-`node_modules`/`@types` noise in this environment).
+
+## 2026-06-02 — PR2: Edit button for Loans / IOUs (full edit) (branch claude/pr2-loan-edit)
+
+**Request (PR2 of 6):** Loans & IOUs had add / payback / delete but no edit. User chose FULL edit — including principal amount & account — with the principal cash transfer adjusted so balances stay correct.
+
+**Changes:**
+- `app/api/loans/route.ts` — added `PUT { updated, newTx?, removeTxId? }`: reverses+deletes the old principal transfer and applies the new one in one in-memory balance pass (`applyTransactionToBalances` + `persistChanged`), then `upsertLoan(updated)`; invalidates tx/accounts/dashboard/badges + loans caches. Paybacks (`repaymentTxIds`) are untouched — only the principal cash row is rebuilt.
+- `app/(app)/transactions/page.tsx` — new `editingLoanId` state; `openEditLoan(loan)` pre-fills the existing inline loan form; `handleEditLoan()` rebuilds the principal `transfer` via `buildLoanTx(direction,'principal',…)` from the edited amount/account/direction/date, recomputes `settled` against the new principal (`repaidAmount >= principal`), and calls the PUT with `removeTxId = original.principalTxId`. The inline form's save button switches between add/edit (`handleEditLoan` + `loans.saveChanges`); added a Pencil edit button on each open-loan card; modal close / cancel / add all reset `editingLoanId`.
+- `locales/en.json` + `vi.json` — added `loans.toastUpdated`, `loans.saveChanges`.
+
+**Notes:** Editing direction with existing paybacks is an unusual combo — paybacks keep their original cash direction (only the principal transfer is rebuilt); typical edits (fix amount/account/note/contact/date on a fresh loan) are exact. Branch is off master (does not include PR1).
+
+**Verification:** `tsc --noEmit` clean; eslint 0 errors (25 pre-existing warnings); 298 tests pass.

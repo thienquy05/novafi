@@ -176,6 +176,7 @@ export default function TransactionsPage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loansOpen, setLoansOpen] = useState(false);
   const [showAddLoan, setShowAddLoan] = useState(false);
+  const [editingLoanId, setEditingLoanId] = useState<string | null>(null);
   const [loanForm, setLoanForm] = useState(EMPTY_LOAN_FORM);
   const [newContactName, setNewContactName] = useState('');
   const [addingContact, setAddingContact] = useState(false);
@@ -407,6 +408,76 @@ export default function TransactionsPage() {
       setNewContactName('');
       toast(t('loans.toastAdded'), 'success');
       if (tx) load(); // refresh balances + ledger
+    } catch {
+      toast(t('loans.toastFailed'), 'error');
+    } finally {
+      setSavingLoan(false);
+    }
+  }
+
+  // Opens the inline loan form pre-filled for editing an existing loan.
+  function openEditLoan(loan: Loan) {
+    setEditingLoanId(loan.id);
+    setShowAddLoan(true);
+    setNewContactName('');
+    setPaybackFor(null);
+    setLoanForm({
+      direction: loan.direction,
+      contactId: loan.contactId,
+      amount: String(loan.principal),
+      account: loan.account,
+      date: loan.date,
+      note: loan.note,
+    });
+  }
+
+  // Saves edits to an existing loan. The principal cash transfer is rebuilt from
+  // the new amount/account/direction; the loans API reverses the old one and
+  // applies the new one atomically. Paybacks (and repaidAmount) are preserved;
+  // only `settled` is recomputed against the new principal.
+  async function handleEditLoan() {
+    const original = loans.find((l) => l.id === editingLoanId);
+    if (!original) return;
+    const amount = parseFloat(loanForm.amount) || 0;
+    if (!loanForm.contactId || loanForm.contactId === NEW_CONTACT || amount <= 0) return;
+    const contact = contacts.find((c) => c.id === loanForm.contactId);
+    if (!contact) return;
+    setSavingLoan(true);
+    const desc = loanForm.direction === 'lent'
+      ? t('loans.txLent', { name: contact.name })
+      : t('loans.txBorrowed', { name: contact.name });
+    const newTx = loanForm.account
+      ? buildLoanTx(loanForm.direction, 'principal', amount, loanForm.account, desc, loanForm.date)
+      : null;
+    const fullyPaid = amount > 0 && roundCents(original.repaidAmount) >= roundCents(amount) - 0.005;
+    const updated: Loan = {
+      ...original,
+      direction: loanForm.direction,
+      contactId: contact.id,
+      contactName: contact.name,
+      account: loanForm.account,
+      principal: amount,
+      date: loanForm.date,
+      note: loanForm.note,
+      settled: fullyPaid,
+      settledDate: fullyPaid ? (original.settledDate || today()) : '',
+      principalTxId: newTx ? newTx.id : '',
+    };
+    try {
+      const res = await fetch('/api/loans', {
+        method: 'PUT',
+        body: JSON.stringify({ updated, newTx: newTx ?? undefined, removeTxId: original.principalTxId || undefined }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) throw new Error();
+      setLoans((prev) => prev.map((l) => l.id === updated.id ? updated : l));
+      setShowAddLoan(false);
+      setEditingLoanId(null);
+      setLoanForm(EMPTY_LOAN_FORM);
+      setNewContactName('');
+      toast(t('loans.toastUpdated'), 'success');
+      // Refresh balances/ledger when the principal cash row changed.
+      if (newTx || original.principalTxId) load();
     } catch {
       toast(t('loans.toastFailed'), 'error');
     } finally {
@@ -843,11 +914,11 @@ export default function TransactionsPage() {
       </Modal>
 
       {/* ── Loans / IOUs Modal ───────────────────────────────────────────── */}
-      <Modal open={loansOpen} onClose={() => { setLoansOpen(false); setShowAddLoan(false); setPaybackFor(null); }} title={t('loans.title')}>
+      <Modal open={loansOpen} onClose={() => { setLoansOpen(false); setShowAddLoan(false); setEditingLoanId(null); setPaybackFor(null); }} title={t('loans.title')}>
         <div className="space-y-4 pb-4">
           {/* Add loan: button → inline form */}
           {!showAddLoan ? (
-            <Button className="w-full" onClick={() => { setShowAddLoan(true); setLoanForm(EMPTY_LOAN_FORM); setNewContactName(''); }}>
+            <Button className="w-full" onClick={() => { setShowAddLoan(true); setEditingLoanId(null); setLoanForm(EMPTY_LOAN_FORM); setNewContactName(''); }}>
               <Plus className="w-4 h-4" />{t('loans.addLoan')}
             </Button>
           ) : (
@@ -889,8 +960,8 @@ export default function TransactionsPage() {
               <Input label={t('loans.noteOptional')} placeholder={t('loans.notePlaceholder')} value={loanForm.note} onChange={(e) => setLoanForm((f) => ({ ...f, note: e.target.value }))} />
               <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{loanForm.account ? t('loans.cashHelp') : t('loans.noteOnlyHelp')}</p>
               <div className="flex gap-3 pt-1">
-                <Button variant="secondary" className="flex-1" onClick={() => { setShowAddLoan(false); setLoanForm(EMPTY_LOAN_FORM); }}>{t('common.cancel')}</Button>
-                <Button className="flex-1" onClick={handleAddLoan} disabled={savingLoan || !loanForm.amount || !loanForm.contactId || loanForm.contactId === NEW_CONTACT}>{savingLoan ? t('common.saving') : t('loans.addLoan')}</Button>
+                <Button variant="secondary" className="flex-1" onClick={() => { setShowAddLoan(false); setEditingLoanId(null); setLoanForm(EMPTY_LOAN_FORM); }}>{t('common.cancel')}</Button>
+                <Button className="flex-1" onClick={editingLoanId ? handleEditLoan : handleAddLoan} disabled={savingLoan || !loanForm.amount || !loanForm.contactId || loanForm.contactId === NEW_CONTACT}>{savingLoan ? t('common.saving') : editingLoanId ? t('loans.saveChanges') : t('loans.addLoan')}</Button>
               </div>
             </div>
           )}
@@ -946,7 +1017,10 @@ export default function TransactionsPage() {
                   <Button size="sm" variant="secondary" className="h-9" onClick={() => { if (expanded) { setPaybackFor(null); } else { setPaybackFor(loan.id); setPaybackForm({ amount: String(remaining), account: loan.account }); } }}>
                     {t('loans.recordPayback')}
                   </Button>
-                  <button title={t('common.delete')} onClick={() => handleDeleteLoan(loan)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors ml-auto">
+                  <button title={t('common.edit')} onClick={() => openEditLoan(loan)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-indigo-500 dark:hover:text-indigo-400 rounded-lg transition-colors ml-auto">
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button title={t('common.delete')} onClick={() => handleDeleteLoan(loan)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
