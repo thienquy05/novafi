@@ -387,7 +387,12 @@
     "typeSavings": "Tiết kiệm",
     "typeCredit": "Thẻ tín dụng",
     "typeInvestment": "Đầu tư",
-    "typeLoan": "Khoản vay"
+    "typeLoan": "Khoản vay",
+    "groupChecking": "Tài khoản thanh toán",
+    "groupSavings": "Tài khoản tiết kiệm",
+    "groupCredit": "Thẻ tín dụng",
+    "groupInvestment": "Đầu tư",
+    "groupLoan": "Khoản vay"
   },
   "savings": {
     "title": "Tiết kiệm",
