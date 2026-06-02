@@ -2,6 +2,42 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-02 — Shared/split bills with "Owed to You" tracking
+
+**Goal:** Let a bill be shared with another person — you pay the full amount, the other person owes you their share, and a checkbox marks when they've transferred the money back. Everything stays synced across the system. Money model (per user decisions): you front the full expense; their repayment is recorded as a refund that **reduces your spending** (offset), so your Spending/category totals net down to just your share while Income is untouched and balances/Safe-to-Spend stay correct. Contacts are reusable but kept minimal.
+
+**Data model:**
+- `types/index.ts`:
+  - `Bill` gained `splitContactId?: string` and `splitAmount?: number` (the other person's share of `amount`; your share = `amount - splitAmount`).
+  - New `Contact` interface `{ id, name, createdAt }` — reusable people you split with.
+  - New `Split` interface — one "owed to you" record created per split-bill payment: `{ id, billId, billName, contactId, contactName, amount, category, account, date, settled, settledDate, refundTxId }`. `billName`/`contactName` are denormalized for display; `category`/`account`/`date` capture how the bill was paid so the offsetting refund matches; `refundTxId` links the refund transaction created on settle.
+
+**Persistence (`lib/sheets.ts`):**
+- Added a generic `ensureSheet(sheets, spreadsheetId, title, header)` helper that lazily creates a tab + header row on demand (so spreadsheets provisioned before this feature get `Contacts`/`Splits` without a migration — mirrors the existing NetWorthHistory pattern).
+- Bills now persist split columns I/J. Extracted a shared `rowToBill` parser (legacy 8-col rows simply parse as unsplit). `getBills`, `upsertBill`, and both batch readers (`batchGetBadgesData`, `batchGetDashboardData`) use the wider `Bills!A2:J200` range / shared parser. `upsertBill`/`deleteBill` last-col bumped to `J`.
+- New `Contacts` tab (`A:C`) CRUD: `getContacts`/`upsertContact`/`deleteContact` (lazy-ensure on read/write).
+- New `Splits` tab (`A:L`) CRUD: `getSplits`/`upsertSplit`/`deleteSplit` (lazy-ensure). `settled` stored as `'true'/'false'`.
+- Added `Contact`/`Split` to the type imports.
+
+**Spreadsheet bootstrap (`lib/auth.ts`):** New spreadsheets now create `Contacts` and `Splits` tabs and seed their headers; Bills header extended with `split_contact_id`, `split_amount`.
+
+**APIs:**
+- New `app/api/contacts/route.ts` (GET cached `contacts:<id>` LONG TTL, POST upsert, DELETE) and `app/api/splits/route.ts` (GET cached `splits:<id>` SHORT TTL, POST upsert, DELETE) — modeled on the existing bills/goals routes.
+
+**Calculations (`lib/calculations.ts`):** Added pure `calcSplitShares(total, theirShare)` → `{ mine, theirs }`, clamping `theirShare` to `[0, total]` and rounding to cents. Used for the modal preview and the bill-card badge. Covered by 6 new tests in `lib/__tests__/calculations.test.ts`.
+
+**Bills UI (`app/(app)/bills/page.tsx`):**
+- `load()` now also fetches `/api/contacts` and `/api/splits`; added `contacts`/`splits` state plus inline new-contact state and `settlingSplitId`.
+- Add/Edit bill modal: new "Split this bill" section — checkbox to enable, contact picker (with an inline "+ Add new contact" option that creates a reusable `Contact` via `handleAddContact`), a "Their share ($)" input, and a live your-share/their-share breakdown via `calcSplitShares`.
+- Active bill cards show a split badge (`{name} · you X / them Y`) when the bill is shared.
+- Record Payment: still records the full expense + advances the due date, and now also creates a pending `Split` ("owed to you") record when the bill is shared; the pay modal shows a note about the amount that will be owed.
+- New "Owed to You" section: per-contact pending totals, and a row per split with a **Transferred checkbox** (`handleSplitToggle`). Ticking it records an offsetting **negative-amount expense** (same category/account, dated to the original payment) so spending nets to your share, marks the split settled, and stores `refundTxId`; unticking deletes that refund and re-opens the debt. A trash button (`handleDeleteSplit`) removes a record (and its refund if settled).
+- Everything routes through the existing transactions plumbing, so account balances, dashboard Safe-to-Spend, Spending, and Reports stay consistent.
+
+**i18n:** Added ~25 `bills.*` keys to `locales/en.json` and `locales/vi.json` (split section, owed-to-you section, transferred states, toasts, reimbursement description).
+
+**Verification:** `npm run typecheck` clean, `npm run lint` 0 errors (only pre-existing warnings), `npm test` 296/296 passing (290 prior + 6 new `calcSplitShares` tests). Dependencies were installed in the container (`npm ci`) so the checks could run.
+
 ## 2026-06-01 — Restart Transactions income/spending/net totals monthly
 
 **Goal:** The INCOME / SPENDING / NET summary cards on the Transactions (Spending) page summed *every* transaction ever, so the numbers grew without bound and "this month vs last month" was impossible to read. Scope the totals (and the ledger below) to one month at a time, defaulting to the current month, with a month switcher so prior months stay reachable.

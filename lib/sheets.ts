@@ -9,6 +9,8 @@ import type {
   Bill,
   Goal,
   NetWorthSnapshot,
+  Contact,
+  Split,
 } from '@/types';
 import { DEFAULT_TAX_SETTINGS } from './utils';
 import { withRetryProxy } from './retry';
@@ -53,6 +55,36 @@ function invalidateSheetIdCache(spreadsheetId: string): void {
     if (key.startsWith(`${spreadsheetId}:`)) sheetIdCache.delete(key);
   }
 }
+
+// Creates a tab (with its header row) on demand if it doesn't exist yet. Lets
+// features added after a user's spreadsheet was provisioned (Contacts, Splits)
+// work without a migration — the tab is materialized on first read/write.
+async function ensureSheet(
+  sheets: SheetsClient,
+  spreadsheetId: string,
+  title: string,
+  header: string[],
+): Promise<void> {
+  const existingId = await getSheetId(sheets, spreadsheetId, title);
+  if (existingId !== null) return;
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: { requests: [{ addSheet: { properties: { title } } }] },
+  });
+  invalidateSheetIdCache(spreadsheetId); // new tab → refresh cached ids on next read
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${title}!A1`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [header] },
+  });
+}
+
+const CONTACTS_HEADER = ['id', 'name', 'created_at'];
+const SPLITS_HEADER = [
+  'id', 'bill_id', 'bill_name', 'contact_id', 'contact_name', 'amount',
+  'category', 'account', 'date', 'settled', 'settled_date', 'refund_tx_id',
+];
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 
@@ -417,9 +449,16 @@ export async function getBills(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Bills!A2:H200',
+    range: 'Bills!A2:J200',
   });
-  return (res.data.values ?? []).map((r) => ({
+  return (res.data.values ?? []).map(rowToBill);
+}
+
+// Shared Bill row parser. Columns I/J (split) are absent on legacy rows → the
+// bill is simply treated as unsplit.
+function rowToBill(r: string[]): Bill {
+  const splitContactId = r[8] ?? '';
+  return {
     id: r[0] ?? '',
     name: r[1] ?? '',
     amount: Number(r[2] ?? 0),
@@ -428,7 +467,9 @@ export async function getBills(
     account: r[5] ?? '',
     category: r[6] ?? '',
     isActive: r[7] === 'true',
-  }));
+    splitContactId,
+    splitAmount: splitContactId && r[9] !== undefined && r[9] !== '' ? Number(r[9]) : undefined,
+  };
 }
 
 export async function upsertBill(
@@ -436,7 +477,7 @@ export async function upsertBill(
   spreadsheetId: string,
   bill: Bill
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Bills', bill.id, 'H');
+  await deleteRowById(accessToken, spreadsheetId, 'Bills', bill.id, 'J');
   const sheets = getSheetsClient(accessToken);
   await sheets.spreadsheets.values.append({
     spreadsheetId,
@@ -444,7 +485,11 @@ export async function upsertBill(
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
-      values: [[bill.id, bill.name, bill.amount, bill.frequency, bill.nextDue, bill.account, bill.category, String(bill.isActive)]],
+      values: [[
+        bill.id, bill.name, bill.amount, bill.frequency, bill.nextDue,
+        bill.account, bill.category, String(bill.isActive),
+        bill.splitContactId ?? '', bill.splitAmount ?? '',
+      ]],
     },
   });
 }
@@ -534,7 +579,119 @@ export async function deleteBill(
   spreadsheetId: string,
   id: string
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Bills', id, 'H');
+  await deleteRowById(accessToken, spreadsheetId, 'Bills', id, 'J');
+}
+
+// ── Contacts (people you split bills with) ─────────────────────────────────────
+
+export async function getContacts(
+  accessToken: string,
+  spreadsheetId: string
+): Promise<Contact[]> {
+  const sheets = getSheetsClient(accessToken);
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'Contacts!A2:C500',
+    });
+    return (res.data.values ?? []).map((r) => ({
+      id: r[0] ?? '',
+      name: r[1] ?? '',
+      createdAt: r[2] ?? '',
+    }));
+  } catch {
+    // Tab doesn't exist yet (spreadsheet provisioned before this feature).
+    await ensureSheet(sheets, spreadsheetId, 'Contacts', CONTACTS_HEADER);
+    return [];
+  }
+}
+
+export async function upsertContact(
+  accessToken: string,
+  spreadsheetId: string,
+  contact: Contact
+): Promise<void> {
+  const sheets = getSheetsClient(accessToken);
+  await ensureSheet(sheets, spreadsheetId, 'Contacts', CONTACTS_HEADER);
+  await deleteRowById(accessToken, spreadsheetId, 'Contacts', contact.id, 'C');
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: 'Contacts!A1',
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: { values: [[contact.id, contact.name, contact.createdAt]] },
+  });
+}
+
+export async function deleteContact(
+  accessToken: string,
+  spreadsheetId: string,
+  id: string
+): Promise<void> {
+  await deleteRowById(accessToken, spreadsheetId, 'Contacts', id, 'C');
+}
+
+// ── Splits (per-payment "owed to you" records) ─────────────────────────────────
+
+export async function getSplits(
+  accessToken: string,
+  spreadsheetId: string
+): Promise<Split[]> {
+  const sheets = getSheetsClient(accessToken);
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'Splits!A2:L1000',
+    });
+    return (res.data.values ?? []).map((r) => ({
+      id: r[0] ?? '',
+      billId: r[1] ?? '',
+      billName: r[2] ?? '',
+      contactId: r[3] ?? '',
+      contactName: r[4] ?? '',
+      amount: Number(r[5] ?? 0),
+      category: r[6] ?? '',
+      account: r[7] ?? '',
+      date: r[8] ?? '',
+      settled: r[9] === 'true',
+      settledDate: r[10] ?? '',
+      refundTxId: r[11] ?? '',
+    }));
+  } catch {
+    await ensureSheet(sheets, spreadsheetId, 'Splits', SPLITS_HEADER);
+    return [];
+  }
+}
+
+export async function upsertSplit(
+  accessToken: string,
+  spreadsheetId: string,
+  split: Split
+): Promise<void> {
+  const sheets = getSheetsClient(accessToken);
+  await ensureSheet(sheets, spreadsheetId, 'Splits', SPLITS_HEADER);
+  await deleteRowById(accessToken, spreadsheetId, 'Splits', split.id, 'L');
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: 'Splits!A1',
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: {
+      values: [[
+        split.id, split.billId, split.billName, split.contactId, split.contactName,
+        split.amount, split.category, split.account, split.date,
+        String(split.settled), split.settledDate, split.refundTxId,
+      ]],
+    },
+  });
+}
+
+export async function deleteSplit(
+  accessToken: string,
+  spreadsheetId: string,
+  id: string
+): Promise<void> {
+  await deleteRowById(accessToken, spreadsheetId, 'Splits', id, 'L');
 }
 
 // ── Net Worth History ─────────────────────────────────────────────────────────
@@ -639,7 +796,7 @@ export async function batchGetBadgesData(
 ): Promise<{ bills: Bill[]; budgets: Budget[]; transactions: Transaction[] }> {
   const sheets = getSheetsClient(accessToken);
   const ranges = [
-    'Bills!A2:H200',
+    'Bills!A2:J200',
     'Budgets!A2:D200',
     'Transactions!A2:I',
   ];
@@ -651,16 +808,7 @@ export async function batchGetBadgesData(
     valueRenderOption: 'UNFORMATTED_VALUE',
   });
   const vr = res.data.valueRanges ?? [];
-  const bills: Bill[] = (vr[0]?.values ?? []).map((r) => ({
-    id: r[0] ?? '',
-    name: r[1] ?? '',
-    amount: Number(r[2] ?? 0),
-    frequency: (r[3] ?? 'monthly') as Bill['frequency'],
-    nextDue: r[4] ?? '',
-    account: r[5] ?? '',
-    category: r[6] ?? '',
-    isActive: r[7] === 'true',
-  }));
+  const bills: Bill[] = (vr[0]?.values ?? []).map(rowToBill);
   const budgets: Budget[] = (vr[1]?.values ?? []).map((r) => ({
     id: r[0] ?? '',
     category: r[1] ?? '',
@@ -702,7 +850,7 @@ export async function batchGetDashboardData(
     'Paychecks!A2:K',
     'Transactions!A2:I',
     'Accounts!A2:I200',
-    'Bills!A2:H200',
+    'Bills!A2:J200',
     'Budgets!A2:D200',
     'Goals!A2:G200',
   ];
@@ -750,16 +898,7 @@ export async function batchGetDashboardData(
     createdAt: String(r[7] ?? ''),
     openingBalance: r[8] === undefined || r[8] === '' ? undefined : Number(r[8]),
   }));
-  const bills: Bill[] = (vr[3]?.values ?? []).map((r) => ({
-    id: r[0] ?? '',
-    name: r[1] ?? '',
-    amount: Number(r[2] ?? 0),
-    frequency: (r[3] ?? 'monthly') as Bill['frequency'],
-    nextDue: r[4] ?? '',
-    account: r[5] ?? '',
-    category: r[6] ?? '',
-    isActive: r[7] === 'true',
-  }));
+  const bills: Bill[] = (vr[3]?.values ?? []).map(rowToBill);
   const budgets: Budget[] = (vr[4]?.values ?? []).map((r) => ({
     id: r[0] ?? '',
     category: r[1] ?? '',

@@ -565,6 +565,14 @@ export function billToTransactionDefaults(bill: Bill, date: string): Omit<Transa
   };
 }
 
+// Splits a bill total into your share and the other person's share. `theirShare`
+// is the amount the other person owes you; it's clamped to [0, total] so a bad
+// input can never produce a negative "your share" or claim more than the total.
+export function calcSplitShares(total: number, theirShare: number): { mine: number; theirs: number } {
+  const theirs = Math.min(Math.max(0, roundCents(theirShare || 0)), roundCents(total || 0));
+  return { theirs, mine: roundCents((total || 0) - theirs) };
+}
+
 // ── Net Worth Projection ──────────────────────────────────────────────────────
 // Extends historical net worth series N months forward using avg MoM growth rate.
 // Each projected point = previous × (1 + avgMoMRate).

@@ -13,7 +13,7 @@ import {
   calcGoalProgress,
   applyExpenseBalance, applyIncomeBalance, applyTransferFromBalance, applyTransferToBalance,
   reverseExpenseBalance, reverseIncomeBalance, reverseTransferFromBalance, reverseTransferToBalance,
-  billToTransactionDefaults,
+  billToTransactionDefaults, calcSplitShares,
   calcOverdueBills, calcOverBudget,
   calcNetWorthProjection, calcCategoryPct, calcPaycheckEffectiveRate,
 } from '@/lib/calculations';
@@ -623,6 +623,35 @@ describe('billToTransactionDefaults', () => {
       expect(result.amount).toBe(50);
       expect(result.type).toBe('expense');
     }
+  });
+});
+
+// ── calcSplitShares ───────────────────────────────────────────────────────────
+
+describe('calcSplitShares', () => {
+  it('splits a total into your share and their share', () => {
+    expect(calcSplitShares(100, 40)).toEqual({ mine: 60, theirs: 40 });
+  });
+
+  it('handles an even 50/50 split', () => {
+    expect(calcSplitShares(50, 25)).toEqual({ mine: 25, theirs: 25 });
+  });
+
+  it('rounds to cents', () => {
+    expect(calcSplitShares(100, 33.333)).toEqual({ mine: 66.67, theirs: 33.33 });
+  });
+
+  it('clamps a negative their-share to 0 (you owe the whole thing)', () => {
+    expect(calcSplitShares(100, -20)).toEqual({ mine: 100, theirs: 0 });
+  });
+
+  it('clamps their share to the total (you owe nothing)', () => {
+    expect(calcSplitShares(100, 150)).toEqual({ mine: 0, theirs: 100 });
+  });
+
+  it('treats missing/zero inputs safely', () => {
+    expect(calcSplitShares(0, 0)).toEqual({ mine: 0, theirs: 0 });
+    expect(calcSplitShares(80, 0)).toEqual({ mine: 80, theirs: 0 });
   });
 });
 
