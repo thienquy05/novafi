@@ -7,10 +7,15 @@
  * with exponential backoff so those bursts self-recover.
  *
  * Finance-safety: an `append` is NOT idempotent — blindly retrying one that may have
- * already succeeded could create a DUPLICATE transaction. So the policy is:
- *   • 429 (rate limit) and pre-response network errors → always safe (request was
- *     rejected/never processed) → retry.
- *   • 5xx (server error) → retry ONLY for idempotent reads, never for writes.
+ * already succeeded could create a DUPLICATE transaction (and permanently distort an
+ * account balance). So the policy is:
+ *   • 429 (rate limit) → always safe to retry: the request was rejected by the quota
+ *     gate and never processed, so it can't have partially applied.
+ *   • 5xx (server error) AND network-layer errors (no HTTP status) → retry ONLY for
+ *     idempotent reads, NEVER for writes. A network drop can happen AFTER the server
+ *     already processed the write (the response is just lost), so retrying the write
+ *     risks duplicating it. For writes we'd rather surface a visible failure (the
+ *     caller can safely re-issue) than silently double-apply money.
  */
 
 // Extracts an HTTP status from the various shapes googleapis/gaxios throw.
@@ -28,15 +33,22 @@ const NETWORK_ERROR_CODES = new Set(['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EA
 
 /**
  * Whether an error should be retried.
- * @param allow5xx permit retrying 5xx responses (only set for idempotent reads).
+ * @param idempotent permit retrying ambiguous failures (5xx and network errors)
+ *   that may have already been processed by the server. Only set for idempotent
+ *   reads — never for non-idempotent writes (append/update/delete), which could
+ *   be duplicated by a retry.
  */
-export function isRetryableError(err: unknown, allow5xx = false): boolean {
+export function isRetryableError(err: unknown, idempotent = false): boolean {
   const status = extractStatus(err);
+  // 429 is always safe: the quota gate rejected the request, so it never ran.
   if (status === 429) return true;
-  if (status !== null) return allow5xx && status >= 500 && status < 600;
-  // No HTTP status → a network-layer failure before any response was received.
+  // 5xx: ambiguous (the write may have applied) → idempotent reads only.
+  if (status !== null) return idempotent && status >= 500 && status < 600;
+  // No HTTP status → a network-layer failure. This may have happened AFTER the
+  // server processed the request (lost response), so retrying a write could
+  // duplicate it. Retry only for idempotent reads.
   const code = (err as { code?: string } | null)?.code;
-  return typeof code === 'string' && NETWORK_ERROR_CODES.has(code);
+  return idempotent && typeof code === 'string' && NETWORK_ERROR_CODES.has(code);
 }
 
 /** Capped exponential backoff (deterministic). attempt is 1-based: 1→base, 2→2·base… */
@@ -78,8 +90,8 @@ const IDEMPOTENT_READ_METHODS = new Set(['get', 'batchGet']);
 /**
  * Recursively wraps a googleapis client so every method call auto-retries —
  * no per-call-site changes needed. `this` binding is preserved for prototype
- * methods. 5xx retries are enabled only for read methods (get/batchGet); all
- * other calls retry on 429/network errors only.
+ * methods. 5xx and network-error retries are enabled only for idempotent read
+ * methods (get/batchGet); all other (write) calls retry on 429 only.
  *
  * The Proxy target is a fresh empty object, NOT `client` — and the trap reads
  * the real values from `client` via closure. This is deliberate: the get-trap
@@ -100,12 +112,12 @@ export function withRetryProxy<T extends object>(client: T, opts: RetryOptions =
       const value = Reflect.get(client, prop);
       if (typeof prop === 'symbol') return value;
       if (typeof value === 'function') {
-        const allow5xx = IDEMPOTENT_READ_METHODS.has(prop);
+        const idempotent = IDEMPOTENT_READ_METHODS.has(prop);
         const fn = value as (...args: unknown[]) => unknown;
         return (...args: unknown[]) =>
           withRetry(() => Promise.resolve(fn.apply(client, args)), {
             ...opts,
-            shouldRetry: opts.shouldRetry ?? ((err) => isRetryableError(err, allow5xx)),
+            shouldRetry: opts.shouldRetry ?? ((err) => isRetryableError(err, idempotent)),
           });
       }
       if (value && typeof value === 'object') {
