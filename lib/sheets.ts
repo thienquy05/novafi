@@ -344,8 +344,8 @@ export async function getAccounts(
     last4: String(r[5] ?? ''),
     color: String(r[6] ?? '#6366f1'),
     createdAt: String(r[7] ?? ''),
-    // Column I is optional: legacy rows have no opening balance until backfilled
-    // by the reconcile endpoint. Empty/blank → undefined (not 0).
+    // Column I is optional: the starting balance captured when the account was
+    // created. Empty/blank → undefined (not 0).
     openingBalance: r[8] === undefined || r[8] === '' ? undefined : Number(r[8]),
   }));
 }

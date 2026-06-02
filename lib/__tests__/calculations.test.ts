@@ -507,8 +507,11 @@ describe('applyTransferToBalance', () => {
   it('debt account: balance decreases (payoff)', () => {
     expect(applyTransferToBalance(1000, 500, true)).toBe(500);
   });
-  it('debt overpayment: clamped to 0', () => {
-    expect(applyTransferToBalance(50, 100, true)).toBe(0);
+  it('debt overpayment: goes negative (credit balance, not clamped)', () => {
+    // Overpaying leaves a credit balance the bank owes you. We do NOT clamp at
+    // zero — clamping discarded money and broke reconciliation (apply/reverse
+    // were no longer inverses).
+    expect(applyTransferToBalance(50, 100, true)).toBe(-50);
   });
   it('debt exact payoff: results in 0', () => {
     expect(applyTransferToBalance(500, 500, true)).toBe(0);
@@ -552,11 +555,12 @@ describe('reverseTransferToBalance', () => {
   it('debt account (normal): balance increases (payoff reversed)', () => {
     expect(reverseTransferToBalance(500, 100, true)).toBe(600);
   });
-  it('debt overpayment clamped case — KNOWN LIMITATION', () => {
-    // Original: balance=50, paid 100, clamped to 0. Reversal adds 100 → 100 (≠ original 50).
-    // This is a known limitation when the original payment was clamped by Math.max(0,...).
-    const result = reverseTransferToBalance(0, 100, true);
-    expect(result).toBe(100); // documents actual behavior (not ideal, but expected)
+  it('debt overpayment: apply/reverse are exact inverses (no clamp)', () => {
+    // balance=50, paid 100 → apply gives -50 (credit balance). Reversing that
+    // payment restores the original 50. Now that the clamp is gone, apply and
+    // reverse round-trip cleanly, which is what reconciliation depends on.
+    const applied = applyTransferToBalance(50, 100, true); // -50
+    expect(reverseTransferToBalance(applied, 100, true)).toBe(50);
   });
 });
 

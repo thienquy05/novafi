@@ -535,17 +535,7 @@
     "budgetRollover": "Budget Rollover",
     "budgetRolloverDesc": "Carry unused budget (surplus or deficit) forward to the next month. Underspending adds to next month's limit; overspending reduces it.",
     "darkMode": "Dark Mode",
-    "darkModeDesc": "Switch to a darker color scheme, easier on the eyes at night.",
-    "reconcileTitle": "Balance Check",
-    "reconcileDesc": "Re-checks your account balances against your full transaction history and fixes any that drifted — e.g. after a save was interrupted, you edited the spreadsheet directly, or used the app on two devices at once. It only reads your transactions (never changes them) and shows you every correction before applying it. Safe to run anytime.",
-    "reconcileCheck": "Check balances",
-    "reconcileChecking": "Checking…",
-    "reconcileAllGood": "All balances match your transaction history.",
-    "reconcileBaselineOnly": "Establishing a baseline for {count} account(s). No balances will change.",
-    "reconcileApply": "Fix balances",
-    "reconcileApplying": "Fixing…",
-    "reconcileApplied": "Balances updated.",
-    "reconcileError": "Couldn't check balances. Please try again."
+    "darkModeDesc": "Switch to a darker color scheme, easier on the eyes at night."
   },
   "categories": {
     "Food": "Food",

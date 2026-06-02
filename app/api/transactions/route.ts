@@ -46,7 +46,8 @@ export async function POST(req: NextRequest) {
   const body: Transaction = await req.json();
 
   // Write the ledger row first — it is the source of truth. If the balance
-  // update below fails, the reconcile endpoint recomputes balances from this row.
+  // update below fails, the row is still recorded and the balance can be
+  // corrected manually.
   await addTransaction(session.accessToken, session.spreadsheetId, body);
 
   const accounts = await getAccounts(session.accessToken, session.spreadsheetId);

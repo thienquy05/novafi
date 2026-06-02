@@ -1,15 +1,14 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
-import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, Scale, CheckCircle2, AlertTriangle, User } from 'lucide-react';
+import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, User } from 'lucide-react';
 import { BRACKETS_2026, STANDARD_DEDUCTION_2026 } from '@/lib/tax';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
-import { DEFAULT_TAX_SETTINGS, formatCurrency } from '@/lib/utils';
+import { DEFAULT_TAX_SETTINGS } from '@/lib/utils';
 import type { TaxSettings } from '@/types';
-import type { ReconcilePlan } from '@/lib/calculations';
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '@/types';
 import { invalidateCategoriesCache } from '@/hooks/useCategories';
 import { useTranslation } from '@/lib/i18n/context';
@@ -26,10 +25,6 @@ export default function SettingsPage() {
   const [newIncCat, setNewIncCat] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
-  const [reconcilePlan, setReconcilePlan] = useState<ReconcilePlan | null>(null);
-  const [reconcileBusy, setReconcileBusy] = useState(false);
-  const [reconcileError, setReconcileError] = useState(false);
-  const [reconcileDone, setReconcileDone] = useState(false);
 
   useEffect(() => {
     try { setDarkMode(localStorage.getItem('nf_theme') === 'dark'); } catch { /* noop */ }
@@ -153,48 +148,6 @@ export default function SettingsPage() {
   function handleReset() {
     if (!confirm('Reset all settings to defaults?')) return;
     setSettings(DEFAULT_TAX_SETTINGS as TaxSettings);
-  }
-
-  // Read-only preview: asks the server what (if anything) it would change.
-  async function checkBalances() {
-    setReconcileBusy(true);
-    setReconcileError(false);
-    setReconcileDone(false);
-    try {
-      const res = await fetch('/api/accounts/reconcile', {
-        method: 'POST',
-        body: JSON.stringify({ dryRun: true }),
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!res.ok) throw new Error();
-      const plan: ReconcilePlan = await res.json();
-      setReconcilePlan(plan);
-    } catch {
-      setReconcileError(true);
-    } finally {
-      setReconcileBusy(false);
-    }
-  }
-
-  // Confirmed write: applies exactly the plan the user just previewed.
-  async function applyReconcile() {
-    setReconcileBusy(true);
-    setReconcileError(false);
-    try {
-      const res = await fetch('/api/accounts/reconcile', {
-        method: 'POST',
-        body: JSON.stringify({ dryRun: false }),
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!res.ok) throw new Error();
-      setReconcilePlan(null);
-      setReconcileDone(true);
-      setTimeout(() => setReconcileDone(false), 4000);
-    } catch {
-      setReconcileError(true);
-    } finally {
-      setReconcileBusy(false);
-    }
   }
 
   if (loading) {
@@ -715,72 +668,6 @@ export default function SettingsPage() {
           >
             Open Google Drive <ExternalLink className="w-4 h-4" />
           </a>
-        </Card>
-
-        {/* Balance Check (reconciliation) — kept last: a safe maintenance tool */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Scale className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
-              {t('settings.reconcileTitle')}
-            </CardTitle>
-          </CardHeader>
-          <p className="text-sm font-medium text-slate-600 dark:text-slate-400 leading-relaxed mb-4">
-            {t('settings.reconcileDesc')}
-          </p>
-
-          {reconcileDone && (
-            <div className="flex items-center gap-2 mb-4 text-sm font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800/50 rounded-xl px-4 py-3">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-              {t('settings.reconcileApplied')}
-            </div>
-          )}
-          {reconcileError && (
-            <div className="flex items-center gap-2 mb-4 text-sm font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-900/30 border border-rose-200 dark:border-rose-800/50 rounded-xl px-4 py-3">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              {t('settings.reconcileError')}
-            </div>
-          )}
-
-          {reconcilePlan && (reconcilePlan.toRepair.length > 0 || reconcilePlan.toBackfill.length > 0) && (
-            <div className="mb-4 rounded-2xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-800 overflow-hidden">
-              {reconcilePlan.toRepair.map((r) => (
-                <div key={r.accountId} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
-                  <span className="font-bold text-slate-700 dark:text-slate-200 truncate">{r.name}</span>
-                  <span className="font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                    {formatCurrency(r.stored)} <span className="text-slate-400 dark:text-slate-500">→</span>{' '}
-                    <span className="text-indigo-600 dark:text-indigo-400">{formatCurrency(r.expected)}</span>
-                  </span>
-                </div>
-              ))}
-              {reconcilePlan.toRepair.length === 0 && reconcilePlan.toBackfill.length > 0 && (
-                <div className="px-4 py-3 text-sm font-medium text-slate-500 dark:text-slate-400">
-                  {t('settings.reconcileBaselineOnly', { count: reconcilePlan.toBackfill.length })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {reconcilePlan && reconcilePlan.toRepair.length === 0 && reconcilePlan.toBackfill.length === 0 ? (
-            <div className="flex items-center gap-2 text-sm font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800/50 rounded-xl px-4 py-3">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-              {t('settings.reconcileAllGood')}
-            </div>
-          ) : reconcilePlan ? (
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={applyReconcile} disabled={reconcileBusy} className="shadow-sm">
-                {reconcileBusy ? t('settings.reconcileApplying') : t('settings.reconcileApply')}
-              </Button>
-              <Button variant="ghost" onClick={() => setReconcilePlan(null)} disabled={reconcileBusy}>
-                {t('common.cancel')}
-              </Button>
-            </div>
-          ) : (
-            <Button variant="secondary" onClick={checkBalances} disabled={reconcileBusy} className="shadow-sm">
-              <Scale className={`w-4 h-4 ${reconcileBusy ? 'animate-pulse' : ''}`} />
-              {reconcileBusy ? t('settings.reconcileChecking') : t('settings.reconcileCheck')}
-            </Button>
-          )}
         </Card>
       </div>
     </div>
