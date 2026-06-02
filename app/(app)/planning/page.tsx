@@ -170,13 +170,16 @@ export default function PlanningPage() {
     if (!budgetForm.amount) return;
     setSaving(true);
     const sameCategory = budgets.find((b) => b.category === budgetForm.category && b.id !== editBudget?.id);
-    // Carry the existing row's month-cap snapshot (and position) through the edit.
-    // Without this, the optimistic update would drop prevMonth/prevCap, so the bar
-    // would briefly lose the rolled-over deficit and then "jump" back to full once
-    // the server's preserved snapshot reloaded. Preserving it keeps the carry-in
-    // stable and measured against last month's FROZEN cap, so changing this month's
-    // amount only moves the bar's denominator — it never fabricates a deficit.
+    // Carry the existing row's month-cap snapshot (and position) through the edit,
+    // and — for a pre-existing budget that has no snapshot yet — freeze last
+    // month's cap from the PRE-edit amount. The rollover bar falls back to the
+    // current cap, so without freezing here, lowering the amount would
+    // retroactively turn last month's under-cap spend into a fabricated deficit.
+    // Capturing the old cap keeps the carried-over overspend measured against the
+    // real prior cap, so changing this month's amount only moves the bar's
+    // denominator. Brand-new budgets (no base) capture nothing.
     const base = editBudget ?? sameCategory;
+    const hasSnapshot = base?.prevMonth === prevMonthKey && base?.prevCap !== undefined;
     const budget: Budget = {
       id: base?.id ?? generateId(),
       category: budgetForm.category,
@@ -184,8 +187,8 @@ export default function PlanningPage() {
       period: budgetForm.period,
       position: base?.position,
       activeMonth: base?.activeMonth,
-      prevMonth: base?.prevMonth,
-      prevCap: base?.prevCap,
+      prevMonth: hasSnapshot ? base!.prevMonth : base ? prevMonthKey : undefined,
+      prevCap: hasSnapshot ? base!.prevCap : base ? monthlyAmount(base) : undefined,
     };
     // Optimistic
     const isExisting = budgets.some((b) => b.id === budget.id);
@@ -307,14 +310,22 @@ export default function PlanningPage() {
   }
 
   // ─── Rollover helper ─────────────────────────────────────────────────────
-  // Last month's overspend that carries into this month's usage. Measured
-  // against `prevCap` — the cap that was actually active last month, frozen by
-  // the server at month rollover — so editing the cap today never fabricates a
-  // deficit. Only applies when the snapshot is for the immediately prior month.
+  // Last month's overspend that carries into this month's usage. We measure it
+  // against last month's cap: prefer `prevCap` — the cap frozen at month
+  // rollover, which stays accurate even if the cap was edited since — and fall
+  // back to the budget's current monthly cap when no snapshot exists yet (e.g.
+  // budgets created before snapshots, or whose month-close happened before the
+  // snapshot was captured). The fallback lets a genuine prior-month overspend
+  // carry in right away from transaction history instead of waiting a full month.
+  // Editing the cap can't fabricate a deficit because `saveBudget` freezes the
+  // pre-edit cap into `prevCap` the first time a budget is touched.
   function rolledOverDeficit(budget: Budget): number {
     if (!rolloverEnabled) return 0;
-    if (budget.prevMonth !== prevMonthKey || budget.prevCap === undefined) return 0;
-    return calcRolloverDeficit(budget.prevCap, prevSpentForCategory(budget.category));
+    const lastMonthCap =
+      budget.prevMonth === prevMonthKey && budget.prevCap !== undefined
+        ? budget.prevCap
+        : monthlyAmount(budget);
+    return calcRolloverDeficit(lastMonthCap, prevSpentForCategory(budget.category));
   }
 
   // ─── Derived stats ───────────────────────────────────────────────────────

@@ -2,6 +2,22 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-02 — Roll over last month's overspend even without a frozen snapshot (branch claude/budget-rollover-carry-from-history)
+
+**Bug (user):** All Planning budgets showed `$0.00` used with empty bars at the start of June, even though the "vs last mo" line and 3-month average proved last month had real spending — e.g. Shopping ($291.67/mo cap) spent ~$1,338 and Transportation ($150 cap) spent ~$213 last month (both **overspent**). Nothing rolled over. "the amount isn't roll over too… I will need to keep that amount over the next month if overspent and the progress bar should display with proper percentage."
+
+**Root cause:** `rolledOverDeficit()` returned `0` whenever `budget.prevMonth !== prevMonthKey || prevCap === undefined`. The frozen-cap snapshot (shipped earlier today) is only captured at a month boundary going forward, and the **first reconcile this month already advanced these legacy budgets to `activeMonth = '2026-06'` with an empty snapshot** — so they carry nothing until *next* month. The transaction history needed to compute the overspend was available, but the gate refused to use it.
+
+**Decision (user):** make the overspend carry in **now**, from history, using last month's cap.
+
+**Fix — `app/(app)/planning/page.tsx`:**
+- `rolledOverDeficit()` now picks `lastMonthCap = (prevMonth === prevMonthKey && prevCap !== undefined) ? prevCap : monthlyAmount(budget)` — prefer the frozen cap when present (accurate across cap edits), otherwise **fall back to the budget's current monthly cap**. So `calcRolloverDeficit(lastMonthCap, prevSpentForCategory(cat))` carries a genuine prior overspend immediately instead of waiting a full month.
+- `saveBudget()` now **freezes the pre-edit cap** the first time a snapshot-less budget is edited: `hasSnapshot = base.prevMonth === prevMonthKey && base.prevCap !== undefined`; when false it sets `prevMonth = prevMonthKey`, `prevCap = monthlyAmount(base)` (the OLD amount). Without this, the current-cap fallback would let lowering a cap retroactively turn last month's under-cap spend into a fabricated deficit (the d5ae700 bug). Freezing the old cap keeps the carried overspend measured against the real prior cap; changing this month's amount only moves the bar's denominator. The server's `upsertBudget` then persists the snapshot.
+
+**Behavior note:** because the fallback uses transaction history, a budget whose category was overspent last month carries that overspend in even if it lacks a snapshot — including, by design, a newly added budget on a previously-overspent category. Surplus/underspend never carries (deficit-only). Requires the **Budget Rollover** setting to be ON.
+
+**Tests:** pure-function suite unchanged (the cap-selection logic lives in the component); `calcRolloverDeficit`/`calcEffectiveSpent` still green. Verified `tsc --noEmit` clean, eslint 0 errors (pre-existing warnings only), 306 tests pass.
+
 ## 2026-06-02 — Stop budget edits from making the rollover bar jump/fill (branch claude/budget-rollover-progress-bar-V50Ng)
 
 **Bug (user):** "When I change the budget amount, the progress bar goes full and it brings last month's number, subtracting it from the new budget I just set." Carry-in rollover (frozen `prevCap`, shipped earlier today) was correct in the math, but **editing the amount** still misbehaved in the UI.
