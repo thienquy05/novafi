@@ -95,6 +95,33 @@ export interface Bill {
   account: string;
   category: string;
   isActive: boolean;
+  splitContactId?: string; // when set, this bill is shared with a contact
+  splitAmount?: number;    // the other person's share of `amount` (the part they owe you); your share = amount - splitAmount
+}
+
+// A person you share bills with. Deliberately minimal & reusable across bills.
+export interface Contact {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
+// One "owed to you" record, created each time a split bill is paid. Purely
+// informational: your expense already counts only your share, so this just
+// tracks the other person's share and whether they've settled up — marking it
+// settled creates no transaction.
+export interface Split {
+  id: string;
+  billId: string;
+  billName: string;    // denormalized for display without a bill lookup
+  contactId: string;
+  contactName: string; // denormalized for display
+  amount: number;      // the other person's share they owe you
+  category: string;    // the bill's category at payment time (captured for context)
+  account: string;     // account the bill was paid from (captured for context)
+  date: string;        // YYYY-MM-DD the bill was paid
+  settled: boolean;    // they've paid you their share
+  settledDate: string; // YYYY-MM-DD they settled up ('' until settled)
 }
 
 export interface Goal {

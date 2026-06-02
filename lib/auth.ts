@@ -38,6 +38,8 @@ async function findOrCreateSpreadsheet(accessToken: string): Promise<string> {
         { properties: { title: 'Bills' } },
         { properties: { title: 'Goals' } },
         { properties: { title: 'NetWorthHistory' } },
+        { properties: { title: 'Contacts' } },
+        { properties: { title: 'Splits' } },
       ],
     },
   });
@@ -87,7 +89,7 @@ async function findOrCreateSpreadsheet(accessToken: string): Promise<string> {
         },
         {
           range: 'Bills!A1',
-          values: [['id', 'name', 'amount', 'frequency', 'next_due', 'account', 'category', 'is_active']],
+          values: [['id', 'name', 'amount', 'frequency', 'next_due', 'account', 'category', 'is_active', 'split_contact_id', 'split_amount']],
         },
         {
           range: 'Goals!A1',
@@ -96,6 +98,14 @@ async function findOrCreateSpreadsheet(accessToken: string): Promise<string> {
         {
           range: 'NetWorthHistory!A1',
           values: [['id', 'date', 'month', 'netWorth']],
+        },
+        {
+          range: 'Contacts!A1',
+          values: [['id', 'name', 'created_at']],
+        },
+        {
+          range: 'Splits!A1',
+          values: [['id', 'bill_id', 'bill_name', 'contact_id', 'contact_name', 'amount', 'category', 'account', 'date', 'settled', 'settled_date']],
         },
       ],
     },
