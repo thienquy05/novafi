@@ -143,6 +143,26 @@ export interface Goal {
   position?: number;
 }
 
+// A personal loan / IOU: money you lent out (someone owes you) or borrowed
+// (you owe someone). The cash movement is recorded as `transfer` transactions
+// with an external (empty) counterparty so it shifts the account balance without
+// counting as spending/income. Partial paybacks accumulate in `repaidAmount`.
+export interface Loan {
+  id: string;
+  direction: 'lent' | 'borrowed';
+  contactId: string;
+  contactName: string;       // denormalized for display
+  account: string;           // account the cash moved from/into ('' = note only, no cash tx)
+  principal: number;         // original amount
+  repaidAmount: number;      // cumulative amount paid back so far
+  date: string;              // YYYY-MM-DD the loan was created
+  note: string;              // optional description
+  settled: boolean;          // fully repaid (repaidAmount >= principal)
+  settledDate: string;       // YYYY-MM-DD fully repaid ('' until settled)
+  principalTxId: string;     // id of the cash transfer for the principal ('' if note only)
+  repaymentTxIds: string[];  // ids of the cash transfers for each payback
+}
+
 export const EXPENSE_CATEGORIES = [
   'Food',
   'Grocery',

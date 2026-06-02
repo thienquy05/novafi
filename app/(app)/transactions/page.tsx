@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Search, Pencil, RefreshCw, AlertCircle, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronLeft, ChevronRight, X, Filter, ArrowLeftRight } from 'lucide-react';
+import { Plus, Search, Pencil, RefreshCw, AlertCircle, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronLeft, ChevronRight, X, Filter, ArrowLeftRight, HandCoins, ArrowUpRight, ArrowDownLeft, UserPlus, Trash2 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -10,9 +10,10 @@ import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { TransactionsSkeleton } from '@/components/ui/Skeleton';
 import { formatCurrency, formatCompact, formatDate, generateId, today } from '@/lib/utils';
 import { transactionsToCsv } from '@/lib/csv';
+import { calcLoanRemaining } from '@/lib/calculations';
 import { motion, AnimatePresence } from 'framer-motion';
 import { EXPENSE_CATEGORIES } from '@/types';
-import type { Transaction, Account } from '@/types';
+import type { Transaction, Account, Contact, Loan } from '@/types';
 import { CategoryIconBadge } from '@/components/CategoryIcon';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
@@ -104,6 +105,49 @@ const EMPTY_FORM = {
   toAccount: '',
 };
 
+// ── Loans / IOUs ───────────────────────────────────────────────────────────────
+
+const EMPTY_LOAN_FORM = {
+  direction: 'lent' as Loan['direction'],
+  contactId: '',
+  amount: '',
+  account: '',
+  date: today(),
+  note: '',
+};
+// Sentinel option that opens the inline "add new contact" input.
+const NEW_CONTACT = '__new__';
+
+function roundCents(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+// Builds the cash-movement transaction for a loan principal or payback. It's a
+// `transfer` with an external (empty) counterparty so it shifts the account
+// balance WITHOUT counting as income or expense. Cash leaves the account when
+// you lend the principal or repay something you borrowed; otherwise it comes in.
+function buildLoanTx(
+  direction: Loan['direction'],
+  kind: 'principal' | 'payback',
+  amount: number,
+  account: string,
+  description: string,
+  date: string,
+): Transaction {
+  const cashOut = (direction === 'lent') === (kind === 'principal');
+  return {
+    id: generateId(),
+    date,
+    description,
+    amount,
+    type: 'transfer',
+    category: 'Transfer',
+    account: cashOut ? account : '',
+    toAccount: cashOut ? '' : account,
+    createdAt: new Date().toISOString(),
+  };
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function TransactionsPage() {
@@ -127,6 +171,18 @@ export default function TransactionsPage() {
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [prevFilterKey, setPrevFilterKey] = useState('');
+  // Loans / IOUs
+  const [loans, setLoans] = useState<Loan[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [loansOpen, setLoansOpen] = useState(false);
+  const [showAddLoan, setShowAddLoan] = useState(false);
+  const [loanForm, setLoanForm] = useState(EMPTY_LOAN_FORM);
+  const [newContactName, setNewContactName] = useState('');
+  const [addingContact, setAddingContact] = useState(false);
+  const [savingLoan, setSavingLoan] = useState(false);
+  const [paybackFor, setPaybackFor] = useState<string | null>(null);
+  const [paybackForm, setPaybackForm] = useState({ amount: '', account: '' });
+  const [recordingPayback, setRecordingPayback] = useState(false);
   const toast = useToast();
   const { expenseCategories, incomeCategories } = useCategories();
   const { t } = useTranslation();
@@ -134,15 +190,23 @@ export default function TransactionsPage() {
   const load = useCallback(async () => {
     setError(false);
     try {
-      const [txRes, accRes] = await Promise.all([fetch('/api/transactions'), fetch('/api/accounts')]);
+      const [txRes, accRes, loanRes, conRes] = await Promise.all([
+        fetch('/api/transactions'), fetch('/api/accounts'), fetch('/api/loans'), fetch('/api/contacts'),
+      ]);
       if (!txRes.ok || !accRes.ok) throw new Error();
-      const [txs, accs] = await Promise.all([txRes.json(), accRes.json()]);
+      const [txs, accs, lns, cons] = await Promise.all([
+        txRes.json(), accRes.json(),
+        loanRes.ok ? loanRes.json() : Promise.resolve([]),
+        conRes.ok ? conRes.json() : Promise.resolve([]),
+      ]);
       setTransactions([...txs].sort((a: Transaction, b: Transaction) => {
         const dateCmp = b.date.localeCompare(a.date);
         if (dateCmp !== 0) return dateCmp;
         return (b.createdAt ?? b.id).localeCompare(a.createdAt ?? a.id);
       }));
       setAccounts(accs);
+      setLoans(lns);
+      setContacts(cons);
     } catch {
       setError(true);
     } finally {
@@ -283,6 +347,134 @@ export default function TransactionsPage() {
     }
   }
 
+  // ── Loans / IOUs ──────────────────────────────────────────────────────────
+  const openLoans = useMemo(() => loans.filter((l) => !l.settled).sort((a, b) => b.date.localeCompare(a.date)), [loans]);
+  const settledLoans = useMemo(() => loans.filter((l) => l.settled).sort((a, b) => (b.settledDate || '').localeCompare(a.settledDate || '')), [loans]);
+  const owedToYou = useMemo(() => openLoans.filter((l) => l.direction === 'lent').reduce((s, l) => s + calcLoanRemaining(l.principal, l.repaidAmount), 0), [openLoans]);
+  const youOwe = useMemo(() => openLoans.filter((l) => l.direction === 'borrowed').reduce((s, l) => s + calcLoanRemaining(l.principal, l.repaidAmount), 0), [openLoans]);
+
+  async function handleAddLoanContact() {
+    const name = newContactName.trim();
+    if (!name) return;
+    setAddingContact(true);
+    const contact: Contact = { id: generateId(), name, createdAt: new Date().toISOString() };
+    try {
+      const res = await fetch('/api/contacts', { method: 'POST', body: JSON.stringify(contact), headers: { 'Content-Type': 'application/json' } });
+      if (!res.ok) throw new Error();
+      setContacts((prev) => [...prev, contact].sort((a, b) => a.name.localeCompare(b.name)));
+      setLoanForm((f) => ({ ...f, contactId: contact.id }));
+      setNewContactName('');
+    } catch {
+      toast(t('loans.toastFailedContact'), 'error');
+    } finally {
+      setAddingContact(false);
+    }
+  }
+
+  async function handleAddLoan() {
+    const amount = parseFloat(loanForm.amount) || 0;
+    if (!loanForm.contactId || loanForm.contactId === NEW_CONTACT || amount <= 0) return;
+    const contact = contacts.find((c) => c.id === loanForm.contactId);
+    if (!contact) return;
+    setSavingLoan(true);
+    const desc = loanForm.direction === 'lent'
+      ? t('loans.txLent', { name: contact.name })
+      : t('loans.txBorrowed', { name: contact.name });
+    const tx = loanForm.account ? buildLoanTx(loanForm.direction, 'principal', amount, loanForm.account, desc, loanForm.date) : null;
+    const loan: Loan = {
+      id: generateId(),
+      direction: loanForm.direction,
+      contactId: contact.id,
+      contactName: contact.name,
+      account: loanForm.account,
+      principal: amount,
+      repaidAmount: 0,
+      date: loanForm.date,
+      note: loanForm.note,
+      settled: false,
+      settledDate: '',
+      principalTxId: tx ? tx.id : '',
+      repaymentTxIds: [],
+    };
+    try {
+      if (tx) {
+        const txRes = await fetch('/api/transactions', { method: 'POST', body: JSON.stringify(tx), headers: { 'Content-Type': 'application/json' } });
+        if (!txRes.ok) throw new Error();
+      }
+      const res = await fetch('/api/loans', { method: 'POST', body: JSON.stringify(loan), headers: { 'Content-Type': 'application/json' } });
+      if (!res.ok) throw new Error();
+      setLoans((prev) => [loan, ...prev]);
+      setShowAddLoan(false);
+      setLoanForm(EMPTY_LOAN_FORM);
+      setNewContactName('');
+      toast(t('loans.toastAdded'), 'success');
+      if (tx) load(); // refresh balances + ledger
+    } catch {
+      toast(t('loans.toastFailed'), 'error');
+    } finally {
+      setSavingLoan(false);
+    }
+  }
+
+  async function handleRecordPayback(loan: Loan) {
+    const remaining = calcLoanRemaining(loan.principal, loan.repaidAmount);
+    const entered = parseFloat(paybackForm.amount) || 0;
+    const applied = Math.min(entered, remaining);
+    if (applied <= 0) return;
+    setRecordingPayback(true);
+    const account = paybackForm.account || loan.account;
+    const desc = loan.direction === 'lent'
+      ? t('loans.txRepaidToYou', { name: loan.contactName })
+      : t('loans.txYouRepaid', { name: loan.contactName });
+    const tx = account ? buildLoanTx(loan.direction, 'payback', applied, account, desc, today()) : null;
+    const newRepaid = roundCents(loan.repaidAmount + applied);
+    const fullyPaid = newRepaid >= roundCents(loan.principal) - 0.005;
+    const updated: Loan = {
+      ...loan,
+      repaidAmount: newRepaid,
+      settled: fullyPaid,
+      settledDate: fullyPaid ? today() : '',
+      repaymentTxIds: tx ? [...loan.repaymentTxIds, tx.id] : loan.repaymentTxIds,
+    };
+    try {
+      if (tx) {
+        const txRes = await fetch('/api/transactions', { method: 'POST', body: JSON.stringify(tx), headers: { 'Content-Type': 'application/json' } });
+        if (!txRes.ok) throw new Error();
+      }
+      const res = await fetch('/api/loans', { method: 'POST', body: JSON.stringify(updated), headers: { 'Content-Type': 'application/json' } });
+      if (!res.ok) throw new Error();
+      setLoans((prev) => prev.map((l) => l.id === loan.id ? updated : l));
+      setPaybackFor(null);
+      setPaybackForm({ amount: '', account: '' });
+      toast(fullyPaid ? t('loans.toastSettled', { name: loan.contactName }) : t('loans.toastPayback'), 'success');
+      if (tx) load();
+    } catch {
+      toast(t('loans.toastFailed'), 'error');
+    } finally {
+      setRecordingPayback(false);
+    }
+  }
+
+  async function handleDeleteLoan(loan: Loan) {
+    if (!confirm(t('loans.confirmDelete'))) return;
+    const prev = loans;
+    setLoans((ls) => ls.filter((l) => l.id !== loan.id));
+    try {
+      // Reverse every linked cash transaction so balances return to where they were.
+      const txIds = [loan.principalTxId, ...loan.repaymentTxIds].filter(Boolean);
+      for (const id of txIds) {
+        await fetch('/api/transactions', { method: 'DELETE', body: JSON.stringify({ id }), headers: { 'Content-Type': 'application/json' } });
+      }
+      const res = await fetch('/api/loans', { method: 'DELETE', body: JSON.stringify({ id: loan.id }), headers: { 'Content-Type': 'application/json' } });
+      if (!res.ok) throw new Error();
+      toast(t('loans.toastDeleted'), 'success');
+      if (txIds.length) load();
+    } catch {
+      setLoans(prev);
+      toast(t('loans.toastFailed'), 'error');
+    }
+  }
+
   const { totalIncome, totalExpense } = useMemo(() => {
     let income = 0, expense = 0;
     for (const tx of filtered) {
@@ -343,6 +535,13 @@ export default function TransactionsPage() {
               {t('transactions.templates')}
             </Button>
           )}
+          <Button variant="secondary" className="shadow-sm relative" onClick={() => setLoansOpen(true)}>
+            <HandCoins className="w-4 h-4" />
+            {t('loans.loans')}
+            {openLoans.length > 0 && (
+              <span className="ml-1 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-indigo-600 text-white text-[11px] font-bold">{openLoans.length}</span>
+            )}
+          </Button>
           <Button variant="secondary" className="shadow-sm" onClick={() => exportCSV(filtered, accountName)}>
             <Download className="w-4 h-4" />
             {t('transactions.exportCsv')}
@@ -396,6 +595,25 @@ export default function TransactionsPage() {
           <p className={`font-extrabold mt-1.5 text-base sm:text-lg truncate ${totalIncome - totalExpense >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{formatCompact(totalIncome - totalExpense)}</p>
         </Card>
       </div>
+
+      {/* Loans / IOUs summary — tap to open the tracker */}
+      {openLoans.length > 0 && (
+        <button onClick={() => setLoansOpen(true)} className="w-full flex items-center justify-between p-4 rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 transition-colors text-left shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50 flex items-center justify-center shrink-0">
+              <HandCoins className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('loans.title')}</p>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('loans.openCount', { n: openLoans.length })}</p>
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-0.5">
+            {owedToYou > 0 && <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">{t('loans.owedToYou')} {formatCurrency(owedToYou)}</span>}
+            {youOwe > 0 && <span className="text-xs font-bold text-rose-600 dark:text-rose-400">{t('loans.youOwe')} {formatCurrency(youOwe)}</span>}
+          </div>
+        </button>
+      )}
 
       {/* Filters + view toggle */}
       <div className="flex flex-col gap-2">
@@ -627,6 +845,156 @@ export default function TransactionsPage() {
               </div>
             </div>
           ))}
+        </div>
+      </Modal>
+
+      {/* ── Loans / IOUs Modal ───────────────────────────────────────────── */}
+      <Modal open={loansOpen} onClose={() => { setLoansOpen(false); setShowAddLoan(false); setPaybackFor(null); }} title={t('loans.title')}>
+        <div className="space-y-4 pb-4">
+          {/* Add loan: button → inline form */}
+          {!showAddLoan ? (
+            <Button className="w-full" onClick={() => { setShowAddLoan(true); setLoanForm(EMPTY_LOAN_FORM); setNewContactName(''); }}>
+              <Plus className="w-4 h-4" />{t('loans.addLoan')}
+            </Button>
+          ) : (
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+              {/* Direction toggle */}
+              <div className="flex p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-700">
+                {(['lent', 'borrowed'] as const).map((d) => (
+                  <button key={d} onClick={() => setLoanForm((f) => ({ ...f, direction: d }))} className={`flex-1 py-2.5 text-sm font-bold rounded-xl transition-all duration-200 ${loanForm.direction === d ? d === 'lent' ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-sm' : 'bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}>
+                    {d === 'lent' ? t('loans.iLent') : t('loans.iBorrowed')}
+                  </button>
+                ))}
+              </div>
+              <Select
+                label={t('loans.contact')}
+                value={loanForm.contactId}
+                options={[
+                  { value: '', label: t('bills.selectContact') },
+                  ...contacts.map((c) => ({ value: c.id, label: c.name })),
+                  { value: NEW_CONTACT, label: t('bills.addNewContact') },
+                ]}
+                onChange={(e) => setLoanForm((f) => ({ ...f, contactId: e.target.value }))}
+              />
+              {loanForm.contactId === NEW_CONTACT && (
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1"><Input label={t('bills.newContactName')} placeholder="e.g. Alex" value={newContactName} onChange={(e) => setNewContactName(e.target.value)} /></div>
+                  <Button type="button" variant="secondary" className="shrink-0" onClick={handleAddLoanContact} disabled={addingContact || !newContactName.trim()}><UserPlus className="w-4 h-4" />{t('bills.addContact')}</Button>
+                </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Input label={t('common.amountUsd')} type="number" min="0" step="0.01" placeholder="0.00" value={loanForm.amount} onChange={(e) => setLoanForm((f) => ({ ...f, amount: e.target.value }))} />
+                <Input label={t('common.date')} type="date" value={loanForm.date} onChange={(e) => setLoanForm((f) => ({ ...f, date: e.target.value }))} />
+              </div>
+              <Select
+                label={loanForm.direction === 'lent' ? t('loans.fromAccount') : t('loans.toAccount')}
+                value={loanForm.account}
+                options={[{ value: '', label: t('loans.noAccount') }, ...accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))]}
+                onChange={(e) => setLoanForm((f) => ({ ...f, account: e.target.value }))}
+              />
+              <Input label={t('loans.noteOptional')} placeholder={t('loans.notePlaceholder')} value={loanForm.note} onChange={(e) => setLoanForm((f) => ({ ...f, note: e.target.value }))} />
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{loanForm.account ? t('loans.cashHelp') : t('loans.noteOnlyHelp')}</p>
+              <div className="flex gap-3 pt-1">
+                <Button variant="secondary" className="flex-1" onClick={() => { setShowAddLoan(false); setLoanForm(EMPTY_LOAN_FORM); }}>{t('common.cancel')}</Button>
+                <Button className="flex-1" onClick={handleAddLoan} disabled={savingLoan || !loanForm.amount || !loanForm.contactId || loanForm.contactId === NEW_CONTACT}>{savingLoan ? t('common.saving') : t('loans.addLoan')}</Button>
+              </div>
+            </div>
+          )}
+
+          {/* Totals */}
+          {openLoans.length > 0 && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800/50">
+                <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider">{t('loans.owedToYou')}</p>
+                <p className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">{formatCurrency(owedToYou)}</p>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-900/30 border border-rose-100 dark:border-rose-800/50">
+                <p className="text-[11px] font-bold text-rose-700 dark:text-rose-300 uppercase tracking-wider">{t('loans.youOwe')}</p>
+                <p className="text-lg font-extrabold text-rose-600 dark:text-rose-400 mt-0.5">{formatCurrency(youOwe)}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Open loans */}
+          {openLoans.length === 0 && !showAddLoan && (
+            <p className="text-center text-sm text-slate-500 dark:text-slate-400 font-medium py-6">{t('loans.empty')}</p>
+          )}
+          {openLoans.map((loan) => {
+            const remaining = calcLoanRemaining(loan.principal, loan.repaidAmount);
+            const pct = loan.principal > 0 ? Math.min(100, (loan.repaidAmount / loan.principal) * 100) : 0;
+            const isLent = loan.direction === 'lent';
+            const expanded = paybackFor === loan.id;
+            return (
+              <div key={loan.id} className={`p-4 rounded-2xl bg-white dark:bg-slate-800 border ${isLent ? 'border-emerald-100 dark:border-emerald-800/40' : 'border-rose-100 dark:border-rose-800/40'}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isLent ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400'}`}>
+                      {isLent ? <ArrowUpRight className="w-4.5 h-4.5" /> : <ArrowDownLeft className="w-4.5 h-4.5" />}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{loan.contactName}</p>
+                      <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                        {isLent ? t('loans.lentLabel') : t('loans.borrowedLabel')}{loan.account ? ` · ${accountName(loan.account)}` : ''}{loan.note ? ` · ${loan.note}` : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className={`text-sm font-extrabold ${isLent ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{formatCurrency(remaining)}</p>
+                    {loan.repaidAmount > 0 && <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">{t('loans.ofPrincipal', { amount: formatCurrency(loan.principal) })}</p>}
+                  </div>
+                </div>
+                {loan.repaidAmount > 0 && (
+                  <div className="mt-3 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+                    <div className={`h-full rounded-full ${isLent ? 'bg-emerald-500' : 'bg-rose-500'}`} style={{ width: `${pct}%` }} />
+                  </div>
+                )}
+                <div className="flex items-center gap-2 mt-3">
+                  <Button size="sm" variant="secondary" className="h-9" onClick={() => { if (expanded) { setPaybackFor(null); } else { setPaybackFor(loan.id); setPaybackForm({ amount: String(remaining), account: loan.account }); } }}>
+                    {t('loans.recordPayback')}
+                  </Button>
+                  <button title={t('common.delete')} onClick={() => handleDeleteLoan(loan)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors ml-auto">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+                {expanded && (
+                  <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60 space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <Input label={t('loans.paybackAmount')} type="number" min="0" step="0.01" value={paybackForm.amount} onChange={(e) => setPaybackForm((f) => ({ ...f, amount: e.target.value }))} />
+                      <Select
+                        label={isLent ? t('loans.intoAccount') : t('loans.fromAccount')}
+                        value={paybackForm.account}
+                        options={[{ value: '', label: t('loans.noAccount') }, ...accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))]}
+                        onChange={(e) => setPaybackForm((f) => ({ ...f, account: e.target.value }))}
+                      />
+                    </div>
+                    <div className="flex gap-3">
+                      <Button variant="secondary" className="flex-1 h-10" onClick={() => setPaybackFor(null)}>{t('common.cancel')}</Button>
+                      <Button className="flex-1 h-10" onClick={() => handleRecordPayback(loan)} disabled={recordingPayback || !paybackForm.amount}>{recordingPayback ? t('common.saving') : t('loans.confirmPayback')}</Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Settled loans */}
+          {settledLoans.length > 0 && (
+            <div className="space-y-2 pt-2">
+              <p className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-1">{t('loans.settled')}</p>
+              {settledLoans.map((loan) => (
+                <div key={loan.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 opacity-75">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{loan.contactName}</p>
+                    <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{loan.direction === 'lent' ? t('loans.lentLabel') : t('loans.borrowedLabel')} · {t('loans.settledOn', { date: formatDate(loan.settledDate || loan.date) })}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through">{formatCurrency(loan.principal)}</span>
+                    <button title={t('common.delete')} onClick={() => handleDeleteLoan(loan)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </Modal>
 

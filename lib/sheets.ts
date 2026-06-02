@@ -11,6 +11,7 @@ import type {
   NetWorthSnapshot,
   Contact,
   Split,
+  Loan,
 } from '@/types';
 import { DEFAULT_TAX_SETTINGS } from './utils';
 import { withRetryProxy } from './retry';
@@ -84,6 +85,11 @@ const CONTACTS_HEADER = ['id', 'name', 'created_at'];
 const SPLITS_HEADER = [
   'id', 'bill_id', 'bill_name', 'contact_id', 'contact_name', 'amount',
   'category', 'account', 'date', 'settled', 'settled_date',
+];
+const LOANS_HEADER = [
+  'id', 'direction', 'contact_id', 'contact_name', 'account', 'principal',
+  'repaid_amount', 'date', 'note', 'settled', 'settled_date',
+  'principal_tx_id', 'repayment_tx_ids',
 ];
 
 // A `values.get` against a tab that doesn't exist fails with HTTP 400 ("Unable
@@ -773,6 +779,72 @@ export async function deleteSplit(
   id: string
 ): Promise<void> {
   await deleteRowById(accessToken, spreadsheetId, 'Splits', id, 'K');
+}
+
+// ── Loans (personal lend/borrow IOUs) ──────────────────────────────────────────
+
+export async function getLoans(
+  accessToken: string,
+  spreadsheetId: string
+): Promise<Loan[]> {
+  const sheets = getSheetsClient(accessToken);
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'Loans!A2:M1000',
+    });
+    return (res.data.values ?? []).map((r) => ({
+      id: r[0] ?? '',
+      direction: (r[1] === 'borrowed' ? 'borrowed' : 'lent') as Loan['direction'],
+      contactId: r[2] ?? '',
+      contactName: r[3] ?? '',
+      account: r[4] ?? '',
+      principal: Number(r[5] ?? 0),
+      repaidAmount: Number(r[6] ?? 0),
+      date: r[7] ?? '',
+      note: r[8] ?? '',
+      settled: r[9] === 'true',
+      settledDate: r[10] ?? '',
+      principalTxId: r[11] ?? '',
+      repaymentTxIds: String(r[12] ?? '').split('|').filter(Boolean),
+    }));
+  } catch (err) {
+    if (!isMissingTabError(err)) throw err;
+    await ensureSheet(sheets, spreadsheetId, 'Loans', LOANS_HEADER);
+    return [];
+  }
+}
+
+export async function upsertLoan(
+  accessToken: string,
+  spreadsheetId: string,
+  loan: Loan
+): Promise<void> {
+  const sheets = getSheetsClient(accessToken);
+  await ensureSheet(sheets, spreadsheetId, 'Loans', LOANS_HEADER);
+  await deleteRowById(accessToken, spreadsheetId, 'Loans', loan.id, 'M');
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: 'Loans!A1',
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: {
+      values: [[
+        loan.id, loan.direction, loan.contactId, loan.contactName, loan.account,
+        loan.principal, loan.repaidAmount, loan.date, loan.note,
+        String(loan.settled), loan.settledDate, loan.principalTxId,
+        (loan.repaymentTxIds ?? []).join('|'),
+      ]],
+    },
+  });
+}
+
+export async function deleteLoan(
+  accessToken: string,
+  spreadsheetId: string,
+  id: string
+): Promise<void> {
+  await deleteRowById(accessToken, spreadsheetId, 'Loans', id, 'M');
 }
 
 // ── Net Worth History ─────────────────────────────────────────────────────────

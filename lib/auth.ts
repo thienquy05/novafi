@@ -40,6 +40,7 @@ async function findOrCreateSpreadsheet(accessToken: string): Promise<string> {
         { properties: { title: 'NetWorthHistory' } },
         { properties: { title: 'Contacts' } },
         { properties: { title: 'Splits' } },
+        { properties: { title: 'Loans' } },
       ],
     },
   });
@@ -106,6 +107,10 @@ async function findOrCreateSpreadsheet(accessToken: string): Promise<string> {
         {
           range: 'Splits!A1',
           values: [['id', 'bill_id', 'bill_name', 'contact_id', 'contact_name', 'amount', 'category', 'account', 'date', 'settled', 'settled_date']],
+        },
+        {
+          range: 'Loans!A1',
+          values: [['id', 'direction', 'contact_id', 'contact_name', 'account', 'principal', 'repaid_amount', 'date', 'note', 'settled', 'settled_date', 'principal_tx_id', 'repayment_tx_ids']],
         },
       ],
     },
