@@ -515,19 +515,6 @@ export async function upsertBill(
 
 // ── Budgets ───────────────────────────────────────────────────────────────────
 
-// Current calendar month as a YYYY-MM key (matches the format the client uses).
-export function monthKey(date: Date = new Date()): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-}
-
-// Monthly-equivalent of a budget cap (mirrors the client's monthlyAmount) so a
-// frozen `prevCap` is directly comparable to a month's spend.
-function monthlyEquivalent(amount: number, period: Budget['period']): number {
-  if (period === 'weekly') return amount * 4.33;
-  if (period === 'yearly') return amount / 12;
-  return amount;
-}
-
 export async function getBudgets(
   accessToken: string,
   spreadsheetId: string
@@ -535,7 +522,7 @@ export async function getBudgets(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Budgets!A2:H200',
+    range: 'Budgets!A2:E200',
   });
   const rows = res.data.values ?? [];
   return rows
@@ -545,9 +532,6 @@ export async function getBudgets(
       amount: Number(r[2] ?? 0),
       period: (r[3] ?? 'monthly') as Budget['period'],
       position: r[4] !== undefined && r[4] !== '' ? Number(r[4]) : i,
-      activeMonth: r[5] ? String(r[5]) : undefined,
-      prevMonth: r[6] ? String(r[6]) : undefined,
-      prevCap: r[7] !== undefined && r[7] !== '' ? Number(r[7]) : undefined,
     }))
     .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 }
@@ -558,16 +542,9 @@ export async function upsertBudget(
   budget: Budget
 ): Promise<void> {
   const existing = await getBudgets(accessToken, spreadsheetId);
-  const prev = existing.find((b) => b.id === budget.id);
   const maxPos = existing.reduce((m, b) => b.id !== budget.id ? Math.max(m, b.position ?? 0) : m, -1);
   const position = budget.position ?? maxPos + 1;
-  // Preserve the month-cap snapshot across edits. A brand-new budget starts
-  // active in the current month and carries nothing until it has lived through
-  // a full month, so editing today never fabricates a prior overspend.
-  const activeMonth = budget.activeMonth ?? prev?.activeMonth ?? monthKey();
-  const prevMonth = budget.prevMonth ?? prev?.prevMonth ?? '';
-  const prevCap = budget.prevCap ?? prev?.prevCap;
-  await deleteRowById(accessToken, spreadsheetId, 'Budgets', budget.id, 'H');
+  await deleteRowById(accessToken, spreadsheetId, 'Budgets', budget.id, 'E');
   const sheets = getSheetsClient(accessToken);
   await sheets.spreadsheets.values.append({
     spreadsheetId,
@@ -575,54 +552,9 @@ export async function upsertBudget(
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
-      values: [[budget.id, budget.category, budget.amount, budget.period, position, activeMonth, prevMonth, prevCap ?? '']],
+      values: [[budget.id, budget.category, budget.amount, budget.period, position]],
     },
   });
-}
-
-// Closes out any budget whose `activeMonth` predates the current month: freezes
-// the cap that was active during the just-ended month into `prevMonth`/`prevCap`
-// (in place, no row reordering), so rollover compares last month's spend to last
-// month's real cap. Legacy budgets with no prior snapshot carry nothing the
-// first time — we can't know a past cap, so we avoid a phantom deficit.
-export async function reconcileBudgetMonths(
-  accessToken: string,
-  spreadsheetId: string,
-  budgets: Budget[],
-  currentMonth: string = monthKey()
-): Promise<Budget[]> {
-  const stale = budgets.some((b) => b.activeMonth !== currentMonth);
-  if (!stale) return budgets;
-
-  const sheets = getSheetsClient(accessToken);
-  const idRes = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: 'Budgets!A2:A200',
-  });
-  const ids = (idRes.data.values ?? []).map((r) => r[0]);
-
-  const data: { range: string; values: (string | number)[][] }[] = [];
-  const updated = budgets.map((b) => {
-    if (b.activeMonth === currentMonth) return b;
-    const prevMonth = b.activeMonth;                          // the month just ended (undefined for legacy)
-    const prevCap = b.activeMonth !== undefined ? monthlyEquivalent(b.amount, b.period) : undefined;
-    const rowIdx = ids.indexOf(b.id);
-    if (rowIdx !== -1) {
-      data.push({
-        range: `Budgets!F${rowIdx + 2}:H${rowIdx + 2}`,
-        values: [[currentMonth, prevMonth ?? '', prevCap ?? '']],
-      });
-    }
-    return { ...b, activeMonth: currentMonth, prevMonth, prevCap };
-  });
-
-  if (data.length > 0) {
-    await sheets.spreadsheets.values.batchUpdate({
-      spreadsheetId,
-      requestBody: { valueInputOption: 'RAW', data },
-    });
-  }
-  return updated;
 }
 
 export async function reorderBudgets(

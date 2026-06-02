@@ -90,14 +90,6 @@ export interface Budget {
   amount: number;
   period: 'monthly' | 'weekly' | 'yearly';
   position?: number;
-  // Month-cap snapshot used for accurate rollover. `activeMonth` (YYYY-MM) is the
-  // month the current `amount` has been the active cap for. When a new month
-  // begins we freeze the just-ended month into `prevMonth`/`prevCap`, so last
-  // month's overspend is always measured against last month's ACTUAL cap — not a
-  // cap the user may have edited since.
-  activeMonth?: string;
-  prevMonth?: string;
-  prevCap?: number;
 }
 
 export interface Bill {

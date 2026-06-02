@@ -2,6 +2,31 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-02 — Revert budget rollover calculation to its original model (branch claude/blissful-brown-R7bUj)
+
+**User request:** The rollover iterations that followed the original feature (the deficit-only redefinition + the frozen monthly-cap snapshot, all shipped earlier today) confused them. Lowering a budget amount showed a phantom "from last month" deficit that *re-raising the amount back to the initial value did not clear* — because the snapshot had frozen the lowered cap. They asked to **keep the Budget Rollover setting/toggle** but **revert the calculation code back to how it worked when the feature was first added** (`e3d5d39`), undoing all my later "fix" iterations (d5ae700 snapshot, 2ddd0ca edit-stability, 197d27d carry-from-history).
+
+**Why the original model fixes the complaint:** `e3d5d39` has **no snapshot** — it derives everything live from the current cap and last month's actual spend, so restoring a budget amount immediately restores the display. The stuck-deficit class of bug can't occur because nothing is frozen.
+
+### Restored the original two-way carryover model
+- `carryover = baseBudget − prevMonthSpend` — positive (surplus) → larger effective cap; negative (overspend) → smaller effective cap.
+- `effectiveBudget = baseBudget + carryover` — the **cap/denominator** moves, not the spent/numerator. (Deficit-only `usage = spent + deficit` is gone.)
+
+### Files
+- **`lib/calculations.ts`** — removed `calcRolloverDeficit`/`calcEffectiveSpent`; restored `calcRolloverCarryover` + `calcEffectiveBudget`.
+- **`lib/__tests__/calculations.test.ts`** — swapped the deficit/effective-spent suites (incl. the snapshot regression test) back for the original `calcRolloverCarryover`/`calcEffectiveBudget` suites. Suite: **309 pass.**
+- **`types/index.ts`** — removed `Budget.activeMonth`/`prevMonth`/`prevCap`.
+- **`lib/sheets.ts`** — removed `monthKey` (export), `monthlyEquivalent`, and `reconcileBudgetMonths`; `getBudgets` range `A2:H200` → `A2:E200` (no snapshot parse); `upsertBudget` drops the snapshot write (`deleteRowById` last col `H` → `E`; appends 5 cols). Legacy cols F–H in existing sheets are now simply ignored (harmless leftover data; rows are deleted whole on upsert so they don't accumulate).
+- **`app/api/budgets/route.ts`** — GET no longer imports/calls `reconcileBudgetMonths`; returns `getBudgets` directly.
+- **`app/(app)/planning/page.tsx`** — import → `calcRolloverCarryover`/`calcEffectiveBudget`; `saveBudget` no longer writes the snapshot (`{ id, category, amount, period, position }` only); replaced `rolledOverDeficit()` with `effectiveMonthlyAmount()` + `carryoverAmount()`; `totalBudgeted`/`overBudgetCount` and per-budget `monthly`/`pct`/`over`/`remaining`/`projected` use the effective cap with plain `spent` (no more `usage`/`rolledOver`); `BudgetItem` takes `carryover` instead of `rolledOver`/`usage`, header shows `spent / effectiveCap`, and the meta badge is the two-way `+/−$X rollover` pill (emerald surplus / rose deficit).
+- **`locales/en.json` + `vi.json`** — added `planning.rollover` ("rollover" / "chuyển tiếp") for the badge. `planning.rolledOver` left in place (now unused).
+
+**Kept (per user):** the Budget Rollover toggle in Settings, the `budgetRollover` setting + its Sheets persistence (`e3d5d39`).
+
+Verified: `npm run typecheck` clean, `npm run lint` 0 errors (25 pre-existing warnings), `npm test` 309/309 pass, `npm run build` succeeds.
+
+---
+
 ## 2026-06-02 — Roll over last month's overspend even without a frozen snapshot (branch claude/budget-rollover-carry-from-history)
 
 **Bug (user):** All Planning budgets showed `$0.00` used with empty bars at the start of June, even though the "vs last mo" line and 3-month average proved last month had real spending — e.g. Shopping ($291.67/mo cap) spent ~$1,338 and Transportation ($150 cap) spent ~$213 last month (both **overspent**). Nothing rolled over. "the amount isn't roll over too… I will need to keep that amount over the next month if overspent and the progress bar should display with proper percentage."
