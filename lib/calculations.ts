@@ -601,6 +601,21 @@ export function calcPaycheckEffectiveRate(
   return ((federalWithheld + stateWithheld + localWithheld) / grossAmount) * 100;
 }
 
+// ── Paycheck Total Tax (amount to set aside) ──────────────────────────────────
+// Full tax withheld for a paycheck — income tax (federal + state + local) AND
+// FICA (Social Security + Medicare). Derived as gross − net − pre-tax deductions
+// (401k/HSA), which matches the YTD "Taxes & Deductions" basis (gross − net) and
+// keeps the per-paycheck card balanced: wages − totalTax − (401k+HSA) + tips = take-home.
+// Note: the stored entry does not break out FICA separately, so this back-derives it.
+export function calcPaycheckTotalTax(
+  grossAmount: number,
+  netAmount: number,
+  k401: number,
+  hsa: number,
+): number {
+  return Math.max(0, grossAmount - netAmount - k401 - hsa);
+}
+
 // ── Badge Counts ──────────────────────────────────────────────────────────────
 
 export function calcOverdueBills(bills: Bill[], now: Date): number {

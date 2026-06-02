@@ -170,7 +170,8 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
       const day = d.getDate();
       if (!dayPaychecks[day]) dayPaychecks[day] = [];
       dayPaychecks[day].push(p);
-      totalPaychecksAmt += p.netAmount;
+      // Net income deposited = take-home pay + tips (matches the auto-created income txn)
+      totalPaychecksAmt += p.netAmount + (p.gratuityAmount ?? 0);
     }
   });
 
@@ -211,7 +212,7 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
           const isPast = day < todayDay;
 
           const billNames = (dayBills[day] ?? []).map((b) => `${b.name} ${formatCurrency(b.amount)}`).join(', ');
-          const paycheckNames = (dayPaychecks[day] ?? []).map((p) => `+${formatCurrency(p.netAmount)}`).join(', ');
+          const paycheckNames = (dayPaychecks[day] ?? []).map((p) => `+${formatCurrency(p.netAmount + (p.gratuityAmount ?? 0))}`).join(', ');
           const title = [billNames, paycheckNames].filter(Boolean).join(' | ');
 
           return (
@@ -237,7 +238,7 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
                 {Object.entries(dayPaychecks).sort(sortedNum).map(([day, pays]) => (
                   <span key={`pay-${day}`} className="text-xs font-medium bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-800/50 rounded-lg px-2 py-1 flex items-center gap-1">
                     <Banknote className="w-3 h-3" />
-                    {monthShort} {day} · +{formatCurrency(pays.reduce((s, p) => s + p.netAmount, 0))}
+                    {monthShort} {day} · +{formatCurrency(pays.reduce((s, p) => s + p.netAmount + (p.gratuityAmount ?? 0), 0))}
                   </span>
                 ))}
                 {Object.entries(dayBills).sort(sortedNum).map(([day, bs]) => (
