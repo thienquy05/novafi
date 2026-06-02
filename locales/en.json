@@ -368,6 +368,7 @@
     "confirmDelete": "Delete this account?",
     "toastFailedSave": "Failed to save account",
     "toastFailedDelete": "Failed to delete account",
+    "toastHasTransactions": "Can't delete: {count} transaction(s) still use this account. Move or delete them first.",
     "creditNote": "credit (bank owes you)",
     "owed": "owed",
     "paidOff": "paid off",

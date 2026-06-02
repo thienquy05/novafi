@@ -152,7 +152,17 @@ export default function AccountsPage() {
     setAccounts((a) => a.filter((acc) => acc.id !== id));
     try {
       const res = await fetch('/api/accounts', { method: 'DELETE', body: JSON.stringify({ id }), headers: { 'Content-Type': 'application/json' } });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        // Blocked because transactions still reference this account — restore the
+        // row and tell the user how many must be moved/deleted first.
+        if (res.status === 409) {
+          const { count } = await res.json().catch(() => ({ count: 0 }));
+          setAccounts(prev);
+          toast(t('accounts.toastHasTransactions', { count }), 'error');
+          return;
+        }
+        throw new Error();
+      }
       toast(t('accounts.toastDeleted'), 'success');
     } catch {
       setAccounts(prev);

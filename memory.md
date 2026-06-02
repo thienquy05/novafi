@@ -15,6 +15,49 @@ Note: editing a budget still recomputes the deficit against the current cap (no 
 
 Verified: `tsc --noEmit` clean; eslint 0 errors (pre-existing setState-in-effect warning only); 298 tests pass.
 
+## 2026-06-02 — Loan create/payback: write cash transaction + loan atomically server-side (branch claude/awesome-goldberg-6BQLc)
+
+**Goal:** Complete the money-flow consistency pass. Loan create and payback still posted the cash `transfer` transaction and the loan as two separate client requests (`/api/transactions` then `/api/loans`). A failure between them could leave a loan with no matching ledger row, or an orphan transfer with no loan. Now mirrors the delete path: one request writes both.
+
+**Changes:**
+- `app/api/loans/route.ts` — `POST` now accepts either a bare `Loan` (back-compat / note-only) or `{ loan, tx }`. When `tx` is present it `addTransaction`s it, applies the balance via `applyTransactionToBalances(accounts, tx, 'apply')`, persists changed accounts, and invalidates transactions/accounts/dashboard/badges caches — then upserts the loan. Added `addTransaction` import and `Transaction` type. Extracted a shared `persistChanged()` helper (identity-check on the accounts array) now used by both POST and DELETE.
+- `app/(app)/transactions/page.tsx` — `handleAddLoan` and `handleRecordPayback` no longer POST to `/api/transactions` separately; they send `{ loan, tx }` (or `{ loan }` for note-only) to `/api/loans` in a single call. The loan object already carries the tx id in `principalTxId` / `repaymentTxIds`, so the reference matches what the server persists.
+
+**Notes:**
+- `buildLoanTx` sets `createdAt`, so same-day replay ordering during reconcile is preserved.
+- This closes the create/payback gap flagged in the earlier audit; the loan↔transaction lifecycle (create, payback, delete) is now fully server-side and balance-consistent.
+
+**Verification:** `npm run typecheck` clean, `npm run lint` 0 errors (pre-existing warnings only), `npm test` 309/309 passing.
+
+## 2026-06-02 — Loan delete: reverse + delete linked cash transactions server-side (branch claude/awesome-goldberg-6BQLc)
+
+**Goal:** Part of a money-flow consistency pass (sync transactions with accounts/paychecks/loans). A loan's principal and each payback are real `transfer` transactions that move account balances. Deleting a loan reversed those transactions in a **fragile client-side loop** (`handleDeleteLoan`): it DELETE'd each linked tx id one-by-one, then deleted the loan. If the page closed or a request failed mid-loop, you could end up with the loan gone but live orphan transfers still distorting balances (or partial reversal).
+
+**Fix:** Moved the cascade into the loans API so it's atomic within one request.
+- `app/api/loans/route.ts` — `DELETE` now loads loans, finds the target loan, deletes it, then collects `[principalTxId, ...repaymentTxIds]`, and for each still-existing transaction reverses its balance effect via `applyTransactionToBalances(working, tx, 'reverse')` and deletes the row, persisting only changed accounts with `upsertAccount`. Invalidates transactions/accounts/dashboard/badges caches when any tx was reversed. Added imports (`getTransactions`, `deleteTransaction`, `getAccounts`, `upsertAccount`, `applyTransactionToBalances`, `Account`). Mirrors the transactions/paychecks DELETE pattern.
+- `app/(app)/transactions/page.tsx` — `handleDeleteLoan` no longer loops over `/api/transactions` DELETE (that would now double-reverse balances). It just DELETEs the loan and calls `load()` to refresh when the loan had any linked cash transaction.
+
+**Notes:**
+- Loan create/payback still post the tx then the loan from the client (tx-first, with error toast). A mid-step failure there can still orphan a transfer; not changed in this pass (lower risk than delete, and the existing flow already posts the balance-affecting tx first).
+- Bill deletion intentionally leaves past payment expense transactions in place — a paid bill is a real historical expense, not owned by the recurring template.
+
+**Verification:** `npm run typecheck` clean, `npm run lint` 0 errors (pre-existing warnings only), `npm test` 309/309 passing.
+
+## 2026-06-02 — Paycheck delete now reverses its deposit (branch claude/awesome-goldberg-6BQLc)
+
+**Bug (user):** "for the paycheck, it is only calculate the amount to deposit… we still don't have any formula that handle removal if we delete or change the paycheck amount, my account is messed up."
+
+**Root cause:** Logging a paycheck created TWO unlinked records — a Paychecks row, plus a separate income `Transaction` (with its own random `generateId()`) that actually drives the account balance. `DELETE /api/paychecks` only deleted the Paychecks row, leaving the deposit transaction in the ledger. Since balances are reconciled from the transaction ledger, the deposit lingered and the account balance stayed inflated. There was also no link between the two, so the orphan deposit couldn't be found, and no edit path existed (changing an amount = delete + re-add, which left the orphan behind).
+
+**Fix:** Make the paycheck *own* its deposit transaction via a shared id, and reverse it on delete.
+- `app/(app)/paychecks/page.tsx` — `handleSave` now posts the auto-created deposit transaction with `id: entry.id` (the paycheck's id) instead of a fresh `generateId()`, so the paycheck and its deposit are deterministically linked.
+- `app/api/paychecks/route.ts` — `DELETE` now, after removing the Paychecks row, looks up the transaction whose id equals the paycheck id; if found it calls `deleteTransaction` and reverses the balance via `applyTransactionToBalances(accounts, tx, 'reverse')`, persisting only changed accounts with `upsertAccount` (mirrors the transactions DELETE route). Added imports (`getTransactions`, `deleteTransaction`, `getAccounts`, `upsertAccount`, `applyTransactionToBalances`) and now invalidates `transactions`, `accounts`, and `badges` caches too. No-ops cleanly when a paycheck has no deposit account, and for legacy paychecks whose unrelated-id transaction can't be linked.
+
+**Notes:**
+- Forward-looking only. Paychecks logged BEFORE this change still have a random-id deposit transaction that can't be auto-linked, so deleting them won't reverse the deposit. Existing inflated balances must be repaired by manually deleting the leftover "Paycheck" income transactions on the Transactions page (then Settings → reconcile). Not auto-migrated — would require a fuzzy paycheck↔transaction match against real financial records.
+- "Change the paycheck amount": there's still no in-place edit UI; the supported flow is delete + re-add, which is now balance-correct because delete reverses the old deposit and the re-add posts a fresh linked one.
+
+**Verification:** `npm run typecheck` clean, `npm run lint` 0 errors (pre-existing warnings only), `npm test` 309/309 passing.
 ## 2026-06-02 — Revert budget rollover calculation to its original model (branch claude/blissful-brown-R7bUj)
 
 **User request:** The rollover iterations that followed the original feature (the deficit-only redefinition + the frozen monthly-cap snapshot, all shipped earlier today) confused them. Lowering a budget amount showed a phantom "from last month" deficit that *re-raising the amount back to the initial value did not clear* — because the snapshot had frozen the lowered cap. They asked to **keep the Budget Rollover setting/toggle** but **revert the calculation code back to how it worked when the feature was first added** (`e3d5d39`), undoing all my later "fix" iterations (d5ae700 snapshot, 2ddd0ca edit-stability, 197d27d carry-from-history).
@@ -282,6 +325,20 @@ Verified: `tsc --noEmit` clean; eslint 0 errors (only the pre-existing planning 
 
 **Verification:** `npm run typecheck` clean, `npm run build` succeeds, `npm run lint` 0 errors (pre-existing warnings only), `npm test` 309/309 passing.
 
+## 2026-06-02 — Account delete: block when transactions still reference it (branch claude/awesome-goldberg-6BQLc)
+
+**Goal:** Final part of the money-flow consistency pass. Deleting an account previously removed only the account row, leaving every transaction that referenced it (as source `account` or transfer `toAccount`) as an orphan pointing at a non-existent account. User chose the non-destructive "Block & warn" behavior over cascade-delete.
+
+**Changes:**
+- `app/api/accounts/route.ts` — `DELETE` now loads transactions first and counts those where `t.account === id || t.toAccount === id`. If any exist it returns HTTP 409 `{ error: 'account_has_transactions', count }` WITHOUT deleting. Otherwise deletes as before. Imported `getTransactions`.
+- `app/(app)/accounts/page.tsx` — `handleDelete` detects the 409, restores the optimistically-removed account, and shows `accounts.toastHasTransactions` (with the count) instead of the generic failure toast.
+- `locales/en.json` & `locales/vi.json` — added `accounts.toastHasTransactions` ("Can't delete: {count} transaction(s) still use this account. Move or delete them first.").
+
+**Notes:**
+- The transaction check also implicitly covers paycheck deposits and loan principal/payback transfers (those are transactions on the account), so an account in active use by a paycheck or loan can't be silently orphaned either.
+- Non-destructive by design: no history is ever deleted; the user reassigns/deletes the referencing transactions (and any linked paycheck/loan) first, then the account.
+
+**Verification:** `npm run typecheck` clean, `npm run lint` 0 errors (pre-existing warnings only), `npm test` 309/309 passing, locale JSON valid.
 ## 2026-06-02 — Balance Check (reconcile): stop the debt-overpayment clamp from inflating credit-card balances (branch claude/admiring-meitner-3kc96)
 
 **Symptom (user report):** Running the "Balance Check" / reconcile on a credit card (Capital One) proposed a much higher "after" balance (e.g. $1,212.36 → $2,166.54). It behaved as if reconciliation only summed expenses and ignored the income/paybacks.
