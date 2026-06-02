@@ -493,3 +493,19 @@ All handlers (save/reset/hard-refresh/category add-hide-restore/lang/dark mode) 
 - `lib/__tests__/retry.test.ts`: rewrote the network-retry case to assert reads retry / writes don't; added a `withRetryProxy` test that a network error retries on `get` but not on `append`.
 
 **Verification:** `tsc --noEmit` clean; eslint 0 errors (25 pre-existing warnings); 303 tests pass. Branch off master (which already has PR1/PR2/PR4/PR5 merged).
+
+## 2026-06-02 — Bills: "Owed to You" moved into a Loans-style modal w/ expandable history (branch claude/laughing-aryabhata-caeb92)
+
+**Request:** On the Bills page, replace the inline shared-payments ("Owed to You") list with a clickable container that opens a modal (styled like the Loans/IOUs modal on the transactions page). Reuse the existing `Split` data (auto-created when a shared bill is paid — no new store, no manual add). Modal shows all *unchecked* (pending/unsettled) shares; the settled history is hidden behind an expandable button and shows only the **10 most recent**.
+
+**Decisions (from clarifying Qs):** data source = reuse existing splits / `/api/splits`; entry = auto from bill payments (unchanged); "10 recent transactions" = show all unchecked shares, hide history behind an expandable toggle, history capped at 10.
+
+**Changes (all in `app/(app)/bills/page.tsx` + locales):**
+- Imported `ChevronDown` from lucide-react.
+- New state: `sharingOpen` (modal), `showSharingHistory` (history expand toggle).
+- Replaced the inline `{splits.length > 0 && (...big list...)}` block (pending + settled rendered together) with a single clickable summary `<button>` (HandCoins icon, `bills.owedToYou` label, `bills.sharedOpenCount` subtitle, total owed + pending-count badge) that calls `setSharingOpen(true)`. Mirrors the loans summary button pattern on the transactions page.
+- Added a new `<Modal open={sharingOpen}>` after the bill add/edit modal: total-owed card, per-person breakdown chips (`owedByContact`), the full pending list (`pendingSplits`) each with the unchecked settle toggle (`handleSplitToggle`) + delete (`handleDeleteSplit`), and a collapsible History section gated on `settledSplits.length > 0` — toggled by `showSharingHistory`, rendering `settledSplits.slice(0, 10)` (checked box can un-settle, delete available). Empty state = `bills.sharedEmpty`. Closing the modal also resets `showSharingHistory`.
+- Reused existing derived values (`pendingSplits`, `settledSplits`, `totalOwed`, `owedByContact`) and handlers — no new API/data-model changes.
+- `locales/en.json` + `vi.json` — added `bills.sharedTitle`, `bills.sharedOpenCount` ({n}), `bills.sharedEmpty`, `bills.sharedHistory` ({n}).
+
+**Verification:** `tsc --noEmit` clean; both locale JSONs valid; eslint on the page = 0 new issues (only the 2 pre-existing warnings at lines 412 & 661).
