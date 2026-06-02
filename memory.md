@@ -373,3 +373,14 @@ Verified: `tsc --noEmit` clean; eslint 0 errors (only the pre-existing planning 
 - Note: this supersedes the credit-card debt-payoff clamp fix from earlier today for the reconcile path specifically — but the clamp removal in `applyTransferToBalance` is retained because it also affects live balance updates (overpaying a card now correctly yields a credit balance instead of being silently discarded).
 
 **Verification:** `locales/*.json` parse OK; no remaining `settings.reconcile` references; no `tsc` errors reference any removed identifier (remaining tsc output is pre-existing missing-`node_modules`/`@types` noise in this environment).
+
+## 2026-06-02 — PR4: UI fixes — toast close button + account-group pluralization (branch claude/pr4-ui-fixes)
+
+**Request (PR4 of 6):** (1) The notification toast's little ✕ didn't close the popup. (2) Creating a Savings/Checking account showed a doubled "s" in the section header ("Savingss", "Checkings") and a stray "s" in Vietnamese.
+
+**Root causes & fixes:**
+- `lib/toast.tsx` — `<Toast.Root open>` was hard-coded open with no `onOpenChange`, so Radix's close (✕ click, swipe, duration) could never actually dismiss it; removal relied solely on a manual `setTimeout`. Fixed: dropped the forced `open`, added per-toast `duration={t.action ? 6000 : 3500}` and `onOpenChange={(open)=>{ if(!open) remove(t.id) }}` so the close button, swipe, and auto-timeout all funnel through one removal path (and auto-dismiss now pauses on hover, via Radix).
+- `app/(app)/accounts/page.tsx` — section header rendered `{label}s` (singular type label + literal "s"). Added `ACCOUNT_TYPE_GROUP_LABELS` (localized plurals) and render `{label}` instead. `ACCOUNT_TYPE_LABELS` (singular) is still used by the add-account type picker.
+- `locales/en.json` + `vi.json` — added `accounts.groupChecking/Savings/Credit/Investment/Loan` (en: "Checking", "Savings", "Credit Cards", "Investments", "Loans"; vi: natural noun forms with no plural "s").
+
+**Verification:** `tsc --noEmit` clean; eslint 0 errors (25 pre-existing warnings); 298 tests pass. Branch off master.

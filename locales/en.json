@@ -379,7 +379,12 @@
     "typeSavings": "Savings",
     "typeCredit": "Credit Card",
     "typeInvestment": "Investment",
-    "typeLoan": "Loan"
+    "typeLoan": "Loan",
+    "groupChecking": "Checking",
+    "groupSavings": "Savings",
+    "groupCredit": "Credit Cards",
+    "groupInvestment": "Investments",
+    "groupLoan": "Loans"
   },
   "savings": {
     "title": "Savings",
