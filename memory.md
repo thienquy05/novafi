@@ -2,6 +2,21 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-02 — Safe-to-Spend made cash-aware (counts debt paybacks) (branch claude/hardcore-brahmagupta-59dff5)
+
+**Problem reported:** Safe-to-spend mirrored net income but ignored money paid toward debt. Example: $1000 net income, pay back $900 on a credit card → safe-to-spend still showed $1000. Root cause: the dashboard fed `calcMonthExpense` (which sums only `type === 'expense'`) as the "spending" arg, and a credit-card payback is a `type === 'transfer'` (cash → debt account), which every aggregation deliberately skips. So debt paybacks never reduced safe-to-spend.
+
+**Decision (user-chosen):** Use a **cash model** for safe-to-spend — count money when it actually leaves the bank: card payments/debt paybacks count; card *purchases* don't count until paid. This avoids double-counting a card purchase and its later payoff. (The accrual `calcMonthExpense` is unchanged and still drives savings rate / MoM — those are a separate concept.)
+
+**Changes:**
+- `lib/calculations.ts` — new pure fn `calcMonthCashSpending(transactions, accounts, monthKey)`. Sums, for the given month: (1) `expense` tx whose `account` is NOT a credit/loan account (cash out of a deposit account), plus (2) `transfer` tx whose `toAccount` IS a credit/loan account (payment settling debt). Ignores card charges, deposit-to-deposit transfers, and income. Uses the existing hoisted `roundCents`.
+- `app/(app)/dashboard/page.tsx` — import `calcMonthCashSpending`; compute `monthCashSpending = calcMonthCashSpending(transactions, accounts, thisMonth)` and pass it (instead of `monthSpending`) into `calcSafeToSpend(monthIncome, monthCashSpending, billsThisMonth)`. `monthSpending` (accrual) still used everywhere else (savings rate, etc.).
+- `lib/__tests__/calculations.test.ts` — new `calcMonthCashSpending` suite (6 cases): deposit-account expenses count; card charges ignored; payments into a debt account count; charge+payoff in one month = single count (no double-count); deposit→deposit transfer ignored; income/other-month ignored.
+
+**Not changed / known edge case:** income posted directly to a debt account (e.g. a card refund, `type === 'income'` on a credit account) is still included in `monthIncome` for safe-to-spend; it isn't spendable cash, but it's rare and `calcMonthIncome` is shared with savings rate. Bills (`billsThisMonth`) left as-is — separate forecast construct, user didn't raise it.
+
+**Verification:** `npx vitest run lib/__tests__/calculations.test.ts` → 225 passed. `tsc --noEmit` clean.
+
 ## 2026-06-02 — PR6 deferred: dead-code sweep + batch read endpoint (branch claude/pr6-deferred-cleanup)
 
 The two parts intentionally left out of the original PR6 (performance/cleanup), done off master.

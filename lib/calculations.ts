@@ -57,6 +57,31 @@ export function calcSafeToSpend(income: number, spending: number, bills: number)
   return Math.max(0, income - spending - bills);
 }
 
+// Cash-basis spending for "safe to spend": the real money that left (or is
+// leaving) your bank this month. Two kinds count:
+//   1. Expenses paid from a cash/deposit account (checking, savings, cash, etc.)
+//   2. Payments toward debt — transfers INTO a credit or loan account.
+// Purchases CHARGED to a card are deliberately NOT counted here: no cash has
+// left yet, so they only reduce safe-to-spend when you actually pay the card.
+// This is what keeps a card purchase and its later payoff from being counted
+// twice. (Accrual-style metrics like savings rate still use calcMonthExpense,
+// which counts the charge when it's incurred — that's a separate concept.)
+export function calcMonthCashSpending(
+  transactions: Transaction[],
+  accounts: Account[],
+  monthKey: string,
+): number {
+  const debtIds = new Set(
+    accounts.filter((a) => a.type === 'credit' || a.type === 'loan').map((a) => a.id),
+  );
+  return transactions.reduce((sum, t) => {
+    if (!t.date.startsWith(monthKey)) return sum;
+    if (t.type === 'expense' && !debtIds.has(t.account)) return roundCents(sum + t.amount);
+    if (t.type === 'transfer' && t.toAccount && debtIds.has(t.toAccount)) return roundCents(sum + t.amount);
+    return sum;
+  }, 0);
+}
+
 export function pctChange(current: number, prev: number): number | null {
   if (prev === 0) return null;
   return ((current - prev) / prev) * 100;
