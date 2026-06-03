@@ -359,8 +359,6 @@ export default async function DashboardPage() {
       <HealthBanner
         monthIncome={monthIncome}
         monthSpending={monthSpending}
-        safeToSpend={leftToSpend}
-        dailySafeToSpend={dailySafeToSpend}
         daysLeft={daysLeft}
         daysInMonth={daysInMonth}
         overBudgetCount={overBudgetCount}
