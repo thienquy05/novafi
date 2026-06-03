@@ -613,6 +613,16 @@
     "Paycheck": "Paycheck",
     "Freelance": "Freelance",
     "Investment": "Investment",
-    "Other Income": "Other Income"
+    "Other Income": "Other Income",
+    "archivedHint": "Archived — hidden from new entries, still filterable in history",
+    "archiveTitle": "Remove category",
+    "archivePrompt": "What would you like to do with \"{name}\"?",
+    "archiveAction": "Archive",
+    "archiveDesc": "Hidden from new transactions; still shown in history filters.",
+    "deleteAction": "Delete",
+    "deleteDesc": "Permanently removed. Only available when no transactions use it.",
+    "deleteBlocked": "{count} transaction(s) use this category — archive it instead.",
+    "archivedSection": "Archived",
+    "restoreHint": "Tap to restore"
   }
 }

@@ -134,17 +134,26 @@ export type SpendingPaceItem = {
   overshootAmt: number;  // projected - budget (0 if onTrack/over)
 };
 
+// `rolloverDeficit` carries last month's overspend per category (pass {} or omit
+// when budget rollover is off). It adds to BOTH the effective "used" amount and
+// the projection as a FLAT carryover — it is not part of this month's daily rate,
+// so `pace` and the rate-based extrapolation stay derived from the actual spend.
+// Without this a rolled-over category already over budget would wrongly report
+// `onTrack` because the carried deficit was ignored entirely.
 export function calcSpendingPace(
   budgets: Budget[],
   categorySpend: Record<string, number>,
   daysElapsed: number,
   daysInMonth: number,
+  rolloverDeficit: Record<string, number> = {},
 ): SpendingPaceItem[] {
   return budgets.map((b) => {
     const budget = normalizeMonthlyBudget(b.amount, b.period);
-    const spent = categorySpend[b.category] ?? 0;
-    const projected = calcProjectedSpend(spent, daysElapsed, daysInMonth);
-    const pace = daysElapsed > 0 ? spent / daysElapsed : 0;
+    const rawSpent = categorySpend[b.category] ?? 0;
+    const deficit = rolloverDeficit[b.category] ?? 0;
+    const spent = calcEffectiveSpent(rawSpent, deficit);
+    const projected = calcProjectedSpend(rawSpent, daysElapsed, daysInMonth) + deficit;
+    const pace = daysElapsed > 0 ? rawSpent / daysElapsed : 0;
     const status: SpendingPaceItem['status'] =
       spent > budget ? 'over' :
       projected > budget ? 'atRisk' :

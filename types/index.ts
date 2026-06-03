@@ -156,6 +156,7 @@ export interface Loan {
   contactId: string;
   contactName: string;       // denormalized for display
   account: string;           // account the cash moved from/into ('' = note only, no cash tx)
+  category: string;          // descriptive bucket for history/filtering ('' = uncategorized); stays out of spending
   principal: number;         // original amount
   repaidAmount: number;      // cumulative amount paid back so far
   date: string;              // YYYY-MM-DD the loan was created

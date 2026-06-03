@@ -1122,3 +1122,35 @@ describe('calcPaycheckDeposited', () => {
     expect(calcPaycheckDeposited({ grossAmount: 819.93, gratuityAmount: 0 })).toBeCloseTo(819.93, 2);
   });
 });
+
+// ── Spending Pace ─────────────────────────────────────────────────────────────
+
+describe('calcSpendingPace', () => {
+  const budget: Budget = { id: 'b1', category: 'Food', amount: 300, period: 'monthly' };
+
+  it('flags a category as over when actual spend already exceeds the budget', () => {
+    const [item] = calcSpendingPace([budget], { Food: 320 }, 15, 30);
+    expect(item.status).toBe('over');
+    expect(item.spent).toBeCloseTo(320, 2);
+  });
+
+  it('reports onTrack without rollover even if last month overspent (deficit ignored)', () => {
+    // Half a budget used halfway through the month projects exactly to budget.
+    const [item] = calcSpendingPace([budget], { Food: 150 }, 15, 30);
+    expect(item.status).toBe('onTrack');
+  });
+
+  it('folds a rolled-over deficit into used so an already-over budget reads over', () => {
+    // Only $50 spent this month, but $400 carried from last month's overspend.
+    const [item] = calcSpendingPace([budget], { Food: 50 }, 10, 30, { Food: 400 });
+    expect(item.spent).toBeCloseTo(450, 2);   // 50 actual + 400 carried
+    expect(item.status).toBe('over');         // 450 > 300
+  });
+
+  it('treats the carryover as flat, not part of the daily pace', () => {
+    // Daily pace must come from this month's $30, not the $30 + $270 carryover.
+    const [item] = calcSpendingPace([budget], { Food: 30 }, 10, 30, { Food: 270 });
+    expect(item.pace).toBeCloseTo(3, 2);                 // 30 / 10 days
+    expect(item.projected).toBeCloseTo(30 / 10 * 30 + 270, 2); // rate-projected spend + flat carry
+  });
+});

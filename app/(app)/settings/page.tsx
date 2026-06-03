@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useSession, signOut } from 'next-auth/react';
-import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, User, SlidersHorizontal, Receipt, Tags, Landmark, Building2, Database, ShieldCheck, ChevronDown, LogOut, Users, UserPlus, Trash2 } from 'lucide-react';
+import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, User, SlidersHorizontal, Receipt, Tags, Landmark, Building2, Database, ShieldCheck, ChevronDown, LogOut, Users, UserPlus, Trash2, Archive } from 'lucide-react';
 import { BRACKETS_2026, STANDARD_DEDUCTION_2026 } from '@/lib/tax';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -73,6 +73,11 @@ export default function SettingsPage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [newContactName, setNewContactName] = useState('');
   const [addingContact, setAddingContact] = useState(false);
+  // Which custom category the user clicked X on (drives the Archive/Delete dialog).
+  const [catToRemove, setCatToRemove] = useState<{ cat: string; kind: 'exp' | 'inc' } | null>(null);
+  // Categories that tag at least one transaction — Delete is blocked for these
+  // (archive keeps history findable). Counted from the ledger on mount.
+  const [catUsage, setCatUsage] = useState<Record<string, number>>({});
   const toast = useToast();
 
   useEffect(() => {
@@ -118,6 +123,19 @@ export default function SettingsPage() {
       .then((r) => r.json())
       .then((c: Contact[]) => setContacts([...(c ?? [])].sort((a, b) => a.name.localeCompare(b.name))))
       .catch(() => { /* tab may not exist yet; created on first add */ });
+  }, []);
+
+  // Tally how many transactions reference each category so the remove dialog can
+  // block a hard Delete (and steer to Archive) when history would be orphaned.
+  useEffect(() => {
+    fetch('/api/transactions')
+      .then((r) => r.json())
+      .then((txs: { category: string }[]) => {
+        const counts: Record<string, number> = {};
+        for (const tx of txs ?? []) counts[tx.category] = (counts[tx.category] ?? 0) + 1;
+        setCatUsage(counts);
+      })
+      .catch(() => { /* leave empty — Delete simply isn't blocked */ });
   }, []);
 
   // Contacts persist to Google Sheets (shared with the bill-splitting flows), so
@@ -683,21 +701,21 @@ export default function SettingsPage() {
                   {[...EXPENSE_CATEGORIES].filter((c) => !(settings.hiddenExpenseCategories ?? []).includes(c)).map((c) => (
                     <span key={c} className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs font-bold">
                       {c}
-                      <button onClick={() => hideExpCat(c)} title="Hide category" className="text-slate-400 dark:text-slate-500 ml-0.5"><X className="w-3 h-3" /></button>
+                      <button onClick={() => hideExpCat(c)} title={t('categories.archiveAction')} className="text-slate-400 dark:text-slate-500 ml-0.5"><X className="w-3 h-3" /></button>
                     </span>
                   ))}
-                  {(settings.customExpenseCategories ?? []).map((c) => (
+                  {(settings.customExpenseCategories ?? []).filter((c) => !(settings.hiddenExpenseCategories ?? []).includes(c)).map((c) => (
                     <span key={c} className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800/50 text-indigo-700 dark:text-indigo-300 text-xs font-bold">
                       {c}
-                      <button onClick={() => removeExpCat(c)} className="text-slate-400 dark:text-slate-500 ml-0.5"><X className="w-3 h-3" /></button>
+                      <button onClick={() => setCatToRemove({ cat: c, kind: 'exp' })} title={t('categories.archiveTitle')} className="text-slate-400 dark:text-slate-500 ml-0.5"><X className="w-3 h-3" /></button>
                     </span>
                   ))}
                 </div>
                 {(settings.hiddenExpenseCategories ?? []).length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mb-3 p-2.5 rounded-xl bg-rose-50 dark:bg-rose-900/30 border border-rose-100 dark:border-rose-800/50">
-                    <span className="text-xs font-bold text-rose-400 w-full mb-1">Hidden — click to restore:</span>
+                  <div className="flex flex-wrap gap-1.5 mb-3 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-100 dark:border-amber-800/50">
+                    <span className="text-xs font-bold text-amber-500 dark:text-amber-400 w-full mb-1 flex items-center gap-1"><Archive className="w-3 h-3" />{t('categories.archivedSection')} — {t('categories.restoreHint')}:</span>
                     {(settings.hiddenExpenseCategories ?? []).map((c) => (
-                      <button key={c} onClick={() => restoreExpCat(c)} className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-800/50 text-rose-500 dark:text-rose-400 text-xs font-bold line-through">{c}</button>
+                      <button key={c} onClick={() => restoreExpCat(c)} className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-800/50 text-amber-600 dark:text-amber-400 text-xs font-bold">{c}</button>
                     ))}
                   </div>
                 )}
@@ -721,21 +739,21 @@ export default function SettingsPage() {
                   {[...INCOME_CATEGORIES].filter((c) => !(settings.hiddenIncomeCategories ?? []).includes(c)).map((c) => (
                     <span key={c} className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs font-bold">
                       {c}
-                      <button onClick={() => hideIncCat(c)} title="Hide category" className="text-slate-400 dark:text-slate-500 ml-0.5"><X className="w-3 h-3" /></button>
+                      <button onClick={() => hideIncCat(c)} title={t('categories.archiveAction')} className="text-slate-400 dark:text-slate-500 ml-0.5"><X className="w-3 h-3" /></button>
                     </span>
                   ))}
-                  {(settings.customIncomeCategories ?? []).map((c) => (
+                  {(settings.customIncomeCategories ?? []).filter((c) => !(settings.hiddenIncomeCategories ?? []).includes(c)).map((c) => (
                     <span key={c} className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800/50 text-emerald-700 dark:text-emerald-300 text-xs font-bold">
                       {c}
-                      <button onClick={() => removeIncCat(c)} className="text-slate-400 dark:text-slate-500 ml-0.5"><X className="w-3 h-3" /></button>
+                      <button onClick={() => setCatToRemove({ cat: c, kind: 'inc' })} title={t('categories.archiveTitle')} className="text-slate-400 dark:text-slate-500 ml-0.5"><X className="w-3 h-3" /></button>
                     </span>
                   ))}
                 </div>
                 {(settings.hiddenIncomeCategories ?? []).length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mb-3 p-2.5 rounded-xl bg-rose-50 dark:bg-rose-900/30 border border-rose-100 dark:border-rose-800/50">
-                    <span className="text-xs font-bold text-rose-400 w-full mb-1">Hidden — click to restore:</span>
+                  <div className="flex flex-wrap gap-1.5 mb-3 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-100 dark:border-amber-800/50">
+                    <span className="text-xs font-bold text-amber-500 dark:text-amber-400 w-full mb-1 flex items-center gap-1"><Archive className="w-3 h-3" />{t('categories.archivedSection')} — {t('categories.restoreHint')}:</span>
                     {(settings.hiddenIncomeCategories ?? []).map((c) => (
-                      <button key={c} onClick={() => restoreIncCat(c)} className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-800/50 text-rose-500 dark:text-rose-400 text-xs font-bold line-through">{c}</button>
+                      <button key={c} onClick={() => restoreIncCat(c)} className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-800/50 text-amber-600 dark:text-amber-400 text-xs font-bold">{c}</button>
                     ))}
                   </div>
                 )}
@@ -842,6 +860,41 @@ export default function SettingsPage() {
           </Card>
         </div>
       )}
+
+      {/* Archive / Delete a custom category. Delete is blocked when transactions
+          reference the category so history is never orphaned; Archive always
+          works and keeps the category in history filters. */}
+      {catToRemove && (() => {
+        const used = catUsage[catToRemove.cat] ?? 0;
+        const archive = () => {
+          if (catToRemove.kind === 'exp') hideExpCat(catToRemove.cat); else hideIncCat(catToRemove.cat);
+          setCatToRemove(null);
+        };
+        const del = () => {
+          if (used > 0) return;
+          if (catToRemove.kind === 'exp') removeExpCat(catToRemove.cat); else removeIncCat(catToRemove.cat);
+          setCatToRemove(null);
+        };
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setCatToRemove(null)}>
+            <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-slate-800 p-5 shadow-xl border border-slate-200 dark:border-slate-700" onClick={(e) => e.stopPropagation()}>
+              <p className="text-base font-extrabold text-slate-900 dark:text-slate-100 mb-1">{t('categories.archiveTitle')}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">{t('categories.archivePrompt', { name: catToRemove.cat })}</p>
+              <div className="space-y-2.5">
+                <button onClick={archive} className="w-full text-left p-3 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800/50 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors">
+                  <span className="flex items-center gap-2 text-sm font-bold text-amber-700 dark:text-amber-300"><Archive className="w-4 h-4" />{t('categories.archiveAction')}</span>
+                  <span className="block text-xs text-amber-600/80 dark:text-amber-400/80 mt-0.5">{t('categories.archiveDesc')}</span>
+                </button>
+                <button onClick={del} disabled={used > 0} className="w-full text-left p-3 rounded-xl bg-rose-50 dark:bg-rose-900/30 border border-rose-200 dark:border-rose-800/50 enabled:hover:bg-rose-100 dark:enabled:hover:bg-rose-900/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                  <span className="flex items-center gap-2 text-sm font-bold text-rose-700 dark:text-rose-300"><Trash2 className="w-4 h-4" />{t('categories.deleteAction')}</span>
+                  <span className="block text-xs text-rose-600/80 dark:text-rose-400/80 mt-0.5">{used > 0 ? t('categories.deleteBlocked', { count: used }) : t('categories.deleteDesc')}</span>
+                </button>
+                <button onClick={() => setCatToRemove(null)} className="w-full p-2.5 rounded-xl text-sm font-bold text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">{t('common.cancel')}</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

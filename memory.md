@@ -633,3 +633,33 @@ All handlers (save/reset/hard-refresh/category add-hide-restore/lang/dark mode) 
 - Reuses split i18n (`bills.splitEqually/shareAuto/theirShareShort/splitAutoHint/totalAmount/splitExpenseOverTotal/newContactName/addContact/selectContact/addNewContact`). New `loans.*` keys: `addLoans`, `people`, `addPerson`, `unassigned` ({amount}), `toastAddedGroup` ({n}) — en + vi.
 
 **Verification:** `tsc` clean; both locale JSONs valid; eslint 0 errors (2 pre-existing warnings); 299 tests pass.
+
+### NovaFi enhancement batch — reports fixes, loan categories, category archive (branch `claude/novafi-enhancement-discussion-C6KKf`)
+
+User raised a multi-part enhancement discussion (split bills/loans, reports, custom categories, notifications). After a Q&A round the decisions were: splits/loans → self-sentinel + `participants[]` (already largely built for one-off splits & group loans); **best savings month → keep net (income − expense)** (no change); **category delete → Archive/Delete/Cancel**; **notifications → skipped**. This batch implements the contained, high-confidence pieces.
+
+**1. Spending pace ignored budget rollover (Reports bug).**
+- `lib/calculations.ts` `calcSpendingPace` now takes an optional 5th arg `rolloverDeficit: Record<string, number> = {}`. The deficit is added as a FLAT carryover to both the effective `spent` (via `calcEffectiveSpent`) and the `projected` total, but NOT to the daily `pace`/rate-projection (which stay derived from the actual month spend). Previously a rolled-over category already over budget reported `onTrack` because the carried deficit was dropped entirely.
+- `app/(app)/reports/page.tsx`: `load()` now also fetches `/api/settings` → new `budgetRollover` state. The pace `useMemo` computes prev-month category spend and, when `budgetRollover` is on, builds a `rolloverDeficit` map per budget via `calcRolloverDeficit(normalizeMonthlyBudget(...), prevSpend)` and passes it to `calcSpendingPace`. Imports `calcRolloverDeficit, normalizeMonthlyBudget`.
+- Tests: new `describe('calcSpendingPace')` block in `lib/__tests__/calculations.test.ts` (4 cases: over via actual spend; onTrack w/o rollover; carryover flips to over; carryover is flat not part of pace).
+
+**2. Monthly cash-flow chart dropped month labels (Jan/Mar/May/Sep…).**
+- Not a data bug — Recharts auto-thinned the X axis. `app/(app)/reports/page.tsx` cash-flow `<XAxis>` now has `interval={0} minTickGap={0}` and `fontSize: 10` so all 12 labels render.
+
+**3. Categories on Loans (history lookup).**
+- `types/index.ts` `Loan` gains `category: string` ('' = uncategorized; stays out of spending since loans are `transfer`s).
+- `lib/sheets.ts`: `LOANS_HEADER` appends `category` (col N); `getLoans` range `A2:M1000`→`A2:N1000` and reads `r[13]` (legacy rows → ''); `upsertLoan` writes `loan.category ?? ''`. `deleteRowById`'s `_lastCol` is unused so no other change. Backward compatible (additive column).
+- `app/(app)/transactions/page.tsx`: `EMPTY_LOAN_FORM.category=''`; group-loan create (`handleAddLoan`), `openEditLoan`, and `handleEditLoan` all carry `category`; payback handler already spreads `...loan`. New category `<Select>` (options = `common.none` + `expenseCategories`) added to the loan form after the account select. (Splits already stored a category.)
+- `app/api/loans/route.ts` passes the `Loan` through verbatim — no change needed.
+
+**4. Custom-category Archive vs Delete (Archive/Delete/Cancel).**
+- Model: the existing `hidden{Expense,Income}Categories` set is reused as the **archive** set for BOTH built-in and custom categories. Archived = excluded from entry dropdowns but still returned for history filters.
+- `app/api/categories/route.ts` GET: builds `allExp/allInc = [...builtins, ...custom]`, returns `expense/incomeCategories` = not-hidden and new `archived{Expense,Income}Categories` = hidden. (Previously customs were never filtered by hidden.)
+- `hooks/useCategories.ts`: bumped cache key to `nf_categories_v2`; now also returns `archived{Expense,Income}Categories`. Shared `apply()` sets all four.
+- `app/(app)/transactions/page.tsx`: destructures the archived lists; the history category **filter** renders archived chips after active ones (muted, dashed border, `Archive` icon, `categories.archivedHint` tooltip) so past transactions stay filterable. Imported `Archive` from lucide.
+- `app/(app)/settings/page.tsx`: new state `catToRemove` ({cat, kind:'exp'|'inc'}) and `catUsage` (per-category transaction counts fetched from `/api/transactions` on mount). Custom-category chips now filter out archived ones and their X opens a **dialog** (`Archive` / `Delete` / `Cancel`). Archive → `hide{Exp,Inc}Cat`; Delete → `remove{Exp,Inc}Cat` but **disabled when `catUsage[cat] > 0`** (shows `categories.deleteBlocked` with the count, steering to Archive). The former "Hidden — click to restore" sections are re-themed amber and relabelled `categories.archivedSection` + `restoreHint`. Built-in chip X still archives directly (can't delete a built-in). Imported `Archive`.
+- i18n: new `categories.*` keys (en + vi): `archivedHint, archiveTitle, archivePrompt {name}, archiveAction, archiveDesc, deleteAction, deleteDesc, deleteBlocked {count}, archivedSection, restoreHint`.
+
+**Not done this batch (discussed):** recurring-Bills multi-person + "me" participants (one-off splits & group loans already support it; recurring `Bill` is still single `splitContactId`/`splitAmount` — flagged as the larger, schema-touching follow-up). Best-savings-month left as net income−expense per user's choice. Notifications/Vercel Cron skipped per user.
+
+**Verification:** `tsc --noEmit` clean; eslint 0 errors (only pre-existing setState-in-effect / `_lastCol` warnings); 309 tests pass (was 299).

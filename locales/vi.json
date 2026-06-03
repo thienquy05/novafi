@@ -613,6 +613,16 @@
     "Paycheck": "Phiếu lương",
     "Freelance": "Tự do",
     "Investment": "Đầu tư",
-    "Other Income": "Thu nhập khác"
+    "Other Income": "Thu nhập khác",
+    "archivedHint": "Đã lưu trữ — ẩn khỏi mục nhập mới, vẫn lọc được trong lịch sử",
+    "archiveTitle": "Gỡ danh mục",
+    "archivePrompt": "Bạn muốn làm gì với \"{name}\"?",
+    "archiveAction": "Lưu trữ",
+    "archiveDesc": "Ẩn khỏi giao dịch mới; vẫn hiển thị trong bộ lọc lịch sử.",
+    "deleteAction": "Xóa",
+    "deleteDesc": "Xóa vĩnh viễn. Chỉ khả dụng khi không có giao dịch nào dùng nó.",
+    "deleteBlocked": "{count} giao dịch đang dùng danh mục này — hãy lưu trữ thay vì xóa.",
+    "archivedSection": "Đã lưu trữ",
+    "restoreHint": "Chạm để khôi phục"
   }
 }

@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Search, Pencil, RefreshCw, AlertCircle, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronLeft, ChevronRight, X, Filter, ArrowLeftRight, HandCoins, ArrowUpRight, ArrowDownLeft, UserPlus, Trash2, Check, Split as SplitIcon } from 'lucide-react';
+import { Plus, Search, Pencil, RefreshCw, AlertCircle, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronLeft, ChevronRight, X, Filter, ArrowLeftRight, HandCoins, ArrowUpRight, ArrowDownLeft, UserPlus, Trash2, Check, Archive, Split as SplitIcon } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -115,6 +115,7 @@ const EMPTY_LOAN_FORM = {
   account: '',
   date: today(),
   note: '',
+  category: '', // descriptive bucket for history lookup; '' = uncategorized
 };
 // Sentinel option that opens the inline "add new contact" input.
 const NEW_CONTACT = '__new__';
@@ -211,7 +212,7 @@ export default function TransactionsPage() {
   const [expandedSplitGroups, setExpandedSplitGroups] = useState<Set<string>>(new Set());
   const [showSplitHistory, setShowSplitHistory] = useState(false);
   const toast = useToast();
-  const { expenseCategories, incomeCategories } = useCategories();
+  const { expenseCategories, incomeCategories, archivedExpenseCategories, archivedIncomeCategories } = useCategories();
   const { t } = useTranslation();
 
   const load = useCallback(async () => {
@@ -474,6 +475,7 @@ export default function TransactionsPage() {
           settledDate: '',
           principalTxId: tx ? tx.id : '',
           repaymentTxIds: [],
+          category: loanForm.category,
         };
         const res = await fetch('/api/loans', { method: 'POST', body: JSON.stringify(tx ? { loan, tx } : { loan }), headers: { 'Content-Type': 'application/json' } });
         if (!res.ok) throw new Error();
@@ -508,6 +510,7 @@ export default function TransactionsPage() {
       account: loan.account,
       date: loan.date,
       note: loan.note,
+      category: loan.category ?? '',
     });
   }
 
@@ -539,6 +542,7 @@ export default function TransactionsPage() {
       principal: amount,
       date: loanForm.date,
       note: loanForm.note,
+      category: loanForm.category,
       settled: fullyPaid,
       settledDate: fullyPaid ? (original.settledDate || today()) : '',
       principalTxId: newTx ? newTx.id : '',
@@ -1310,6 +1314,12 @@ export default function TransactionsPage() {
                 options={[{ value: '', label: t('loans.noAccount') }, ...accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))]}
                 onChange={(e) => setLoanForm((f) => ({ ...f, account: e.target.value }))}
               />
+              <Select
+                label={t('common.category')}
+                value={loanForm.category}
+                options={[{ value: '', label: t('common.none') }, ...expenseCategories.map((cat) => ({ value: cat, label: cat }))]}
+                onChange={(e) => setLoanForm((f) => ({ ...f, category: e.target.value }))}
+              />
               <Input label={t('loans.noteOptional')} placeholder={t('loans.notePlaceholder')} value={loanForm.note} onChange={(e) => setLoanForm((f) => ({ ...f, note: e.target.value }))} />
               <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{loanForm.account ? t('loans.cashHelp') : t('loans.noteOnlyHelp')}</p>
               <div className="flex gap-3 pt-1">
@@ -1671,22 +1681,29 @@ export default function TransactionsPage() {
               <div className="flex gap-2 flex-wrap mb-4">
                 <button onClick={() => setCategoryFilters([])} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${categoryFilters.length === 0 ? 'bg-indigo-600 text-white' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>{t('common.all')}</button>
               </div>
-              {expenseCategories.length > 0 && (
+              {(expenseCategories.length > 0 || archivedExpenseCategories.length > 0) && (
                 <>
                   <p className="text-[11px] font-bold text-rose-500 dark:text-rose-400 uppercase tracking-wider mb-2">{t('common.expenses')}</p>
                   <div className="flex gap-2 flex-wrap mb-4">
                     {expenseCategories.map((c) => (
                       <button key={`exp-${c}`} onClick={() => toggleCategory(c)} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${categoryFilters.includes(c) ? 'bg-indigo-600 text-white' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>{c}</button>
                     ))}
+                    {/* Archived categories: kept filterable so past transactions stay findable, shown muted with an archive marker. */}
+                    {archivedExpenseCategories.map((c) => (
+                      <button key={`exp-arc-${c}`} onClick={() => toggleCategory(c)} title={t('categories.archivedHint')} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap inline-flex items-center gap-1 ${categoryFilters.includes(c) ? 'bg-indigo-600 text-white' : 'bg-slate-50/60 dark:bg-slate-700/50 text-slate-400 dark:text-slate-500 border border-dashed border-slate-300 dark:border-slate-600'}`}><Archive className="w-3 h-3" />{c}</button>
+                    ))}
                   </div>
                 </>
               )}
-              {incomeCategories.length > 0 && (
+              {(incomeCategories.length > 0 || archivedIncomeCategories.length > 0) && (
                 <>
                   <p className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-2">{t('common.income')}</p>
                   <div className="flex gap-2 flex-wrap">
                     {incomeCategories.map((c) => (
                       <button key={`inc-${c}`} onClick={() => toggleCategory(c)} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${categoryFilters.includes(c) ? 'bg-indigo-600 text-white' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>{c}</button>
+                    ))}
+                    {archivedIncomeCategories.map((c) => (
+                      <button key={`inc-arc-${c}`} onClick={() => toggleCategory(c)} title={t('categories.archivedHint')} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap inline-flex items-center gap-1 ${categoryFilters.includes(c) ? 'bg-indigo-600 text-white' : 'bg-slate-50/60 dark:bg-slate-700/50 text-slate-400 dark:text-slate-500 border border-dashed border-slate-300 dark:border-slate-600'}`}><Archive className="w-3 h-3" />{c}</button>
                     ))}
                   </div>
                 </>

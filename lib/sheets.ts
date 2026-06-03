@@ -90,7 +90,7 @@ const SPLITS_HEADER = [
 const LOANS_HEADER = [
   'id', 'direction', 'contact_id', 'contact_name', 'account', 'principal',
   'repaid_amount', 'date', 'note', 'settled', 'settled_date',
-  'principal_tx_id', 'repayment_tx_ids',
+  'principal_tx_id', 'repayment_tx_ids', 'category',
 ];
 
 // A `values.get` against a tab that doesn't exist fails with HTTP 400 ("Unable
@@ -743,7 +743,7 @@ export async function getLoans(
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'Loans!A2:M1000',
+      range: 'Loans!A2:N1000',
     });
     return (res.data.values ?? []).map((r) => ({
       id: r[0] ?? '',
@@ -759,6 +759,7 @@ export async function getLoans(
       settledDate: r[10] ?? '',
       principalTxId: r[11] ?? '',
       repaymentTxIds: String(r[12] ?? '').split('|').filter(Boolean),
+      category: r[13] ?? '', // legacy rows (col absent) → uncategorized
     }));
   } catch (err) {
     if (!isMissingTabError(err)) throw err;
@@ -785,7 +786,7 @@ export async function upsertLoan(
         loan.id, loan.direction, loan.contactId, loan.contactName, loan.account,
         loan.principal, loan.repaidAmount, loan.date, loan.note,
         String(loan.settled), loan.settledDate, loan.principalTxId,
-        (loan.repaymentTxIds ?? []).join('|'),
+        (loan.repaymentTxIds ?? []).join('|'), loan.category ?? '',
       ]],
     },
   });
