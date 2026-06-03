@@ -979,6 +979,7 @@ export default function TransactionsPage() {
           id: generateId(), billId: groupId, billName: description,
           contactId: p.contact.id, contactName: p.contact.name, amount: p.amount,
           category, account, date, settled: false, settledDate: '',
+          repaidAmount: 0, repaymentTxIds: [],
           frontedTxId: frontedTx?.id ?? '', settleTxId: '',
         };
         const sRes = await fetch('/api/splits', {

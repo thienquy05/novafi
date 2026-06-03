@@ -137,14 +137,16 @@ export interface Split {
   billName: string;    // denormalized for display without a bill lookup
   contactId: string;
   contactName: string; // denormalized for display
-  amount: number;      // the other person's share they owe you
+  amount: number;      // the other person's share they owe you (the original total)
   category: string;    // the bill's category at payment time (captured for context)
   account: string;     // account the bill was paid from; where fronted cash leaves/returns
   date: string;        // YYYY-MM-DD the bill was paid
-  settled: boolean;    // they've paid you their share
-  settledDate: string; // YYYY-MM-DD they settled up ('' until settled)
+  settled: boolean;    // fully paid back (repaidAmount >= amount)
+  settledDate: string; // YYYY-MM-DD they fully settled up ('' until settled)
+  repaidAmount: number;     // cumulative amount paid back so far (partial paybacks accumulate, like loans)
+  repaymentTxIds: string[]; // ids of the cash-in `transfer`s for each payback
   frontedTxId?: string; // id of the `transfer` that fronted their share out of `account` ('' = note only)
-  settleTxId?: string;  // id of the `transfer` that returned their share on settle ('' until settled)
+  settleTxId?: string;  // legacy: id of a single full-settle `transfer` (older rows; superseded by repaymentTxIds)
 }
 
 export interface Goal {

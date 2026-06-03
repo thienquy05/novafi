@@ -2,6 +2,32 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-03 — Bills "owed to you" payback gets the loan-style record-payment UI with partial amounts (branch claude/bills-payment-ui-consistency-Vi0D0)
+
+**Request:** Make the Bills "pay back" option consistent with Loan/Split — a "record payment" flow with an amount (and grouped when needed). Clarified with the user: scope is the **"Owed to You"** tracker on the Bills page (people repaying their share of a shared bill); paybacks should **allow partial amounts** (Loan-style, tracking a remaining balance and accumulating until settled); recorded **per person** for multi-person bills.
+
+**Before:** A shared-bill receivable was settled with an all-or-nothing **checkbox toggle** ("mark transferred") — `handleSplitToggle` wrote one full cash-in `transfer` and flipped `settled`, with un-settle reversing it. No partial repayment was possible.
+
+**Data model — `Split` now mirrors `Loan`'s partial-payback shape (`types/index.ts`):** added `repaidAmount: number` (cumulative paid back) and `repaymentTxIds: string[]` (one cash-in transfer id per payback). `settled` now means `repaidAmount >= amount`. Legacy `settleTxId` kept for older fully-settled rows (still reversed on delete); `frontedTxId` unchanged.
+
+**Storage (`lib/sheets.ts`):** `SPLITS_HEADER` gains `repaid_amount` + `repayment_tx_ids` (cols N/O). `getSplits` reads `A2:O1000` and parses `repaidAmount` (`Number`) + `repaymentTxIds` (`'|'`-split, filtered). `upsertSplit`/`deleteSplit` widen the row-clear range from `'M'` → `'O'` and append the two new cells (`repaymentTxIds` joined by `'|'`). Old 13-column rows read back as `repaidAmount: 0`, `repaymentTxIds: []` — backward compatible.
+
+**API (`app/api/splits/route.ts`):** `DELETE` now reverses + deletes `[frontedTxId, settleTxId, ...repaymentTxIds]` so removing a partially-repaid split restores every linked account exactly (same model as loans). `POST` was already capable of bundling `{ split, tx }`, so each payback reuses it.
+
+**Helper (`lib/splits.ts`):** new exported `splitRemaining(s)` = `settled ? 0 : roundCents(amount − repaidAmount)`.
+
+**Bills UI (`app/(app)/bills/page.tsx`):**
+- Replaced `handleSplitToggle` with `openSplitPayback(split)` (toggles an inline form, pre-filling the amount with the remaining and the account with the fronted-from account) and `handleRecordSplitPayback(split)` — clamps the entered amount to the remaining, accumulates into `repaidAmount`, marks `settled` once it covers the share, and (when an account is chosen) bundles a `cashIn` `buildSplitTx` so the balance + receivable move together. Optimistic update with rollback on failure.
+- New `renderPendingSplitRow(split, showBill)` helper renders the loan-style card: contact (+ bill name for standalone rows), remaining amount, a progress bar + "{paid} of {total} paid" once partially paid, a **Record payment** button (HandCoins), delete, and the inline amount/account form (reusing `loans.paybackAmount` / `loans.intoAccount` / `loans.noAccount` / `loans.confirmPayback` labels). Used for both single-person cards and each person inside a multi-person group.
+- Pending single/multi rows and `totalOwed` + the group-card total now sum **remaining** (via `splitRemaining`) instead of original amounts. Settled-history checkmarks became static badges (un-settle removed — deletion is the reversal path, matching loans). Removed the now-unused `settlingSplitId` state.
+- New split creations (Bills `handleRecordPayment`, Transactions split-an-expense, splits test helper) initialize `repaidAmount: 0`, `repaymentTxIds: []`.
+
+**i18n:** added `bills.recordSplitPayment`, `bills.splitPaidOf` ("{paid} of {total} paid"), `bills.toastSplitPartial` to `en.json` + `vi.json`; reworded `splitPayNote`/`splitPayNoteGroup` from "mark them transferred" → "record their payment". `markTransferred`/`toastSplitUnsettled` remain (still used by the Transactions-page one-off split tracker, which keeps its checkbox).
+
+**Scope note:** Only the Bills "Owed to You" tracker was converted, per the clarification. The Transactions-page one-off split tracker still uses the checkbox toggle (its `settleTxId` path is untouched and backward compatible).
+
+**Verification:** `tsc --noEmit` clean; `next build` succeeds; `eslint` 0 errors on changed files (pre-existing hook-dep/setState warnings only); full vitest **324 passing**.
+
 ## 2026-06-03 — Merge "Divide total" / "Per person" split modes into one smart resolver (branch claude/cranky-germain-50e0ee)
 
 **Request:** Every split surface (Bills, Split-an-Expense, group Loans) had a two-tab toggle — **Divide total** (type a total, blank rows auto-divide the remainder) vs **Per person** (type each share, total auto-sums). User wanted the two combined into one input that detects intent: e.g. with 4 people, typing 3 shares + a total auto-fills the 4th; typing only a total auto-divides evenly; leaving the total blank sums up the typed shares. Also asked that Bills "inherit" the same formula so Loans/Splits/Bills all share one calculation (Bills stays in its own section, just shares the math).

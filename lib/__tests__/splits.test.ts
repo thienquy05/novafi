@@ -134,6 +134,7 @@ describe('groupSplits', () => {
   const mk = (id: string, billId: string, date: string, amount: number): Split => ({
     id, billId, billName: 'Dinner', contactId: 'c' + id, contactName: 'P' + id,
     amount, category: 'Food', account: '', date, settled: false, settledDate: '',
+    repaidAmount: 0, repaymentTxIds: [],
     frontedTxId: '', settleTxId: '',
   });
   it('groups same billId + date and sums the total', () => {
