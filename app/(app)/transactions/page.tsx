@@ -201,6 +201,7 @@ export default function TransactionsPage() {
   const [paybackFor, setPaybackFor] = useState<string | null>(null);
   const [paybackForm, setPaybackForm] = useState({ amount: '', account: '' });
   const [recordingPayback, setRecordingPayback] = useState(false);
+  const [expandedLoanGroups, setExpandedLoanGroups] = useState<Set<string>>(new Set());
   // Split bills (one-time expense splits)
   const [splits, setSplits] = useState<Split[]>([]);
   const [splitsOpen, setSplitsOpen] = useState(false);
@@ -382,6 +383,122 @@ export default function TransactionsPage() {
   const settledLoans = useMemo(() => loans.filter((l) => l.settled).sort((a, b) => (b.settledDate || '').localeCompare(a.settledDate || '')), [loans]);
   const owedToYou = useMemo(() => openLoans.filter((l) => l.direction === 'lent').reduce((s, l) => s + calcLoanRemaining(l.principal, l.repaidAmount), 0), [openLoans]);
   const youOwe = useMemo(() => openLoans.filter((l) => l.direction === 'borrowed').reduce((s, l) => s + calcLoanRemaining(l.principal, l.repaidAmount), 0), [openLoans]);
+  // Collapse multi-person loans (shared groupId) into one expandable row; loans
+  // with no groupId (or a group with a single open loan left) stay standalone.
+  const openLoanGroups = useMemo(() => {
+    const map = new Map<string, Loan[]>();
+    for (const l of openLoans) {
+      const key = l.groupId || `solo:${l.id}`;
+      (map.get(key) ?? map.set(key, []).get(key)!).push(l);
+    }
+    return [...map.entries()].map(([key, loans]) => ({
+      key,
+      loans,
+      isGroup: loans.length > 1,
+      direction: loans[0].direction,
+      remaining: loans.reduce((s, l) => s + calcLoanRemaining(l.principal, l.repaidAmount), 0),
+    }));
+  }, [openLoans]);
+  function toggleLoanGroup(key: string) {
+    setExpandedLoanGroups((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  }
+
+  // One open-loan card (standalone, or nested inside an expanded group). `nested`
+  // drops the outer border so it reads as a sub-row of the group container.
+  function renderOpenLoanCard(loan: Loan, nested = false) {
+    const remaining = calcLoanRemaining(loan.principal, loan.repaidAmount);
+    const pct = loan.principal > 0 ? Math.min(100, (loan.repaidAmount / loan.principal) * 100) : 0;
+    const isLent = loan.direction === 'lent';
+    const expanded = paybackFor === loan.id;
+    return (
+      <div key={loan.id} className={nested ? 'p-3 rounded-xl bg-slate-50 dark:bg-slate-700/30' : `p-4 rounded-2xl bg-white dark:bg-slate-800 border ${isLent ? 'border-emerald-100 dark:border-emerald-800/40' : 'border-rose-100 dark:border-rose-800/40'}`}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            {!nested && (
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isLent ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400'}`}>
+                {isLent ? <ArrowUpRight className="w-4.5 h-4.5" /> : <ArrowDownLeft className="w-4.5 h-4.5" />}
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{loan.contactName}</p>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                {isLent ? t('loans.lentLabel') : t('loans.borrowedLabel')}{loan.account ? ` · ${accountName(loan.account)}` : ''}{loan.note ? ` · ${loan.note}` : ''}
+              </p>
+            </div>
+          </div>
+          <div className="text-right shrink-0">
+            <p className={`text-sm font-extrabold ${isLent ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{formatCurrency(remaining)}</p>
+            {loan.repaidAmount > 0 && <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">{t('loans.ofPrincipal', { amount: formatCurrency(loan.principal) })}</p>}
+          </div>
+        </div>
+        {loan.repaidAmount > 0 && (
+          <div className="mt-3 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+            <div className={`h-full rounded-full ${isLent ? 'bg-emerald-500' : 'bg-rose-500'}`} style={{ width: `${pct}%` }} />
+          </div>
+        )}
+        <div className="flex items-center gap-2 mt-3">
+          <Button size="sm" variant="secondary" className="h-9" onClick={() => { if (expanded) { setPaybackFor(null); } else { setPaybackFor(loan.id); setPaybackForm({ amount: String(remaining), account: loan.account }); } }}>
+            {t('loans.recordPayback')}
+          </Button>
+          <button title={t('common.edit')} onClick={() => openEditLoan(loan)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-indigo-500 dark:hover:text-indigo-400 rounded-lg transition-colors ml-auto">
+            <Pencil className="w-4 h-4" />
+          </button>
+          <button title={t('common.delete')} onClick={() => handleDeleteLoan(loan)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+        {expanded && (
+          <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Input label={t('loans.paybackAmount')} type="number" min="0" step="0.01" value={paybackForm.amount} onChange={(e) => setPaybackForm((f) => ({ ...f, amount: e.target.value }))} />
+              <Select
+                label={isLent ? t('loans.intoAccount') : t('loans.fromAccount')}
+                value={paybackForm.account}
+                options={[{ value: '', label: t('loans.noAccount') }, ...accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))]}
+                onChange={(e) => setPaybackForm((f) => ({ ...f, account: e.target.value }))}
+              />
+            </div>
+            <div className="flex gap-3">
+              <Button variant="secondary" className="flex-1 h-10" onClick={() => setPaybackFor(null)}>{t('common.cancel')}</Button>
+              <Button className="flex-1 h-10" onClick={() => handleRecordPayback(loan)} disabled={recordingPayback || !paybackForm.amount}>{recordingPayback ? t('common.saving') : t('loans.confirmPayback')}</Button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // A multi-person loan group: collapsed header (people + total remaining) that
+  // expands to each person's own loan card (settle/edit/delete independently).
+  function renderOpenLoanGroup(group: { key: string; loans: Loan[]; direction: Loan['direction']; remaining: number }) {
+    const isLent = group.direction === 'lent';
+    const open = expandedLoanGroups.has(group.key);
+    const names = group.loans.map((l) => l.contactName).join(', ');
+    return (
+      <div key={group.key} className={`rounded-2xl bg-white dark:bg-slate-800 border ${isLent ? 'border-emerald-100 dark:border-emerald-800/40' : 'border-rose-100 dark:border-rose-800/40'}`}>
+        <button onClick={() => toggleLoanGroup(group.key)} className="w-full flex items-center justify-between gap-3 p-4 text-left">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isLent ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400'}`}>
+              <Users className="w-4.5 h-4.5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{t('loans.peopleCount', { n: group.loans.length })}</p>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">{isLent ? t('loans.lentLabel') : t('loans.borrowedLabel')} · {names}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <p className={`text-sm font-extrabold ${isLent ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{formatCurrency(group.remaining)}</p>
+            <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+          </div>
+        </button>
+        {open && (
+          <div className="px-3 pb-3 space-y-2">
+            {group.loans.map((l) => renderOpenLoanCard(l, true))}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   async function handleAddLoanContact() {
     const name = newContactName.trim();
@@ -450,6 +567,9 @@ export default function TransactionsPage() {
       .filter((p) => p.amount > 0);
     if (resolved.length === 0) return;
 
+    // Multi-person loans created in one go share a groupId so they collapse into
+    // one expandable row (each person still settles independently).
+    const groupId = resolved.length > 1 ? generateId() : undefined;
     setSavingLoan(true);
     const created: Loan[] = [];
     let anyTx = false;
@@ -476,6 +596,7 @@ export default function TransactionsPage() {
           principalTxId: tx ? tx.id : '',
           repaymentTxIds: [],
           category: loanForm.category,
+          groupId,
         };
         const res = await fetch('/api/loans', { method: 'POST', body: JSON.stringify(tx ? { loan, tx } : { loan }), headers: { 'Content-Type': 'application/json' } });
         if (!res.ok) throw new Error();
@@ -1347,66 +1468,7 @@ export default function TransactionsPage() {
           {openLoans.length === 0 && !showAddLoan && (
             <p className="text-center text-sm text-slate-500 dark:text-slate-400 font-medium py-6">{t('loans.empty')}</p>
           )}
-          {openLoans.map((loan) => {
-            const remaining = calcLoanRemaining(loan.principal, loan.repaidAmount);
-            const pct = loan.principal > 0 ? Math.min(100, (loan.repaidAmount / loan.principal) * 100) : 0;
-            const isLent = loan.direction === 'lent';
-            const expanded = paybackFor === loan.id;
-            return (
-              <div key={loan.id} className={`p-4 rounded-2xl bg-white dark:bg-slate-800 border ${isLent ? 'border-emerald-100 dark:border-emerald-800/40' : 'border-rose-100 dark:border-rose-800/40'}`}>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isLent ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400'}`}>
-                      {isLent ? <ArrowUpRight className="w-4.5 h-4.5" /> : <ArrowDownLeft className="w-4.5 h-4.5" />}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{loan.contactName}</p>
-                      <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">
-                        {isLent ? t('loans.lentLabel') : t('loans.borrowedLabel')}{loan.account ? ` · ${accountName(loan.account)}` : ''}{loan.note ? ` · ${loan.note}` : ''}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className={`text-sm font-extrabold ${isLent ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{formatCurrency(remaining)}</p>
-                    {loan.repaidAmount > 0 && <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">{t('loans.ofPrincipal', { amount: formatCurrency(loan.principal) })}</p>}
-                  </div>
-                </div>
-                {loan.repaidAmount > 0 && (
-                  <div className="mt-3 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
-                    <div className={`h-full rounded-full ${isLent ? 'bg-emerald-500' : 'bg-rose-500'}`} style={{ width: `${pct}%` }} />
-                  </div>
-                )}
-                <div className="flex items-center gap-2 mt-3">
-                  <Button size="sm" variant="secondary" className="h-9" onClick={() => { if (expanded) { setPaybackFor(null); } else { setPaybackFor(loan.id); setPaybackForm({ amount: String(remaining), account: loan.account }); } }}>
-                    {t('loans.recordPayback')}
-                  </Button>
-                  <button title={t('common.edit')} onClick={() => openEditLoan(loan)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-indigo-500 dark:hover:text-indigo-400 rounded-lg transition-colors ml-auto">
-                    <Pencil className="w-4 h-4" />
-                  </button>
-                  <button title={t('common.delete')} onClick={() => handleDeleteLoan(loan)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-                {expanded && (
-                  <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60 space-y-3">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <Input label={t('loans.paybackAmount')} type="number" min="0" step="0.01" value={paybackForm.amount} onChange={(e) => setPaybackForm((f) => ({ ...f, amount: e.target.value }))} />
-                      <Select
-                        label={isLent ? t('loans.intoAccount') : t('loans.fromAccount')}
-                        value={paybackForm.account}
-                        options={[{ value: '', label: t('loans.noAccount') }, ...accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))]}
-                        onChange={(e) => setPaybackForm((f) => ({ ...f, account: e.target.value }))}
-                      />
-                    </div>
-                    <div className="flex gap-3">
-                      <Button variant="secondary" className="flex-1 h-10" onClick={() => setPaybackFor(null)}>{t('common.cancel')}</Button>
-                      <Button className="flex-1 h-10" onClick={() => handleRecordPayback(loan)} disabled={recordingPayback || !paybackForm.amount}>{recordingPayback ? t('common.saving') : t('loans.confirmPayback')}</Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {openLoanGroups.map((group) => group.isGroup ? renderOpenLoanGroup(group) : renderOpenLoanCard(group.loans[0]))}
 
           {/* Settled loans */}
           {settledLoans.length > 0 && (

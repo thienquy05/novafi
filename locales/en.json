@@ -350,6 +350,7 @@
     "addLoan": "Add loan",
     "addLoans": "Add loans",
     "people": "People",
+    "peopleCount": "{n} people",
     "addPerson": "Add person",
     "unassigned": "{amount} not assigned to anyone — add a person or leave a box blank.",
     "toastAddedGroup": "{n} loans added",

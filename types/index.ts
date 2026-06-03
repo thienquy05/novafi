@@ -177,6 +177,7 @@ export interface Loan {
   settledDate: string;       // YYYY-MM-DD fully repaid ('' until settled)
   principalTxId: string;     // id of the cash transfer for the principal ('' if note only)
   repaymentTxIds: string[];  // ids of the cash transfers for each payback
+  groupId?: string;          // shared id linking per-person loans created together (multi-person); absent = standalone
 }
 
 export const EXPENSE_CATEGORIES = [

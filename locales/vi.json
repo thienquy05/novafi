@@ -350,6 +350,7 @@
     "addLoan": "Thêm khoản vay",
     "addLoans": "Thêm các khoản vay",
     "people": "Mọi người",
+    "peopleCount": "{n} người",
     "addPerson": "Thêm người",
     "unassigned": "Còn {amount} chưa gán cho ai — thêm người hoặc để trống một ô.",
     "toastAddedGroup": "Đã thêm {n} khoản vay",
