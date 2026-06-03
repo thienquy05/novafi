@@ -130,3 +130,29 @@ export function computeSplitShares(
 
   return { shares, myShare, over };
 }
+
+// Single smart resolver shared by every split surface (Bills, Split-an-Expense,
+// group Loans). The total is OPTIONAL and the intent is inferred from whether
+// it's filled in — no mode switch:
+//   • Total provided  → it's DIVIDED among people: typed amounts are honored and
+//     blank boxes evenly split the remainder (you join that pool when includeMe).
+//     This is computeSplitShares; e.g. typing 3 of 4 people's shares auto-fills
+//     the 4th, and leaving everyone blank splits the total evenly.
+//   • Total blank      → it's SUMMED UP from the parts: each typed amount stands,
+//     blanks count as 0, and the total is their sum (plus your `myAmount` when
+//     includeMe). This is sumPerPersonShares.
+// `total` here is null/≤0 when the field is empty. `myAmount` is your own typed
+// share, used only in the summed-up case. The returned `total` is the resolved
+// group total either way, so callers don't re-derive it.
+export function resolveSplit(
+  total: number | null,
+  amounts: (number | null)[],
+  includeMe: boolean,
+  myAmount = 0,
+): { shares: number[]; total: number; myShare: number; over: boolean } {
+  if (total != null && total > 0) {
+    const { shares, myShare, over } = computeSplitShares(total, amounts, includeMe);
+    return { shares, total: roundCents(total), myShare, over };
+  }
+  return sumPerPersonShares(amounts, myAmount, includeMe);
+}

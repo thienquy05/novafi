@@ -339,6 +339,8 @@
     "splitModeDivide": "Chia tổng",
     "splitModePerPerson": "Theo từng người",
     "splitModePerPersonHint": "Nhập số tiền của từng người — tổng sẽ tự cộng lại.",
+    "splitSmartHint": "Nhập tổng để chia cho mọi người (ô để trống sẽ chia phần còn lại), hoặc để trống tổng và nhập số tiền của từng người để tự cộng lại.",
+    "totalAmountAuto": "Tổng số tiền ($) — tự động",
     "computedTotal": "Tổng (tự động)",
     "yourShareInput": "Phần của bạn ($)",
     "includeMe": "Tính cả phần của tôi",

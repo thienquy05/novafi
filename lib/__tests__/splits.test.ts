@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeSplitShares, sumPerPersonShares, isOneOffSplit, newOneOffGroupId, groupSplits } from '@/lib/splits';
+import { computeSplitShares, sumPerPersonShares, resolveSplit, isOneOffSplit, newOneOffGroupId, groupSplits } from '@/lib/splits';
 import type { Split } from '@/types';
 
 describe('sumPerPersonShares', () => {
@@ -74,6 +74,51 @@ describe('computeSplitShares', () => {
     const { shares, myShare } = computeSplitShares(120, [60, null], true);
     expect(shares).toEqual([60, 30]);
     expect(myShare).toBe(30);
+  });
+});
+
+describe('resolveSplit', () => {
+  it('divides a provided total, auto-filling the one blank person', () => {
+    // 4 people, total 100, three typed (30/30/20) → last blank fills to 20.
+    const { shares, total, myShare, over } = resolveSplit(100, [30, 30, 20, null], false);
+    expect(shares).toEqual([30, 30, 20, 20]);
+    expect(total).toBe(100);
+    expect(myShare).toBe(0);
+    expect(over).toBe(false);
+  });
+
+  it('divides a provided total evenly when everyone is blank', () => {
+    const { shares, total } = resolveSplit(100, [null, null, null, null], false);
+    expect(shares).toEqual([25, 25, 25, 25]);
+    expect(total).toBe(100);
+  });
+
+  it('infers the total by summing typed amounts when total is blank', () => {
+    const { shares, total, over } = resolveSplit(null, [30, 30, 20, 20], false);
+    expect(shares).toEqual([30, 30, 20, 20]);
+    expect(total).toBe(100);
+    expect(over).toBe(false);
+  });
+
+  it('treats a zero/empty total as "infer from parts"', () => {
+    expect(resolveSplit(0, [40, 60], false).total).toBe(100);
+  });
+
+  it('adds your typed share to an inferred total when includeMe', () => {
+    const { total, myShare } = resolveSplit(null, [40, 60], true, 25);
+    expect(total).toBe(125);
+    expect(myShare).toBe(25);
+  });
+
+  it('puts you in the auto pool when a total is provided + includeMe', () => {
+    const { shares, myShare, total } = resolveSplit(120, [60, null], true);
+    expect(shares).toEqual([60, 30]);
+    expect(myShare).toBe(30);
+    expect(total).toBe(120);
+  });
+
+  it('flags over-allocation against a provided total', () => {
+    expect(resolveSplit(100, [60, 70], false).over).toBe(true);
   });
 });
 
