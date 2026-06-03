@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
-  calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, calcMonthCashSpending, pctChange,
+  calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, calcSafeToSpendDaily, calcMonthCashSpending, pctChange,
   normalizeMonthlyBudget,
   calcRolloverDeficit, calcEffectiveSpent,
   calcProjectedSpend, calcSpendingPace,
@@ -221,6 +221,28 @@ describe('calcSafeToSpend', () => {
 
   it('no bills', () => {
     expect(calcSafeToSpend(3000, 1000, 0)).toBe(2000);
+  });
+
+  it('rounds float drift to cents', () => {
+    expect(calcSafeToSpend(1000.1, 0.2, 0)).toBe(999.9);
+  });
+});
+
+describe('calcSafeToSpendDaily', () => {
+  it('spreads the leftover across the days remaining', () => {
+    expect(calcSafeToSpendDaily(462, 11)).toBe(42);
+  });
+
+  it('rounds the per-day figure to cents', () => {
+    expect(calcSafeToSpendDaily(100, 3)).toBe(33.33);
+  });
+
+  it('returns the shortfall unchanged when already overspent', () => {
+    expect(calcSafeToSpendDaily(-150, 11)).toBe(-150);
+  });
+
+  it('returns the full leftover when no days remain', () => {
+    expect(calcSafeToSpendDaily(200, 0)).toBe(200);
   });
 });
 

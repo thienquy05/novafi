@@ -4,7 +4,7 @@ import { batchGetDashboardData, getNetWorthHistory, appendNetWorthSnapshot, getS
 import { formatCurrency, formatDate } from '@/lib/utils';
 import {
   calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
-  calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, calcMonthCashSpending, pctChange as calcPctChange,
+  calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, calcSafeToSpendDaily, calcMonthCashSpending, pctChange as calcPctChange,
   normalizeMonthlyBudget, calcAvgMonthlyExpense, calcEmergencyFundMonths,
   calcSavingsRateScore, calcEmergencyScore, calcBudgetScore,
   calcDebtToIncomeScore, calcDebtToIncomeRatio,
@@ -139,29 +139,22 @@ export default async function DashboardPage() {
     })
     .sort((a, b) => a.nextDue.localeCompare(b.nextDue));
 
-  // Bills due this month (all, for safe-to-spend; includes already-passed due
-  // dates). Uses your share only for shared bills — the other person's portion
-  // isn't your cost (it's a tracked receivable), so it shouldn't reduce what's
-  // safe to spend.
-  const billsThisMonth = bills
-    .filter((b) => {
-      if (!b.isActive) return false;
-      const due = new Date(b.nextDue + 'T00:00:00');
-      return due.getMonth() === now.getMonth() && due.getFullYear() === now.getFullYear();
-    })
-    .reduce((s, b) => s + myBillShare(b), 0);
-
   // Total remaining bills this month (rest-of-month forecast) — your share only.
   const upcomingBillsTotal = upcomingBills.reduce((s, b) => s + myBillShare(b), 0);
 
-  // Safe to spend — cash basis. Unlike `monthSpending` (accrual; counts a card
-  // charge the moment it's made and is used for savings rate), this counts only
-  // real cash leaving the bank: expenses paid from deposit accounts PLUS
-  // payments toward debt (transfers into a credit/loan account). So a $900 card
-  // payback this month now reduces what's safe to spend, without double-counting
-  // the original purchase.
+  // Safe to spend — forward-looking daily allowance. The leftover is cash-basis:
+  // unlike `monthSpending` (accrual; counts a card charge the moment it's made,
+  // used for savings rate), `monthCashSpending` counts only real cash leaving the
+  // bank — expenses from deposit accounts PLUS payments toward debt — so a card
+  // purchase and its later payoff aren't double-counted. From that leftover we
+  // subtract the bills STILL due (already-paid bills are part of cash spending),
+  // then spread it across the days left so the KPI answers "how much can I spend
+  // per day for the rest of the month" instead of restating income − spending.
   const monthCashSpending = calcMonthCashSpending(transactions, accounts, thisMonth);
-  const safeToSpend = calcSafeToSpend(monthIncome, monthCashSpending, billsThisMonth);
+  const leftToSpend = calcSafeToSpend(monthIncome, monthCashSpending, upcomingBillsTotal);
+  const daysRemaining = daysLeft + 1; // include today, so it's never 0
+  const dailySafeToSpend = calcSafeToSpendDaily(leftToSpend, daysRemaining);
+  const overspent = leftToSpend < 0;
 
   // Recent transactions (last 6)
   const recentTx = [...transactions]
@@ -317,14 +310,18 @@ export default async function DashboardPage() {
     },
     {
       label: t('dashboard.safeToSpend', lang),
-      value: formatCurrency(safeToSpend),
+      value: overspent
+        ? formatCurrency(leftToSpend)
+        : `${formatCurrency(dailySafeToSpend)}${t('dashboard.perDay', lang)}`,
       icon: PiggyBank,
-      color: safeToSpend > 0 ? 'text-indigo-600 dark:text-indigo-400' : 'text-rose-600 dark:text-rose-400',
-      bg: safeToSpend > 0 ? 'bg-indigo-50 dark:bg-indigo-900/30' : 'bg-rose-50 dark:bg-rose-900/30',
-      border: safeToSpend > 0 ? 'border-indigo-100 dark:border-indigo-800/50' : 'border-rose-100 dark:border-rose-800/50',
+      color: overspent ? 'text-rose-600 dark:text-rose-400' : 'text-indigo-600 dark:text-indigo-400',
+      bg: overspent ? 'bg-rose-50 dark:bg-rose-900/30' : 'bg-indigo-50 dark:bg-indigo-900/30',
+      border: overspent ? 'border-rose-100 dark:border-rose-800/50' : 'border-indigo-100 dark:border-indigo-800/50',
       delta: null,
       positiveIsGood: true,
-      annotation: null,
+      annotation: overspent
+        ? t('dashboard.safeToSpendOver', lang)
+        : t('dashboard.safeToSpendNote', lang, { total: formatCurrency(leftToSpend), days: daysRemaining }),
       viz: null,
     },
     {
@@ -362,7 +359,7 @@ export default async function DashboardPage() {
       <HealthBanner
         monthIncome={monthIncome}
         monthSpending={monthSpending}
-        safeToSpend={safeToSpend}
+        safeToSpend={leftToSpend}
         daysLeft={daysLeft}
         daysInMonth={daysInMonth}
         overBudgetCount={overBudgetCount}
