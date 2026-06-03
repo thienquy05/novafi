@@ -360,6 +360,7 @@ export default async function DashboardPage() {
         monthIncome={monthIncome}
         monthSpending={monthSpending}
         safeToSpend={leftToSpend}
+        dailySafeToSpend={dailySafeToSpend}
         daysLeft={daysLeft}
         daysInMonth={daysInMonth}
         overBudgetCount={overBudgetCount}

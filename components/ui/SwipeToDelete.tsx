@@ -20,12 +20,15 @@ export function SwipeToDelete({
   className = '',
   rounded = 'rounded-3xl',
   label = 'Delete',
+  disabled = false,
 }: {
   onDelete: () => void;
   children: ReactNode;
   className?: string;
   rounded?: string;
   label?: string;
+  /** When true the row can't be swiped/deleted — renders the content plainly. */
+  disabled?: boolean;
 }) {
   const x = useMotionValue(0);
   const [revealed, setRevealed] = useState(false);
@@ -41,6 +44,11 @@ export function SwipeToDelete({
   function snapClose() {
     animate(x, 0, { type: 'spring', stiffness: 420, damping: 38 });
     setRevealed(false);
+  }
+
+  // No swipe affordance for locked rows (e.g. loan/split-owned ledger entries).
+  if (disabled) {
+    return <div className={`relative ${rounded} overflow-hidden ${className}`}>{children}</div>;
   }
 
   return (

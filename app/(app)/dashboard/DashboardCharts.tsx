@@ -139,13 +139,17 @@ export function HealthBanner({
   monthIncome,
   monthSpending,
   safeToSpend,
+  dailySafeToSpend,
   daysLeft,
   daysInMonth,
   overBudgetCount,
 }: {
   monthIncome: number;
   monthSpending: number;
+  /** Whole-month leftover after bills. Used only to detect the overspent case. */
   safeToSpend: number;
+  /** Forward-looking per-day allowance (the day-spending figure). */
+  dailySafeToSpend: number;
   daysLeft: number;
   daysInMonth: number;
   overBudgetCount: number;
@@ -256,7 +260,11 @@ export function HealthBanner({
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-medium text-slate-600 dark:text-slate-300">
             <span><span className="font-bold text-slate-900 dark:text-slate-100">{formatCurrency(cashFlow)}</span> {t('charts.netLabel')}</span>
             <span className="text-slate-300 dark:text-slate-600">·</span>
-            <span><span className={`font-bold ${safeToSpend < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>{formatCurrency(safeToSpend)}</span> {t('charts.afterBills')}</span>
+            {safeToSpend < 0 ? (
+              <span className="font-bold text-rose-600 dark:text-rose-400">{t('charts.safeOver', { amount: formatCurrency(safeToSpend) })}</span>
+            ) : (
+              <span className="font-bold text-slate-900 dark:text-slate-100">{t('charts.safeDaily', { amount: formatCurrency(dailySafeToSpend) })}</span>
+            )}
           </div>
         )}
       </div>

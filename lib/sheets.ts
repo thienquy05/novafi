@@ -322,6 +322,40 @@ export async function updateTransaction(
   });
 }
 
+// Retags the category cell (column F) of specific transactions in place. Used by
+// the loan/split category backfill so existing transfers pick up their new
+// 'Loan'/'Split' identity WITHOUT delete+append (which would reorder rows). Only
+// rows whose id is found are written; returns how many cells were updated.
+export async function setTransactionCategories(
+  accessToken: string,
+  spreadsheetId: string,
+  updates: { id: string; category: string }[]
+): Promise<number> {
+  if (updates.length === 0) return 0;
+  const sheets = getSheetsClient(accessToken);
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: 'Transactions!A2:A',
+  });
+  const rowById = new Map<string, number>();
+  (res.data.values ?? []).forEach((r, i) => {
+    const id = r[0] as string;
+    if (id && !rowById.has(id)) rowById.set(id, i + 2); // data starts at sheet row 2
+  });
+  const data = updates
+    .map((u) => {
+      const row = rowById.get(u.id);
+      return row ? { range: `Transactions!F${row}`, values: [[u.category]] } : null;
+    })
+    .filter((x): x is { range: string; values: string[][] } => x !== null);
+  if (data.length === 0) return 0;
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: { valueInputOption: 'RAW', data },
+  });
+  return data.length;
+}
+
 // ── Accounts ──────────────────────────────────────────────────────────────────
 
 export async function getAccounts(

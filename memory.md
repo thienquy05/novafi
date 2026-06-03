@@ -735,3 +735,67 @@ User: "Let's add it" (the settled-loans History toggle for full parity with Spli
 The chevron rotation (`transition-transform rotate-180`) already animated and now visually matches the body easing. Bills' multi-person *pending* cards are always-expanded breakdowns (no toggle), so they were left as-is.
 
 **Verification:** `tsc --noEmit` clean; `eslint` 0 errors on changed files (only the two pre-existing `bills/page.tsx` purity/setState-in-effect warnings remain, untouched by this change).
+
+## 2026-06-03 — Banner safe-to-spend dedup + smoother Collapsible (branch claude/unruffled-mccarthy-cbf03a)
+
+User questions/asks:
+1. Confirm splits/loans/shared-bills only log *their share as my expense* and never as income when paid back. **Verified correct** — no code change. Only `myShare` is a `type:'expense'` tx (`app/(app)/transactions/page.tsx:884`); every other-person share (fronted on pay + payback on settle) is `buildSplitTx`/loan tx = `type:'transfer'` with an empty counterparty (`lib/splits.ts:29`). Transfers never count as income/expense: `calcMonthIncome`/`calcMonthExpense` filter strictly (`lib/calculations.ts:39`), `aggregateMonthlyTotals` `continue`s past them (`:478`). Fronted cash also doesn't dent Safe-to-Spend (`calcMonthCashSpending` only counts transfers whose `toAccount` is a debt acct; a fronted share's toAccount is empty — `:98`).
+
+2. **Health Banner restated Safe-to-Spend as a whole-month lump total** (`{net} net · {leftToSpend} after bills`) while the KPI card had already moved to the forward-looking *daily* allowance (`calcSafeToSpendDaily`). User flagged the redundancy/inconsistency. **Fix:** banner now shows the daily figure too, so both speak the same language.
+   - `HealthBanner` (`app/(app)/dashboard/DashboardCharts.tsx`): added `dailySafeToSpend` prop; kept `safeToSpend` only to detect the overspent case. Second line is now `{net} net · {daily}/day to spend`, or `{net} net · {shortfall} over for the month` when `safeToSpend < 0`.
+   - `app/(app)/dashboard/page.tsx`: pass `dailySafeToSpend={dailySafeToSpend}`.
+   - i18n: removed `charts.afterBills`; added `charts.safeDaily` ("{amount}/day to spend") + `charts.safeOver` ("{amount} over for the month") in en + vi.
+
+3. **Collapsible open animation still not smooth** — rewrote `components/ui/Collapsible.tsx`. Was the grid-template-rows `0fr→1fr` trick (interpolates fr units, not composited, reflows whole subtree). Now measures content height via `ResizeObserver` on an inner ref and animates exact `height` (0↔px) + `opacity` fade with `transition-[height,opacity] ease-out motion-reduce:transition-none`. Keeping height synced to live content means a nested expand (splits history has a nested Collapsible) re-animates the parent instead of clipping. Same `open`/`duration`/`className` API — all call sites unchanged.
+
+**Verification:** `tsc --noEmit` clean; 234 calc tests pass; no stale `afterBills` refs.
+
+## 2026-06-03 — Distinct Loan/Split identity for transfer-type ledger rows (same branch)
+
+User: loan (and split) cash movements showed as generic blue "Transfer" in the transaction history; wanted a distinct icon + name while keeping `type:'transfer'` (so income/expense math is untouched). Chose scope **Loans + Splits** and **backfill existing** rows.
+
+Changes:
+- `components/CategoryIcon.tsx`: added `Loan` (HandCoins, violet) and `Split` (Users, teal) to `CATEGORY_ICONS`.
+- `app/(app)/transactions/page.tsx` `buildLoanTx`: transfer category `'Transfer'`→`'Loan'`.
+- `lib/splits.ts` `buildSplitTx`: transfer category `'Transfer'`→`'Split'` (covers both one-off-split fronting and shared-bill/split paybacks).
+- `locales/en.json` + `vi.json`: `categories.Loan` / `categories.Split` (Cho vay / Chia sẻ).
+- **Backfill (existing rows):** `lib/sheets.ts` new `setTransactionCategories(updates)` — writes column F in place via `values.batchUpdate` (no delete+append, so rows don't reorder; matches ids→sheet row from `Transactions!A2:A`). New route `app/api/transactions/backfill-categories/route.ts` (POST): loads loans+splits+transactions, maps each loan `principalTxId`/`repaymentTxIds`→'Loan' and split `frontedTxId`/`settleTxId`→'Split', updates only rows whose category differs (idempotent), invalidates transactions+dashboard cache, returns `{updated}`. Transactions page fires it once per browser (localStorage guard `nf_loan_split_cat_backfill_v1`) and `load()`s again if anything changed.
+
+Notes: real account-to-account transfers (savings page `category:'Transfer'`) intentionally stay 'Transfer'. 'Loan'/'Split' don't pollute spending charts/category totals (those count only `type:'expense'`). Edit-form transfer category select still uses EXPENSE_CATEGORIES (won't list Loan/Split) — acceptable since these are managed via the loans/splits UI.
+
+**Verification:** `tsc --noEmit` clean; 317 tests pass; eslint 0 errors (only pre-existing warnings).
+
+## 2026-06-03 — "Editable but safe" for loan/split-owned ledger rows (same branch)
+
+Context: after giving loan/split transfers a distinct Loan/Split category, user noticed the generic transaction editor could mis-handle them. Investigation: the generic transactions API is loan/split-UNAWARE (grep confirmed), and every ledger row (incl. these transfers) had inline pencil-edit + swipe-delete. Risks: editing amount/account desyncs the owning loan/split (its remaining + account-balance reconciliation) and swipe-delete orphans the owning record's txId. (Note: the category dropdown is actually HIDDEN for `type:'transfer'` — `form.type !== 'transfer'` gate — so the original "shows expense categories" worry was moot.)
+
+User chose **"editable but safe"**: keep harmless edits (date/description), lock the rest.
+
+Changes (`app/(app)/transactions/page.tsx`):
+- New `managedTxIds` memo = Set of all loan `principalTxId`/`repaymentTxIds` + split `frontedTxId`/`settleTxId`. `editManaged = !!editTarget && managedTxIds.has(editTarget.id)`.
+- Edit modal when `editManaged`: violet hint banner (`t('transactions.managedRowHint')`, HandCoins icon); type tabs, amount `<input>`, from-account & to-account `<Select>`s all `disabled` (+ `disabled:opacity-60 disabled:cursor-not-allowed`). Date + description stay editable. Category select is already hidden for transfers, and locked type tabs prevent flipping it via handleTypeChange.
+- Merchant view's edit pencil opens the same modal, so it's covered too.
+- Swipe-delete: `SwipeableRow` gains `managed` prop → passes `disabled` to `SwipeToDelete`. `components/ui/SwipeToDelete.tsx` gained a `disabled?` prop (early-returns children with no drag wrapper, AFTER all hooks to respect rules-of-hooks). Managed rows = no swipe/delete; remove them via the Loans/Splits UI (whose DELETE routes cascade properly).
+- i18n: `transactions.managedRowHint` (en + vi).
+
+Why safe: with amount/account/type unchanged, the transactions PUT (reverse-old + apply-new) nets zero balance change; only date/description differ. Minor accepted cosmetic: editing the transfer's date doesn't change the loan/split record's own stored date.
+
+**Verification:** `tsc --noEmit` clean; 317 tests pass; eslint 0 errors (only pre-existing setState-in-effect warnings).
+
+## 2026-06-03 — Unlock amount editing on loan/split-owned rows with write-back sync (same branch)
+
+User refined "editable but safe": amount SHOULD be editable (category is the only truly-fixed thing). Design decision: amount is cleanly per-row editable (lives on each transfer) so it can be synced back; `account` is a SHARED identity (a loan's many paybacks share one account; a split has two cash legs) and `type` must stay `transfer` — so those stay locked, category strict.
+
+Changes (`app/(app)/transactions/page.tsx`):
+- Amount `<input>` no longer `disabled` for managed rows (account selects + type tabs stay disabled; category still hidden for transfers).
+- New `syncOwnerAmount(original, newAmount)` called from `handleSave` after the transactions PUT when `managedTxIds.has(editTarget.id)` && amount changed:
+  - **loan principal** (`principalTxId`): set `loan.principal = newAmount`; recompute `settled = repaidAmount >= roundCents(newAmount) - 0.005`; POST /api/loans (bare = metadata upsert).
+  - **loan repayment** (`repaymentTxIds`): `repaidAmount = max(0, repaid - original.amount + newAmount)`; recompute settled vs principal; POST /api/loans.
+  - **split** (`frontedTxId`/`settleTxId`): set `split.amount = newAmount`; POST /api/splits; then also PUT the OTHER cash leg (sibling fronted/settle tx) to the new amount so both legs stay equal.
+  - Throws on any failure → handleSave's catch reloads to resync. `load()` runs after success too.
+- Balance correctness: the edited row's balance is handled by the generic transactions PUT (reverse original + apply updated on the unchanged account); loan number fields are metadata-only; the split sibling PUT adjusts the second leg (settled split nets zero on the account, unsettled leaves them owing the new amount).
+- Hint updated (`transactions.managedRowHint`, en+vi): "Editing the amount also updates the linked loan/split. The account, type and category stay fixed to keep everything in sync."
+
+Best-effort caveat (accepted by user): for a split this syncs the person's share + both cash legs, but does NOT rebalance the original group total or your own recorded expense share. Swipe-delete stays disabled for managed rows (deleting from the ledger would orphan the owning record — remove via Loans/Splits, whose DELETE cascades).
+
+**Verification:** `tsc --noEmit` clean; 317 tests pass; eslint 0 errors.
