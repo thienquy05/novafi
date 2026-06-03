@@ -11,6 +11,7 @@ import { BillsSkeleton } from '@/components/ui/Skeleton';
 import { FitText } from '@/components/ui/FitText';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
 import { billToTransactionDefaults, calcSplitShares, calcPaycheckDeposited, myBillShare } from '@/lib/calculations';
+import { buildSplitTx, groupSplits, isOneOffSplit } from '@/lib/splits';
 import type { Bill, Account, PaycheckEntry, Transaction, Contact, Split } from '@/types';
 import { useCategories } from '@/hooks/useCategories';
 import { useToast } from '@/lib/toast';
@@ -103,32 +104,6 @@ function SubscriptionTracker({ transactions }: { transactions: Transaction[] }) 
 function parseLocalDate(dateStr: string): Date {
   const [y, m, d] = dateStr.split('-').map(Number);
   return new Date(y, m - 1, d);
-}
-
-// Builds the cash-movement transfer for a shared bill's fronted share or its
-// payback. It's a `transfer` with an external (empty) counterparty so it shifts
-// the account balance WITHOUT counting as income or expense — the same model as
-// loans. `cashOut` fronts the other person's share out of the account when you
-// pay; `cashIn` returns it when they settle up.
-function buildSplitTx(
-  kind: 'cashOut' | 'cashIn',
-  amount: number,
-  account: string,
-  description: string,
-  date: string,
-): Transaction {
-  const out = kind === 'cashOut';
-  return {
-    id: generateId(),
-    date,
-    description,
-    amount,
-    type: 'transfer',
-    category: 'Transfer',
-    account: out ? account : '',
-    toAccount: out ? '' : account,
-    createdAt: new Date().toISOString(),
-  };
 }
 
 function nextDueAfter(currentDue: string, frequency: Bill['frequency']): string {
@@ -671,15 +646,21 @@ export default function BillsPage() {
 
   const contactName = useCallback((id: string) => contacts.find((c) => c.id === id)?.name ?? '', [contacts]);
 
-  // "Owed to you" derived views.
-  const pendingSplits = useMemo(() => splits.filter((s) => !s.settled).sort((a, b) => b.date.localeCompare(a.date)), [splits]);
-  const settledSplits = useMemo(() => splits.filter((s) => s.settled).sort((a, b) => (b.settledDate || '').localeCompare(a.settledDate || '')), [splits]);
+  // "Owed to you" derived views. Only recurring shared-bill splits live here;
+  // one-time expense splits are tracked on the Transactions page (see lib/splits
+  // isOneOffSplit), so they're filtered out.
+  const billSplits = useMemo(() => splits.filter((s) => !isOneOffSplit(s)), [splits]);
+  const pendingSplits = useMemo(() => billSplits.filter((s) => !s.settled).sort((a, b) => b.date.localeCompare(a.date)), [billSplits]);
+  const settledSplits = useMemo(() => billSplits.filter((s) => s.settled).sort((a, b) => (b.settledDate || '').localeCompare(a.settledDate || '')), [billSplits]);
   const totalOwed = useMemo(() => pendingSplits.reduce((s, x) => s + x.amount, 0), [pendingSplits]);
   const owedByContact = useMemo(() => {
     const map = new Map<string, number>();
     for (const s of pendingSplits) map.set(s.contactName, (map.get(s.contactName) ?? 0) + s.amount);
     return [...map.entries()].sort((a, b) => b[1] - a[1]);
   }, [pendingSplits]);
+  // Grouped views for the tracker modal — one card per shared bill/expense.
+  const pendingGroups = useMemo(() => groupSplits(pendingSplits), [pendingSplits]);
+  const settledGroups = useMemo(() => groupSplits(settledSplits), [settledSplits]);
 
   // Live preview of the share breakdown inside the bill modal.
   const formShares = calcSplitShares(parseFloat(form.amount) || 0, parseFloat(form.splitAmount) || 0);
@@ -757,7 +738,7 @@ export default function BillsPage() {
           <BillsTimeline bills={activeBills} nowMs={nowMs} />
 
           {/* Owed to You — tap to open the shared-payments tracker */}
-          {splits.length > 0 && (
+          {billSplits.length > 0 && (
             <button onClick={() => setSharingOpen(true)} className="w-full flex items-center justify-between p-4 rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 transition-colors text-left shadow-sm">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800/50 flex items-center justify-center shrink-0">
@@ -963,35 +944,80 @@ export default function BillsPage() {
             </div>
           )}
 
-          {/* Pending (unchecked) shares — everyone who still owes you */}
+          {/* Pending (unchecked) shares — grouped by bill/expense; multi-person
+              events collapse into one card with a per-person breakdown. */}
           {pendingSplits.length === 0 ? (
             <p className="text-center text-sm text-slate-500 dark:text-slate-400 font-medium py-6">{t('bills.sharedEmpty')}</p>
           ) : (
             <div className="space-y-2.5">
-              {pendingSplits.map((split) => {
-                const busy = settlingSplitId === split.id;
-                return (
-                  <div key={split.id} className="flex items-center justify-between p-4 rounded-2xl bg-white dark:bg-slate-800 border border-emerald-100 dark:border-emerald-800/40">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <button
-                        type="button"
-                        onClick={() => handleSplitToggle(split)}
-                        disabled={busy}
-                        title={t('bills.markTransferred')}
-                        className="w-6 h-6 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors disabled:opacity-50 border-slate-300 dark:border-slate-600 hover:border-emerald-400"
-                      />
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
-                          {split.contactName} <span className="text-slate-400 dark:text-slate-500 font-medium">·</span> {split.billName}
-                        </p>
-                        <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('bills.owedSince', { date: formatDate(split.date) })}</p>
+              {pendingGroups.map((group) => {
+                // Single-person split → flat row (unchanged look).
+                if (group.splits.length === 1) {
+                  const split = group.splits[0];
+                  const busy = settlingSplitId === split.id;
+                  return (
+                    <div key={group.key} className="flex items-center justify-between p-4 rounded-2xl bg-white dark:bg-slate-800 border border-emerald-100 dark:border-emerald-800/40">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => handleSplitToggle(split)}
+                          disabled={busy}
+                          title={t('bills.markTransferred')}
+                          className="w-6 h-6 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors disabled:opacity-50 border-slate-300 dark:border-slate-600 hover:border-emerald-400"
+                        />
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
+                            {split.contactName} <span className="text-slate-400 dark:text-slate-500 font-medium">·</span> {split.billName}
+                          </p>
+                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('bills.owedSince', { date: formatDate(split.date) })}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">{formatCurrency(split.amount)}</span>
+                        <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3 shrink-0">
-                      <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">{formatCurrency(split.amount)}</span>
-                      <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                  );
+                }
+                // Multi-person event → grouped card.
+                return (
+                  <div key={group.key} className="rounded-2xl bg-white dark:bg-slate-800 border border-emerald-100 dark:border-emerald-800/40 overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 bg-emerald-50/60 dark:bg-emerald-900/20 border-b border-emerald-100 dark:border-emerald-800/40">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <Users className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{group.billName}</p>
+                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('bills.groupOwedSince', { n: group.splits.length, date: formatDate(group.date) })}</p>
+                        </div>
+                      </div>
+                      <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400 shrink-0 ml-2">{formatCurrency(group.total)}</span>
+                    </div>
+                    <div className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                      {group.splits.map((split) => {
+                        const busy = settlingSplitId === split.id;
+                        return (
+                          <div key={split.id} className="flex items-center justify-between px-4 py-2.5">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <button
+                                type="button"
+                                onClick={() => handleSplitToggle(split)}
+                                disabled={busy}
+                                title={t('bills.markTransferred')}
+                                className="w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors disabled:opacity-50 border-slate-300 dark:border-slate-600 hover:border-emerald-400"
+                              />
+                              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">{split.contactName}</p>
+                            </div>
+                            <div className="flex items-center gap-3 shrink-0">
+                              <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(split.amount)}</span>
+                              <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -999,7 +1025,8 @@ export default function BillsPage() {
             </div>
           )}
 
-          {/* History (settled) — hidden by default, expandable, last 10 only */}
+          {/* History (settled) — hidden by default, expandable, last 10 groups,
+              grouped the same way as pending. */}
           {settledSplits.length > 0 && (
             <div className="pt-1">
               <button
@@ -1011,28 +1038,72 @@ export default function BillsPage() {
               </button>
               {showSharingHistory && (
                 <div className="space-y-2 pt-1">
-                  {settledSplits.slice(0, 10).map((split) => {
-                    const busy = settlingSplitId === split.id;
-                    return (
-                      <div key={split.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 opacity-75">
-                        <div className="min-w-0">
-                          <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{split.contactName} · {split.billName}</p>
-                          <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{t('bills.transferredOn', { date: formatDate(split.settledDate || split.date) })}</p>
+                  {settledGroups.slice(0, 10).map((group) => {
+                    // Single-person settled split → flat row (unchanged look).
+                    if (group.splits.length === 1) {
+                      const split = group.splits[0];
+                      const busy = settlingSplitId === split.id;
+                      return (
+                        <div key={group.key} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 opacity-75">
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{split.contactName} · {split.billName}</p>
+                            <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{t('bills.transferredOn', { date: formatDate(split.settledDate || split.date) })}</p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through">{formatCurrency(split.amount)}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleSplitToggle(split)}
+                              disabled={busy}
+                              title={t('bills.transferred')}
+                              className="w-6 h-6 rounded-md border-2 bg-emerald-500 border-emerald-500 text-white flex items-center justify-center shrink-0 disabled:opacity-50"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                            <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through">{formatCurrency(split.amount)}</span>
-                          <button
-                            type="button"
-                            onClick={() => handleSplitToggle(split)}
-                            disabled={busy}
-                            title={t('bills.transferred')}
-                            className="w-6 h-6 rounded-md border-2 bg-emerald-500 border-emerald-500 text-white flex items-center justify-center shrink-0 disabled:opacity-50"
-                          >
-                            <Check className="w-4 h-4" />
-                          </button>
-                          <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                      );
+                    }
+                    // Multi-person settled event → grouped card.
+                    return (
+                      <div key={group.key} className="rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 overflow-hidden opacity-90">
+                        <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-slate-100 dark:border-slate-700/60">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <Users className="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{group.billName}</p>
+                              <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{t('bills.groupTransferredOn', { n: group.splits.length, date: formatDate(group.settledDate || group.date) })}</p>
+                            </div>
+                          </div>
+                          <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through shrink-0 ml-2">{formatCurrency(group.total)}</span>
+                        </div>
+                        <div className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                          {group.splits.map((split) => {
+                            const busy = settlingSplitId === split.id;
+                            return (
+                              <div key={split.id} className="flex items-center justify-between px-3.5 py-2">
+                                <p className="text-sm font-semibold text-slate-600 dark:text-slate-400 truncate min-w-0">{split.contactName}</p>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through">{formatCurrency(split.amount)}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSplitToggle(split)}
+                                    disabled={busy}
+                                    title={t('bills.transferred')}
+                                    className="w-5 h-5 rounded-md border-2 bg-emerald-500 border-emerald-500 text-white flex items-center justify-center shrink-0 disabled:opacity-50"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     );

@@ -509,3 +509,99 @@ All handlers (save/reset/hard-refresh/category add-hide-restore/lang/dark mode) 
 - `locales/en.json` + `vi.json` — added `bills.sharedTitle`, `bills.sharedOpenCount` ({n}), `bills.sharedEmpty`, `bills.sharedHistory` ({n}).
 
 **Verification:** `tsc --noEmit` clean; both locale JSONs valid; eslint on the page = 0 new issues (only the 2 pre-existing warnings at lines 412 & 661).
+
+## 2026-06-02 — Split-an-expense (one-time, multi-person) + Contacts management in Settings (branch claude/hopeful-lichterman-5a4819)
+
+**Request:** Building on the loan + shared-bill model, add a way to split a *one-time* expense across **multiple** people at once (e.g. "I paid for dinner for the group") and log it like the shared-bill calculation. Also add a Contacts section in Settings to add/remove contacts, while keeping the inline "add new contact" option in the split flows.
+
+**Decision — contacts are persistent (not localStorage):** the app already has a Google-Sheets-backed `Contact` entity with a full `/api/contacts` (GET/POST/DELETE) + `getContacts/upsertContact/deleteContact` in `lib/sheets.ts`. Since the user also wants a managed Contacts UI in Settings, reusing the existing persistent contacts is the clean/safe choice (available on every device, survives reinstalls). No new data model added — one-time splits reuse the existing `Split` receivable + cash-fronting machinery (each participant = one `Split`, tied together by a generated `billId` groupId; `billName` = the expense description).
+
+**Changes:**
+- `lib/calculations.ts` — exported `roundCents` (was module-private) so the bills page can reuse it for share math.
+- `app/(app)/bills/page.tsx` — added a one-time "Split an Expense" feature:
+  - Imports: added `X`, `Split as SplitIcon` from lucide-react; added `roundCents` from calculations.
+  - New constants/types: `EMPTY_SPLIT_EXPENSE` (description/total/date/account/category/includeMe), `SplitParticipant` type `{key, contactId, amount, newName}`, `emptyParticipant()`.
+  - New state: `splitExpenseOpen`, `splitExpenseForm`, `splitParticipants` (array, starts with one empty row), `savingSplitExpense`.
+  - Handlers: `openSplitExpense`, `updateParticipant`/`addParticipantRow`/`removeParticipantRow`, `handleAddParticipantContact` (per-row inline create via `/api/contacts`, reuses `addingContact` state), `splitEqually` (divides total across rows + you when `includeMe`; remainder absorbed by your derived share, or the last person when you're excluded), and `handleSaveSplitExpense`.
+  - `handleSaveSplitExpense` logic: your share (`total − sum(participant shares)`, ≥0) is the only real **expense** transaction (POST `/api/transactions`); each participant's share is posted **sequentially** to `/api/splits` (sequential, NOT parallel — every fronted `cashOut` transfer mutates the same account balance server-side, so parallel writes would race) as `{split, tx: frontedTx}` when an account is chosen (note-only `Split` otherwise). Reuses `buildSplitTx('cashOut', …)` + `t('bills.txFronted')`. Validates ≥1 participant with share>0 and that shares don't exceed the total; optimistically prepends the new splits and falls back to `load()` on failure. These splits then appear/settle/delete in the existing "Owed to You" modal with zero extra code.
+  - Header: wrapped the action buttons; added a secondary "Split Expense" button (`SplitIcon`) beside "Add Bill".
+  - New `<Modal>` (after the shared-payments modal): description, total, date, category, optional account, an "Include my share" toggle + "Split equally" button, repeatable participant rows (contact `<Select>` with the `NEW_CONTACT` sentinel → inline name input + Add button; per-row share `<Input>`; remove `X`), an "Add person" dashed button, and a live your-share / they-owe summary with an over-total warning (`seOver` disables Save).
+- `app/(app)/settings/page.tsx` — added a "Contacts" section:
+  - Imports: added `Users`, `UserPlus`, `Trash2` icons; `Contact` type; `generateId` from utils; `useToast`. New `SectionId` member `'contacts'`.
+  - State: `contacts`, `newContactName`, `addingContact`, `toast`. New `useEffect` fetches `/api/contacts` on mount (sorted by name; swallows the missing-tab case). Handlers `addContact` (dedupes case-insensitively, optimistic add, rollback on failure) and `removeContact` (confirm + optimistic delete, rollback on failure).
+  - Added `{ id: 'contacts', label: …, icon: Users }` to `SECTIONS` (between Categories and About) and a new render block: add-by-name input (Enter to submit) + avatar-initial list with per-row delete, empty state, and a note that contacts are saved to the Sheet and removal keeps past records intact.
+- `locales/en.json` + `vi.json` — added bills keys: `splitExpense`, `splitExpenseTitle`, `splitExpenseHelp`, `splitExpensePlaceholder`, `totalAmount`, `whoShared`, `splitEqually`, `includeMe`, `person`, `addPerson`, `theyOwe`, `recordSplit`, `splitExpenseNeedPeople`, `splitExpenseOverTotal`, `toastSplitExpense` ({n},{amount}); and settings keys: `sectionContacts`, `contactsTitle`, `contactsDesc`, `contactNamePlaceholder`, `addContactBtn`, `contactsEmpty`, `contactsNote`, `contactAdded`, `contactSaveFailed`, `contactDeleteConfirm` ({name}). NOTE: `t()` only does flat `{key}` substitution (no ICU plurals), so the toast uses a plain "{n} people" form.
+
+**Verification:** `tsc --noEmit` clean; both locale JSONs valid; eslint on both pages = 0 new errors (only the pre-existing set-state-in-effect / impure-Date warnings).
+
+### Follow-up — group "Owed to You" splits by bill/expense (same branch)
+
+**Request:** In the "Owed to You" tracker, group splits that belong to the **same bill/expense** so a one-time multi-person split (e.g. a dinner with 3 people) shows as **one card** with a per-person breakdown, instead of 3 separate lines — easier to track.
+
+**Where it saves (clarified for the user, no change):** one-time splits persist to the **Splits** sheet tab (one row per participant, tied by a generated `billId` groupId) + the **Transactions** tab (your expense + per-person fronted transfers). The **Loans** tab is untouched. Confirmed `billId` is only ever a stored field — never used to look up a `Bill` — so a synthetic groupId is safe.
+
+**Changes (all in `app/(app)/bills/page.tsx` + locales):**
+- Added module-scope `SplitGroup` type + `groupSplits(list)` helper: groups by key `` `${billId || id}|${date}` `` (falls back to the split's own id when `billId` is blank so legacy rows never merge), preserving first-seen order (callers pre-sort by date). One-time multi-person events collapse (same billId + date); each recurring-bill monthly payment stays its own group; the `|date` keeps different occurrences of the same recurring bill separate.
+- Added `pendingGroups`/`settledGroups` memos (= `groupSplits(pendingSplits)` / `groupSplits(settledSplits)`).
+- Rewrote the tracker modal's pending + history lists to iterate **groups**: a group of 1 renders the **existing flat row** (so normal shared bills look unchanged); a group of >1 renders a **card** — header with `Users` icon, bill name, `{n} people · since {date}` (pending) / `{n} people · settled {date}` (history), and the group total — followed by one compact sub-row per person (settle checkbox + name + amount + delete). Per-person settle/delete is unchanged; history still capped at 10 groups.
+- `locales/en.json` + `vi.json` — added `bills.groupOwedSince` ({n},{date}) and `bills.groupTransferredOn` ({n},{date}).
+
+**Verification:** `tsc --noEmit` clean; both locale JSONs valid; eslint 0 new errors (only the 2 pre-existing warnings, now at lines 447 & 803); 289 tests pass.
+
+### Follow-up — move one-time Split Bills to Transactions; accordion groups; shared lib (same branch)
+
+**Request + clarifications:** Move the one-time "Split Expense" feature off the Bills page onto the **Transactions** page (it's a one-time expense, unrelated to recurring Bills). Group view = **inline accordion** (collapsed group row: description + date + total → click expands down to reveal each person + amount + settle/delete). Entry point = **separate button**, and **rename both buttons shorter** ("Split Bills"→ button "Splits"; "Loans/IOUs"→ "Loans").
+
+**Interpretation (stated to user):** since the one-time split is unrelated to Bills, the WHOLE one-time feature moved — creator **and** its tracking. Bills keeps only recurring shared-bill splits. The two kinds share the same `Split` sheet/API; they're told apart by a `oneoff:` prefix on the one-time split's `billId`.
+
+**New shared module `lib/splits.ts`** (extracted so both pages stay DRY):
+- `ONEOFF_PREFIX = 'oneoff:'`, `newOneOffGroupId()`, `isOneOffSplit(s)` — the discriminator. Robust: never loads bills, survives bill deletion.
+- `buildSplitTx(kind,…)` — moved out of bills page (the `transfer` builder for fronted/settle cash).
+- `SplitGroup` type + `groupSplits(list)` — moved out of bills page (groups by `billId|date`, falls back to split id when billId blank).
+- `lib/calculations.ts` `roundCents` is now exported (used by both pages); transactions page already had its own local `roundCents` (kept).
+
+**`app/(app)/bills/page.tsx` — removed the one-time feature:**
+- Dropped the "Split Expense" header button (back to a single "Add Bill" button), the whole Split-Expense modal, its state (`splitExpenseOpen/Form`, `splitParticipants`, `savingSplitExpense`), all its handlers (`openSplitExpense`, participant CRUD, `handleAddParticipantContact`, `splitEqually`, `handleSaveSplitExpense`), the `EMPTY_SPLIT_EXPENSE`/`SplitParticipant`/`emptyParticipant` consts, the local `buildSplitTx`/`groupSplits`/`SplitGroup` (now imported from `lib/splits`), and the `seTotal/seOthersSum/seMyShare/seOver` preview vars.
+- Imports `buildSplitTx, groupSplits, isOneOffSplit` from `lib/splits`; dropped now-unused `roundCents`, `X`, `Split as SplitIcon` imports.
+- The "Owed to You" tracker now filters to `!isOneOffSplit` (new `billSplits` memo feeds `pendingSplits`/`settledSplits`); the summary button is gated on `billSplits.length > 0`. The grouped-card rendering I added earlier stays (recurring splits are single-person → render as flat rows).
+
+**`app/(app)/transactions/page.tsx` — added the feature (mirrors the existing Loans/IOUs pattern):**
+- Imports `Check`, `Split as SplitIcon`; `Split` type; `buildSplitTx, groupSplits, isOneOffSplit, newOneOffGroupId` from `lib/splits`. Added `EMPTY_SPLIT_EXPENSE`/`SplitParticipant`/`emptyParticipant` consts.
+- State: `splits`, `splitsOpen`, `showSplitExpense` (inner add view), `splitExpenseForm`, `splitParticipants`, `savingSplitExpense`, `settlingSplitId`, `expandedSplitGroups` (Set<string> for the accordion), `showSplitHistory`. `load()` now also fetches `/api/splits`.
+- Derived: `oneOffSplits = splits.filter(isOneOffSplit)` → `pendingSplits`/`settledSplits` → `pendingSplitGroups`/`settledSplitGroups` (`groupSplits`), `totalOwedSplits`. Plus `seTotal/seOthersSum/seMyShare/seOver` form preview.
+- Handlers ported: `openSplitExpense`, participant CRUD, `handleAddParticipantContact` (reuses `addingContact`/`NEW_CONTACT`), `splitEqually`, `handleSaveSplitExpense` (billId = `newOneOffGroupId()`; sequential split POSTs; calls `load()` when an account was involved so balances/ledger refresh), `handleSplitToggle`, `handleDeleteSplit`, `toggleSplitGroup`. Reuses `t('bills.*')` strings for the create form + per-person labels.
+- UI: a "Splits" header button (with pending-count badge) next to "Loans"; a Split-Bills summary card (shown when pending>0); and the **Split Bills modal** — inner "Split an expense" add view (toggled like loans' `showAddLoan`), total-owed card, then **collapsed group rows** (chevron + description + `{contactName|N people} · since {date}` + group total) that expand in-place to per-person settle/delete rows; settled **History** is collapsible (last 10 groups). For 1-person groups the subtitle shows the contact name instead of "1 people".
+- Renames: `loans.title` "Loans & IOUs"→"Loans" (en) / "Vay & Nợ"→"Khoản vay" (vi); new `splits` namespace (`tab`="Splits"/"Chia", `title`="Split Bills"/"Chia hóa đơn"). Removed the now-dead `bills.splitExpense` key from both locales.
+
+**Verification:** `tsc --noEmit` clean; both locale JSONs valid; eslint 0 errors (only pre-existing setState-in-effect / impure-Date warnings); 289 tests pass.
+
+### Follow-up — Split Bills: blank amount = auto-divide remainder (same branch)
+
+**Request:** In the split form, allow typing individual amounts AND leaving a person's amount box blank → blank boxes auto-split the remaining balance (total − typed amounts) equally. Examples ($200): typed 50/70/35 + 1 blank → blank=45; typed 50/70 + 2 blank → each=40. Plus a button to auto-divide (clear all → even split).
+
+**New pure helper `computeSplitShares(total, amounts, includeMe)` in `lib/splits.ts`** (`amounts[i] = number | null`, null = blank/auto): returns `{ shares[], myShare, over }`. Blank entries evenly divide `total − explicitSum`; `includeMe` adds you as one extra auto share; rounding leftover lands on the last auto party (you when included, else the last blank person) so shares sum exactly to total. `myShare` = what you actually pay (the real expense); `over` = typed amounts already exceed total. Imports `roundCents` from `lib/calculations` (no cycle). Fully unit-tested in new `lib/__tests__/splits.test.ts` (10 cases incl. the user's 45 / 40 / rounding examples + isOneOffSplit + groupSplits).
+
+**`app/(app)/transactions/page.tsx`:**
+- `EMPTY_SPLIT_EXPENSE.includeMe` default flipped to **false** — matches the user's examples where the listed people fully cover the bill (your share 0). Toggle still lets you join the even split.
+- Live preview + save both compute via `computeSplitShares` over only rows that name a contact (`seNamedRows` / `namedRows`); blank rows resolve to their auto share. `seShareByKey` maps each row → its computed share for the input placeholder.
+- Each participant amount box: when its row has a contact and the box is blank, the label switches to `bills.shareAuto` ("Their share (auto)") and the placeholder shows the live auto amount. Added a `bills.splitAutoHint` line under the list.
+- `splitEqually()` now just clears every amount (→ all auto → even split incl. you when toggled) instead of filling numbers.
+- New locale keys `bills.shareAuto`, `bills.splitAutoHint` (en + vi).
+
+**Verification:** `tsc` clean; eslint 0 errors; 299 tests pass (was 289).
+
+**PENDING (asked user to clarify):** request to add multi-person GROUP loans in the Loans/IOUs form using the same auto-divide calc — awaiting answers on per-person-records vs combined, and total-vs-per-person amount.
+
+### Follow-up — Group loans (multi-person) with auto-divide (same branch)
+
+**Request + clarifications:** In Loans/IOUs, allow selecting multiple people in one go. Answers: (1) create **separate per-person loan records** (each paid back/settled independently), (2) entered amount is the **TOTAL, divided with the same auto-divide** (type a person's amount or leave blank to split the remainder), (3) **single-person loans unchanged** — the group UI only appears once a 2nd person is added.
+
+**`app/(app)/transactions/page.tsx`:**
+- New state `loanParticipants: SplitParticipant[]` (reuses the split `SplitParticipant`/`emptyParticipant`). Used only for NEW loans; **editing stays single-contact** via `loanForm`.
+- Handlers: `updateLoanParticipant`/`addLoanParticipantRow`/`removeLoanParticipantRow`, `loanSplitEqually` (clears all amounts → even split), `handleAddLoanParticipantContact` (inline new contact per row).
+- `handleAddLoan` rewritten: total = `loanForm.amount`; per-person principal = `computeSplitShares(total, amounts, /*includeMe*/ false).shares[i]` (blank rows auto-divide the remainder). Creates one `Loan` per resolved participant, posted **sequentially** to `/api/loans` (balance races), each with its own `buildLoanTx` principal transfer when an account is set. Shares the direction/date/note/account. Partial-failure path calls `load()` to reconcile. Toasts `loans.toastAddedGroup` ({n}) for >1, else `loans.toastAdded`.
+- Derived preview: `loanTotal`, `loanNamedRows`, `loanComputed`, `loanShareByKey` (per-row auto placeholder), `loanOver`, `loanUnassigned` (= `myShare`, the leftover when typed amounts underfill the total), `loanIsGroup` (≥2 rows), `loanCanSave` (edit → contact+amount; add → amount + ≥1 named row + !over).
+- Form JSX: `editingLoanId ? <single contact Select (unchanged)> : <participants list>`. In add mode, each row is a contact Select; the per-person **amount box, remove (X), "Split equally", auto-hint, and per-row remove only render when `loanIsGroup`** (≥2 people) — so 1 person looks exactly like before. The amount field label switches to `bills.totalAmount` when group. Shows `loans.unassigned` (amber) when leftover >0 and `bills.splitExpenseOverTotal` (rose) when typed > total. Save button label → `loans.addLoans` when group. Open/cancel reset `loanParticipants` to one empty row.
+- Reuses split i18n (`bills.splitEqually/shareAuto/theirShareShort/splitAutoHint/totalAmount/splitExpenseOverTotal/newContactName/addContact/selectContact/addNewContact`). New `loans.*` keys: `addLoans`, `people`, `addPerson`, `unassigned` ({amount}), `toastAddedGroup` ({n}) — en + vi.
+
+**Verification:** `tsc` clean; both locale JSONs valid; eslint 0 errors (2 pre-existing warnings); 299 tests pass.
