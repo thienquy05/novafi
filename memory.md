@@ -2,6 +2,21 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-03 — Health Banner: invisible days-left bar + final Safe-to-Spend dedup (branch claude/health-banner-safe-spend-dX3fo)
+
+**Bugs reported (from a Home/dashboard screenshot):** (1) The Health Banner and the dedicated "Safe to Spend" KPI card "still the same" — both showed `-$136.48 over for the month`. (2) The little progress bar under "27d left" looked broken (a flat gray line, no fill).
+
+**Bug 1 — banner/card collision (root cause):** The 2026-06-03 dedup pass (branch `claude/unruffled-mccarthy-cbf03a`) made the banner echo the *daily* safe-to-spend, which de-duped the **on-track** case but NOT the **overspent** case: when `safeToSpend < 0` the banner rendered `charts.safeOver` = `"{amount} over for the month"`, byte-for-byte identical to the card's `dashboard.safeToSpendOver` = `"over for the month"` on the same negative number. (Note: when overspent, `calcSafeToSpendDaily` passes the shortfall through unchanged, so daily == whole-month total == the same figure — there's no framing that makes them differ.) **Fix (user-chosen): drop the safe-to-spend segment from the banner entirely** so the KPI card is its sole owner. The banner's on-track second line is now just `{net}` net (net cashflow is unique to the banner — no card shows it); the `monthIncome === 0` and `monthSpending > monthIncome` branches are unchanged.
+
+**Bug 2 — invisible bar (root cause):** Tailwind **v4**. The fill color was built at runtime: `cfg.iconColor.replace('text-', 'bg-')`. Two problems: (a) Tailwind v4 only emits classes it finds as *literal strings* in source, so a runtime-constructed `bg-amber-600` is never generated → no background → invisible fill; (b) `String.replace` only swaps the first match, so `"text-amber-600 dark:text-amber-400"` became `"bg-amber-600 dark:text-amber-400"` — the dark variant stayed `text-`, broken too. **Fix:** added a static, literal `barColor` to each status config (`bg-emerald-500` / `bg-indigo-500` / `bg-amber-500` / `bg-rose-500` / `bg-slate-400`) and the bar now uses `cfg.barColor`. The width math `((daysInMonth - daysLeft) / daysInMonth) * 100` (month-elapsed %) was always correct — only the color was missing.
+
+**Files changed:**
+- `app/(app)/dashboard/DashboardCharts.tsx` — `HealthBanner`: removed the `safeToSpend` / `dailySafeToSpend` props (no longer used); the on-track branch renders just `{cashFlow} net`; added `barColor` to all five status configs and switched the days-left bar to `cfg.barColor`.
+- `app/(app)/dashboard/page.tsx` — `<HealthBanner>` no longer passes `safeToSpend` / `dailySafeToSpend` (both values are still computed for the Safe-to-Spend KPI card, which is unchanged).
+- `locales/en.json` / `locales/vi.json` — removed the now-dead `charts.safeDaily` and `charts.safeOver` keys (were banner-only).
+
+**Verification:** `tsc --noEmit` clean (after `npm ci`); full vitest **324 passing**; `eslint` on the two changed dashboard files — 0 errors (only the pre-existing unused-import / setState-in-effect warnings remain).
+
 ## 2026-06-03 — Merge "Divide total" / "Per person" split modes into one smart resolver (branch claude/cranky-germain-50e0ee)
 
 **Request:** Every split surface (Bills, Split-an-Expense, group Loans) had a two-tab toggle — **Divide total** (type a total, blank rows auto-divide the remainder) vs **Per person** (type each share, total auto-sums). User wanted the two combined into one input that detects intent: e.g. with 4 people, typing 3 shares + a total auto-fills the 4th; typing only a total auto-divides evenly; leaving the total blank sums up the typed shares. Also asked that Bills "inherit" the same formula so Loans/Splits/Bills all share one calculation (Bills stays in its own section, just shares the math).

@@ -138,8 +138,6 @@
   },
   "charts": {
     "netLabel": "ròng",
-    "safeDaily": "{amount}/ngày để chi",
-    "safeOver": "{amount} vượt chi trong tháng",
     "overIncome": "{amount} vượt thu nhập",
     "recordPaycheckHint": "Ghi nhận lương để theo dõi dòng tiền",
     "greatShape": "Rất tốt",
