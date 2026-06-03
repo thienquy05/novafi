@@ -2,6 +2,22 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-03 — Extend the loan-style record-payment UI to the Transactions "Split an Expense" tracker (branch claude/bills-payment-ui-consistency-Vi0D0)
+
+**Request (follow-up):** After converting the Bills "Owed to You" tracker, the user asked to upgrade the **Transactions-page one-time "Split an Expense"** tracker the same way — partial, loan-style record-payment per person instead of the checkbox.
+
+**No data-model change needed** — the `Split` type / sheet / splits API already gained `repaidAmount` + `repaymentTxIds` in the previous change; this reuses them.
+
+**`app/(app)/transactions/page.tsx`:**
+- Replaced `handleSplitToggle` with `openSplitPayback(split)` + `handleRecordSplitPayback(split)` (same logic as the Bills page: clamp to remaining, accumulate `repaidAmount`, settle when covered, bundle a `cashIn` `buildSplitTx` when an account is chosen, then `load()` to refresh ledger/balances). New `renderPendingSplitRow(split)` helper draws the loan-style row (remaining, progress bar + "{paid} of {total} paid", **Record payment** button, delete, inline amount/account form).
+- Uses its **own** payback state (`splitPaybackFor` / `splitPaybackForm` / `recordingSplitPayback`) so it never collides with the existing loan payback state (`paybackFor` etc.) on the same page. Removed the now-unused `settlingSplitId`.
+- Pending group-card totals now sum **remaining** (`splitRemaining`); settled-history checkmarks became static badges (un-settle removed — delete is the reversal path).
+- **Managed-tx integrity:** added `repaymentTxIds` to `managedTxIds` (locks each payback leg from generic-ledger account/type edits, like loan repayments). `syncOwnerAmount` gained a split-repayment branch mirroring the loan-repayment one: editing a payback leg's amount adjusts the split's `repaidAmount` and re-derives `settled` (instead of falling through to the fronted/share sync). `handleDeleteSplit` now also reloads when `repaymentTxIds.length`.
+
+**i18n:** none new — reuses the keys added in the Bills change (`bills.recordSplitPayment`, `bills.splitPaidOf`, `bills.toastSplitPartial`, `loans.*`). Both trackers (Bills + Split-an-Expense) are now consistent with Loans.
+
+**Verification:** `tsc --noEmit` clean; `next build` compiles; `eslint` 0 errors (27 pre-existing warnings unchanged); full vitest **324 passing**.
+
 ## 2026-06-03 — Bills "owed to you" payback gets the loan-style record-payment UI with partial amounts (branch claude/bills-payment-ui-consistency-Vi0D0)
 
 **Request:** Make the Bills "pay back" option consistent with Loan/Split — a "record payment" flow with an amount (and grouped when needed). Clarified with the user: scope is the **"Owed to You"** tracker on the Bills page (people repaying their share of a shared bill); paybacks should **allow partial amounts** (Loan-style, tracking a remaining balance and accumulating until settled); recorded **per person** for multi-person bills.

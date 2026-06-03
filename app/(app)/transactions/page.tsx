@@ -12,7 +12,7 @@ import { Collapsible } from '@/components/ui/Collapsible';
 import { formatCurrency, formatCompact, formatDate, generateId, today } from '@/lib/utils';
 import { transactionsToCsv } from '@/lib/csv';
 import { calcLoanRemaining } from '@/lib/calculations';
-import { buildSplitTx, groupSplits, isOneOffSplit, newOneOffGroupId, resolveSplit } from '@/lib/splits';
+import { buildSplitTx, groupSplits, isOneOffSplit, newOneOffGroupId, resolveSplit, splitRemaining } from '@/lib/splits';
 import { motion, AnimatePresence } from 'framer-motion';
 import { EXPENSE_CATEGORIES } from '@/types';
 import type { Transaction, Account, Contact, Loan, Split } from '@/types';
@@ -216,7 +216,12 @@ export default function TransactionsPage() {
   const [splitExpenseForm, setSplitExpenseForm] = useState(EMPTY_SPLIT_EXPENSE);
   const [splitParticipants, setSplitParticipants] = useState<SplitParticipant[]>([emptyParticipant()]);
   const [savingSplitExpense, setSavingSplitExpense] = useState(false);
-  const [settlingSplitId, setSettlingSplitId] = useState<string | null>(null);
+  // Loan-style "record payment" for an "owed to you" split — splitPaybackFor is the
+  // the split id whose inline form is open; the form holds the entered amount and
+  // the account the cash returns into. (Kept separate from the loan payback state.)
+  const [splitPaybackFor, setSplitPaybackFor] = useState<string | null>(null);
+  const [splitPaybackForm, setSplitPaybackForm] = useState({ amount: '', account: '' });
+  const [recordingSplitPayback, setRecordingSplitPayback] = useState(false);
   const [expandedSplitGroups, setExpandedSplitGroups] = useState<Set<string>>(new Set());
   const [showSplitHistory, setShowSplitHistory] = useState(false);
   const toast = useToast();
@@ -292,6 +297,7 @@ export default function TransactionsPage() {
     for (const sp of splits) {
       if (sp.frontedTxId) s.add(sp.frontedTxId);
       if (sp.settleTxId) s.add(sp.settleTxId);
+      for (const id of sp.repaymentTxIds ?? []) if (id) s.add(id);
     }
     return s;
   }, [loans, splits]);
@@ -372,13 +378,25 @@ export default function TransactionsPage() {
       if (!r.ok) throw new Error();
       return;
     }
+    // Editing a single payback leg adjusts the running repaidAmount (mirrors the
+    // loan repayment branch above) without touching the owed share.
+    const splitR = splits.find((s) => (s.repaymentTxIds ?? []).includes(original.id));
+    if (splitR) {
+      const repaid = Math.max(0, roundCents(splitR.repaidAmount - original.amount + newAmount));
+      const fullyPaid = repaid >= roundCents(splitR.amount) - 0.005;
+      const next: Split = { ...splitR, repaidAmount: repaid, settled: fullyPaid, settledDate: fullyPaid ? (splitR.settledDate || today()) : '' };
+      setSplits((prev) => prev.map((s) => s.id === next.id ? next : s));
+      const r = await fetch('/api/splits', { method: 'POST', body: JSON.stringify(next), headers: { 'Content-Type': 'application/json' } });
+      if (!r.ok) throw new Error();
+      return;
+    }
     const split = splits.find((s) => s.frontedTxId === original.id || s.settleTxId === original.id);
     if (split) {
       const next: Split = { ...split, amount: newAmount };
       setSplits((prev) => prev.map((s) => s.id === next.id ? next : s));
       const r = await fetch('/api/splits', { method: 'POST', body: JSON.stringify(next), headers: { 'Content-Type': 'application/json' } });
       if (!r.ok) throw new Error();
-      // Keep the other cash leg (fronted/settle) equal to the new share.
+      // Keep the other cash leg (fronted/legacy settle) equal to the new share.
       const siblingId = split.frontedTxId === original.id ? split.settleTxId : split.frontedTxId;
       const sibling = siblingId ? transactions.find((tx) => tx.id === siblingId) : undefined;
       if (sibling && roundCents(sibling.amount) !== roundCents(newAmount)) {
@@ -1002,34 +1020,106 @@ export default function TransactionsPage() {
       setSavingSplitExpense(false);
     }
   }
-  // Tick/untick "they paid me back" for one split share — writes/reverses the
-  // cash-in transfer when an account is on file (same model as the Bills tracker).
-  async function handleSplitToggle(split: Split) {
-    setSettlingSplitId(split.id);
-    let payload: Split | { split: Split; tx?: Transaction; removeTxId?: string };
-    let updated: Split;
-    if (split.settled) {
-      updated = { ...split, settled: false, settledDate: '', settleTxId: '' };
-      payload = split.settleTxId ? { split: updated, removeTxId: split.settleTxId } : updated;
-    } else {
-      const settleTx = split.account
-        ? buildSplitTx('cashIn', split.amount, split.account, t('bills.txSettled', { name: split.contactName, bill: split.billName }), today())
-        : null;
-      updated = { ...split, settled: true, settledDate: today(), settleTxId: settleTx?.id ?? '' };
-      payload = settleTx ? { split: updated, tx: settleTx } : updated;
-    }
-    setSplits((prev) => prev.map((s) => s.id === split.id ? updated : s));
+  // Open / close the inline "record payment" form for one "owed to you" split,
+  // mirroring the loan payback form. Opening pre-fills the amount with what's
+  // still owed and the account with the one the share was fronted from.
+  function openSplitPayback(split: Split) {
+    if (splitPaybackFor === split.id) { setSplitPaybackFor(null); return; }
+    setSplitPaybackFor(split.id);
+    setSplitPaybackForm({ amount: String(splitRemaining(split)), account: split.account });
+  }
+
+  // Record a (possibly partial) payback for a split share — the same model as a
+  // loan payback. The entered amount accumulates in repaidAmount; once it covers
+  // the full share the split is marked settled. When an account is chosen the
+  // share is returned INTO it as a cash-in transfer (bundled with the split so the
+  // balance and the receivable move together); a note-only split just advances
+  // repaidAmount.
+  async function handleRecordSplitPayback(split: Split) {
+    const remaining = splitRemaining(split);
+    const entered = parseFloat(splitPaybackForm.amount) || 0;
+    const applied = roundCents(Math.min(entered, remaining));
+    if (applied <= 0) return;
+    setRecordingSplitPayback(true);
+    const account = splitPaybackForm.account;
+    const tx: Transaction | null = account
+      ? buildSplitTx('cashIn', applied, account, t('bills.txSettled', { name: split.contactName, bill: split.billName }), today())
+      : null;
+    const newRepaid = roundCents(split.repaidAmount + applied);
+    const fullyPaid = newRepaid >= roundCents(split.amount) - 0.005;
+    const updated: Split = {
+      ...split,
+      repaidAmount: newRepaid,
+      settled: fullyPaid,
+      settledDate: fullyPaid ? today() : '',
+      repaymentTxIds: tx ? [...split.repaymentTxIds, tx.id] : split.repaymentTxIds,
+    };
+    const prev = splits;
+    setSplits((list) => list.map((s) => s.id === split.id ? updated : s));
     try {
-      const res = await fetch('/api/splits', { method: 'POST', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' } });
+      const res = await fetch('/api/splits', { method: 'POST', body: JSON.stringify(tx ? { split: updated, tx } : updated), headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error();
-      if (split.account) load();
-      toast(updated.settled ? t('bills.toastSplitSettled', { name: split.contactName }) : t('bills.toastSplitUnsettled', { name: split.contactName }), updated.settled ? 'success' : 'info');
+      if (tx) load();
+      toast(fullyPaid ? t('bills.toastSplitSettled', { name: split.contactName }) : t('bills.toastSplitPartial', { name: split.contactName, amount: formatCurrency(splitRemaining(updated)) }), 'success');
+      setSplitPaybackFor(null);
+      setSplitPaybackForm({ amount: '', account: '' });
     } catch {
-      setSplits((prev) => prev.map((s) => s.id === split.id ? split : s));
+      setSplits(prev);
       toast(t('bills.toastFailedSplit'), 'error');
     } finally {
-      setSettlingSplitId(null);
+      setRecordingSplitPayback(false);
     }
+  }
+
+  // One pending "owed to you" person inside a group card: remaining amount, a
+  // progress bar + "{paid} of {total} paid" once partially paid, a "Record
+  // payment" button, delete, and the inline payback form it toggles open.
+  function renderPendingSplitRow(split: Split) {
+    const expanded = splitPaybackFor === split.id;
+    const remaining = splitRemaining(split);
+    const partial = (split.repaidAmount || 0) > 0;
+    const pct = split.amount > 0 ? Math.min(100, (split.repaidAmount / split.amount) * 100) : 0;
+    return (
+      <div key={split.id} className="px-4 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">{split.contactName}</p>
+            {partial && <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 mt-0.5">{t('bills.splitPaidOf', { paid: formatCurrency(split.repaidAmount), total: formatCurrency(split.amount) })}</p>}
+          </div>
+          <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 shrink-0">{formatCurrency(remaining)}</span>
+        </div>
+        {partial && (
+          <div className="mt-2 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
+          </div>
+        )}
+        <div className="flex items-center gap-2 mt-2.5">
+          <Button size="sm" variant="secondary" className="h-9" onClick={() => openSplitPayback(split)}>
+            <HandCoins className="w-4 h-4" />{t('bills.recordSplitPayment')}
+          </Button>
+          <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors ml-auto">
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+        <Collapsible open={expanded}>
+          <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Input label={t('loans.paybackAmount')} type="number" min="0" step="0.01" value={splitPaybackForm.amount} onChange={(e) => setSplitPaybackForm((f) => ({ ...f, amount: e.target.value }))} />
+              <Select
+                label={t('loans.intoAccount')}
+                value={splitPaybackForm.account}
+                options={[{ value: '', label: t('loans.noAccount') }, ...accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))]}
+                onChange={(e) => setSplitPaybackForm((f) => ({ ...f, account: e.target.value }))}
+              />
+            </div>
+            <div className="flex gap-3">
+              <Button variant="secondary" className="flex-1 h-10" onClick={() => setSplitPaybackFor(null)}>{t('common.cancel')}</Button>
+              <Button className="flex-1 h-10" onClick={() => handleRecordSplitPayback(split)} disabled={recordingSplitPayback || !splitPaybackForm.amount}>{recordingSplitPayback ? t('common.saving') : t('loans.confirmPayback')}</Button>
+            </div>
+          </div>
+        </Collapsible>
+      </div>
+    );
   }
   async function handleDeleteSplit(split: Split) {
     if (!confirm(t('bills.confirmDeleteSplit'))) return;
@@ -1038,8 +1128,8 @@ export default function TransactionsPage() {
     try {
       const res = await fetch('/api/splits', { method: 'DELETE', body: JSON.stringify({ id: split.id }), headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error();
-      // The splits API reverses any linked fronted/settle transfers atomically.
-      if (split.frontedTxId || split.settleTxId) load();
+      // The splits API reverses any linked fronted/settle/payback transfers atomically.
+      if (split.frontedTxId || split.settleTxId || split.repaymentTxIds.length) load();
     } catch {
       setSplits(prev);
       toast(t('bills.toastFailedSplit'), 'error');
@@ -1744,6 +1834,7 @@ export default function TransactionsPage() {
           )}
           {pendingSplitGroups.map((group) => {
             const expanded = expandedSplitGroups.has(group.key);
+            const groupRemaining = group.splits.reduce((s, x) => s + splitRemaining(x), 0);
             const subtitle = group.splits.length === 1
               ? `${group.splits[0].contactName} · ${t('bills.owedSince', { date: formatDate(group.date) })}`
               : t('bills.groupOwedSince', { n: group.splits.length, date: formatDate(group.date) });
@@ -1757,33 +1848,11 @@ export default function TransactionsPage() {
                       <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">{subtitle}</p>
                     </div>
                   </div>
-                  <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400 ml-2 shrink-0">{formatCurrency(group.total)}</span>
+                  <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400 ml-2 shrink-0">{formatCurrency(groupRemaining)}</span>
                 </button>
                 <Collapsible open={expanded}>
                   <div className="divide-y divide-slate-100 dark:divide-slate-700/60 border-t border-slate-100 dark:border-slate-700/60">
-                    {group.splits.map((split) => {
-                      const busy = settlingSplitId === split.id;
-                      return (
-                        <div key={split.id} className="flex items-center justify-between px-4 py-2.5">
-                          <div className="flex items-center gap-3 min-w-0">
-                            <button
-                              type="button"
-                              onClick={() => handleSplitToggle(split)}
-                              disabled={busy}
-                              title={t('bills.markTransferred')}
-                              className="w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors disabled:opacity-50 border-slate-300 dark:border-slate-600 hover:border-emerald-400"
-                            />
-                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">{split.contactName}</p>
-                          </div>
-                          <div className="flex items-center gap-3 shrink-0">
-                            <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(split.amount)}</span>
-                            <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
+                    {group.splits.map((split) => renderPendingSplitRow(split))}
                   </div>
                 </Collapsible>
               </div>
@@ -1821,29 +1890,20 @@ export default function TransactionsPage() {
                         </button>
                         <Collapsible open={expanded}>
                           <div className="divide-y divide-slate-100 dark:divide-slate-700/60 border-t border-slate-100 dark:border-slate-700/60">
-                            {group.splits.map((split) => {
-                              const busy = settlingSplitId === split.id;
-                              return (
-                                <div key={split.id} className="flex items-center justify-between px-3.5 py-2">
-                                  <p className="text-sm font-semibold text-slate-600 dark:text-slate-400 truncate min-w-0">{split.contactName}</p>
-                                  <div className="flex items-center gap-2 shrink-0">
-                                    <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through">{formatCurrency(split.amount)}</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSplitToggle(split)}
-                                      disabled={busy}
-                                      title={t('bills.transferred')}
-                                      className="w-5 h-5 rounded-md border-2 bg-emerald-500 border-emerald-500 text-white flex items-center justify-center shrink-0 disabled:opacity-50"
-                                    >
-                                      <Check className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
-                                      <Trash2 className="w-4 h-4" />
-                                    </button>
-                                  </div>
+                            {group.splits.map((split) => (
+                              <div key={split.id} className="flex items-center justify-between px-3.5 py-2">
+                                <p className="text-sm font-semibold text-slate-600 dark:text-slate-400 truncate min-w-0">{split.contactName}</p>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through">{formatCurrency(split.amount)}</span>
+                                  <span title={t('bills.transferred')} className="w-5 h-5 rounded-md bg-emerald-500 text-white flex items-center justify-center shrink-0">
+                                    <Check className="w-3.5 h-3.5" />
+                                  </span>
+                                  <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
                                 </div>
-                              );
-                            })}
+                              </div>
+                            ))}
                           </div>
                         </Collapsible>
                       </div>
