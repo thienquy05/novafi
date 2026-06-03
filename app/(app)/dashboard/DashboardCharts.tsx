@@ -138,18 +138,12 @@ export function SavingsRateGauge({ value, note }: { value: number; note?: string
 export function HealthBanner({
   monthIncome,
   monthSpending,
-  safeToSpend,
-  dailySafeToSpend,
   daysLeft,
   daysInMonth,
   overBudgetCount,
 }: {
   monthIncome: number;
   monthSpending: number;
-  /** Whole-month leftover after bills. Used only to detect the overspent case. */
-  safeToSpend: number;
-  /** Forward-looking per-day allowance (the day-spending figure). */
-  dailySafeToSpend: number;
   daysLeft: number;
   daysInMonth: number;
   overBudgetCount: number;
@@ -170,6 +164,7 @@ export function HealthBanner({
       bg: 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-800/50',
       iconBg: 'bg-emerald-100 dark:bg-emerald-900/40',
       iconColor: 'text-emerald-600 dark:text-emerald-400',
+      barColor: 'bg-emerald-500',
       titleColor: 'text-emerald-800 dark:text-emerald-300',
       pillBg: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300',
       title: t('charts.greatShape'),
@@ -179,6 +174,7 @@ export function HealthBanner({
       bg: 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200 dark:border-indigo-800/50',
       iconBg: 'bg-indigo-100 dark:bg-indigo-900/40',
       iconColor: 'text-indigo-600 dark:text-indigo-400',
+      barColor: 'bg-indigo-500',
       titleColor: 'text-indigo-800 dark:text-indigo-300',
       pillBg: 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300',
       title: t('charts.lookingGood'),
@@ -188,6 +184,7 @@ export function HealthBanner({
       bg: 'bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800/50',
       iconBg: 'bg-amber-100 dark:bg-amber-900/40',
       iconColor: 'text-amber-600 dark:text-amber-400',
+      barColor: 'bg-amber-500',
       titleColor: 'text-amber-800 dark:text-amber-300',
       pillBg: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300',
       title: t('charts.watchSpending'),
@@ -197,6 +194,7 @@ export function HealthBanner({
       bg: 'bg-rose-50 dark:bg-rose-900/30 border-rose-200 dark:border-rose-800/50',
       iconBg: 'bg-rose-100 dark:bg-rose-900/40',
       iconColor: 'text-rose-600 dark:text-rose-400',
+      barColor: 'bg-rose-500',
       titleColor: 'text-rose-800 dark:text-rose-300',
       pillBg: 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300',
       title: t('charts.overBudget'),
@@ -206,6 +204,7 @@ export function HealthBanner({
       bg: 'bg-slate-50 dark:bg-slate-700/50 border-slate-200 dark:border-slate-700',
       iconBg: 'bg-slate-100 dark:bg-slate-700',
       iconColor: 'text-slate-400 dark:text-slate-500',
+      barColor: 'bg-slate-400',
       titleColor: 'text-slate-700 dark:text-slate-300',
       pillBg: 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400',
       title: t('charts.setUpIncome'),
@@ -257,22 +256,16 @@ export function HealthBanner({
         ) : monthSpending > monthIncome ? (
           <p className="text-sm font-medium text-slate-600 dark:text-slate-300">{t('charts.overIncome', { amount: formatCurrency(monthSpending - monthIncome) })}</p>
         ) : (
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-medium text-slate-600 dark:text-slate-300">
-            <span><span className="font-bold text-slate-900 dark:text-slate-100">{formatCurrency(cashFlow)}</span> {t('charts.netLabel')}</span>
-            <span className="text-slate-300 dark:text-slate-600">·</span>
-            {safeToSpend < 0 ? (
-              <span className="font-bold text-rose-600 dark:text-rose-400">{t('charts.safeOver', { amount: formatCurrency(safeToSpend) })}</span>
-            ) : (
-              <span className="font-bold text-slate-900 dark:text-slate-100">{t('charts.safeDaily', { amount: formatCurrency(dailySafeToSpend) })}</span>
-            )}
-          </div>
+          <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
+            <span className="font-bold text-slate-900 dark:text-slate-100">{formatCurrency(cashFlow)}</span> {t('charts.netLabel')}
+          </p>
         )}
       </div>
       <div className="text-right shrink-0">
         <p className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{daysLeft}d left</p>
         <div className="w-16 bg-slate-200 dark:bg-slate-600 rounded-full h-1.5 mt-1">
           <div
-            className={`h-1.5 rounded-full transition-all ${cfg.iconColor.replace('text-', 'bg-')}`}
+            className={`h-1.5 rounded-full transition-all ${cfg.barColor}`}
             style={{ width: `${Math.round(((daysInMonth - daysLeft) / daysInMonth) * 100)}%` }}
           />
         </div>

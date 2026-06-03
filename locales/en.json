@@ -138,8 +138,6 @@
   },
   "charts": {
     "netLabel": "net",
-    "safeDaily": "{amount}/day to spend",
-    "safeOver": "{amount} over for the month",
     "overIncome": "{amount} over income",
     "recordPaycheckHint": "Record a paycheck to track cash flow",
     "greatShape": "Great shape",
