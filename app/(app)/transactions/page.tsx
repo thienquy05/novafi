@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Search, Pencil, RefreshCw, AlertCircle, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronLeft, ChevronRight, X, Filter, ArrowLeftRight, HandCoins, ArrowUpRight, ArrowDownLeft, UserPlus, Trash2 } from 'lucide-react';
+import { Plus, Search, Pencil, RefreshCw, AlertCircle, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronLeft, ChevronRight, X, Filter, ArrowLeftRight, HandCoins, ArrowUpRight, ArrowDownLeft, UserPlus, Trash2, Check, Split as SplitIcon } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -11,9 +11,10 @@ import { TransactionsSkeleton } from '@/components/ui/Skeleton';
 import { formatCurrency, formatCompact, formatDate, generateId, today } from '@/lib/utils';
 import { transactionsToCsv } from '@/lib/csv';
 import { calcLoanRemaining } from '@/lib/calculations';
+import { buildSplitTx, groupSplits, isOneOffSplit, newOneOffGroupId, computeSplitShares } from '@/lib/splits';
 import { motion, AnimatePresence } from 'framer-motion';
 import { EXPENSE_CATEGORIES } from '@/types';
-import type { Transaction, Account, Contact, Loan } from '@/types';
+import type { Transaction, Account, Contact, Loan, Split } from '@/types';
 import { CategoryIconBadge } from '@/components/CategoryIcon';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
@@ -118,6 +119,19 @@ const EMPTY_LOAN_FORM = {
 // Sentinel option that opens the inline "add new contact" input.
 const NEW_CONTACT = '__new__';
 
+// ── One-time split-an-expense (e.g. "I paid for dinner for the group") ──────────
+// A single ad-hoc expense shared across MULTIPLE people. Your share is the only
+// real expense; everyone else's share is fronted out of the account and tracked
+// as a Split receivable (see lib/splits). Each participant becomes one Split,
+// tied together by a `oneoff:`-tagged group id.
+const EMPTY_SPLIT_EXPENSE = {
+  description: '', total: '', date: today(), account: '', category: 'Food', includeMe: false,
+};
+type SplitParticipant = { key: string; contactId: string; amount: string; newName: string };
+function emptyParticipant(): SplitParticipant {
+  return { key: generateId(), contactId: '', amount: '', newName: '' };
+}
+
 function roundCents(n: number): number {
   return Math.round(n * 100) / 100;
 }
@@ -178,12 +192,24 @@ export default function TransactionsPage() {
   const [showAddLoan, setShowAddLoan] = useState(false);
   const [editingLoanId, setEditingLoanId] = useState<string | null>(null);
   const [loanForm, setLoanForm] = useState(EMPTY_LOAN_FORM);
+  // Participants for a NEW group loan (edit stays single-contact via loanForm).
+  const [loanParticipants, setLoanParticipants] = useState<SplitParticipant[]>([emptyParticipant()]);
   const [newContactName, setNewContactName] = useState('');
   const [addingContact, setAddingContact] = useState(false);
   const [savingLoan, setSavingLoan] = useState(false);
   const [paybackFor, setPaybackFor] = useState<string | null>(null);
   const [paybackForm, setPaybackForm] = useState({ amount: '', account: '' });
   const [recordingPayback, setRecordingPayback] = useState(false);
+  // Split bills (one-time expense splits)
+  const [splits, setSplits] = useState<Split[]>([]);
+  const [splitsOpen, setSplitsOpen] = useState(false);
+  const [showSplitExpense, setShowSplitExpense] = useState(false);
+  const [splitExpenseForm, setSplitExpenseForm] = useState(EMPTY_SPLIT_EXPENSE);
+  const [splitParticipants, setSplitParticipants] = useState<SplitParticipant[]>([emptyParticipant()]);
+  const [savingSplitExpense, setSavingSplitExpense] = useState(false);
+  const [settlingSplitId, setSettlingSplitId] = useState<string | null>(null);
+  const [expandedSplitGroups, setExpandedSplitGroups] = useState<Set<string>>(new Set());
+  const [showSplitHistory, setShowSplitHistory] = useState(false);
   const toast = useToast();
   const { expenseCategories, incomeCategories } = useCategories();
   const { t } = useTranslation();
@@ -191,14 +217,15 @@ export default function TransactionsPage() {
   const load = useCallback(async () => {
     setError(false);
     try {
-      const [txRes, accRes, loanRes, conRes] = await Promise.all([
-        fetch('/api/transactions'), fetch('/api/accounts'), fetch('/api/loans'), fetch('/api/contacts'),
+      const [txRes, accRes, loanRes, conRes, splitRes] = await Promise.all([
+        fetch('/api/transactions'), fetch('/api/accounts'), fetch('/api/loans'), fetch('/api/contacts'), fetch('/api/splits'),
       ]);
       if (!txRes.ok || !accRes.ok) throw new Error();
-      const [txs, accs, lns, cons] = await Promise.all([
+      const [txs, accs, lns, cons, spls] = await Promise.all([
         txRes.json(), accRes.json(),
         loanRes.ok ? loanRes.json() : Promise.resolve([]),
         conRes.ok ? conRes.json() : Promise.resolve([]),
+        splitRes.ok ? splitRes.json() : Promise.resolve([]),
       ]);
       setTransactions([...txs].sort((a: Transaction, b: Transaction) => {
         const dateCmp = b.date.localeCompare(a.date);
@@ -208,6 +235,7 @@ export default function TransactionsPage() {
       setAccounts(accs);
       setLoans(lns);
       setContacts(cons);
+      setSplits(spls);
     } catch {
       setError(true);
     } finally {
@@ -372,44 +400,96 @@ export default function TransactionsPage() {
     }
   }
 
-  async function handleAddLoan() {
-    const amount = parseFloat(loanForm.amount) || 0;
-    if (!loanForm.contactId || loanForm.contactId === NEW_CONTACT || amount <= 0) return;
-    const contact = contacts.find((c) => c.id === loanForm.contactId);
-    if (!contact) return;
-    setSavingLoan(true);
-    const desc = loanForm.direction === 'lent'
-      ? t('loans.txLent', { name: contact.name })
-      : t('loans.txBorrowed', { name: contact.name });
-    const tx = loanForm.account ? buildLoanTx(loanForm.direction, 'principal', amount, loanForm.account, desc, loanForm.date) : null;
-    const loan: Loan = {
-      id: generateId(),
-      direction: loanForm.direction,
-      contactId: contact.id,
-      contactName: contact.name,
-      account: loanForm.account,
-      principal: amount,
-      repaidAmount: 0,
-      date: loanForm.date,
-      note: loanForm.note,
-      settled: false,
-      settledDate: '',
-      principalTxId: tx ? tx.id : '',
-      repaymentTxIds: [],
-    };
+  // ── Loan participants (new group loan) ──
+  function updateLoanParticipant(key: string, patch: Partial<SplitParticipant>) {
+    setLoanParticipants((prev) => prev.map((p) => p.key === key ? { ...p, ...patch } : p));
+  }
+  function addLoanParticipantRow() {
+    setLoanParticipants((prev) => [...prev, emptyParticipant()]);
+  }
+  function removeLoanParticipantRow(key: string) {
+    setLoanParticipants((prev) => prev.length > 1 ? prev.filter((p) => p.key !== key) : prev);
+  }
+  function loanSplitEqually() {
+    setLoanParticipants((prev) => prev.map((p) => ({ ...p, amount: '' })));
+  }
+  async function handleAddLoanParticipantContact(row: SplitParticipant) {
+    const name = row.newName.trim();
+    if (!name) return;
+    setAddingContact(true);
+    const contact: Contact = { id: generateId(), name, createdAt: new Date().toISOString() };
     try {
-      // The loans API writes the cash transaction and applies its balance in the
-      // same request as the loan upsert, so the two can't desync.
-      const res = await fetch('/api/loans', { method: 'POST', body: JSON.stringify(tx ? { loan, tx } : { loan }), headers: { 'Content-Type': 'application/json' } });
+      const res = await fetch('/api/contacts', { method: 'POST', body: JSON.stringify(contact), headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error();
-      setLoans((prev) => [loan, ...prev]);
+      setContacts((prev) => [...prev, contact].sort((a, b) => a.name.localeCompare(b.name)));
+      updateLoanParticipant(row.key, { contactId: contact.id, newName: '' });
+    } catch {
+      toast(t('loans.toastFailedContact'), 'error');
+    } finally {
+      setAddingContact(false);
+    }
+  }
+
+  // Creates one loan per participant. The entered amount is the TOTAL; each
+  // person's principal is their share (typed, or auto-divided from the remainder
+  // for blank boxes — same rule as Split Bills). One person = a normal loan.
+  async function handleAddLoan() {
+    const total = parseFloat(loanForm.amount) || 0;
+    if (total <= 0) return;
+    const namedRows = loanParticipants.filter((p) => !!contacts.find((c) => c.id === p.contactId));
+    if (namedRows.length === 0) return;
+    const { shares, over } = computeSplitShares(
+      total,
+      namedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0))),
+      false,
+    );
+    if (over) { toast(t('bills.splitExpenseOverTotal'), 'error'); return; }
+    const resolved = namedRows
+      .map((p, i) => ({ contact: contacts.find((c) => c.id === p.contactId)!, amount: roundCents(shares[i]) }))
+      .filter((p) => p.amount > 0);
+    if (resolved.length === 0) return;
+
+    setSavingLoan(true);
+    const created: Loan[] = [];
+    let anyTx = false;
+    try {
+      // Sequential — each principal transfer mutates the same account balance
+      // server-side, so parallel writes would race.
+      for (const p of resolved) {
+        const desc = loanForm.direction === 'lent'
+          ? t('loans.txLent', { name: p.contact.name })
+          : t('loans.txBorrowed', { name: p.contact.name });
+        const tx = loanForm.account ? buildLoanTx(loanForm.direction, 'principal', p.amount, loanForm.account, desc, loanForm.date) : null;
+        const loan: Loan = {
+          id: generateId(),
+          direction: loanForm.direction,
+          contactId: p.contact.id,
+          contactName: p.contact.name,
+          account: loanForm.account,
+          principal: p.amount,
+          repaidAmount: 0,
+          date: loanForm.date,
+          note: loanForm.note,
+          settled: false,
+          settledDate: '',
+          principalTxId: tx ? tx.id : '',
+          repaymentTxIds: [],
+        };
+        const res = await fetch('/api/loans', { method: 'POST', body: JSON.stringify(tx ? { loan, tx } : { loan }), headers: { 'Content-Type': 'application/json' } });
+        if (!res.ok) throw new Error();
+        created.push(loan);
+        if (tx) anyTx = true;
+      }
+      setLoans((prev) => [...created, ...prev]);
       setShowAddLoan(false);
       setLoanForm(EMPTY_LOAN_FORM);
       setNewContactName('');
-      toast(t('loans.toastAdded'), 'success');
-      if (tx) load(); // refresh balances + ledger
+      setLoanParticipants([emptyParticipant()]);
+      toast(created.length > 1 ? t('loans.toastAddedGroup', { n: created.length }) : t('loans.toastAdded'), 'success');
+      if (anyTx) load(); // refresh balances + ledger
     } catch {
       toast(t('loans.toastFailed'), 'error');
+      if (created.length) await load(); // partial write — reconcile from server
     } finally {
       setSavingLoan(false);
     }
@@ -540,6 +620,171 @@ export default function TransactionsPage() {
     }
   }
 
+  // ── Split bills (one-time expense splits) ───────────────────────────────────
+  // Only one-time splits surface here; recurring shared-bill splits live on the
+  // Bills page (see lib/splits isOneOffSplit).
+  const oneOffSplits = useMemo(() => splits.filter(isOneOffSplit), [splits]);
+  const pendingSplits = useMemo(() => oneOffSplits.filter((s) => !s.settled).sort((a, b) => b.date.localeCompare(a.date)), [oneOffSplits]);
+  const settledSplits = useMemo(() => oneOffSplits.filter((s) => s.settled).sort((a, b) => (b.settledDate || '').localeCompare(a.settledDate || '')), [oneOffSplits]);
+  const pendingSplitGroups = useMemo(() => groupSplits(pendingSplits), [pendingSplits]);
+  const settledSplitGroups = useMemo(() => groupSplits(settledSplits), [settledSplits]);
+  const totalOwedSplits = useMemo(() => pendingSplits.reduce((s, x) => s + x.amount, 0), [pendingSplits]);
+
+  function toggleSplitGroup(key: string) {
+    setExpandedSplitGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  function openSplitExpense() {
+    setSplitExpenseForm(EMPTY_SPLIT_EXPENSE);
+    setSplitParticipants([emptyParticipant()]);
+    setShowSplitExpense(true);
+  }
+  function updateParticipant(key: string, patch: Partial<SplitParticipant>) {
+    setSplitParticipants((prev) => prev.map((p) => p.key === key ? { ...p, ...patch } : p));
+  }
+  function addParticipantRow() {
+    setSplitParticipants((prev) => [...prev, emptyParticipant()]);
+  }
+  function removeParticipantRow(key: string) {
+    setSplitParticipants((prev) => prev.length > 1 ? prev.filter((p) => p.key !== key) : prev);
+  }
+  // Inline "add new contact" from a participant row — creates a reusable contact
+  // and selects it in that row.
+  async function handleAddParticipantContact(row: SplitParticipant) {
+    const name = row.newName.trim();
+    if (!name) return;
+    setAddingContact(true);
+    const contact: Contact = { id: generateId(), name, createdAt: new Date().toISOString() };
+    try {
+      const res = await fetch('/api/contacts', { method: 'POST', body: JSON.stringify(contact), headers: { 'Content-Type': 'application/json' } });
+      if (!res.ok) throw new Error();
+      setContacts((prev) => [...prev, contact].sort((a, b) => a.name.localeCompare(b.name)));
+      updateParticipant(row.key, { contactId: contact.id, newName: '' });
+      toast(t('bills.toastContactAdded'), 'success');
+    } catch {
+      toast(t('bills.toastFailedContact'), 'error');
+    } finally {
+      setAddingContact(false);
+    }
+  }
+  // Auto-divide: clear every amount so all participants (and you, when included)
+  // split the total evenly. Blank boxes are resolved live by computeSplitShares.
+  function splitEqually() {
+    setSplitParticipants((prev) => prev.map((p) => ({ ...p, amount: '' })));
+  }
+  async function handleSaveSplitExpense() {
+    const total = parseFloat(splitExpenseForm.total) || 0;
+    const description = splitExpenseForm.description.trim();
+    if (!description || total <= 0) return;
+    // Only rows naming a person take part; blank amounts auto-divide the rest.
+    const namedRows = splitParticipants.filter((p) => !!contacts.find((c) => c.id === p.contactId));
+    if (namedRows.length === 0) { toast(t('bills.splitExpenseNeedPeople'), 'error'); return; }
+    const { shares, myShare, over } = computeSplitShares(
+      total,
+      namedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0))),
+      splitExpenseForm.includeMe,
+    );
+    if (over) { toast(t('bills.splitExpenseOverTotal'), 'error'); return; }
+    const resolved = namedRows
+      .map((p, i) => ({ contact: contacts.find((c) => c.id === p.contactId)!, amount: roundCents(shares[i]) }))
+      .filter((p) => p.amount > 0);
+    if (resolved.length === 0) { toast(t('bills.splitExpenseNeedPeople'), 'error'); return; }
+    const othersTotal = roundCents(resolved.reduce((s, p) => s + p.amount, 0));
+
+    setSavingSplitExpense(true);
+    const { date, account, category } = splitExpenseForm;
+    const groupId = newOneOffGroupId();
+    const created: Split[] = [];
+    try {
+      // Your share is the only real expense; the rest is fronted (see buildSplitTx).
+      if (myShare > 0) {
+        const tx: Transaction = {
+          id: generateId(), date, description, amount: myShare,
+          type: 'expense', category, account, createdAt: new Date().toISOString(),
+        };
+        const txRes = await fetch('/api/transactions', { method: 'POST', body: JSON.stringify(tx), headers: { 'Content-Type': 'application/json' } });
+        if (!txRes.ok) throw new Error();
+      }
+      // Post each participant's split sequentially — every fronted transfer mutates
+      // the same account balance server-side, so parallel writes would race.
+      for (const p of resolved) {
+        const frontedTx = account
+          ? buildSplitTx('cashOut', p.amount, account, t('bills.txFronted', { name: p.contact.name, bill: description }), date)
+          : null;
+        const split: Split = {
+          id: generateId(), billId: groupId, billName: description,
+          contactId: p.contact.id, contactName: p.contact.name, amount: p.amount,
+          category, account, date, settled: false, settledDate: '',
+          frontedTxId: frontedTx?.id ?? '', settleTxId: '',
+        };
+        const sRes = await fetch('/api/splits', {
+          method: 'POST',
+          body: JSON.stringify(frontedTx ? { split, tx: frontedTx } : split),
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!sRes.ok) throw new Error();
+        created.push(split);
+      }
+      setSplits((prev) => [...created, ...prev]);
+      setShowSplitExpense(false);
+      // Refresh balances/ledger when cash was fronted out of an account.
+      if (account) load();
+      toast(t('bills.toastSplitExpense', { n: created.length, amount: formatCurrency(othersTotal) }), 'success');
+    } catch {
+      toast(t('bills.toastFailedSplit'), 'error');
+      await load();
+    } finally {
+      setSavingSplitExpense(false);
+    }
+  }
+  // Tick/untick "they paid me back" for one split share — writes/reverses the
+  // cash-in transfer when an account is on file (same model as the Bills tracker).
+  async function handleSplitToggle(split: Split) {
+    setSettlingSplitId(split.id);
+    let payload: Split | { split: Split; tx?: Transaction; removeTxId?: string };
+    let updated: Split;
+    if (split.settled) {
+      updated = { ...split, settled: false, settledDate: '', settleTxId: '' };
+      payload = split.settleTxId ? { split: updated, removeTxId: split.settleTxId } : updated;
+    } else {
+      const settleTx = split.account
+        ? buildSplitTx('cashIn', split.amount, split.account, t('bills.txSettled', { name: split.contactName, bill: split.billName }), today())
+        : null;
+      updated = { ...split, settled: true, settledDate: today(), settleTxId: settleTx?.id ?? '' };
+      payload = settleTx ? { split: updated, tx: settleTx } : updated;
+    }
+    setSplits((prev) => prev.map((s) => s.id === split.id ? updated : s));
+    try {
+      const res = await fetch('/api/splits', { method: 'POST', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' } });
+      if (!res.ok) throw new Error();
+      if (split.account) load();
+      toast(updated.settled ? t('bills.toastSplitSettled', { name: split.contactName }) : t('bills.toastSplitUnsettled', { name: split.contactName }), updated.settled ? 'success' : 'info');
+    } catch {
+      setSplits((prev) => prev.map((s) => s.id === split.id ? split : s));
+      toast(t('bills.toastFailedSplit'), 'error');
+    } finally {
+      setSettlingSplitId(null);
+    }
+  }
+  async function handleDeleteSplit(split: Split) {
+    if (!confirm(t('bills.confirmDeleteSplit'))) return;
+    const prev = splits;
+    setSplits((s) => s.filter((x) => x.id !== split.id));
+    try {
+      const res = await fetch('/api/splits', { method: 'DELETE', body: JSON.stringify({ id: split.id }), headers: { 'Content-Type': 'application/json' } });
+      if (!res.ok) throw new Error();
+      // The splits API reverses any linked fronted/settle transfers atomically.
+      if (split.frontedTxId || split.settleTxId) load();
+    } catch {
+      setSplits(prev);
+      toast(t('bills.toastFailedSplit'), 'error');
+    }
+  }
+
   const { totalIncome, totalExpense } = useMemo(() => {
     let income = 0, expense = 0;
     for (const tx of filtered) {
@@ -549,6 +794,37 @@ export default function TransactionsPage() {
     return { totalIncome: income, totalExpense: expense };
   }, [filtered]);
   const accountName = (id: string) => accountMap[id] ?? id;
+  // Live preview for the split-expense form. Only rows with a chosen contact
+  // count; blank amounts auto-divide the remainder (see computeSplitShares).
+  const seTotal = parseFloat(splitExpenseForm.total) || 0;
+  const seNamedRows = splitParticipants.filter((p) => !!contacts.find((c) => c.id === p.contactId));
+  const seComputed = computeSplitShares(
+    seTotal,
+    seNamedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0))),
+    splitExpenseForm.includeMe,
+  );
+  const seShareByKey = new Map<string, number>();
+  seNamedRows.forEach((p, i) => seShareByKey.set(p.key, seComputed.shares[i]));
+  const seOthersSum = roundCents(seComputed.shares.reduce((s, a) => s + a, 0));
+  const seMyShare = seComputed.myShare;
+  const seOver = seComputed.over;
+
+  // Live preview for a NEW group loan (total divided across people; blank = auto).
+  const loanTotal = parseFloat(loanForm.amount) || 0;
+  const loanNamedRows = loanParticipants.filter((p) => !!contacts.find((c) => c.id === p.contactId));
+  const loanComputed = computeSplitShares(
+    loanTotal,
+    loanNamedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0))),
+    false,
+  );
+  const loanShareByKey = new Map<string, number>();
+  loanNamedRows.forEach((p, i) => loanShareByKey.set(p.key, loanComputed.shares[i]));
+  const loanOver = loanComputed.over;
+  const loanUnassigned = loanComputed.myShare; // typed amounts that don't fill the total
+  const loanIsGroup = loanParticipants.length >= 2;
+  const loanCanSave = editingLoanId
+    ? (!!loanForm.amount && !!loanForm.contactId && loanForm.contactId !== NEW_CONTACT)
+    : (!!loanForm.amount && loanNamedRows.length > 0 && !loanOver);
   const merchantRows = useMemo(() => buildMerchantRows(filtered), [filtered]);
   // Reset paging whenever the active filters change. Adjusting state during
   // render (rather than in an effect) avoids a cascading re-render.
@@ -600,6 +876,13 @@ export default function TransactionsPage() {
               {t('transactions.templates')}
             </Button>
           )}
+          <Button variant="secondary" className="shadow-sm relative" onClick={() => setSplitsOpen(true)}>
+            <SplitIcon className="w-4 h-4" />
+            {t('splits.tab')}
+            {pendingSplits.length > 0 && (
+              <span className="ml-1 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-indigo-600 text-white text-[11px] font-bold">{pendingSplits.length}</span>
+            )}
+          </Button>
           <Button variant="secondary" className="shadow-sm relative" onClick={() => setLoansOpen(true)}>
             <HandCoins className="w-4 h-4" />
             {t('loans.loans')}
@@ -677,6 +960,22 @@ export default function TransactionsPage() {
             {owedToYou > 0 && <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">{t('loans.owedToYou')} {formatCurrency(owedToYou)}</span>}
             {youOwe > 0 && <span className="text-xs font-bold text-rose-600 dark:text-rose-400">{t('loans.youOwe')} {formatCurrency(youOwe)}</span>}
           </div>
+        </button>
+      )}
+
+      {/* Split bills summary — tap to open the tracker */}
+      {pendingSplits.length > 0 && (
+        <button onClick={() => setSplitsOpen(true)} className="w-full flex items-center justify-between p-4 rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 transition-colors text-left shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800/50 flex items-center justify-center shrink-0">
+              <SplitIcon className="w-5 h-5 text-emerald-500 dark:text-emerald-400" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('splits.title')}</p>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('bills.sharedOpenCount', { n: pendingSplits.length })}</p>
+            </div>
+          </div>
+          {totalOwedSplits > 0 && <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">{t('bills.owedToYou')} {formatCurrency(totalOwedSplits)}</span>}
         </button>
       )}
 
@@ -918,7 +1217,7 @@ export default function TransactionsPage() {
         <div className="space-y-4 pb-4">
           {/* Add loan: button → inline form */}
           {!showAddLoan ? (
-            <Button className="w-full" onClick={() => { setShowAddLoan(true); setEditingLoanId(null); setLoanForm(EMPTY_LOAN_FORM); setNewContactName(''); }}>
+            <Button className="w-full" onClick={() => { setShowAddLoan(true); setEditingLoanId(null); setLoanForm(EMPTY_LOAN_FORM); setNewContactName(''); setLoanParticipants([emptyParticipant()]); }}>
               <Plus className="w-4 h-4" />{t('loans.addLoan')}
             </Button>
           ) : (
@@ -931,24 +1230,78 @@ export default function TransactionsPage() {
                   </button>
                 ))}
               </div>
-              <Select
-                label={t('loans.contact')}
-                value={loanForm.contactId}
-                options={[
-                  { value: '', label: t('bills.selectContact') },
-                  ...contacts.map((c) => ({ value: c.id, label: c.name })),
-                  { value: NEW_CONTACT, label: t('bills.addNewContact') },
-                ]}
-                onChange={(e) => setLoanForm((f) => ({ ...f, contactId: e.target.value }))}
-              />
-              {loanForm.contactId === NEW_CONTACT && (
-                <div className="flex gap-2 items-end">
-                  <div className="flex-1"><Input label={t('bills.newContactName')} placeholder="e.g. Alex" value={newContactName} onChange={(e) => setNewContactName(e.target.value)} /></div>
-                  <Button type="button" variant="secondary" className="shrink-0" onClick={handleAddLoanContact} disabled={addingContact || !newContactName.trim()}><UserPlus className="w-4 h-4" />{t('bills.addContact')}</Button>
+              {editingLoanId ? (
+                /* Editing an existing loan stays single-contact. */
+                <>
+                  <Select
+                    label={t('loans.contact')}
+                    value={loanForm.contactId}
+                    options={[
+                      { value: '', label: t('bills.selectContact') },
+                      ...contacts.map((c) => ({ value: c.id, label: c.name })),
+                      { value: NEW_CONTACT, label: t('bills.addNewContact') },
+                    ]}
+                    onChange={(e) => setLoanForm((f) => ({ ...f, contactId: e.target.value }))}
+                  />
+                  {loanForm.contactId === NEW_CONTACT && (
+                    <div className="flex gap-2 items-end">
+                      <div className="flex-1"><Input label={t('bills.newContactName')} placeholder="e.g. Alex" value={newContactName} onChange={(e) => setNewContactName(e.target.value)} /></div>
+                      <Button type="button" variant="secondary" className="shrink-0" onClick={handleAddLoanContact} disabled={addingContact || !newContactName.trim()}><UserPlus className="w-4 h-4" />{t('bills.addContact')}</Button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                /* New loan: one or more people. Per-person amount + auto-divide
+                   only appear once a second person is added. */
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2"><Users className="w-4 h-4" />{loanIsGroup ? t('loans.people') : t('loans.contact')}</span>
+                    {loanIsGroup && <button type="button" onClick={loanSplitEqually} className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline">{t('bills.splitEqually')}</button>}
+                  </div>
+                  {loanParticipants.map((p) => (
+                    <div key={p.key} className="space-y-2">
+                      <div className="flex gap-2 items-end">
+                        <div className="flex-1 min-w-0">
+                          <Select
+                            label={t('loans.contact')}
+                            value={p.contactId}
+                            options={[
+                              { value: '', label: t('bills.selectContact') },
+                              ...contacts.map((c) => ({ value: c.id, label: c.name })),
+                              { value: NEW_CONTACT, label: t('bills.addNewContact') },
+                            ]}
+                            onChange={(e) => updateLoanParticipant(p.key, { contactId: e.target.value })}
+                          />
+                        </div>
+                        {loanIsGroup && (
+                          <div className="w-28 shrink-0">
+                            <Input label={loanShareByKey.has(p.key) && p.amount.trim() === '' ? t('bills.shareAuto') : t('bills.theirShareShort')} type="number" min="0" step="0.01" placeholder={loanShareByKey.has(p.key) ? (loanShareByKey.get(p.key) ?? 0).toFixed(2) : '0.00'} value={p.amount} onChange={(e) => updateLoanParticipant(p.key, { amount: e.target.value })} />
+                          </div>
+                        )}
+                        {loanIsGroup && (
+                          <button type="button" onClick={() => removeLoanParticipantRow(p.key)} className="mb-1.5 p-2 text-slate-400 dark:text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors" title={t('common.delete')}>
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                      {p.contactId === NEW_CONTACT && (
+                        <div className="flex gap-2 items-end">
+                          <div className="flex-1"><Input label={t('bills.newContactName')} placeholder="e.g. Alex" value={p.newName} onChange={(e) => updateLoanParticipant(p.key, { newName: e.target.value })} /></div>
+                          <Button type="button" variant="secondary" className="shrink-0" onClick={() => handleAddLoanParticipantContact(p)} disabled={addingContact || !p.newName.trim()}><UserPlus className="w-4 h-4" />{t('bills.addContact')}</Button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  <button type="button" onClick={addLoanParticipantRow} className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-dashed border-slate-300 dark:border-slate-600 text-xs font-bold text-slate-500 dark:text-slate-400 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+                    <Plus className="w-4 h-4" />{t('loans.addPerson')}
+                  </button>
+                  {loanIsGroup && <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 px-1">{t('bills.splitAutoHint')}</p>}
+                  {loanIsGroup && loanUnassigned > 0 && <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400 px-1">{t('loans.unassigned', { amount: formatCurrency(loanUnassigned) })}</p>}
+                  {loanOver && <p className="text-[11px] font-bold text-rose-600 dark:text-rose-400 px-1">{t('bills.splitExpenseOverTotal')}</p>}
                 </div>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Input label={t('common.amountUsd')} type="number" min="0" step="0.01" placeholder="0.00" value={loanForm.amount} onChange={(e) => setLoanForm((f) => ({ ...f, amount: e.target.value }))} />
+                <Input label={loanIsGroup && !editingLoanId ? t('bills.totalAmount') : t('common.amountUsd')} type="number" min="0" step="0.01" placeholder="0.00" value={loanForm.amount} onChange={(e) => setLoanForm((f) => ({ ...f, amount: e.target.value }))} />
                 <Input label={t('common.date')} type="date" value={loanForm.date} onChange={(e) => setLoanForm((f) => ({ ...f, date: e.target.value }))} />
               </div>
               <Select
@@ -960,8 +1313,8 @@ export default function TransactionsPage() {
               <Input label={t('loans.noteOptional')} placeholder={t('loans.notePlaceholder')} value={loanForm.note} onChange={(e) => setLoanForm((f) => ({ ...f, note: e.target.value }))} />
               <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{loanForm.account ? t('loans.cashHelp') : t('loans.noteOnlyHelp')}</p>
               <div className="flex gap-3 pt-1">
-                <Button variant="secondary" className="flex-1" onClick={() => { setShowAddLoan(false); setEditingLoanId(null); setLoanForm(EMPTY_LOAN_FORM); }}>{t('common.cancel')}</Button>
-                <Button className="flex-1" onClick={editingLoanId ? handleEditLoan : handleAddLoan} disabled={savingLoan || !loanForm.amount || !loanForm.contactId || loanForm.contactId === NEW_CONTACT}>{savingLoan ? t('common.saving') : editingLoanId ? t('loans.saveChanges') : t('loans.addLoan')}</Button>
+                <Button variant="secondary" className="flex-1" onClick={() => { setShowAddLoan(false); setEditingLoanId(null); setLoanForm(EMPTY_LOAN_FORM); setLoanParticipants([emptyParticipant()]); }}>{t('common.cancel')}</Button>
+                <Button className="flex-1" onClick={editingLoanId ? handleEditLoan : handleAddLoan} disabled={savingLoan || !loanCanSave}>{savingLoan ? t('common.saving') : editingLoanId ? t('loans.saveChanges') : loanIsGroup ? t('loans.addLoans') : t('loans.addLoan')}</Button>
               </div>
             </div>
           )}
@@ -1061,6 +1414,213 @@ export default function TransactionsPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* ── Split Bills Modal ────────────────────────────────────────────── */}
+      <Modal open={splitsOpen} onClose={() => { setSplitsOpen(false); setShowSplitExpense(false); }} title={t('splits.title')}>
+        <div className="space-y-4 pb-4">
+          {/* Split an expense: button → inline form (modal-style inner view) */}
+          {!showSplitExpense ? (
+            <Button className="w-full" onClick={openSplitExpense}><Plus className="w-4 h-4" />{t('bills.splitExpenseTitle')}</Button>
+          ) : (
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{t('bills.splitExpenseHelp')}</p>
+              <Input label={t('common.description')} placeholder={t('bills.splitExpensePlaceholder')} value={splitExpenseForm.description} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, description: e.target.value }))} />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Input label={t('bills.totalAmount')} type="number" min="0" step="0.01" placeholder="0.00" value={splitExpenseForm.total} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, total: e.target.value }))} />
+                <Input label={t('common.date')} type="date" value={splitExpenseForm.date} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, date: e.target.value }))} />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Select label={t('common.category')} value={splitExpenseForm.category} options={expenseCategories.map((c) => ({ value: c, label: c }))} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, category: e.target.value }))} />
+                <Select label={t('bills.payFromOptional')} value={splitExpenseForm.account} options={[{ value: '', label: t('loans.noAccount') }, ...accounts.map((a) => ({ value: a.id, label: a.name }))]} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, account: e.target.value }))} />
+              </div>
+
+              {/* Participants */}
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2"><Users className="w-4 h-4" />{t('bills.whoShared')}</span>
+                  <button type="button" onClick={splitEqually} className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline">{t('bills.splitEqually')}</button>
+                </div>
+                <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                  <input type="checkbox" checked={splitExpenseForm.includeMe} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, includeMe: e.target.checked }))} className="w-4 h-4 rounded accent-indigo-600" />
+                  <span className="text-xs font-medium text-slate-600 dark:text-slate-400">{t('bills.includeMe')}</span>
+                </label>
+                {splitParticipants.map((p) => (
+                  <div key={p.key} className="space-y-2 rounded-xl bg-slate-50 dark:bg-slate-700/40 p-3">
+                    <div className="flex gap-2 items-end">
+                      <div className="flex-1 min-w-0">
+                        <Select
+                          label={t('bills.person')}
+                          value={p.contactId}
+                          options={[
+                            { value: '', label: t('bills.selectContact') },
+                            ...contacts.map((c) => ({ value: c.id, label: c.name })),
+                            { value: NEW_CONTACT, label: t('bills.addNewContact') },
+                          ]}
+                          onChange={(e) => updateParticipant(p.key, { contactId: e.target.value })}
+                        />
+                      </div>
+                      <div className="w-28 shrink-0">
+                        <Input label={seShareByKey.has(p.key) && p.amount.trim() === '' ? t('bills.shareAuto') : t('bills.theirShareShort')} type="number" min="0" step="0.01" placeholder={seShareByKey.has(p.key) ? (seShareByKey.get(p.key) ?? 0).toFixed(2) : '0.00'} value={p.amount} onChange={(e) => updateParticipant(p.key, { amount: e.target.value })} />
+                      </div>
+                      <button type="button" onClick={() => removeParticipantRow(p.key)} disabled={splitParticipants.length === 1} className="mb-1.5 p-2 text-slate-400 dark:text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed" title={t('common.delete')}>
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    {p.contactId === NEW_CONTACT && (
+                      <div className="flex gap-2 items-end">
+                        <div className="flex-1"><Input label={t('bills.newContactName')} placeholder="e.g. Alex" value={p.newName} onChange={(e) => updateParticipant(p.key, { newName: e.target.value })} /></div>
+                        <Button type="button" variant="secondary" className="shrink-0" onClick={() => handleAddParticipantContact(p)} disabled={addingContact || !p.newName.trim()}><UserPlus className="w-4 h-4" />{t('bills.addContact')}</Button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                <button type="button" onClick={addParticipantRow} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-slate-300 dark:border-slate-600 text-xs font-bold text-slate-500 dark:text-slate-400 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+                  <Plus className="w-4 h-4" />{t('bills.addPerson')}
+                </button>
+                <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 px-1">{t('bills.splitAutoHint')}</p>
+                {seTotal > 0 && (
+                  <div className={`flex items-center justify-between text-xs font-bold px-1 pt-1 ${seOver ? 'text-rose-600 dark:text-rose-400' : ''}`}>
+                    <span className="text-slate-500 dark:text-slate-400">{t('bills.yourShare')}: <span className="text-slate-900 dark:text-slate-100">{formatCurrency(seMyShare)}</span></span>
+                    <span className="text-slate-500 dark:text-slate-400">{t('bills.theyOwe')}: <span className="text-emerald-600 dark:text-emerald-400">{formatCurrency(seOthersSum)}</span></span>
+                  </div>
+                )}
+                {seOver && <p className="text-xs font-bold text-rose-600 dark:text-rose-400 px-1">{t('bills.splitExpenseOverTotal')}</p>}
+              </div>
+
+              <div className="flex gap-3 pt-1">
+                <Button variant="secondary" className="flex-1" onClick={() => setShowSplitExpense(false)}>{t('common.cancel')}</Button>
+                <Button className="flex-1" onClick={handleSaveSplitExpense} disabled={savingSplitExpense || !splitExpenseForm.description.trim() || seTotal <= 0 || seOver}>
+                  {savingSplitExpense ? t('common.saving') : t('bills.recordSplit')}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Total owed */}
+          {totalOwedSplits > 0 && (
+            <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800/50">
+              <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider">{t('bills.owedToYou')}</p>
+              <p className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">{formatCurrency(totalOwedSplits)}</p>
+            </div>
+          )}
+
+          {/* Pending — grouped by expense, expand a card to see each person */}
+          {pendingSplits.length === 0 && !showSplitExpense && (
+            <p className="text-center text-sm text-slate-500 dark:text-slate-400 font-medium py-6">{t('bills.sharedEmpty')}</p>
+          )}
+          {pendingSplitGroups.map((group) => {
+            const expanded = expandedSplitGroups.has(group.key);
+            const subtitle = group.splits.length === 1
+              ? `${group.splits[0].contactName} · ${t('bills.owedSince', { date: formatDate(group.date) })}`
+              : t('bills.groupOwedSince', { n: group.splits.length, date: formatDate(group.date) });
+            return (
+              <div key={group.key} className="rounded-2xl bg-white dark:bg-slate-800 border border-emerald-100 dark:border-emerald-800/40 overflow-hidden">
+                <button onClick={() => toggleSplitGroup(group.key)} className="w-full flex items-center justify-between px-4 py-3 text-left">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{group.billName}</p>
+                      <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">{subtitle}</p>
+                    </div>
+                  </div>
+                  <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400 ml-2 shrink-0">{formatCurrency(group.total)}</span>
+                </button>
+                {expanded && (
+                  <div className="divide-y divide-slate-100 dark:divide-slate-700/60 border-t border-slate-100 dark:border-slate-700/60">
+                    {group.splits.map((split) => {
+                      const busy = settlingSplitId === split.id;
+                      return (
+                        <div key={split.id} className="flex items-center justify-between px-4 py-2.5">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <button
+                              type="button"
+                              onClick={() => handleSplitToggle(split)}
+                              disabled={busy}
+                              title={t('bills.markTransferred')}
+                              className="w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors disabled:opacity-50 border-slate-300 dark:border-slate-600 hover:border-emerald-400"
+                            />
+                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">{split.contactName}</p>
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0">
+                            <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(split.amount)}</span>
+                            <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* History (settled) — collapsible, last 10 events, same grouping */}
+          {settledSplits.length > 0 && (
+            <div className="pt-1">
+              <button
+                onClick={() => setShowSplitHistory((v) => !v)}
+                className="w-full flex items-center justify-between px-1 py-2 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+              >
+                <span>{t('bills.sharedHistory', { n: settledSplits.length })}</span>
+                <ChevronDown className={`w-4 h-4 transition-transform ${showSplitHistory ? 'rotate-180' : ''}`} />
+              </button>
+              {showSplitHistory && (
+                <div className="space-y-2 pt-1">
+                  {settledSplitGroups.slice(0, 10).map((group) => {
+                    const expanded = expandedSplitGroups.has(group.key);
+                    const subtitle = group.splits.length === 1
+                      ? `${group.splits[0].contactName} · ${t('bills.transferredOn', { date: formatDate(group.settledDate || group.date) })}`
+                      : t('bills.groupTransferredOn', { n: group.splits.length, date: formatDate(group.settledDate || group.date) });
+                    return (
+                      <div key={group.key} className="rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 overflow-hidden opacity-90">
+                        <button onClick={() => toggleSplitGroup(group.key)} className="w-full flex items-center justify-between px-3.5 py-2.5 text-left">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{group.billName}</p>
+                              <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5 truncate">{subtitle}</p>
+                            </div>
+                          </div>
+                          <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through ml-2 shrink-0">{formatCurrency(group.total)}</span>
+                        </button>
+                        {expanded && (
+                          <div className="divide-y divide-slate-100 dark:divide-slate-700/60 border-t border-slate-100 dark:border-slate-700/60">
+                            {group.splits.map((split) => {
+                              const busy = settlingSplitId === split.id;
+                              return (
+                                <div key={split.id} className="flex items-center justify-between px-3.5 py-2">
+                                  <p className="text-sm font-semibold text-slate-600 dark:text-slate-400 truncate min-w-0">{split.contactName}</p>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through">{formatCurrency(split.amount)}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSplitToggle(split)}
+                                      disabled={busy}
+                                      title={t('bills.transferred')}
+                                      className="w-5 h-5 rounded-md border-2 bg-emerald-500 border-emerald-500 text-white flex items-center justify-center shrink-0 disabled:opacity-50"
+                                    >
+                                      <Check className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>

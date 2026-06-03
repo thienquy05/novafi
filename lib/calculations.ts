@@ -296,7 +296,7 @@ export function calcHealthGrade(score: number): string {
 
 // ── Transaction Balance Effects ───────────────────────────────────────────────
 
-function roundCents(n: number): number {
+export function roundCents(n: number): number {
   return Math.round(n * 100) / 100;
 }
 

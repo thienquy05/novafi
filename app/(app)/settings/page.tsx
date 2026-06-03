@@ -1,19 +1,21 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useSession, signOut } from 'next-auth/react';
-import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, User, SlidersHorizontal, Receipt, Tags, Landmark, Building2, Database, ShieldCheck, ChevronDown, LogOut } from 'lucide-react';
+import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, User, SlidersHorizontal, Receipt, Tags, Landmark, Building2, Database, ShieldCheck, ChevronDown, LogOut, Users, UserPlus, Trash2 } from 'lucide-react';
 import { BRACKETS_2026, STANDARD_DEDUCTION_2026 } from '@/lib/tax';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { DEFAULT_TAX_SETTINGS } from '@/lib/utils';
-import type { TaxSettings } from '@/types';
+import type { TaxSettings, Contact } from '@/types';
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '@/types';
+import { generateId } from '@/lib/utils';
 import { invalidateCategoriesCache } from '@/hooks/useCategories';
+import { useToast } from '@/lib/toast';
 import { useTranslation } from '@/lib/i18n/context';
 
-type SectionId = 'general' | 'taxes' | 'categories' | 'about';
+type SectionId = 'general' | 'taxes' | 'categories' | 'contacts' | 'about';
 
 // Reusable labeled toggle row — replaces the four near-identical switch blocks
 // that the settings page used to repeat inline.
@@ -68,6 +70,10 @@ export default function SettingsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [section, setSection] = useState<SectionId>('general');
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [newContactName, setNewContactName] = useState('');
+  const [addingContact, setAddingContact] = useState(false);
+  const toast = useToast();
 
   useEffect(() => {
     try { setDarkMode(localStorage.getItem('nf_theme') === 'dark'); } catch { /* noop */ }
@@ -106,6 +112,48 @@ export default function SettingsPage() {
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    fetch('/api/contacts')
+      .then((r) => r.json())
+      .then((c: Contact[]) => setContacts([...(c ?? [])].sort((a, b) => a.name.localeCompare(b.name))))
+      .catch(() => { /* tab may not exist yet; created on first add */ });
+  }, []);
+
+  // Contacts persist to Google Sheets (shared with the bill-splitting flows), so
+  // they're available everywhere — not just this device's local storage.
+  async function addContact() {
+    const name = newContactName.trim();
+    if (!name || addingContact) return;
+    if (contacts.some((c) => c.name.toLowerCase() === name.toLowerCase())) { setNewContactName(''); return; }
+    setAddingContact(true);
+    const contact: Contact = { id: generateId(), name, createdAt: new Date().toISOString() };
+    setContacts((prev) => [...prev, contact].sort((a, b) => a.name.localeCompare(b.name)));
+    setNewContactName('');
+    try {
+      const res = await fetch('/api/contacts', { method: 'POST', body: JSON.stringify(contact), headers: { 'Content-Type': 'application/json' } });
+      if (!res.ok) throw new Error();
+      toast(t('settings.contactAdded'), 'success');
+    } catch {
+      setContacts((prev) => prev.filter((c) => c.id !== contact.id));
+      toast(t('settings.contactSaveFailed'), 'error');
+    } finally {
+      setAddingContact(false);
+    }
+  }
+
+  async function removeContact(contact: Contact) {
+    if (!confirm(t('settings.contactDeleteConfirm', { name: contact.name }))) return;
+    const prev = contacts;
+    setContacts((cs) => cs.filter((c) => c.id !== contact.id));
+    try {
+      const res = await fetch('/api/contacts', { method: 'DELETE', body: JSON.stringify({ id: contact.id }), headers: { 'Content-Type': 'application/json' } });
+      if (!res.ok) throw new Error();
+    } catch {
+      setContacts(prev);
+      toast(t('settings.contactSaveFailed'), 'error');
+    }
+  }
 
   function update<K extends keyof TaxSettings>(key: K, value: TaxSettings[K]) {
     setSettings((prev) => prev ? { ...prev, [key]: value } : prev);
@@ -215,6 +263,7 @@ export default function SettingsPage() {
     { id: 'general', label: t('settings.sectionGeneral'), icon: SlidersHorizontal },
     { id: 'taxes', label: t('settings.sectionTaxes'), icon: Receipt },
     { id: 'categories', label: t('settings.sectionCategories'), icon: Tags },
+    { id: 'contacts', label: t('settings.sectionContacts'), icon: Users },
     { id: 'about', label: t('settings.sectionAbout'), icon: Database },
   ];
 
@@ -705,6 +754,52 @@ export default function SettingsPage() {
               </div>
             </div>
             <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-4">Changes take effect after clicking {t('settings.saveSettings')}.</p>
+          </Card>
+        </div>
+      )}
+
+      {/* ── Contacts ── */}
+      {section === 'contacts' && (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <SectionTitle icon={Users}>{t('settings.contactsTitle')}</SectionTitle>
+            </CardHeader>
+            <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-5">
+              {t('settings.contactsDesc')}
+            </p>
+
+            <div className="flex gap-2 mb-5">
+              <input
+                className="flex-1 h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/10"
+                placeholder={t('settings.contactNamePlaceholder')}
+                value={newContactName}
+                onChange={(e) => setNewContactName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addContact(); } }}
+              />
+              <button onClick={addContact} disabled={addingContact || !newContactName.trim()} className="h-9 px-3 rounded-xl bg-indigo-600 text-white disabled:opacity-40 flex items-center gap-1.5 text-sm font-bold">
+                <UserPlus className="w-4 h-4" /><span className="hidden sm:inline">{t('settings.addContactBtn')}</span>
+              </button>
+            </div>
+
+            {contacts.length === 0 ? (
+              <p className="text-center text-sm text-slate-400 dark:text-slate-500 font-medium py-8">{t('settings.contactsEmpty')}</p>
+            ) : (
+              <div className="space-y-2">
+                {contacts.map((c) => (
+                  <div key={c.id} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300 text-sm font-bold shrink-0">{c.name.charAt(0).toUpperCase()}</span>
+                      <span className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">{c.name}</span>
+                    </div>
+                    <button onClick={() => removeContact(c)} title={t('common.delete')} className="p-2 text-slate-400 dark:text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors shrink-0">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-4">{t('settings.contactsNote')}</p>
           </Card>
         </div>
       )}
