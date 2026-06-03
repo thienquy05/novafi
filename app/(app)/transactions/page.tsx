@@ -390,21 +390,25 @@ export default function TransactionsPage() {
   const owedToYou = useMemo(() => openLoans.filter((l) => l.direction === 'lent').reduce((s, l) => s + calcLoanRemaining(l.principal, l.repaidAmount), 0), [openLoans]);
   const youOwe = useMemo(() => openLoans.filter((l) => l.direction === 'borrowed').reduce((s, l) => s + calcLoanRemaining(l.principal, l.repaidAmount), 0), [openLoans]);
   // Collapse multi-person loans (shared groupId) into one expandable row; loans
-  // with no groupId (or a group with a single open loan left) stay standalone.
-  const openLoanGroups = useMemo(() => {
+  // with no groupId (or a single loan left in a group) stay standalone. Used for
+  // both the open and settled lists so loans group exactly like Bills/Splits.
+  function groupLoansByGroupId(list: Loan[], keyPrefix = '') {
     const map = new Map<string, Loan[]>();
-    for (const l of openLoans) {
+    for (const l of list) {
       const key = l.groupId || `solo:${l.id}`;
       (map.get(key) ?? map.set(key, []).get(key)!).push(l);
     }
     return [...map.entries()].map(([key, loans]) => ({
-      key,
+      key: keyPrefix + key,
       loans,
       isGroup: loans.length > 1,
       direction: loans[0].direction,
       remaining: loans.reduce((s, l) => s + calcLoanRemaining(l.principal, l.repaidAmount), 0),
+      principal: loans.reduce((s, l) => s + l.principal, 0),
     }));
-  }, [openLoans]);
+  }
+  const openLoanGroups = useMemo(() => groupLoansByGroupId(openLoans), [openLoans]);
+  const settledLoanGroups = useMemo(() => groupLoansByGroupId(settledLoans, 'settled:'), [settledLoans]);
   function toggleLoanGroup(key: string) {
     setExpandedLoanGroups((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
   }
@@ -500,6 +504,49 @@ export default function TransactionsPage() {
         {open && (
           <div className="px-3 pb-3 space-y-2">
             {group.loans.map((l) => renderOpenLoanCard(l, true))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // One settled-loan row (standalone, or nested inside an expanded group).
+  function renderSettledLoanCard(loan: Loan, nested = false) {
+    return (
+      <div key={loan.id} className={`flex items-center justify-between ${nested ? 'px-3 py-2.5 rounded-xl bg-white dark:bg-slate-800/60' : 'p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 opacity-75'}`}>
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{loan.contactName}</p>
+          <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{loan.direction === 'lent' ? t('loans.lentLabel') : t('loans.borrowedLabel')} · {t('loans.settledOn', { date: formatDate(loan.settledDate || loan.date) })}</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through">{formatCurrency(loan.principal)}</span>
+          <button title={t('common.delete')} onClick={() => handleDeleteLoan(loan)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
+        </div>
+      </div>
+    );
+  }
+
+  // A settled multi-person loan group: same collapsed/expandable shape as the
+  // open group (and the Splits history), so all three read consistently.
+  function renderSettledLoanGroup(group: { key: string; loans: Loan[]; direction: Loan['direction']; principal: number }) {
+    const isLent = group.direction === 'lent';
+    const open = expandedLoanGroups.has(group.key);
+    const names = group.loans.map((l) => l.contactName).join(', ');
+    return (
+      <div key={group.key} className="rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 opacity-75">
+        <button onClick={() => toggleLoanGroup(group.key)} className="w-full flex items-center justify-between gap-3 p-3.5 text-left">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{t('loans.peopleCount', { n: group.loans.length })}</p>
+              <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5 truncate">{isLent ? t('loans.lentLabel') : t('loans.borrowedLabel')} · {names}</p>
+            </div>
+          </div>
+          <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through ml-2 shrink-0">{formatCurrency(group.principal)}</span>
+        </button>
+        {open && (
+          <div className="px-3 pb-3 space-y-2">
+            {group.loans.map((l) => renderSettledLoanCard(l, true))}
           </div>
         )}
       </div>
@@ -1496,18 +1543,7 @@ export default function TransactionsPage() {
           {settledLoans.length > 0 && (
             <div className="space-y-2 pt-2">
               <p className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-1">{t('loans.settled')}</p>
-              {settledLoans.map((loan) => (
-                <div key={loan.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 opacity-75">
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{loan.contactName}</p>
-                    <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{loan.direction === 'lent' ? t('loans.lentLabel') : t('loans.borrowedLabel')} · {t('loans.settledOn', { date: formatDate(loan.settledDate || loan.date) })}</p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through">{formatCurrency(loan.principal)}</span>
-                    <button title={t('common.delete')} onClick={() => handleDeleteLoan(loan)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
-                  </div>
-                </div>
-              ))}
+              {settledLoanGroups.map((group) => group.isGroup ? renderSettledLoanGroup(group) : renderSettledLoanCard(group.loans[0]))}
             </div>
           )}
         </div>

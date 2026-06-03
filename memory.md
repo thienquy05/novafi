@@ -687,3 +687,15 @@ User feedback after the first batch led to three more changes (decisions capture
 - Save handlers + live previews branch between `computeSplitShares` (divide) and `sumPerPersonShares` (perPerson); "Split equally" + auto placeholders hidden in perPerson; over-total can't happen in perPerson. New i18n: `bills.splitModeDivide/splitModePerPerson/splitModePerPersonHint/computedTotal/yourShareInput` (en + vi).
 
 **Verification:** `tsc` clean; both locales valid; eslint 0 errors (pre-existing purity/setState-in-effect warnings only); **312 tests pass** (was 309; +3 sumPerPersonShares). Committed in stages: multi-person bills, loan grouping, then per-person mode.
+
+### Follow-up — settled loans group like Bills/Splits (same branch)
+
+User: "Make sure to have the group just changed from Loan same with Bills and Splits." Bills and one-off/recurring Splits already collapse multi-person occurrences into expandable cards for BOTH pending and settled (via `groupSplits` + a settled History). Open loans got that grouping in the prior step, but **settled loans were still a flat list** — the one inconsistency.
+
+`app/(app)/transactions/page.tsx`:
+- Extracted the open-loan grouping into reusable `groupLoansByGroupId(list, keyPrefix?)` (adds `principal` sum; `keyPrefix` namespaces settled keys so expand state can't collide with the open group of the same `groupId`).
+- `openLoanGroups` now uses it; new `settledLoanGroups` (prefix `settled:`).
+- New `renderSettledLoanCard(loan, nested?)` (extracted from the old flat row) and `renderSettledLoanGroup(group)` — same collapsed/expandable shape as the open group + the Splits history (chevron, people count, direction · names, total principal line-through, delete per person).
+- Replaced the flat `settledLoans.map(...)` with `settledLoanGroups.map(g => g.isGroup ? renderSettledLoanGroup : renderSettledLoanCard)`. Partial settlements render cleanly (the open and settled sides each show only their members; a 1-member settled "group" falls back to a solo card).
+
+**Verification:** `tsc` clean; 312 tests pass; eslint 0 errors.
