@@ -92,6 +92,13 @@ export interface Budget {
   position?: number;
 }
 
+// One other person on a shared bill and the share they owe you. "Me" is never a
+// participant row — my share is always the remainder (amount − sum of theirs).
+export interface BillSplitParticipant {
+  contactId: string;
+  amount: number;
+}
+
 export interface Bill {
   id: string;
   name: string;
@@ -101,8 +108,13 @@ export interface Bill {
   account: string;
   category: string;
   isActive: boolean;
+  // Legacy single-contact split (read for back-compat; superseded by
+  // splitParticipants when that is present).
   splitContactId?: string; // when set, this bill is shared with a contact
   splitAmount?: number;    // the other person's share of `amount` (the part they owe you); your share = amount - splitAmount
+  // Multi-person split: each entry is one other person's share they owe you.
+  // Your share is the remainder (amount − sum). Empty/absent = unsplit.
+  splitParticipants?: BillSplitParticipant[];
 }
 
 // A person you share bills with. Deliberately minimal & reusable across bills.
@@ -156,6 +168,7 @@ export interface Loan {
   contactId: string;
   contactName: string;       // denormalized for display
   account: string;           // account the cash moved from/into ('' = note only, no cash tx)
+  category: string;          // descriptive bucket for history/filtering ('' = uncategorized); stays out of spending
   principal: number;         // original amount
   repaidAmount: number;      // cumulative amount paid back so far
   date: string;              // YYYY-MM-DD the loan was created
@@ -164,6 +177,7 @@ export interface Loan {
   settledDate: string;       // YYYY-MM-DD fully repaid ('' until settled)
   principalTxId: string;     // id of the cash transfer for the principal ('' if note only)
   repaymentTxIds: string[];  // ids of the cash transfers for each payback
+  groupId?: string;          // shared id linking per-person loans created together (multi-person); absent = standalone
 }
 
 export const EXPENSE_CATEGORIES = [

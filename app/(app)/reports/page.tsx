@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { FitText } from '@/components/ui/FitText';
 import { formatCurrency } from '@/lib/utils';
 import type { Transaction, Budget } from '@/types';
-import { calcSpendingPace } from '@/lib/calculations';
+import { calcSpendingPace, calcRolloverDeficit, normalizeMonthlyBudget } from '@/lib/calculations';
 import { SpendingPaceWidget } from '../dashboard/DashboardCharts';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -38,6 +38,7 @@ export default function ReportsPage() {
   const { t } = useTranslation();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [budgetRollover, setBudgetRollover] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -50,10 +51,11 @@ export default function ReportsPage() {
     setError(false);
     setLoading(true);
     try {
-      const [txRes, bRes] = await Promise.all([fetch('/api/transactions'), fetch('/api/budgets')]);
+      const [txRes, bRes, sRes] = await Promise.all([fetch('/api/transactions'), fetch('/api/budgets'), fetch('/api/settings')]);
       if (!txRes.ok) throw new Error();
       setTransactions(await txRes.json());
       setBudgets(bRes.ok ? await bRes.json() : []);
+      setBudgetRollover(sRes.ok ? !!(await sRes.json()).budgetRollover : false);
     } catch {
       setError(true);
     } finally {
@@ -127,19 +129,34 @@ export default function ReportsPage() {
   const { spendingPace, paceDaysLeft } = useMemo(() => {
     const now = new Date();
     const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevMonthKey = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
     const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     const daysElapsed = now.getDate();
     const categorySpend: Record<string, number> = {};
+    const prevCategorySpend: Record<string, number> = {};
     for (const tx of transactions) {
-      if (tx.type === 'expense' && tx.date.startsWith(monthKey)) {
+      if (tx.type !== 'expense') continue;
+      if (tx.date.startsWith(monthKey)) {
         categorySpend[tx.category] = (categorySpend[tx.category] ?? 0) + tx.amount;
+      } else if (tx.date.startsWith(prevMonthKey)) {
+        prevCategorySpend[tx.category] = (prevCategorySpend[tx.category] ?? 0) + tx.amount;
+      }
+    }
+    // When rollover is on, carry last month's overspend per category into the
+    // pace so an already-over rolled-over budget no longer reads "on track".
+    const rolloverDeficit: Record<string, number> = {};
+    if (budgetRollover) {
+      for (const b of budgets) {
+        const monthly = normalizeMonthlyBudget(b.amount, b.period);
+        rolloverDeficit[b.category] = calcRolloverDeficit(monthly, prevCategorySpend[b.category] ?? 0);
       }
     }
     return {
-      spendingPace: calcSpendingPace(budgets, categorySpend, daysElapsed, daysInMonth),
+      spendingPace: calcSpendingPace(budgets, categorySpend, daysElapsed, daysInMonth, rolloverDeficit),
       paceDaysLeft: daysInMonth - daysElapsed,
     };
-  }, [transactions, budgets]);
+  }, [transactions, budgets, budgetRollover]);
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
@@ -264,7 +281,8 @@ export default function ReportsPage() {
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={monthlyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} barGap={4}>
                     <CartesianGrid strokeDasharray="3 3" stroke={c.grid} vertical={false} />
-                    <XAxis dataKey="month" tick={{ fill: c.axis, fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} dy={10} />
+                    {/* interval={0} forces all 12 month labels; Recharts otherwise auto-thins them (dropping Jan/Mar/May/Sep…). minTickGap=0 keeps them all even when tight. */}
+                    <XAxis dataKey="month" interval={0} minTickGap={0} tick={{ fill: c.axis, fontSize: 10, fontWeight: 600 }} axisLine={false} tickLine={false} dy={10} />
                     <YAxis tick={{ fill: c.axis, fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} tickFormatter={fmt} width={52} />
                     <Tooltip formatter={(v) => formatCurrency(Number(v))} cursor={{ fill: c.cursor }} contentStyle={{ ...c.tip, borderRadius: 16, fontSize: 13, fontWeight: 700 }} itemStyle={{ color: c.tip.color }} labelStyle={{ color: c.tip.color }} />
                     <Bar dataKey="income" name="Income" fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={28} />

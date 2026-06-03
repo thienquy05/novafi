@@ -47,6 +47,23 @@ export function buildSplitTx(
   };
 }
 
+// "Per-person" entry mode (the inverse of computeSplitShares' divide mode): each
+// person's amount is typed explicitly and the group TOTAL is the sum, rather than
+// a known total being divided. Blank entries count as 0 (no auto-divide). When
+// `includeMe` is true your own typed share (`myAmount`) is added to the total and
+// returned as `myShare`. `over` is always false — building up from parts can't
+// exceed a total that doesn't exist yet.
+export function sumPerPersonShares(
+  amounts: (number | null)[],
+  myAmount: number,
+  includeMe: boolean,
+): { shares: number[]; total: number; myShare: number; over: boolean } {
+  const shares = amounts.map((a) => roundCents(a ?? 0));
+  const myShare = includeMe ? roundCents(Math.max(0, myAmount || 0)) : 0;
+  const total = roundCents(shares.reduce((s, v) => s + v, 0) + myShare);
+  return { shares, total, myShare, over: false };
+}
+
 // One bill/expense occurrence with everyone who shares it. Splits are grouped by
 // billId + date so a single dinner (many people, same billId & date) collapses
 // into one group with a per-person breakdown, while each month's recurring-bill

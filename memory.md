@@ -633,3 +633,73 @@ All handlers (save/reset/hard-refresh/category add-hide-restore/lang/dark mode) 
 - Reuses split i18n (`bills.splitEqually/shareAuto/theirShareShort/splitAutoHint/totalAmount/splitExpenseOverTotal/newContactName/addContact/selectContact/addNewContact`). New `loans.*` keys: `addLoans`, `people`, `addPerson`, `unassigned` ({amount}), `toastAddedGroup` ({n}) — en + vi.
 
 **Verification:** `tsc` clean; both locale JSONs valid; eslint 0 errors (2 pre-existing warnings); 299 tests pass.
+
+### NovaFi enhancement batch — reports fixes, loan categories, category archive (branch `claude/novafi-enhancement-discussion-C6KKf`)
+
+User raised a multi-part enhancement discussion (split bills/loans, reports, custom categories, notifications). After a Q&A round the decisions were: splits/loans → self-sentinel + `participants[]` (already largely built for one-off splits & group loans); **best savings month → keep net (income − expense)** (no change); **category delete → Archive/Delete/Cancel**; **notifications → skipped**. This batch implements the contained, high-confidence pieces.
+
+**1. Spending pace ignored budget rollover (Reports bug).**
+- `lib/calculations.ts` `calcSpendingPace` now takes an optional 5th arg `rolloverDeficit: Record<string, number> = {}`. The deficit is added as a FLAT carryover to both the effective `spent` (via `calcEffectiveSpent`) and the `projected` total, but NOT to the daily `pace`/rate-projection (which stay derived from the actual month spend). Previously a rolled-over category already over budget reported `onTrack` because the carried deficit was dropped entirely.
+- `app/(app)/reports/page.tsx`: `load()` now also fetches `/api/settings` → new `budgetRollover` state. The pace `useMemo` computes prev-month category spend and, when `budgetRollover` is on, builds a `rolloverDeficit` map per budget via `calcRolloverDeficit(normalizeMonthlyBudget(...), prevSpend)` and passes it to `calcSpendingPace`. Imports `calcRolloverDeficit, normalizeMonthlyBudget`.
+- Tests: new `describe('calcSpendingPace')` block in `lib/__tests__/calculations.test.ts` (4 cases: over via actual spend; onTrack w/o rollover; carryover flips to over; carryover is flat not part of pace).
+
+**2. Monthly cash-flow chart dropped month labels (Jan/Mar/May/Sep…).**
+- Not a data bug — Recharts auto-thinned the X axis. `app/(app)/reports/page.tsx` cash-flow `<XAxis>` now has `interval={0} minTickGap={0}` and `fontSize: 10` so all 12 labels render.
+
+**3. Categories on Loans (history lookup).**
+- `types/index.ts` `Loan` gains `category: string` ('' = uncategorized; stays out of spending since loans are `transfer`s).
+- `lib/sheets.ts`: `LOANS_HEADER` appends `category` (col N); `getLoans` range `A2:M1000`→`A2:N1000` and reads `r[13]` (legacy rows → ''); `upsertLoan` writes `loan.category ?? ''`. `deleteRowById`'s `_lastCol` is unused so no other change. Backward compatible (additive column).
+- `app/(app)/transactions/page.tsx`: `EMPTY_LOAN_FORM.category=''`; group-loan create (`handleAddLoan`), `openEditLoan`, and `handleEditLoan` all carry `category`; payback handler already spreads `...loan`. New category `<Select>` (options = `common.none` + `expenseCategories`) added to the loan form after the account select. (Splits already stored a category.)
+- `app/api/loans/route.ts` passes the `Loan` through verbatim — no change needed.
+
+**4. Custom-category Archive vs Delete (Archive/Delete/Cancel).**
+- Model: the existing `hidden{Expense,Income}Categories` set is reused as the **archive** set for BOTH built-in and custom categories. Archived = excluded from entry dropdowns but still returned for history filters.
+- `app/api/categories/route.ts` GET: builds `allExp/allInc = [...builtins, ...custom]`, returns `expense/incomeCategories` = not-hidden and new `archived{Expense,Income}Categories` = hidden. (Previously customs were never filtered by hidden.)
+- `hooks/useCategories.ts`: bumped cache key to `nf_categories_v2`; now also returns `archived{Expense,Income}Categories`. Shared `apply()` sets all four.
+- `app/(app)/transactions/page.tsx`: destructures the archived lists; the history category **filter** renders archived chips after active ones (muted, dashed border, `Archive` icon, `categories.archivedHint` tooltip) so past transactions stay filterable. Imported `Archive` from lucide.
+- `app/(app)/settings/page.tsx`: new state `catToRemove` ({cat, kind:'exp'|'inc'}) and `catUsage` (per-category transaction counts fetched from `/api/transactions` on mount). Custom-category chips now filter out archived ones and their X opens a **dialog** (`Archive` / `Delete` / `Cancel`). Archive → `hide{Exp,Inc}Cat`; Delete → `remove{Exp,Inc}Cat` but **disabled when `catUsage[cat] > 0`** (shows `categories.deleteBlocked` with the count, steering to Archive). The former "Hidden — click to restore" sections are re-themed amber and relabelled `categories.archivedSection` + `restoreHint`. Built-in chip X still archives directly (can't delete a built-in). Imported `Archive`.
+- i18n: new `categories.*` keys (en + vi): `archivedHint, archiveTitle, archivePrompt {name}, archiveAction, archiveDesc, deleteAction, deleteDesc, deleteBlocked {count}, archivedSection, restoreHint`.
+
+**Not done this batch (discussed):** recurring-Bills multi-person + "me" participants (one-off splits & group loans already support it; recurring `Bill` is still single `splitContactId`/`splitAmount` — flagged as the larger, schema-touching follow-up). Best-savings-month left as net income−expense per user's choice. Notifications/Vercel Cron skipped per user.
+
+**Verification:** `tsc --noEmit` clean; eslint 0 errors (only pre-existing setState-in-effect / `_lastCol` warnings); 309 tests pass (was 299).
+
+### Follow-up — multi-person bills, loan grouping, per-person split mode (same branch)
+
+User feedback after the first batch led to three more changes (decisions captured via AskUserQuestion).
+
+**Multi-person recurring bills (participants model).** Bills can now be split across many people, not just one.
+- `types`: `BillSplitParticipant {contactId, amount}`; `Bill.splitParticipants?` (legacy `splitContactId`/`splitAmount` kept for back-compat read).
+- `lib/calculations.ts`: `billParticipants(bill)` normalizer (multi → legacy single → []), `billOthersShare(bill)` (clamped sum), `myBillShare` rewritten = amount − billOthersShare (works for unsplit / legacy / multi).
+- `lib/sheets.ts`: additive Bills column **K** (`split_participants` JSON via `parseBillParticipants`), all four `Bills!A2:J200` ranges widened to `:K200`; `upsertBill` writes the JSON, deleteRowById col J→K.
+- `app/(app)/bills/page.tsx`: split form replaced single contact+share with a participant-row list (`billParticipantRows` state, `SplitParticipant`/`emptyParticipant`/`roundCents` locals). Add/remove rows, per-row inline new-contact (`handleAddParticipantContact`), `billSplitEqually`. Badge + pay-note handle 1 vs N (`splitBadgeGroup`/`splitPayNoteGroup`/`peopleCount`). Pay flow loops `billParticipants(payBill)` → one fronted transfer + Split per person (sequential). Removed dead `newContactName`/`handleAddContact`/`formShares`/`calcSplitShares` usage.
+
+**Group loans expandable (point 2).** Loans created together now collapse into one expandable card.
+- `types`: `Loan.groupId?`. `lib/sheets.ts`: additive Loans column **O** (`group_id`), range `:N`→`:O`, read `r[14]`/write `loan.groupId`.
+- `app/(app)/transactions/page.tsx`: `handleAddLoan` assigns a shared `groupId` when >1 person. `openLoanGroups` memo groups open loans by groupId; `renderOpenLoanCard(loan, nested?)` extracted; `renderOpenLoanGroup` = collapsed header (people count + total remaining + names) expanding to per-person cards (settle/edit/delete each). `expandedLoanGroups` Set state. New `loans.peopleCount`.
+
+**Per-person split mode (point 1) — toggle on all three split forms.** Inverse of the divide model: type each person's amount, total auto-sums.
+- `lib/splits.ts`: new pure `sumPerPersonShares(amounts, myAmount, includeMe)` → `{shares,total,myShare,over:false}` (blanks=0, no auto-divide; your typed share adds to total when included). 3 unit tests in `splits.test.ts`.
+- Each form got a `'divide' | 'perPerson'` segmented toggle; in perPerson the total field is read-only/computed (`bills.computedTotal`) and a "Your share" input (`bills.yourShareInput`) appears where a self-share applies:
+  - **One-off split** (`splitExpenseForm.myShare` + `seSplitMode`): your-share input shows only when `includeMe`.
+  - **Group loans** (`loanSplitMode`): no self share; total = sum of people.
+  - **Recurring bills** (`billSplitMode` + `billMyShare`): your-share always applies; `billPerPerson` gated on `splitEnabled`.
+- Save handlers + live previews branch between `computeSplitShares` (divide) and `sumPerPersonShares` (perPerson); "Split equally" + auto placeholders hidden in perPerson; over-total can't happen in perPerson. New i18n: `bills.splitModeDivide/splitModePerPerson/splitModePerPersonHint/computedTotal/yourShareInput` (en + vi).
+
+**Verification:** `tsc` clean; both locales valid; eslint 0 errors (pre-existing purity/setState-in-effect warnings only); **312 tests pass** (was 309; +3 sumPerPersonShares). Committed in stages: multi-person bills, loan grouping, then per-person mode.
+
+### Follow-up — settled loans group like Bills/Splits (same branch)
+
+User: "Make sure to have the group just changed from Loan same with Bills and Splits." Bills and one-off/recurring Splits already collapse multi-person occurrences into expandable cards for BOTH pending and settled (via `groupSplits` + a settled History). Open loans got that grouping in the prior step, but **settled loans were still a flat list** — the one inconsistency.
+
+`app/(app)/transactions/page.tsx`:
+- Extracted the open-loan grouping into reusable `groupLoansByGroupId(list, keyPrefix?)` (adds `principal` sum; `keyPrefix` namespaces settled keys so expand state can't collide with the open group of the same `groupId`).
+- `openLoanGroups` now uses it; new `settledLoanGroups` (prefix `settled:`).
+- New `renderSettledLoanCard(loan, nested?)` (extracted from the old flat row) and `renderSettledLoanGroup(group)` — same collapsed/expandable shape as the open group + the Splits history (chevron, people count, direction · names, total principal line-through, delete per person).
+- Replaced the flat `settledLoans.map(...)` with `settledLoanGroups.map(g => g.isGroup ? renderSettledLoanGroup : renderSettledLoanCard)`. Partial settlements render cleanly (the open and settled sides each show only their members; a 1-member settled "group" falls back to a solo card).
+
+**Verification:** `tsc` clean; 312 tests pass; eslint 0 errors.
+
+### Follow-up — settled loans behind a collapsible History (same branch)
+
+User: "Let's add it" (the settled-loans History toggle for full parity with Splits). `app/(app)/transactions/page.tsx`: new `showLoanHistory` state (default collapsed); the settled-loans section is now a toggle button (`loans.settledHistory` {n} + chevron) that reveals `settledLoanGroups.slice(0, 10)` — same shape as the Splits settled History. New i18n `loans.settledHistory` (en + vi). tsc clean; locales valid; 312 tests pass.

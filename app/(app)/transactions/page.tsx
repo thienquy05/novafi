@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Search, Pencil, RefreshCw, AlertCircle, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronLeft, ChevronRight, X, Filter, ArrowLeftRight, HandCoins, ArrowUpRight, ArrowDownLeft, UserPlus, Trash2, Check, Split as SplitIcon } from 'lucide-react';
+import { Plus, Search, Pencil, RefreshCw, AlertCircle, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronLeft, ChevronRight, X, Filter, ArrowLeftRight, HandCoins, ArrowUpRight, ArrowDownLeft, UserPlus, Trash2, Check, Archive, Split as SplitIcon } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -11,7 +11,7 @@ import { TransactionsSkeleton } from '@/components/ui/Skeleton';
 import { formatCurrency, formatCompact, formatDate, generateId, today } from '@/lib/utils';
 import { transactionsToCsv } from '@/lib/csv';
 import { calcLoanRemaining } from '@/lib/calculations';
-import { buildSplitTx, groupSplits, isOneOffSplit, newOneOffGroupId, computeSplitShares } from '@/lib/splits';
+import { buildSplitTx, groupSplits, isOneOffSplit, newOneOffGroupId, computeSplitShares, sumPerPersonShares } from '@/lib/splits';
 import { motion, AnimatePresence } from 'framer-motion';
 import { EXPENSE_CATEGORIES } from '@/types';
 import type { Transaction, Account, Contact, Loan, Split } from '@/types';
@@ -115,6 +115,7 @@ const EMPTY_LOAN_FORM = {
   account: '',
   date: today(),
   note: '',
+  category: '', // descriptive bucket for history lookup; '' = uncategorized
 };
 // Sentinel option that opens the inline "add new contact" input.
 const NEW_CONTACT = '__new__';
@@ -126,6 +127,8 @@ const NEW_CONTACT = '__new__';
 // tied together by a `oneoff:`-tagged group id.
 const EMPTY_SPLIT_EXPENSE = {
   description: '', total: '', date: today(), account: '', category: 'Food', includeMe: false,
+  // Per-person mode: your explicitly-typed share (used only when includeMe).
+  myShare: '',
 };
 type SplitParticipant = { key: string; contactId: string; amount: string; newName: string };
 function emptyParticipant(): SplitParticipant {
@@ -194,24 +197,30 @@ export default function TransactionsPage() {
   const [loanForm, setLoanForm] = useState(EMPTY_LOAN_FORM);
   // Participants for a NEW group loan (edit stays single-contact via loanForm).
   const [loanParticipants, setLoanParticipants] = useState<SplitParticipant[]>([emptyParticipant()]);
+  // 'divide' = type a total, split among people; 'perPerson' = type each
+  // person's amount, total auto-sums.
+  const [loanSplitMode, setLoanSplitMode] = useState<'divide' | 'perPerson'>('divide');
   const [newContactName, setNewContactName] = useState('');
   const [addingContact, setAddingContact] = useState(false);
   const [savingLoan, setSavingLoan] = useState(false);
   const [paybackFor, setPaybackFor] = useState<string | null>(null);
   const [paybackForm, setPaybackForm] = useState({ amount: '', account: '' });
   const [recordingPayback, setRecordingPayback] = useState(false);
+  const [expandedLoanGroups, setExpandedLoanGroups] = useState<Set<string>>(new Set());
+  const [showLoanHistory, setShowLoanHistory] = useState(false);
   // Split bills (one-time expense splits)
   const [splits, setSplits] = useState<Split[]>([]);
   const [splitsOpen, setSplitsOpen] = useState(false);
   const [showSplitExpense, setShowSplitExpense] = useState(false);
   const [splitExpenseForm, setSplitExpenseForm] = useState(EMPTY_SPLIT_EXPENSE);
+  const [seSplitMode, setSeSplitMode] = useState<'divide' | 'perPerson'>('divide');
   const [splitParticipants, setSplitParticipants] = useState<SplitParticipant[]>([emptyParticipant()]);
   const [savingSplitExpense, setSavingSplitExpense] = useState(false);
   const [settlingSplitId, setSettlingSplitId] = useState<string | null>(null);
   const [expandedSplitGroups, setExpandedSplitGroups] = useState<Set<string>>(new Set());
   const [showSplitHistory, setShowSplitHistory] = useState(false);
   const toast = useToast();
-  const { expenseCategories, incomeCategories } = useCategories();
+  const { expenseCategories, incomeCategories, archivedExpenseCategories, archivedIncomeCategories } = useCategories();
   const { t } = useTranslation();
 
   const load = useCallback(async () => {
@@ -381,6 +390,169 @@ export default function TransactionsPage() {
   const settledLoans = useMemo(() => loans.filter((l) => l.settled).sort((a, b) => (b.settledDate || '').localeCompare(a.settledDate || '')), [loans]);
   const owedToYou = useMemo(() => openLoans.filter((l) => l.direction === 'lent').reduce((s, l) => s + calcLoanRemaining(l.principal, l.repaidAmount), 0), [openLoans]);
   const youOwe = useMemo(() => openLoans.filter((l) => l.direction === 'borrowed').reduce((s, l) => s + calcLoanRemaining(l.principal, l.repaidAmount), 0), [openLoans]);
+  // Collapse multi-person loans (shared groupId) into one expandable row; loans
+  // with no groupId (or a single loan left in a group) stay standalone. Used for
+  // both the open and settled lists so loans group exactly like Bills/Splits.
+  function groupLoansByGroupId(list: Loan[], keyPrefix = '') {
+    const map = new Map<string, Loan[]>();
+    for (const l of list) {
+      const key = l.groupId || `solo:${l.id}`;
+      (map.get(key) ?? map.set(key, []).get(key)!).push(l);
+    }
+    return [...map.entries()].map(([key, loans]) => ({
+      key: keyPrefix + key,
+      loans,
+      isGroup: loans.length > 1,
+      direction: loans[0].direction,
+      remaining: loans.reduce((s, l) => s + calcLoanRemaining(l.principal, l.repaidAmount), 0),
+      principal: loans.reduce((s, l) => s + l.principal, 0),
+    }));
+  }
+  const openLoanGroups = useMemo(() => groupLoansByGroupId(openLoans), [openLoans]);
+  const settledLoanGroups = useMemo(() => groupLoansByGroupId(settledLoans, 'settled:'), [settledLoans]);
+  function toggleLoanGroup(key: string) {
+    setExpandedLoanGroups((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  }
+
+  // One open-loan card (standalone, or nested inside an expanded group). `nested`
+  // drops the outer border so it reads as a sub-row of the group container.
+  function renderOpenLoanCard(loan: Loan, nested = false) {
+    const remaining = calcLoanRemaining(loan.principal, loan.repaidAmount);
+    const pct = loan.principal > 0 ? Math.min(100, (loan.repaidAmount / loan.principal) * 100) : 0;
+    const isLent = loan.direction === 'lent';
+    const expanded = paybackFor === loan.id;
+    return (
+      <div key={loan.id} className={nested ? 'p-3 rounded-xl bg-slate-50 dark:bg-slate-700/30' : `p-4 rounded-2xl bg-white dark:bg-slate-800 border ${isLent ? 'border-emerald-100 dark:border-emerald-800/40' : 'border-rose-100 dark:border-rose-800/40'}`}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            {!nested && (
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isLent ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400'}`}>
+                {isLent ? <ArrowUpRight className="w-4.5 h-4.5" /> : <ArrowDownLeft className="w-4.5 h-4.5" />}
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{loan.contactName}</p>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                {isLent ? t('loans.lentLabel') : t('loans.borrowedLabel')}{loan.account ? ` · ${accountName(loan.account)}` : ''}{loan.note ? ` · ${loan.note}` : ''}
+              </p>
+            </div>
+          </div>
+          <div className="text-right shrink-0">
+            <p className={`text-sm font-extrabold ${isLent ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{formatCurrency(remaining)}</p>
+            {loan.repaidAmount > 0 && <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">{t('loans.ofPrincipal', { amount: formatCurrency(loan.principal) })}</p>}
+          </div>
+        </div>
+        {loan.repaidAmount > 0 && (
+          <div className="mt-3 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+            <div className={`h-full rounded-full ${isLent ? 'bg-emerald-500' : 'bg-rose-500'}`} style={{ width: `${pct}%` }} />
+          </div>
+        )}
+        <div className="flex items-center gap-2 mt-3">
+          <Button size="sm" variant="secondary" className="h-9" onClick={() => { if (expanded) { setPaybackFor(null); } else { setPaybackFor(loan.id); setPaybackForm({ amount: String(remaining), account: loan.account }); } }}>
+            {t('loans.recordPayback')}
+          </Button>
+          <button title={t('common.edit')} onClick={() => openEditLoan(loan)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-indigo-500 dark:hover:text-indigo-400 rounded-lg transition-colors ml-auto">
+            <Pencil className="w-4 h-4" />
+          </button>
+          <button title={t('common.delete')} onClick={() => handleDeleteLoan(loan)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+        {expanded && (
+          <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Input label={t('loans.paybackAmount')} type="number" min="0" step="0.01" value={paybackForm.amount} onChange={(e) => setPaybackForm((f) => ({ ...f, amount: e.target.value }))} />
+              <Select
+                label={isLent ? t('loans.intoAccount') : t('loans.fromAccount')}
+                value={paybackForm.account}
+                options={[{ value: '', label: t('loans.noAccount') }, ...accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))]}
+                onChange={(e) => setPaybackForm((f) => ({ ...f, account: e.target.value }))}
+              />
+            </div>
+            <div className="flex gap-3">
+              <Button variant="secondary" className="flex-1 h-10" onClick={() => setPaybackFor(null)}>{t('common.cancel')}</Button>
+              <Button className="flex-1 h-10" onClick={() => handleRecordPayback(loan)} disabled={recordingPayback || !paybackForm.amount}>{recordingPayback ? t('common.saving') : t('loans.confirmPayback')}</Button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // A multi-person loan group: collapsed header (people + total remaining) that
+  // expands to each person's own loan card (settle/edit/delete independently).
+  function renderOpenLoanGroup(group: { key: string; loans: Loan[]; direction: Loan['direction']; remaining: number }) {
+    const isLent = group.direction === 'lent';
+    const open = expandedLoanGroups.has(group.key);
+    const names = group.loans.map((l) => l.contactName).join(', ');
+    return (
+      <div key={group.key} className={`rounded-2xl bg-white dark:bg-slate-800 border ${isLent ? 'border-emerald-100 dark:border-emerald-800/40' : 'border-rose-100 dark:border-rose-800/40'}`}>
+        <button onClick={() => toggleLoanGroup(group.key)} className="w-full flex items-center justify-between gap-3 p-4 text-left">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isLent ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400'}`}>
+              <Users className="w-4.5 h-4.5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{t('loans.peopleCount', { n: group.loans.length })}</p>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">{isLent ? t('loans.lentLabel') : t('loans.borrowedLabel')} · {names}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <p className={`text-sm font-extrabold ${isLent ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{formatCurrency(group.remaining)}</p>
+            <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+          </div>
+        </button>
+        {open && (
+          <div className="px-3 pb-3 space-y-2">
+            {group.loans.map((l) => renderOpenLoanCard(l, true))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // One settled-loan row (standalone, or nested inside an expanded group).
+  function renderSettledLoanCard(loan: Loan, nested = false) {
+    return (
+      <div key={loan.id} className={`flex items-center justify-between ${nested ? 'px-3 py-2.5 rounded-xl bg-white dark:bg-slate-800/60' : 'p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 opacity-75'}`}>
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{loan.contactName}</p>
+          <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{loan.direction === 'lent' ? t('loans.lentLabel') : t('loans.borrowedLabel')} · {t('loans.settledOn', { date: formatDate(loan.settledDate || loan.date) })}</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through">{formatCurrency(loan.principal)}</span>
+          <button title={t('common.delete')} onClick={() => handleDeleteLoan(loan)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
+        </div>
+      </div>
+    );
+  }
+
+  // A settled multi-person loan group: same collapsed/expandable shape as the
+  // open group (and the Splits history), so all three read consistently.
+  function renderSettledLoanGroup(group: { key: string; loans: Loan[]; direction: Loan['direction']; principal: number }) {
+    const isLent = group.direction === 'lent';
+    const open = expandedLoanGroups.has(group.key);
+    const names = group.loans.map((l) => l.contactName).join(', ');
+    return (
+      <div key={group.key} className="rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 opacity-75">
+        <button onClick={() => toggleLoanGroup(group.key)} className="w-full flex items-center justify-between gap-3 p-3.5 text-left">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{t('loans.peopleCount', { n: group.loans.length })}</p>
+              <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5 truncate">{isLent ? t('loans.lentLabel') : t('loans.borrowedLabel')} · {names}</p>
+            </div>
+          </div>
+          <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through ml-2 shrink-0">{formatCurrency(group.principal)}</span>
+        </button>
+        {open && (
+          <div className="px-3 pb-3 space-y-2">
+            {group.loans.map((l) => renderSettledLoanCard(l, true))}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   async function handleAddLoanContact() {
     const name = newContactName.trim();
@@ -434,21 +606,22 @@ export default function TransactionsPage() {
   // person's principal is their share (typed, or auto-divided from the remainder
   // for blank boxes — same rule as Split Bills). One person = a normal loan.
   async function handleAddLoan() {
-    const total = parseFloat(loanForm.amount) || 0;
-    if (total <= 0) return;
     const namedRows = loanParticipants.filter((p) => !!contacts.find((c) => c.id === p.contactId));
     if (namedRows.length === 0) return;
-    const { shares, over } = computeSplitShares(
-      total,
-      namedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0))),
-      false,
-    );
+    const amounts = namedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0)));
+    const perPerson = namedRows.length >= 2 && loanSplitMode === 'perPerson';
+    const { shares, over } = perPerson
+      ? sumPerPersonShares(amounts, 0, false)
+      : computeSplitShares(parseFloat(loanForm.amount) || 0, amounts, false);
     if (over) { toast(t('bills.splitExpenseOverTotal'), 'error'); return; }
     const resolved = namedRows
       .map((p, i) => ({ contact: contacts.find((c) => c.id === p.contactId)!, amount: roundCents(shares[i]) }))
       .filter((p) => p.amount > 0);
     if (resolved.length === 0) return;
 
+    // Multi-person loans created in one go share a groupId so they collapse into
+    // one expandable row (each person still settles independently).
+    const groupId = resolved.length > 1 ? generateId() : undefined;
     setSavingLoan(true);
     const created: Loan[] = [];
     let anyTx = false;
@@ -474,6 +647,8 @@ export default function TransactionsPage() {
           settledDate: '',
           principalTxId: tx ? tx.id : '',
           repaymentTxIds: [],
+          category: loanForm.category,
+          groupId,
         };
         const res = await fetch('/api/loans', { method: 'POST', body: JSON.stringify(tx ? { loan, tx } : { loan }), headers: { 'Content-Type': 'application/json' } });
         if (!res.ok) throw new Error();
@@ -508,6 +683,7 @@ export default function TransactionsPage() {
       account: loan.account,
       date: loan.date,
       note: loan.note,
+      category: loan.category ?? '',
     });
   }
 
@@ -539,6 +715,7 @@ export default function TransactionsPage() {
       principal: amount,
       date: loanForm.date,
       note: loanForm.note,
+      category: loanForm.category,
       settled: fullyPaid,
       settledDate: fullyPaid ? (original.settledDate || today()) : '',
       principalTxId: newTx ? newTx.id : '',
@@ -641,6 +818,7 @@ export default function TransactionsPage() {
   function openSplitExpense() {
     setSplitExpenseForm(EMPTY_SPLIT_EXPENSE);
     setSplitParticipants([emptyParticipant()]);
+    setSeSplitMode('divide');
     setShowSplitExpense(true);
   }
   function updateParticipant(key: string, patch: Partial<SplitParticipant>) {
@@ -677,18 +855,19 @@ export default function TransactionsPage() {
     setSplitParticipants((prev) => prev.map((p) => ({ ...p, amount: '' })));
   }
   async function handleSaveSplitExpense() {
-    const total = parseFloat(splitExpenseForm.total) || 0;
     const description = splitExpenseForm.description.trim();
-    if (!description || total <= 0) return;
-    // Only rows naming a person take part; blank amounts auto-divide the rest.
+    if (!description) return;
+    // Only rows naming a person take part.
     const namedRows = splitParticipants.filter((p) => !!contacts.find((c) => c.id === p.contactId));
     if (namedRows.length === 0) { toast(t('bills.splitExpenseNeedPeople'), 'error'); return; }
-    const { shares, myShare, over } = computeSplitShares(
-      total,
-      namedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0))),
-      splitExpenseForm.includeMe,
-    );
+    const amounts = namedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0)));
+    // perPerson: each amount is explicit, total auto-sums; divide: split a total.
+    const { shares, myShare, over } = seSplitMode === 'perPerson'
+      ? sumPerPersonShares(amounts, parseFloat(splitExpenseForm.myShare) || 0, splitExpenseForm.includeMe)
+      : computeSplitShares(parseFloat(splitExpenseForm.total) || 0, amounts, splitExpenseForm.includeMe);
     if (over) { toast(t('bills.splitExpenseOverTotal'), 'error'); return; }
+    const total = roundCents(shares.reduce((s, v) => s + v, 0) + myShare);
+    if (total <= 0) return;
     const resolved = namedRows
       .map((p, i) => ({ contact: contacts.find((c) => c.id === p.contactId)!, amount: roundCents(shares[i]) }))
       .filter((p) => p.amount > 0);
@@ -795,36 +974,39 @@ export default function TransactionsPage() {
   }, [filtered]);
   const accountName = (id: string) => accountMap[id] ?? id;
   // Live preview for the split-expense form. Only rows with a chosen contact
-  // count; blank amounts auto-divide the remainder (see computeSplitShares).
-  const seTotal = parseFloat(splitExpenseForm.total) || 0;
+  // count. 'divide': type a total, blank amounts auto-divide the remainder.
+  // 'perPerson': type each amount, total auto-sums (your share too if included).
+  const sePerPerson = seSplitMode === 'perPerson';
   const seNamedRows = splitParticipants.filter((p) => !!contacts.find((c) => c.id === p.contactId));
-  const seComputed = computeSplitShares(
-    seTotal,
-    seNamedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0))),
-    splitExpenseForm.includeMe,
-  );
+  const seAmounts = seNamedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0)));
+  const seComputed = sePerPerson
+    ? sumPerPersonShares(seAmounts, parseFloat(splitExpenseForm.myShare) || 0, splitExpenseForm.includeMe)
+    : computeSplitShares(parseFloat(splitExpenseForm.total) || 0, seAmounts, splitExpenseForm.includeMe);
   const seShareByKey = new Map<string, number>();
   seNamedRows.forEach((p, i) => seShareByKey.set(p.key, seComputed.shares[i]));
   const seOthersSum = roundCents(seComputed.shares.reduce((s, a) => s + a, 0));
   const seMyShare = seComputed.myShare;
   const seOver = seComputed.over;
+  const seTotal = sePerPerson ? roundCents(seOthersSum + seMyShare) : (parseFloat(splitExpenseForm.total) || 0);
 
   // Live preview for a NEW group loan (total divided across people; blank = auto).
-  const loanTotal = parseFloat(loanForm.amount) || 0;
+  const loanIsGroup = loanParticipants.length >= 2;
+  const loanPerPerson = loanIsGroup && loanSplitMode === 'perPerson';
   const loanNamedRows = loanParticipants.filter((p) => !!contacts.find((c) => c.id === p.contactId));
-  const loanComputed = computeSplitShares(
-    loanTotal,
-    loanNamedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0))),
-    false,
-  );
+  const loanAmounts = loanNamedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0)));
+  // perPerson: each typed amount is that person's share, total = sum.
+  // divide: a typed total is split among people (blank = auto-divide remainder).
+  const loanComputed = loanPerPerson
+    ? sumPerPersonShares(loanAmounts, 0, false)
+    : computeSplitShares(parseFloat(loanForm.amount) || 0, loanAmounts, false);
+  const loanTotal = loanPerPerson ? roundCents(loanComputed.shares.reduce((s, v) => s + v, 0)) : (parseFloat(loanForm.amount) || 0);
   const loanShareByKey = new Map<string, number>();
   loanNamedRows.forEach((p, i) => loanShareByKey.set(p.key, loanComputed.shares[i]));
   const loanOver = loanComputed.over;
-  const loanUnassigned = loanComputed.myShare; // typed amounts that don't fill the total
-  const loanIsGroup = loanParticipants.length >= 2;
+  const loanUnassigned = loanPerPerson ? 0 : loanComputed.myShare; // divide: typed amounts that don't fill the total
   const loanCanSave = editingLoanId
     ? (!!loanForm.amount && !!loanForm.contactId && loanForm.contactId !== NEW_CONTACT)
-    : (!!loanForm.amount && loanNamedRows.length > 0 && !loanOver);
+    : (loanTotal > 0 && loanNamedRows.length > 0 && !loanOver);
   const merchantRows = useMemo(() => buildMerchantRows(filtered), [filtered]);
   // Reset paging whenever the active filters change. Adjusting state during
   // render (rather than in an effect) avoids a cascading re-render.
@@ -1217,7 +1399,7 @@ export default function TransactionsPage() {
         <div className="space-y-4 pb-4">
           {/* Add loan: button → inline form */}
           {!showAddLoan ? (
-            <Button className="w-full" onClick={() => { setShowAddLoan(true); setEditingLoanId(null); setLoanForm(EMPTY_LOAN_FORM); setNewContactName(''); setLoanParticipants([emptyParticipant()]); }}>
+            <Button className="w-full" onClick={() => { setShowAddLoan(true); setEditingLoanId(null); setLoanForm(EMPTY_LOAN_FORM); setNewContactName(''); setLoanParticipants([emptyParticipant()]); setLoanSplitMode('divide'); }}>
               <Plus className="w-4 h-4" />{t('loans.addLoan')}
             </Button>
           ) : (
@@ -1256,8 +1438,17 @@ export default function TransactionsPage() {
                 <div className="space-y-2.5">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2"><Users className="w-4 h-4" />{loanIsGroup ? t('loans.people') : t('loans.contact')}</span>
-                    {loanIsGroup && <button type="button" onClick={loanSplitEqually} className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline">{t('bills.splitEqually')}</button>}
+                    {loanIsGroup && !loanPerPerson && <button type="button" onClick={loanSplitEqually} className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline">{t('bills.splitEqually')}</button>}
                   </div>
+                  {loanIsGroup && (
+                    <div className="flex rounded-xl bg-slate-100 dark:bg-slate-700/60 p-0.5">
+                      {(['divide', 'perPerson'] as const).map((m) => (
+                        <button key={m} type="button" onClick={() => setLoanSplitMode(m)} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${loanSplitMode === m ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}>
+                          {m === 'divide' ? t('bills.splitModeDivide') : t('bills.splitModePerPerson')}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   {loanParticipants.map((p) => (
                     <div key={p.key} className="space-y-2">
                       <div className="flex gap-2 items-end">
@@ -1275,7 +1466,7 @@ export default function TransactionsPage() {
                         </div>
                         {loanIsGroup && (
                           <div className="w-28 shrink-0">
-                            <Input label={loanShareByKey.has(p.key) && p.amount.trim() === '' ? t('bills.shareAuto') : t('bills.theirShareShort')} type="number" min="0" step="0.01" placeholder={loanShareByKey.has(p.key) ? (loanShareByKey.get(p.key) ?? 0).toFixed(2) : '0.00'} value={p.amount} onChange={(e) => updateLoanParticipant(p.key, { amount: e.target.value })} />
+                            <Input label={!loanPerPerson && loanShareByKey.has(p.key) && p.amount.trim() === '' ? t('bills.shareAuto') : t('bills.theirShareShort')} type="number" min="0" step="0.01" placeholder={!loanPerPerson && loanShareByKey.has(p.key) ? (loanShareByKey.get(p.key) ?? 0).toFixed(2) : '0.00'} value={p.amount} onChange={(e) => updateLoanParticipant(p.key, { amount: e.target.value })} />
                           </div>
                         )}
                         {loanIsGroup && (
@@ -1295,13 +1486,17 @@ export default function TransactionsPage() {
                   <button type="button" onClick={addLoanParticipantRow} className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-dashed border-slate-300 dark:border-slate-600 text-xs font-bold text-slate-500 dark:text-slate-400 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
                     <Plus className="w-4 h-4" />{t('loans.addPerson')}
                   </button>
-                  {loanIsGroup && <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 px-1">{t('bills.splitAutoHint')}</p>}
+                  {loanIsGroup && <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 px-1">{loanPerPerson ? t('bills.splitModePerPersonHint') : t('bills.splitAutoHint')}</p>}
                   {loanIsGroup && loanUnassigned > 0 && <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400 px-1">{t('loans.unassigned', { amount: formatCurrency(loanUnassigned) })}</p>}
                   {loanOver && <p className="text-[11px] font-bold text-rose-600 dark:text-rose-400 px-1">{t('bills.splitExpenseOverTotal')}</p>}
                 </div>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Input label={loanIsGroup && !editingLoanId ? t('bills.totalAmount') : t('common.amountUsd')} type="number" min="0" step="0.01" placeholder="0.00" value={loanForm.amount} onChange={(e) => setLoanForm((f) => ({ ...f, amount: e.target.value }))} />
+                {loanPerPerson ? (
+                  <Input label={t('bills.computedTotal')} type="number" value={loanTotal.toFixed(2)} readOnly disabled />
+                ) : (
+                  <Input label={loanIsGroup && !editingLoanId ? t('bills.totalAmount') : t('common.amountUsd')} type="number" min="0" step="0.01" placeholder="0.00" value={loanForm.amount} onChange={(e) => setLoanForm((f) => ({ ...f, amount: e.target.value }))} />
+                )}
                 <Input label={t('common.date')} type="date" value={loanForm.date} onChange={(e) => setLoanForm((f) => ({ ...f, date: e.target.value }))} />
               </div>
               <Select
@@ -1309,6 +1504,12 @@ export default function TransactionsPage() {
                 value={loanForm.account}
                 options={[{ value: '', label: t('loans.noAccount') }, ...accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))]}
                 onChange={(e) => setLoanForm((f) => ({ ...f, account: e.target.value }))}
+              />
+              <Select
+                label={t('common.category')}
+                value={loanForm.category}
+                options={[{ value: '', label: t('common.none') }, ...expenseCategories.map((cat) => ({ value: cat, label: cat }))]}
+                onChange={(e) => setLoanForm((f) => ({ ...f, category: e.target.value }))}
               />
               <Input label={t('loans.noteOptional')} placeholder={t('loans.notePlaceholder')} value={loanForm.note} onChange={(e) => setLoanForm((f) => ({ ...f, note: e.target.value }))} />
               <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{loanForm.account ? t('loans.cashHelp') : t('loans.noteOnlyHelp')}</p>
@@ -1337,83 +1538,23 @@ export default function TransactionsPage() {
           {openLoans.length === 0 && !showAddLoan && (
             <p className="text-center text-sm text-slate-500 dark:text-slate-400 font-medium py-6">{t('loans.empty')}</p>
           )}
-          {openLoans.map((loan) => {
-            const remaining = calcLoanRemaining(loan.principal, loan.repaidAmount);
-            const pct = loan.principal > 0 ? Math.min(100, (loan.repaidAmount / loan.principal) * 100) : 0;
-            const isLent = loan.direction === 'lent';
-            const expanded = paybackFor === loan.id;
-            return (
-              <div key={loan.id} className={`p-4 rounded-2xl bg-white dark:bg-slate-800 border ${isLent ? 'border-emerald-100 dark:border-emerald-800/40' : 'border-rose-100 dark:border-rose-800/40'}`}>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isLent ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400'}`}>
-                      {isLent ? <ArrowUpRight className="w-4.5 h-4.5" /> : <ArrowDownLeft className="w-4.5 h-4.5" />}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{loan.contactName}</p>
-                      <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">
-                        {isLent ? t('loans.lentLabel') : t('loans.borrowedLabel')}{loan.account ? ` · ${accountName(loan.account)}` : ''}{loan.note ? ` · ${loan.note}` : ''}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className={`text-sm font-extrabold ${isLent ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{formatCurrency(remaining)}</p>
-                    {loan.repaidAmount > 0 && <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">{t('loans.ofPrincipal', { amount: formatCurrency(loan.principal) })}</p>}
-                  </div>
-                </div>
-                {loan.repaidAmount > 0 && (
-                  <div className="mt-3 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
-                    <div className={`h-full rounded-full ${isLent ? 'bg-emerald-500' : 'bg-rose-500'}`} style={{ width: `${pct}%` }} />
-                  </div>
-                )}
-                <div className="flex items-center gap-2 mt-3">
-                  <Button size="sm" variant="secondary" className="h-9" onClick={() => { if (expanded) { setPaybackFor(null); } else { setPaybackFor(loan.id); setPaybackForm({ amount: String(remaining), account: loan.account }); } }}>
-                    {t('loans.recordPayback')}
-                  </Button>
-                  <button title={t('common.edit')} onClick={() => openEditLoan(loan)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-indigo-500 dark:hover:text-indigo-400 rounded-lg transition-colors ml-auto">
-                    <Pencil className="w-4 h-4" />
-                  </button>
-                  <button title={t('common.delete')} onClick={() => handleDeleteLoan(loan)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-                {expanded && (
-                  <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60 space-y-3">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <Input label={t('loans.paybackAmount')} type="number" min="0" step="0.01" value={paybackForm.amount} onChange={(e) => setPaybackForm((f) => ({ ...f, amount: e.target.value }))} />
-                      <Select
-                        label={isLent ? t('loans.intoAccount') : t('loans.fromAccount')}
-                        value={paybackForm.account}
-                        options={[{ value: '', label: t('loans.noAccount') }, ...accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))]}
-                        onChange={(e) => setPaybackForm((f) => ({ ...f, account: e.target.value }))}
-                      />
-                    </div>
-                    <div className="flex gap-3">
-                      <Button variant="secondary" className="flex-1 h-10" onClick={() => setPaybackFor(null)}>{t('common.cancel')}</Button>
-                      <Button className="flex-1 h-10" onClick={() => handleRecordPayback(loan)} disabled={recordingPayback || !paybackForm.amount}>{recordingPayback ? t('common.saving') : t('loans.confirmPayback')}</Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {openLoanGroups.map((group) => group.isGroup ? renderOpenLoanGroup(group) : renderOpenLoanCard(group.loans[0]))}
 
-          {/* Settled loans */}
+          {/* Settled loans — collapsible History, last 10 events (mirrors Splits) */}
           {settledLoans.length > 0 && (
-            <div className="space-y-2 pt-2">
-              <p className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-1">{t('loans.settled')}</p>
-              {settledLoans.map((loan) => (
-                <div key={loan.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 opacity-75">
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{loan.contactName}</p>
-                    <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{loan.direction === 'lent' ? t('loans.lentLabel') : t('loans.borrowedLabel')} · {t('loans.settledOn', { date: formatDate(loan.settledDate || loan.date) })}</p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through">{formatCurrency(loan.principal)}</span>
-                    <button title={t('common.delete')} onClick={() => handleDeleteLoan(loan)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
-                  </div>
+            <div className="pt-1">
+              <button
+                onClick={() => setShowLoanHistory((v) => !v)}
+                className="w-full flex items-center justify-between px-1 py-2 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+              >
+                <span>{t('loans.settledHistory', { n: settledLoans.length })}</span>
+                <ChevronDown className={`w-4 h-4 transition-transform ${showLoanHistory ? 'rotate-180' : ''}`} />
+              </button>
+              {showLoanHistory && (
+                <div className="space-y-2 pt-1">
+                  {settledLoanGroups.slice(0, 10).map((group) => group.isGroup ? renderSettledLoanGroup(group) : renderSettledLoanCard(group.loans[0]))}
                 </div>
-              ))}
+              )}
             </div>
           )}
         </div>
@@ -1429,8 +1570,19 @@ export default function TransactionsPage() {
             <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
               <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{t('bills.splitExpenseHelp')}</p>
               <Input label={t('common.description')} placeholder={t('bills.splitExpensePlaceholder')} value={splitExpenseForm.description} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, description: e.target.value }))} />
+              <div className="flex rounded-xl bg-slate-100 dark:bg-slate-700/60 p-0.5">
+                {(['divide', 'perPerson'] as const).map((m) => (
+                  <button key={m} type="button" onClick={() => setSeSplitMode(m)} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${seSplitMode === m ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}>
+                    {m === 'divide' ? t('bills.splitModeDivide') : t('bills.splitModePerPerson')}
+                  </button>
+                ))}
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Input label={t('bills.totalAmount')} type="number" min="0" step="0.01" placeholder="0.00" value={splitExpenseForm.total} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, total: e.target.value }))} />
+                {sePerPerson ? (
+                  <Input label={t('bills.computedTotal')} type="number" value={seTotal.toFixed(2)} readOnly disabled />
+                ) : (
+                  <Input label={t('bills.totalAmount')} type="number" min="0" step="0.01" placeholder="0.00" value={splitExpenseForm.total} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, total: e.target.value }))} />
+                )}
                 <Input label={t('common.date')} type="date" value={splitExpenseForm.date} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, date: e.target.value }))} />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1442,12 +1594,15 @@ export default function TransactionsPage() {
               <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2"><Users className="w-4 h-4" />{t('bills.whoShared')}</span>
-                  <button type="button" onClick={splitEqually} className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline">{t('bills.splitEqually')}</button>
+                  {!sePerPerson && <button type="button" onClick={splitEqually} className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline">{t('bills.splitEqually')}</button>}
                 </div>
                 <label className="flex items-center gap-2.5 cursor-pointer select-none">
                   <input type="checkbox" checked={splitExpenseForm.includeMe} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, includeMe: e.target.checked }))} className="w-4 h-4 rounded accent-indigo-600" />
                   <span className="text-xs font-medium text-slate-600 dark:text-slate-400">{t('bills.includeMe')}</span>
                 </label>
+                {sePerPerson && splitExpenseForm.includeMe && (
+                  <Input label={t('bills.yourShareInput')} type="number" min="0" step="0.01" placeholder="0.00" value={splitExpenseForm.myShare} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, myShare: e.target.value }))} />
+                )}
                 {splitParticipants.map((p) => (
                   <div key={p.key} className="space-y-2 rounded-xl bg-slate-50 dark:bg-slate-700/40 p-3">
                     <div className="flex gap-2 items-end">
@@ -1464,7 +1619,7 @@ export default function TransactionsPage() {
                         />
                       </div>
                       <div className="w-28 shrink-0">
-                        <Input label={seShareByKey.has(p.key) && p.amount.trim() === '' ? t('bills.shareAuto') : t('bills.theirShareShort')} type="number" min="0" step="0.01" placeholder={seShareByKey.has(p.key) ? (seShareByKey.get(p.key) ?? 0).toFixed(2) : '0.00'} value={p.amount} onChange={(e) => updateParticipant(p.key, { amount: e.target.value })} />
+                        <Input label={!sePerPerson && seShareByKey.has(p.key) && p.amount.trim() === '' ? t('bills.shareAuto') : t('bills.theirShareShort')} type="number" min="0" step="0.01" placeholder={!sePerPerson && seShareByKey.has(p.key) ? (seShareByKey.get(p.key) ?? 0).toFixed(2) : '0.00'} value={p.amount} onChange={(e) => updateParticipant(p.key, { amount: e.target.value })} />
                       </div>
                       <button type="button" onClick={() => removeParticipantRow(p.key)} disabled={splitParticipants.length === 1} className="mb-1.5 p-2 text-slate-400 dark:text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed" title={t('common.delete')}>
                         <X className="w-4 h-4" />
@@ -1481,7 +1636,7 @@ export default function TransactionsPage() {
                 <button type="button" onClick={addParticipantRow} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-slate-300 dark:border-slate-600 text-xs font-bold text-slate-500 dark:text-slate-400 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
                   <Plus className="w-4 h-4" />{t('bills.addPerson')}
                 </button>
-                <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 px-1">{t('bills.splitAutoHint')}</p>
+                <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 px-1">{sePerPerson ? t('bills.splitModePerPersonHint') : t('bills.splitAutoHint')}</p>
                 {seTotal > 0 && (
                   <div className={`flex items-center justify-between text-xs font-bold px-1 pt-1 ${seOver ? 'text-rose-600 dark:text-rose-400' : ''}`}>
                     <span className="text-slate-500 dark:text-slate-400">{t('bills.yourShare')}: <span className="text-slate-900 dark:text-slate-100">{formatCurrency(seMyShare)}</span></span>
@@ -1671,22 +1826,29 @@ export default function TransactionsPage() {
               <div className="flex gap-2 flex-wrap mb-4">
                 <button onClick={() => setCategoryFilters([])} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${categoryFilters.length === 0 ? 'bg-indigo-600 text-white' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>{t('common.all')}</button>
               </div>
-              {expenseCategories.length > 0 && (
+              {(expenseCategories.length > 0 || archivedExpenseCategories.length > 0) && (
                 <>
                   <p className="text-[11px] font-bold text-rose-500 dark:text-rose-400 uppercase tracking-wider mb-2">{t('common.expenses')}</p>
                   <div className="flex gap-2 flex-wrap mb-4">
                     {expenseCategories.map((c) => (
                       <button key={`exp-${c}`} onClick={() => toggleCategory(c)} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${categoryFilters.includes(c) ? 'bg-indigo-600 text-white' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>{c}</button>
                     ))}
+                    {/* Archived categories: kept filterable so past transactions stay findable, shown muted with an archive marker. */}
+                    {archivedExpenseCategories.map((c) => (
+                      <button key={`exp-arc-${c}`} onClick={() => toggleCategory(c)} title={t('categories.archivedHint')} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap inline-flex items-center gap-1 ${categoryFilters.includes(c) ? 'bg-indigo-600 text-white' : 'bg-slate-50/60 dark:bg-slate-700/50 text-slate-400 dark:text-slate-500 border border-dashed border-slate-300 dark:border-slate-600'}`}><Archive className="w-3 h-3" />{c}</button>
+                    ))}
                   </div>
                 </>
               )}
-              {incomeCategories.length > 0 && (
+              {(incomeCategories.length > 0 || archivedIncomeCategories.length > 0) && (
                 <>
                   <p className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-2">{t('common.income')}</p>
                   <div className="flex gap-2 flex-wrap">
                     {incomeCategories.map((c) => (
                       <button key={`inc-${c}`} onClick={() => toggleCategory(c)} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${categoryFilters.includes(c) ? 'bg-indigo-600 text-white' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>{c}</button>
+                    ))}
+                    {archivedIncomeCategories.map((c) => (
+                      <button key={`inc-arc-${c}`} onClick={() => toggleCategory(c)} title={t('categories.archivedHint')} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap inline-flex items-center gap-1 ${categoryFilters.includes(c) ? 'bg-indigo-600 text-white' : 'bg-slate-50/60 dark:bg-slate-700/50 text-slate-400 dark:text-slate-500 border border-dashed border-slate-300 dark:border-slate-600'}`}><Archive className="w-3 h-3" />{c}</button>
                     ))}
                   </div>
                 </>
