@@ -85,7 +85,7 @@ const CONTACTS_HEADER = ['id', 'name', 'created_at'];
 const SPLITS_HEADER = [
   'id', 'bill_id', 'bill_name', 'contact_id', 'contact_name', 'amount',
   'category', 'account', 'date', 'settled', 'settled_date',
-  'fronted_tx_id', 'settle_tx_id',
+  'fronted_tx_id', 'settle_tx_id', 'repaid_amount', 'repayment_tx_ids',
 ];
 const LOANS_HEADER = [
   'id', 'direction', 'contact_id', 'contact_name', 'account', 'principal',
@@ -732,7 +732,7 @@ export async function getSplits(
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'Splits!A2:M1000',
+      range: 'Splits!A2:O1000',
     });
     return (res.data.values ?? []).map((r) => ({
       id: r[0] ?? '',
@@ -748,6 +748,8 @@ export async function getSplits(
       settledDate: r[10] ?? '',
       frontedTxId: r[11] ?? '',
       settleTxId: r[12] ?? '',
+      repaidAmount: Number(r[13] ?? 0),
+      repaymentTxIds: String(r[14] ?? '').split('|').filter(Boolean),
     }));
   } catch (err) {
     if (!isMissingTabError(err)) throw err;
@@ -763,7 +765,7 @@ export async function upsertSplit(
 ): Promise<void> {
   const sheets = getSheetsClient(accessToken);
   await ensureSheet(sheets, spreadsheetId, 'Splits', SPLITS_HEADER);
-  await deleteRowById(accessToken, spreadsheetId, 'Splits', split.id, 'M');
+  await deleteRowById(accessToken, spreadsheetId, 'Splits', split.id, 'O');
   await sheets.spreadsheets.values.append({
     spreadsheetId,
     range: 'Splits!A1',
@@ -775,6 +777,7 @@ export async function upsertSplit(
         split.amount, split.category, split.account, split.date,
         String(split.settled), split.settledDate,
         split.frontedTxId ?? '', split.settleTxId ?? '',
+        split.repaidAmount ?? 0, (split.repaymentTxIds ?? []).join('|'),
       ]],
     },
   });
@@ -785,7 +788,7 @@ export async function deleteSplit(
   spreadsheetId: string,
   id: string
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Splits', id, 'M');
+  await deleteRowById(accessToken, spreadsheetId, 'Splits', id, 'O');
 }
 
 // ── Loans (personal lend/borrow IOUs) ──────────────────────────────────────────

@@ -111,7 +111,7 @@ export async function DELETE(req: NextRequest) {
 
   await deleteSplit(session.accessToken, session.spreadsheetId, id);
 
-  const txIds = split ? [split.frontedTxId, split.settleTxId].filter(Boolean) as string[] : [];
+  const txIds = split ? [split.frontedTxId, split.settleTxId, ...(split.repaymentTxIds ?? [])].filter(Boolean) as string[] : [];
   if (txIds.length) {
     const idSet = new Set(txIds);
     const [transactions, accounts] = await Promise.all([

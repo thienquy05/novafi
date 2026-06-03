@@ -66,6 +66,13 @@ export function sumPerPersonShares(
   return { shares, total, myShare, over: false };
 }
 
+// How much of a split is still owed. Mirrors the loan model: a settled split
+// owes nothing; otherwise it's the original share minus what's been paid back
+// so far (partial paybacks accumulate in repaidAmount).
+export function splitRemaining(s: Split): number {
+  return s.settled ? 0 : roundCents(s.amount - (s.repaidAmount || 0));
+}
+
 // One bill/expense occurrence with everyone who shares it. Splits are grouped by
 // billId + date so a single dinner (many people, same billId & date) collapses
 // into one group with a per-person breakdown, while each month's recurring-bill
