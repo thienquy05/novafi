@@ -381,6 +381,7 @@
     "paybackAmount": "Số tiền trả ($)",
     "confirmPayback": "Ghi nhận",
     "settled": "Đã tất toán",
+    "settledHistory": "Lịch sử tất toán ({n})",
     "settledOn": "tất toán {date}",
     "txLent": "Cho {name} vay",
     "txBorrowed": "Vay từ {name}",

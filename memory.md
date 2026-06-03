@@ -699,3 +699,7 @@ User: "Make sure to have the group just changed from Loan same with Bills and Sp
 - Replaced the flat `settledLoans.map(...)` with `settledLoanGroups.map(g => g.isGroup ? renderSettledLoanGroup : renderSettledLoanCard)`. Partial settlements render cleanly (the open and settled sides each show only their members; a 1-member settled "group" falls back to a solo card).
 
 **Verification:** `tsc` clean; 312 tests pass; eslint 0 errors.
+
+### Follow-up — settled loans behind a collapsible History (same branch)
+
+User: "Let's add it" (the settled-loans History toggle for full parity with Splits). `app/(app)/transactions/page.tsx`: new `showLoanHistory` state (default collapsed); the settled-loans section is now a toggle button (`loans.settledHistory` {n} + chevron) that reveals `settledLoanGroups.slice(0, 10)` — same shape as the Splits settled History. New i18n `loans.settledHistory` (en + vi). tsc clean; locales valid; 312 tests pass.

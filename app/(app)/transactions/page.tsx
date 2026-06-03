@@ -207,6 +207,7 @@ export default function TransactionsPage() {
   const [paybackForm, setPaybackForm] = useState({ amount: '', account: '' });
   const [recordingPayback, setRecordingPayback] = useState(false);
   const [expandedLoanGroups, setExpandedLoanGroups] = useState<Set<string>>(new Set());
+  const [showLoanHistory, setShowLoanHistory] = useState(false);
   // Split bills (one-time expense splits)
   const [splits, setSplits] = useState<Split[]>([]);
   const [splitsOpen, setSplitsOpen] = useState(false);
@@ -1539,11 +1540,21 @@ export default function TransactionsPage() {
           )}
           {openLoanGroups.map((group) => group.isGroup ? renderOpenLoanGroup(group) : renderOpenLoanCard(group.loans[0]))}
 
-          {/* Settled loans */}
+          {/* Settled loans — collapsible History, last 10 events (mirrors Splits) */}
           {settledLoans.length > 0 && (
-            <div className="space-y-2 pt-2">
-              <p className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-1">{t('loans.settled')}</p>
-              {settledLoanGroups.map((group) => group.isGroup ? renderSettledLoanGroup(group) : renderSettledLoanCard(group.loans[0]))}
+            <div className="pt-1">
+              <button
+                onClick={() => setShowLoanHistory((v) => !v)}
+                className="w-full flex items-center justify-between px-1 py-2 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+              >
+                <span>{t('loans.settledHistory', { n: settledLoans.length })}</span>
+                <ChevronDown className={`w-4 h-4 transition-transform ${showLoanHistory ? 'rotate-180' : ''}`} />
+              </button>
+              {showLoanHistory && (
+                <div className="space-y-2 pt-1">
+                  {settledLoanGroups.slice(0, 10).map((group) => group.isGroup ? renderSettledLoanGroup(group) : renderSettledLoanCard(group.loans[0]))}
+                </div>
+              )}
             </div>
           )}
         </div>

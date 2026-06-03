@@ -381,6 +381,7 @@
     "paybackAmount": "Payback amount ($)",
     "confirmPayback": "Record",
     "settled": "Settled",
+    "settledHistory": "Settled history ({n})",
     "settledOn": "settled {date}",
     "txLent": "Loan to {name}",
     "txBorrowed": "Borrowed from {name}",
