@@ -53,11 +53,26 @@ export function calcSavingsRate(income: number, spending: number): number {
   return Math.max(0, ((income - spending) / income) * 100);
 }
 
-// Money left after this month's spending and upcoming bills. Can go negative
-// when bills exceed what's left — we surface that shortfall instead of flooring
-// at 0 so you see exactly how far under you are, not just "$0.00".
+// Money left to spend for the REST of the month: this month's income minus the
+// cash already spent minus the bills still due. Can go negative when those
+// outflows exceed income — we surface that shortfall instead of flooring at 0 so
+// you see exactly how far under you are, not just "$0.00". Pair with
+// `calcSafeToSpendDaily` to turn this leftover into a per-day allowance.
 export function calcSafeToSpend(income: number, spending: number, bills: number): number {
-  return income - spending - bills;
+  return roundCents(income - spending - bills);
+}
+
+// Forward-looking daily allowance: spread the money left to spend evenly across
+// the days remaining in the month (today included, so `daysRemaining` is never
+// 0). This is what makes "safe to spend" actionable — it answers "how much can I
+// spend today and still cover the rest of the month" rather than restating
+// income − spending (which savings rate and net cash flow already cover). When
+// already overspent (leftToSpend < 0) there's no allowance to give, so we return
+// the shortfall unchanged for the caller to surface as-is.
+export function calcSafeToSpendDaily(leftToSpend: number, daysRemaining: number): number {
+  if (leftToSpend < 0) return leftToSpend;
+  if (daysRemaining <= 0) return roundCents(leftToSpend);
+  return roundCents(leftToSpend / daysRemaining);
 }
 
 // Cash-basis spending for "safe to spend": the real money that left (or is

@@ -2,6 +2,22 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-03 — Rework Safe-to-Spend into a forward-looking daily allowance (branch claude/exciting-raman-cc0515)
+
+**Problem reported:** The Safe-to-Spend KPI duplicated metrics already on the dashboard. It was `income − cashSpending − billsThisMonth`, i.e. just "income minus spending" with bills netted — the same backward-looking "what's left this month" idea that Savings Rate (a %), the Health Banner's "net" (`income − spending`), and the banner's own "after bills" line all already expressed. It never answered the question a safe-to-spend number exists for: how much can I spend from here to month-end without going under. User asked to enhance or replace it; said "you decide."
+
+**Decision:** Replace the static total with a **forward-looking per-day allowance** (Simple/Copilot-style "safe to spend") — distinct from every other KPI because it's a *rate* over the days remaining, and it nets out the bills *still due* rather than all bills this month. Skipped the savings-reserve variant (no clean per-month savings-target concept exists yet — that'd be a separate feature).
+
+**Formula:** `leftToSpend = monthIncome − monthCashSpending − upcomingBillsTotal` (bills still due, since already-paid bills are part of `monthCashSpending` — avoids double-counting). `dailySafeToSpend = leftToSpend / daysRemaining`, where `daysRemaining = daysLeft + 1` so today counts and it's never 0. Switched the bills input from `billsThisMonth` (all bills due this month, incl. already-passed) to `upcomingBillsTotal` (rest-of-month forecast, already computed on the page) — so `billsThisMonth` was removed.
+
+**Changes:**
+- `lib/calculations.ts` — `calcSafeToSpend` now wraps its result in `roundCents` and its comment reframed as "money left to spend for the rest of the month." New pure fn `calcSafeToSpendDaily(leftToSpend, daysRemaining)`: returns the shortfall unchanged when `leftToSpend < 0` (no allowance to give), returns the full leftover when `daysRemaining <= 0`, else `roundCents(leftToSpend / daysRemaining)`.
+- `app/(app)/dashboard/page.tsx` — removed the `billsThisMonth` block; compute `leftToSpend` from `upcomingBillsTotal`, plus `daysRemaining`, `dailySafeToSpend`, `overspent`. The Safe-to-Spend StatCard now shows `${daily}/day` (indigo) with annotation `"{total} left · {days}d to go"` when on track, or the negative `leftToSpend` total (rose) with `"over for the month"` when overspent. HealthBanner still receives the leftover total via `safeToSpend={leftToSpend}` so its "after bills" line stays consistent.
+- `locales/en.json` / `locales/vi.json` — new keys `perDay` ("/day" / "/ngày"), `safeToSpendNote` ("{total} left · {days}d to go"), `safeToSpendOver` ("over for the month").
+- `lib/__tests__/calculations.test.ts` — added a `calcSafeToSpendDaily` suite (spread, cent-rounding, negative passthrough, zero-days) and a cent-rounding case for `calcSafeToSpend`.
+
+**Verification:** `npx vitest run lib/__tests__/calculations.test.ts` → 234 passed. `tsc --noEmit` clean, `eslint` clean on changed files.
+
 ## 2026-06-02 — Show negative "after bills" instead of flooring at $0.00 (branch claude/negative-balance-display-kPg8b)
 
 **Problem reported:** On the dashboard "Watch spending" card, the "after bills" figure (safe-to-spend) was clamped to `$0.00` whenever bills exceeded what was left. The user couldn't see the actual shortfall — e.g. it showed `$0.00 after bills` when they were really under. They asked to surface the real negative amount so they know exactly how far under they are.
