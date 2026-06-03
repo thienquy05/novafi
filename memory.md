@@ -703,3 +703,19 @@ User: "Make sure to have the group just changed from Loan same with Bills and Sp
 ### Follow-up — settled loans behind a collapsible History (same branch)
 
 User: "Let's add it" (the settled-loans History toggle for full parity with Splits). `app/(app)/transactions/page.tsx`: new `showLoanHistory` state (default collapsed); the settled-loans section is now a toggle button (`loans.settledHistory` {n} + chevron) that reveals `settledLoanGroups.slice(0, 10)` — same shape as the Splits settled History. New i18n `loans.settledHistory` (en + vi). tsc clean; locales valid; 312 tests pass.
+
+## 2026-06-03 — Smooth height animation for expandable groups (branch claude/tender-wiles-0213ec)
+
+**Problem reported:** Expanding a group row (loans, splits, bills, merchant view) popped its body in instantly, snapping the rows below it down. User wanted the reveal to animate smoothly "instead of pushing the container after expanding."
+
+**Root cause:** Every expandable group rendered its body with `{open && (<div>…</div>)}`. Conditional mount/unmount means there's no height to transition — the element appears at full height in one frame, so siblings jump.
+
+**Change — new reusable component `components/ui/Collapsible.tsx`:** animates open/close by transitioning the CSS `grid-template-rows` from `0fr` → `1fr` (the standard zero-JS height trick — no `ref`/measuring, works for any content height). Outer div is `grid transition-[grid-template-rows] ease-out` toggling `grid-rows-[0fr]`/`grid-rows-[1fr]`; inner wrapper is `overflow-hidden min-h-0` so the body clips while collapsed and eases the rows below it down on expand. Default `duration={300}` (overridable). Honors `prefers-reduced-motion` via `motion-reduce:transition-none`. Content stays mounted while collapsed (clipped), which is fine for these small lists.
+
+**Applied** (replaced `{open && (…)}` with `<Collapsible open={open}>…</Collapsible>`, body markup unchanged):
+- `app/(app)/transactions/page.tsx` — open multi-person loan group, settled loan group, merchant-view transaction list, pending split group, settled split group, and the settled-splits History section reveal.
+- `app/(app)/bills/page.tsx` — the Sharing History section reveal.
+
+The chevron rotation (`transition-transform rotate-180`) already animated and now visually matches the body easing. Bills' multi-person *pending* cards are always-expanded breakdowns (no toggle), so they were left as-is.
+
+**Verification:** `tsc --noEmit` clean; `eslint` 0 errors on changed files (only the two pre-existing `bills/page.tsx` purity/setState-in-effect warnings remain, untouched by this change).
