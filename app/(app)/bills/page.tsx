@@ -9,6 +9,7 @@ import { Modal } from '@/components/ui/Modal';
 import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { BillsSkeleton } from '@/components/ui/Skeleton';
 import { FitText } from '@/components/ui/FitText';
+import { Collapsible } from '@/components/ui/Collapsible';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
 import { billToTransactionDefaults, calcPaycheckDeposited, myBillShare, billParticipants, billOthersShare } from '@/lib/calculations';
 import { buildSplitTx, groupSplits, isOneOffSplit, computeSplitShares, sumPerPersonShares } from '@/lib/splits';
@@ -1160,7 +1161,7 @@ export default function BillsPage() {
                 <span>{t('bills.sharedHistory', { n: settledSplits.length })}</span>
                 <ChevronDown className={`w-4 h-4 transition-transform ${showSharingHistory ? 'rotate-180' : ''}`} />
               </button>
-              {showSharingHistory && (
+              <Collapsible open={showSharingHistory}>
                 <div className="space-y-2 pt-1">
                   {settledGroups.slice(0, 10).map((group) => {
                     // Single-person settled split → flat row (unchanged look).
@@ -1233,7 +1234,7 @@ export default function BillsPage() {
                     );
                   })}
                 </div>
-              )}
+              </Collapsible>
             </div>
           )}
         </div>

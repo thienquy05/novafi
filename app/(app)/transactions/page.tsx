@@ -8,6 +8,7 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { TransactionsSkeleton } from '@/components/ui/Skeleton';
+import { Collapsible } from '@/components/ui/Collapsible';
 import { formatCurrency, formatCompact, formatDate, generateId, today } from '@/lib/utils';
 import { transactionsToCsv } from '@/lib/csv';
 import { calcLoanRemaining } from '@/lib/calculations';
@@ -502,11 +503,11 @@ export default function TransactionsPage() {
             <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
           </div>
         </button>
-        {open && (
+        <Collapsible open={open}>
           <div className="px-3 pb-3 space-y-2">
             {group.loans.map((l) => renderOpenLoanCard(l, true))}
           </div>
-        )}
+        </Collapsible>
       </div>
     );
   }
@@ -545,11 +546,11 @@ export default function TransactionsPage() {
           </div>
           <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through ml-2 shrink-0">{formatCurrency(group.principal)}</span>
         </button>
-        {open && (
+        <Collapsible open={open}>
           <div className="px-3 pb-3 space-y-2">
             {group.loans.map((l) => renderSettledLoanCard(l, true))}
           </div>
-        )}
+        </Collapsible>
       </div>
     );
   }
@@ -1261,7 +1262,7 @@ export default function TransactionsPage() {
                     {isExpanded ? <ChevronDown className="w-4 h-4 text-slate-400 dark:text-slate-500" /> : <ChevronRight className="w-4 h-4 text-slate-400 dark:text-slate-500" />}
                   </div>
                 </button>
-                {isExpanded && (
+                <Collapsible open={isExpanded}>
                   <div className="border-t border-slate-100 dark:border-slate-700/60 divide-y divide-slate-50 dark:divide-slate-700/60">
                     {row.transactions.map((tx) => (
                       <div key={tx.id} className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
@@ -1278,7 +1279,7 @@ export default function TransactionsPage() {
                       </div>
                     ))}
                   </div>
-                )}
+                </Collapsible>
               </div>
             );
           })}
@@ -1684,7 +1685,7 @@ export default function TransactionsPage() {
                   </div>
                   <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400 ml-2 shrink-0">{formatCurrency(group.total)}</span>
                 </button>
-                {expanded && (
+                <Collapsible open={expanded}>
                   <div className="divide-y divide-slate-100 dark:divide-slate-700/60 border-t border-slate-100 dark:border-slate-700/60">
                     {group.splits.map((split) => {
                       const busy = settlingSplitId === split.id;
@@ -1710,7 +1711,7 @@ export default function TransactionsPage() {
                       );
                     })}
                   </div>
-                )}
+                </Collapsible>
               </div>
             );
           })}
@@ -1725,7 +1726,7 @@ export default function TransactionsPage() {
                 <span>{t('bills.sharedHistory', { n: settledSplits.length })}</span>
                 <ChevronDown className={`w-4 h-4 transition-transform ${showSplitHistory ? 'rotate-180' : ''}`} />
               </button>
-              {showSplitHistory && (
+              <Collapsible open={showSplitHistory}>
                 <div className="space-y-2 pt-1">
                   {settledSplitGroups.slice(0, 10).map((group) => {
                     const expanded = expandedSplitGroups.has(group.key);
@@ -1744,7 +1745,7 @@ export default function TransactionsPage() {
                           </div>
                           <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through ml-2 shrink-0">{formatCurrency(group.total)}</span>
                         </button>
-                        {expanded && (
+                        <Collapsible open={expanded}>
                           <div className="divide-y divide-slate-100 dark:divide-slate-700/60 border-t border-slate-100 dark:border-slate-700/60">
                             {group.splits.map((split) => {
                               const busy = settlingSplitId === split.id;
@@ -1770,12 +1771,12 @@ export default function TransactionsPage() {
                               );
                             })}
                           </div>
-                        )}
+                        </Collapsible>
                       </div>
                     );
                   })}
                 </div>
-              )}
+              </Collapsible>
             </div>
           )}
         </div>
