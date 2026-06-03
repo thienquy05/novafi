@@ -159,7 +159,9 @@ function buildLoanTx(
     description,
     amount,
     type: 'transfer',
-    category: 'Transfer',
+    // Tagged 'Loan' (not 'Transfer') so the ledger history shows a distinct
+    // loan icon/name. It stays a `transfer`, so income/expense math is unaffected.
+    category: 'Loan',
     account: cashOut ? account : '',
     toAccount: cashOut ? '' : account,
     createdAt: new Date().toISOString(),
@@ -255,6 +257,20 @@ export default function TransactionsPage() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setTemplates(loadTemplates()); }, []);
+  // One-shot: retag pre-existing loan/split transfers from 'Transfer' to their
+  // dedicated 'Loan'/'Split' category. Guarded per browser; reloads if it changed
+  // anything so the history reflects the new icons/names immediately.
+  useEffect(() => {
+    const KEY = 'nf_loan_split_cat_backfill_v1';
+    try { if (localStorage.getItem(KEY)) return; } catch { return; }
+    fetch('/api/transactions/backfill-categories', { method: 'POST' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((res) => {
+        try { localStorage.setItem(KEY, '1'); } catch { /* ignore */ }
+        if (res?.updated > 0) load();
+      })
+      .catch(() => {});
+  }, [load]);
   useAutoRefresh(load);
   const { pullY, refreshing } = usePullToRefresh(load);
 
@@ -265,6 +281,24 @@ export default function TransactionsPage() {
     for (const a of accounts) m[a.id] = a.name;
     return m;
   }, [accounts]);
+
+  // Transfers OWNED by a loan or split (its principal/payback or fronted/settle
+  // cash rows). Their amount & accounts are reconciled by the loans/splits APIs,
+  // so editing those fields — or deleting the row — from the generic ledger would
+  // desync the owning record. We let the date/note be edited but lock the rest.
+  const managedTxIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const l of loans) {
+      if (l.principalTxId) s.add(l.principalTxId);
+      for (const id of l.repaymentTxIds ?? []) if (id) s.add(id);
+    }
+    for (const sp of splits) {
+      if (sp.frontedTxId) s.add(sp.frontedTxId);
+      if (sp.settleTxId) s.add(sp.settleTxId);
+    }
+    return s;
+  }, [loans, splits]);
+  const editManaged = !!editTarget && managedTxIds.has(editTarget.id);
 
   const filtered = useMemo(() => transactions.filter((tx) => {
     const matchSearch = !search || tx.description.toLowerCase().includes(search.toLowerCase()) || tx.category.toLowerCase().includes(search.toLowerCase());
@@ -313,6 +347,52 @@ export default function TransactionsPage() {
     setTemplates(updated);
   }
 
+  // Propagate an amount change on a loan/split-owned transfer back to the owning
+  // record so its denormalized numbers stay correct (loan.principal /
+  // loan.repaidAmount / split.amount). The edited row's balance is already handled
+  // by the transactions PUT; for a split we also update the OTHER cash leg so the
+  // fronted-out and paid-back amounts stay equal. Throws on failure so handleSave
+  // falls back to a reload. NOTE (best-effort, per design): for a split this syncs
+  // the person's share + both cash legs, but does NOT rebalance the original group
+  // total or your own recorded share.
+  async function syncOwnerAmount(original: Transaction, newAmount: number) {
+    const loanP = loans.find((l) => l.principalTxId === original.id);
+    if (loanP) {
+      const fullyPaid = newAmount > 0 && loanP.repaidAmount >= roundCents(newAmount) - 0.005;
+      const next: Loan = { ...loanP, principal: newAmount, settled: fullyPaid, settledDate: fullyPaid ? (loanP.settledDate || today()) : '' };
+      setLoans((prev) => prev.map((l) => l.id === next.id ? next : l));
+      const r = await fetch('/api/loans', { method: 'POST', body: JSON.stringify(next), headers: { 'Content-Type': 'application/json' } });
+      if (!r.ok) throw new Error();
+      return;
+    }
+    const loanR = loans.find((l) => (l.repaymentTxIds ?? []).includes(original.id));
+    if (loanR) {
+      const repaid = Math.max(0, roundCents(loanR.repaidAmount - original.amount + newAmount));
+      const fullyPaid = repaid >= roundCents(loanR.principal) - 0.005;
+      const next: Loan = { ...loanR, repaidAmount: repaid, settled: fullyPaid, settledDate: fullyPaid ? (loanR.settledDate || today()) : '' };
+      setLoans((prev) => prev.map((l) => l.id === next.id ? next : l));
+      const r = await fetch('/api/loans', { method: 'POST', body: JSON.stringify(next), headers: { 'Content-Type': 'application/json' } });
+      if (!r.ok) throw new Error();
+      return;
+    }
+    const split = splits.find((s) => s.frontedTxId === original.id || s.settleTxId === original.id);
+    if (split) {
+      const next: Split = { ...split, amount: newAmount };
+      setSplits((prev) => prev.map((s) => s.id === next.id ? next : s));
+      const r = await fetch('/api/splits', { method: 'POST', body: JSON.stringify(next), headers: { 'Content-Type': 'application/json' } });
+      if (!r.ok) throw new Error();
+      // Keep the other cash leg (fronted/settle) equal to the new share.
+      const siblingId = split.frontedTxId === original.id ? split.settleTxId : split.frontedTxId;
+      const sibling = siblingId ? transactions.find((tx) => tx.id === siblingId) : undefined;
+      if (sibling && roundCents(sibling.amount) !== roundCents(newAmount)) {
+        const updatedSibling: Transaction = { ...sibling, amount: newAmount };
+        setTransactions((prev) => prev.map((tx) => tx.id === sibling.id ? updatedSibling : tx));
+        const r2 = await fetch('/api/transactions', { method: 'PUT', body: JSON.stringify({ original: sibling, updated: updatedSibling }), headers: { 'Content-Type': 'application/json' } });
+        if (!r2.ok) throw new Error();
+      }
+    }
+  }
+
   async function handleSave() {
     setSaving(true);
     const amount = parseFloat(form.amount) || 0;
@@ -347,6 +427,11 @@ export default function TransactionsPage() {
         headers: { 'Content-Type': 'application/json' },
       });
       if (!res.ok) throw new Error();
+      // Loan/split-owned row: keep the owning record (and a split's other cash
+      // leg) in sync when the amount changed.
+      if (editTarget && managedTxIds.has(editTarget.id) && roundCents(amount) !== roundCents(editTarget.amount)) {
+        await syncOwnerAmount(editTarget, amount);
+      }
       toast(editTarget ? t('transactions.toastUpdated') : t('transactions.toastAdded'), 'success');
       load();
     } catch {
@@ -1295,7 +1380,7 @@ export default function TransactionsPage() {
               </div>
               <div className="space-y-2">
                 {txs.map((tx) => (
-                  <SwipeableRow key={tx.id} tx={tx} accountName={accountName} onEdit={openEdit} onDelete={handleDelete} />
+                  <SwipeableRow key={tx.id} tx={tx} accountName={accountName} onEdit={openEdit} onDelete={handleDelete} managed={managedTxIds.has(tx.id)} />
                 ))}
               </div>
             </div>
@@ -1313,9 +1398,15 @@ export default function TransactionsPage() {
       {/* ── Add/Edit Transaction Modal ───────────────────────────────────── */}
       <Modal open={open} onClose={closeModal} title={editTarget ? t('transactions.editTransaction') : t('transactions.newTransaction')}>
         <div className="space-y-4 pb-4">
+          {editManaged && (
+            <div className="flex items-start gap-2.5 text-sm rounded-2xl border border-violet-200 dark:border-violet-800/50 bg-violet-50 dark:bg-violet-900/20 p-3.5">
+              <HandCoins className="w-4 h-4 text-violet-600 dark:text-violet-400 mt-0.5 shrink-0" />
+              <p className="font-medium text-violet-800 dark:text-violet-300">{t('transactions.managedRowHint')}</p>
+            </div>
+          )}
           <div className="flex p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-700">
             {(['expense', 'income', 'transfer'] as const).map((tp) => (
-              <button key={tp} onClick={() => handleTypeChange(tp)} className={`flex-1 py-2.5 text-sm font-bold rounded-xl transition-all duration-200 ${form.type === tp ? tp === 'expense' ? 'bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 shadow-sm' : tp === 'income' ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-sm' : 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}>
+              <button key={tp} disabled={editManaged} onClick={() => handleTypeChange(tp)} className={`flex-1 py-2.5 text-sm font-bold rounded-xl transition-all duration-200 ${editManaged ? 'cursor-not-allowed' : ''} ${form.type === tp ? tp === 'expense' ? 'bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 shadow-sm' : tp === 'income' ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-sm' : 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm' : `text-slate-500 dark:text-slate-400 ${editManaged ? '' : 'hover:text-slate-700 dark:hover:text-slate-300'}`}`}>
                 {tp.charAt(0).toUpperCase() + tp.slice(1)}
               </button>
             ))}
@@ -1335,12 +1426,12 @@ export default function TransactionsPage() {
             {form.type !== 'transfer' && (
               <Select label={t('common.category')} value={form.category} options={categories.map((c) => ({ value: c, label: c }))} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} />
             )}
-            <Select label={form.type === 'transfer' ? t('transactions.fromAccount') : t('common.account')} value={form.account}
+            <Select label={form.type === 'transfer' ? t('transactions.fromAccount') : t('common.account')} value={form.account} disabled={editManaged} className="disabled:opacity-60 disabled:cursor-not-allowed"
               options={[{ value: '', label: t('common.nonePlaceholder') }, ...accounts.map((a) => ({ value: a.id, label: a.type === 'credit' || a.type === 'loan' ? `${a.name} (owed: ${formatCurrency(a.balance)})` : `${a.name} (${formatCurrency(a.balance)})` }))]}
               onChange={(e) => setForm((f) => ({ ...f, account: e.target.value }))} />
           </div>
           {form.type === 'transfer' && (
-            <Select label={t('transactions.toAccount')} value={form.toAccount}
+            <Select label={t('transactions.toAccount')} value={form.toAccount} disabled={editManaged} className="disabled:opacity-60 disabled:cursor-not-allowed"
               options={[{ value: '', label: t('common.nonePlaceholder') }, ...accounts.filter((a) => a.id !== form.account).map((a) => ({ value: a.id, label: a.type === 'credit' || a.type === 'loan' ? `${a.name} · Pay off (owed: ${formatCurrency(a.balance)})` : `${a.name} (${formatCurrency(a.balance)})` }))]}
               onChange={(e) => setForm((f) => ({ ...f, toAccount: e.target.value }))} />
           )}
@@ -1874,11 +1965,13 @@ type SwipeRowProps = {
   accountName: (id: string) => string;
   onEdit: (tx: Transaction) => void;
   onDelete: (id: string) => void;
+  /** Loan/split-owned row: delete is managed from Loans/Splits, so it's locked here. */
+  managed?: boolean;
 };
 
-function SwipeableRow({ tx, accountName, onEdit, onDelete }: SwipeRowProps) {
+function SwipeableRow({ tx, accountName, onEdit, onDelete, managed }: SwipeRowProps) {
   return (
-    <SwipeToDelete onDelete={() => onDelete(tx.id)}>
+    <SwipeToDelete onDelete={() => onDelete(tx.id)} disabled={managed}>
       <div className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 rounded-3xl select-none">
         <div className="flex items-center gap-3.5 flex-1 min-w-0">
           <CategoryIconBadge category={tx.category} type={tx.type} className="w-11 h-11 rounded-2xl" />

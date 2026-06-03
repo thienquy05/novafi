@@ -40,7 +40,9 @@ export function buildSplitTx(
     description,
     amount,
     type: 'transfer',
-    category: 'Transfer',
+    // Tagged 'Split' (not 'Transfer') so the ledger history shows a distinct
+    // split icon/name. It stays a `transfer`, so income/expense math is unaffected.
+    category: 'Split',
     account: out ? account : '',
     toAccount: out ? '' : account,
     createdAt: new Date().toISOString(),
