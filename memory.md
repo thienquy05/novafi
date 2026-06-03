@@ -2,6 +2,25 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-03 — Merge "Divide total" / "Per person" split modes into one smart resolver (branch claude/cranky-germain-50e0ee)
+
+**Request:** Every split surface (Bills, Split-an-Expense, group Loans) had a two-tab toggle — **Divide total** (type a total, blank rows auto-divide the remainder) vs **Per person** (type each share, total auto-sums). User wanted the two combined into one input that detects intent: e.g. with 4 people, typing 3 shares + a total auto-fills the 4th; typing only a total auto-divides evenly; leaving the total blank sums up the typed shares. Also asked that Bills "inherit" the same formula so Loans/Splits/Bills all share one calculation (Bills stays in its own section, just shares the math).
+
+**Design — the toggle is replaced by "is the Total field filled?":**
+- **Total filled** → divide it across people: typed amounts honored, blank boxes evenly split the remainder (you join that pool when `includeMe`). = existing `computeSplitShares`.
+- **Total blank** → infer the total by summing the typed parts (blanks = 0) plus your own typed share when included. = existing `sumPerPersonShares`.
+- One UX consequence: when a Total is set, your own share is always the remainder — to type a fixed personal share, leave Total blank. No functionality lost, just expressed differently.
+
+**Change — `lib/splits.ts`:** new `resolveSplit(total, amounts, includeMe, myAmount=0)` that delegates to `computeSplitShares` when `total != null && total > 0`, else `sumPerPersonShares`; always returns the resolved group `total` so callers don't re-derive it. The two underlying functions are unchanged (still exported/tested). Added a `resolveSplit` suite to `lib/__tests__/splits.test.ts` (7 cases incl. the 4-people auto-fill, even divide, inferred sum, zero-total→infer, includeMe both ways, over-allocation).
+
+**Forms refactored** — each dropped its `*SplitMode` state + the toggle UI, derives `hasTotal = (totalInput ?? 0) > 0`, and calls `resolveSplit`. When `!hasTotal`: the "your share" input appears (Bills/Splits) and the Total field shows the inferred sum as its placeholder with label `bills.totalAmountAuto`; when `hasTotal`: participant boxes show auto-share placeholders and the "Split equally" affordance appears.
+- `app/(app)/bills/page.tsx` — removed `billSplitMode`; `resetSplitMode()` now only clears `billMyShare`. Bill `amount` field always editable (no more disabled "computed total" swap). `includeMe` is always true here.
+- `app/(app)/transactions/page.tsx` — same for the Split-an-Expense form (`seSplitMode` removed; `includeMe` is the checkbox) and the group-loan form (`loanSplitMode` removed; `includeMe` always false; `loanUnassigned` = `computed.myShare` only when a total is typed).
+
+**i18n:** added `bills.splitSmartHint` (combined explanation) and `bills.totalAmountAuto` to `locales/en.json` + `vi.json`. Old keys (`splitModeDivide/PerPerson/Hint`, `splitAutoHint`, `computedTotal`) left in place, now unused.
+
+**Verification:** `tsc --noEmit` clean; full vitest 324 passing (incl. 20 in splits.test.ts); `eslint` on the 3 changed files — 0 errors (only pre-existing setState-in-effect / no-unused-expression warnings remain, untouched).
+
 ## 2026-06-03 — Rework Safe-to-Spend into a forward-looking daily allowance (branch claude/exciting-raman-cc0515)
 
 **Problem reported:** The Safe-to-Spend KPI duplicated metrics already on the dashboard. It was `income − cashSpending − billsThisMonth`, i.e. just "income minus spending" with bills netted — the same backward-looking "what's left this month" idea that Savings Rate (a %), the Health Banner's "net" (`income − spending`), and the banner's own "after bills" line all already expressed. It never answered the question a safe-to-spend number exists for: how much can I spend from here to month-end without going under. User asked to enhance or replace it; said "you decide."

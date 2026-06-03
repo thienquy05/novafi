@@ -337,6 +337,8 @@
     "splitModeDivide": "Divide total",
     "splitModePerPerson": "Per person",
     "splitModePerPersonHint": "Enter each person's amount — the total adds up automatically.",
+    "splitSmartHint": "Enter a total to divide it among everyone (blank boxes split the rest), or leave the total empty and type each person's amount to add it up.",
+    "totalAmountAuto": "Total amount ($) — auto",
     "computedTotal": "Total (auto)",
     "yourShareInput": "Your share ($)",
     "includeMe": "Include my share in the split",
