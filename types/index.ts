@@ -92,6 +92,13 @@ export interface Budget {
   position?: number;
 }
 
+// One other person on a shared bill and the share they owe you. "Me" is never a
+// participant row — my share is always the remainder (amount − sum of theirs).
+export interface BillSplitParticipant {
+  contactId: string;
+  amount: number;
+}
+
 export interface Bill {
   id: string;
   name: string;
@@ -101,8 +108,13 @@ export interface Bill {
   account: string;
   category: string;
   isActive: boolean;
+  // Legacy single-contact split (read for back-compat; superseded by
+  // splitParticipants when that is present).
   splitContactId?: string; // when set, this bill is shared with a contact
   splitAmount?: number;    // the other person's share of `amount` (the part they owe you); your share = amount - splitAmount
+  // Multi-person split: each entry is one other person's share they owe you.
+  // Your share is the remainder (amount − sum). Empty/absent = unsplit.
+  splitParticipants?: BillSplitParticipant[];
 }
 
 // A person you share bills with. Deliberately minimal & reusable across bills.

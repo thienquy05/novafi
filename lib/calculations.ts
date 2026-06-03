@@ -506,14 +506,33 @@ export function calcSplitShares(total: number, theirShare: number): { mine: numb
   return { theirs, mine: roundCents((total || 0) - theirs) };
 }
 
-// The portion of a bill that is actually YOUR cost. For a shared bill that's
-// only your share (the rest is the other person's, tracked as a receivable), so
+// Normalizes a bill's other-people shares into one list, hiding the legacy vs
+// multi-person storage difference. Prefers `splitParticipants` (multi-person);
+// falls back to the legacy single `splitContactId`/`splitAmount`; else empty.
+// Only valid rows (a contact + a positive share) are returned.
+export function billParticipants(bill: Bill): { contactId: string; amount: number }[] {
+  if (bill.splitParticipants && bill.splitParticipants.length > 0) {
+    return bill.splitParticipants.filter((p) => p.contactId && p.amount > 0);
+  }
+  if (bill.splitContactId && bill.splitAmount) {
+    return [{ contactId: bill.splitContactId, amount: bill.splitAmount }];
+  }
+  return [];
+}
+
+// Total the OTHER people owe you on a shared bill, clamped to [0, amount] so bad
+// input can never exceed the bill or go negative.
+export function billOthersShare(bill: Bill): number {
+  const sum = billParticipants(bill).reduce((s, p) => s + (p.amount || 0), 0);
+  return Math.min(Math.max(0, roundCents(sum)), roundCents(bill.amount || 0));
+}
+
+// The portion of a bill that is actually YOUR cost = amount − everyone else's
+// shares (the rest is theirs, tracked as receivables). Single source of truth so
 // summaries, forecasts, and the dashboard reflect what you really pay — not the
-// full bill. Single source of truth used across bills + dashboard.
+// full bill. Works for unsplit, legacy single-split, and multi-person bills.
 export function myBillShare(bill: Bill): number {
-  return bill.splitContactId && bill.splitAmount
-    ? calcSplitShares(bill.amount, bill.splitAmount).mine
-    : bill.amount;
+  return roundCents((bill.amount || 0) - billOthersShare(bill));
 }
 
 // Outstanding balance on a loan/IOU: principal minus everything paid back so

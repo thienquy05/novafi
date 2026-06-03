@@ -478,13 +478,14 @@ export async function getBills(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Bills!A2:J200',
+    range: 'Bills!A2:K200',
   });
   return (res.data.values ?? []).map(rowToBill);
 }
 
-// Shared Bill row parser. Columns I/J (split) are absent on legacy rows → the
-// bill is simply treated as unsplit.
+// Shared Bill row parser. Columns I/J (legacy single split) and K (multi-person
+// split participants, JSON) are absent on older rows → the bill is treated as
+// unsplit or single-split respectively.
 function rowToBill(r: string[]): Bill {
   const splitContactId = r[8] ?? '';
   return {
@@ -498,7 +499,24 @@ function rowToBill(r: string[]): Bill {
     isActive: r[7] === 'true',
     splitContactId,
     splitAmount: splitContactId && r[9] !== undefined && r[9] !== '' ? Number(r[9]) : undefined,
+    splitParticipants: parseBillParticipants(r[10]),
   };
+}
+
+// Column K stores the multi-person split as a JSON array of {contactId, amount}.
+// Tolerant of blank/legacy/corrupt cells (→ undefined, i.e. fall back to legacy).
+function parseBillParticipants(cell: string | undefined): Bill['splitParticipants'] {
+  if (!cell) return undefined;
+  try {
+    const parsed = JSON.parse(cell);
+    if (!Array.isArray(parsed)) return undefined;
+    const rows = parsed
+      .map((p) => ({ contactId: String(p?.contactId ?? ''), amount: Number(p?.amount ?? 0) }))
+      .filter((p) => p.contactId && p.amount > 0);
+    return rows.length > 0 ? rows : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function upsertBill(
@@ -506,8 +524,11 @@ export async function upsertBill(
   spreadsheetId: string,
   bill: Bill
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Bills', bill.id, 'J');
+  await deleteRowById(accessToken, spreadsheetId, 'Bills', bill.id, 'K');
   const sheets = getSheetsClient(accessToken);
+  const participants = bill.splitParticipants && bill.splitParticipants.length > 0
+    ? JSON.stringify(bill.splitParticipants)
+    : '';
   await sheets.spreadsheets.values.append({
     spreadsheetId,
     range: 'Bills!A1',
@@ -517,7 +538,7 @@ export async function upsertBill(
       values: [[
         bill.id, bill.name, bill.amount, bill.frequency, bill.nextDue,
         bill.account, bill.category, String(bill.isActive),
-        bill.splitContactId ?? '', bill.splitAmount ?? '',
+        bill.splitContactId ?? '', bill.splitAmount ?? '', participants,
       ]],
     },
   });
@@ -902,7 +923,7 @@ export async function batchGetBadgesData(
 ): Promise<{ bills: Bill[]; budgets: Budget[]; transactions: Transaction[] }> {
   const sheets = getSheetsClient(accessToken);
   const ranges = [
-    'Bills!A2:J200',
+    'Bills!A2:K200',
     'Budgets!A2:D200',
     'Transactions!A2:I',
   ];
@@ -956,7 +977,7 @@ export async function batchGetDashboardData(
     'Paychecks!A2:L',
     'Transactions!A2:I',
     'Accounts!A2:I200',
-    'Bills!A2:J200',
+    'Bills!A2:K200',
     'Budgets!A2:D200',
     'Goals!A2:G200',
   ];
@@ -1056,7 +1077,7 @@ const BATCHABLE_SHEETS: Record<
 > = {
   accounts:     { range: 'Accounts!A2:I200',  parse: (rows) => rows.map(rowToAccount) },
   transactions: { range: 'Transactions!A2:I', parse: (rows) => rows.map(rowToTransaction) },
-  bills:        { range: 'Bills!A2:J200',     parse: (rows) => rows.map(rowToBill) },
+  bills:        { range: 'Bills!A2:K200',     parse: (rows) => rows.map(rowToBill) },
   paychecks:    { range: 'Paychecks!A2:L',    parse: (rows) => rows.map(rowToPaycheck) },
   budgets:      { range: 'Budgets!A2:E200',   parse: parseBudgets },
   goals:        { range: 'Goals!A2:H200',     parse: parseGoals },
