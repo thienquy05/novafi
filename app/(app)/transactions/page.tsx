@@ -11,7 +11,7 @@ import { TransactionsSkeleton } from '@/components/ui/Skeleton';
 import { formatCurrency, formatCompact, formatDate, generateId, today } from '@/lib/utils';
 import { transactionsToCsv } from '@/lib/csv';
 import { calcLoanRemaining } from '@/lib/calculations';
-import { buildSplitTx, groupSplits, isOneOffSplit, newOneOffGroupId, computeSplitShares } from '@/lib/splits';
+import { buildSplitTx, groupSplits, isOneOffSplit, newOneOffGroupId, computeSplitShares, sumPerPersonShares } from '@/lib/splits';
 import { motion, AnimatePresence } from 'framer-motion';
 import { EXPENSE_CATEGORIES } from '@/types';
 import type { Transaction, Account, Contact, Loan, Split } from '@/types';
@@ -127,6 +127,8 @@ const NEW_CONTACT = '__new__';
 // tied together by a `oneoff:`-tagged group id.
 const EMPTY_SPLIT_EXPENSE = {
   description: '', total: '', date: today(), account: '', category: 'Food', includeMe: false,
+  // Per-person mode: your explicitly-typed share (used only when includeMe).
+  myShare: '',
 };
 type SplitParticipant = { key: string; contactId: string; amount: string; newName: string };
 function emptyParticipant(): SplitParticipant {
@@ -195,6 +197,9 @@ export default function TransactionsPage() {
   const [loanForm, setLoanForm] = useState(EMPTY_LOAN_FORM);
   // Participants for a NEW group loan (edit stays single-contact via loanForm).
   const [loanParticipants, setLoanParticipants] = useState<SplitParticipant[]>([emptyParticipant()]);
+  // 'divide' = type a total, split among people; 'perPerson' = type each
+  // person's amount, total auto-sums.
+  const [loanSplitMode, setLoanSplitMode] = useState<'divide' | 'perPerson'>('divide');
   const [newContactName, setNewContactName] = useState('');
   const [addingContact, setAddingContact] = useState(false);
   const [savingLoan, setSavingLoan] = useState(false);
@@ -207,6 +212,7 @@ export default function TransactionsPage() {
   const [splitsOpen, setSplitsOpen] = useState(false);
   const [showSplitExpense, setShowSplitExpense] = useState(false);
   const [splitExpenseForm, setSplitExpenseForm] = useState(EMPTY_SPLIT_EXPENSE);
+  const [seSplitMode, setSeSplitMode] = useState<'divide' | 'perPerson'>('divide');
   const [splitParticipants, setSplitParticipants] = useState<SplitParticipant[]>([emptyParticipant()]);
   const [savingSplitExpense, setSavingSplitExpense] = useState(false);
   const [settlingSplitId, setSettlingSplitId] = useState<string | null>(null);
@@ -552,15 +558,13 @@ export default function TransactionsPage() {
   // person's principal is their share (typed, or auto-divided from the remainder
   // for blank boxes — same rule as Split Bills). One person = a normal loan.
   async function handleAddLoan() {
-    const total = parseFloat(loanForm.amount) || 0;
-    if (total <= 0) return;
     const namedRows = loanParticipants.filter((p) => !!contacts.find((c) => c.id === p.contactId));
     if (namedRows.length === 0) return;
-    const { shares, over } = computeSplitShares(
-      total,
-      namedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0))),
-      false,
-    );
+    const amounts = namedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0)));
+    const perPerson = namedRows.length >= 2 && loanSplitMode === 'perPerson';
+    const { shares, over } = perPerson
+      ? sumPerPersonShares(amounts, 0, false)
+      : computeSplitShares(parseFloat(loanForm.amount) || 0, amounts, false);
     if (over) { toast(t('bills.splitExpenseOverTotal'), 'error'); return; }
     const resolved = namedRows
       .map((p, i) => ({ contact: contacts.find((c) => c.id === p.contactId)!, amount: roundCents(shares[i]) }))
@@ -766,6 +770,7 @@ export default function TransactionsPage() {
   function openSplitExpense() {
     setSplitExpenseForm(EMPTY_SPLIT_EXPENSE);
     setSplitParticipants([emptyParticipant()]);
+    setSeSplitMode('divide');
     setShowSplitExpense(true);
   }
   function updateParticipant(key: string, patch: Partial<SplitParticipant>) {
@@ -802,18 +807,19 @@ export default function TransactionsPage() {
     setSplitParticipants((prev) => prev.map((p) => ({ ...p, amount: '' })));
   }
   async function handleSaveSplitExpense() {
-    const total = parseFloat(splitExpenseForm.total) || 0;
     const description = splitExpenseForm.description.trim();
-    if (!description || total <= 0) return;
-    // Only rows naming a person take part; blank amounts auto-divide the rest.
+    if (!description) return;
+    // Only rows naming a person take part.
     const namedRows = splitParticipants.filter((p) => !!contacts.find((c) => c.id === p.contactId));
     if (namedRows.length === 0) { toast(t('bills.splitExpenseNeedPeople'), 'error'); return; }
-    const { shares, myShare, over } = computeSplitShares(
-      total,
-      namedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0))),
-      splitExpenseForm.includeMe,
-    );
+    const amounts = namedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0)));
+    // perPerson: each amount is explicit, total auto-sums; divide: split a total.
+    const { shares, myShare, over } = seSplitMode === 'perPerson'
+      ? sumPerPersonShares(amounts, parseFloat(splitExpenseForm.myShare) || 0, splitExpenseForm.includeMe)
+      : computeSplitShares(parseFloat(splitExpenseForm.total) || 0, amounts, splitExpenseForm.includeMe);
     if (over) { toast(t('bills.splitExpenseOverTotal'), 'error'); return; }
+    const total = roundCents(shares.reduce((s, v) => s + v, 0) + myShare);
+    if (total <= 0) return;
     const resolved = namedRows
       .map((p, i) => ({ contact: contacts.find((c) => c.id === p.contactId)!, amount: roundCents(shares[i]) }))
       .filter((p) => p.amount > 0);
@@ -920,36 +926,39 @@ export default function TransactionsPage() {
   }, [filtered]);
   const accountName = (id: string) => accountMap[id] ?? id;
   // Live preview for the split-expense form. Only rows with a chosen contact
-  // count; blank amounts auto-divide the remainder (see computeSplitShares).
-  const seTotal = parseFloat(splitExpenseForm.total) || 0;
+  // count. 'divide': type a total, blank amounts auto-divide the remainder.
+  // 'perPerson': type each amount, total auto-sums (your share too if included).
+  const sePerPerson = seSplitMode === 'perPerson';
   const seNamedRows = splitParticipants.filter((p) => !!contacts.find((c) => c.id === p.contactId));
-  const seComputed = computeSplitShares(
-    seTotal,
-    seNamedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0))),
-    splitExpenseForm.includeMe,
-  );
+  const seAmounts = seNamedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0)));
+  const seComputed = sePerPerson
+    ? sumPerPersonShares(seAmounts, parseFloat(splitExpenseForm.myShare) || 0, splitExpenseForm.includeMe)
+    : computeSplitShares(parseFloat(splitExpenseForm.total) || 0, seAmounts, splitExpenseForm.includeMe);
   const seShareByKey = new Map<string, number>();
   seNamedRows.forEach((p, i) => seShareByKey.set(p.key, seComputed.shares[i]));
   const seOthersSum = roundCents(seComputed.shares.reduce((s, a) => s + a, 0));
   const seMyShare = seComputed.myShare;
   const seOver = seComputed.over;
+  const seTotal = sePerPerson ? roundCents(seOthersSum + seMyShare) : (parseFloat(splitExpenseForm.total) || 0);
 
   // Live preview for a NEW group loan (total divided across people; blank = auto).
-  const loanTotal = parseFloat(loanForm.amount) || 0;
+  const loanIsGroup = loanParticipants.length >= 2;
+  const loanPerPerson = loanIsGroup && loanSplitMode === 'perPerson';
   const loanNamedRows = loanParticipants.filter((p) => !!contacts.find((c) => c.id === p.contactId));
-  const loanComputed = computeSplitShares(
-    loanTotal,
-    loanNamedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0))),
-    false,
-  );
+  const loanAmounts = loanNamedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0)));
+  // perPerson: each typed amount is that person's share, total = sum.
+  // divide: a typed total is split among people (blank = auto-divide remainder).
+  const loanComputed = loanPerPerson
+    ? sumPerPersonShares(loanAmounts, 0, false)
+    : computeSplitShares(parseFloat(loanForm.amount) || 0, loanAmounts, false);
+  const loanTotal = loanPerPerson ? roundCents(loanComputed.shares.reduce((s, v) => s + v, 0)) : (parseFloat(loanForm.amount) || 0);
   const loanShareByKey = new Map<string, number>();
   loanNamedRows.forEach((p, i) => loanShareByKey.set(p.key, loanComputed.shares[i]));
   const loanOver = loanComputed.over;
-  const loanUnassigned = loanComputed.myShare; // typed amounts that don't fill the total
-  const loanIsGroup = loanParticipants.length >= 2;
+  const loanUnassigned = loanPerPerson ? 0 : loanComputed.myShare; // divide: typed amounts that don't fill the total
   const loanCanSave = editingLoanId
     ? (!!loanForm.amount && !!loanForm.contactId && loanForm.contactId !== NEW_CONTACT)
-    : (!!loanForm.amount && loanNamedRows.length > 0 && !loanOver);
+    : (loanTotal > 0 && loanNamedRows.length > 0 && !loanOver);
   const merchantRows = useMemo(() => buildMerchantRows(filtered), [filtered]);
   // Reset paging whenever the active filters change. Adjusting state during
   // render (rather than in an effect) avoids a cascading re-render.
@@ -1342,7 +1351,7 @@ export default function TransactionsPage() {
         <div className="space-y-4 pb-4">
           {/* Add loan: button → inline form */}
           {!showAddLoan ? (
-            <Button className="w-full" onClick={() => { setShowAddLoan(true); setEditingLoanId(null); setLoanForm(EMPTY_LOAN_FORM); setNewContactName(''); setLoanParticipants([emptyParticipant()]); }}>
+            <Button className="w-full" onClick={() => { setShowAddLoan(true); setEditingLoanId(null); setLoanForm(EMPTY_LOAN_FORM); setNewContactName(''); setLoanParticipants([emptyParticipant()]); setLoanSplitMode('divide'); }}>
               <Plus className="w-4 h-4" />{t('loans.addLoan')}
             </Button>
           ) : (
@@ -1381,8 +1390,17 @@ export default function TransactionsPage() {
                 <div className="space-y-2.5">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2"><Users className="w-4 h-4" />{loanIsGroup ? t('loans.people') : t('loans.contact')}</span>
-                    {loanIsGroup && <button type="button" onClick={loanSplitEqually} className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline">{t('bills.splitEqually')}</button>}
+                    {loanIsGroup && !loanPerPerson && <button type="button" onClick={loanSplitEqually} className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline">{t('bills.splitEqually')}</button>}
                   </div>
+                  {loanIsGroup && (
+                    <div className="flex rounded-xl bg-slate-100 dark:bg-slate-700/60 p-0.5">
+                      {(['divide', 'perPerson'] as const).map((m) => (
+                        <button key={m} type="button" onClick={() => setLoanSplitMode(m)} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${loanSplitMode === m ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}>
+                          {m === 'divide' ? t('bills.splitModeDivide') : t('bills.splitModePerPerson')}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   {loanParticipants.map((p) => (
                     <div key={p.key} className="space-y-2">
                       <div className="flex gap-2 items-end">
@@ -1400,7 +1418,7 @@ export default function TransactionsPage() {
                         </div>
                         {loanIsGroup && (
                           <div className="w-28 shrink-0">
-                            <Input label={loanShareByKey.has(p.key) && p.amount.trim() === '' ? t('bills.shareAuto') : t('bills.theirShareShort')} type="number" min="0" step="0.01" placeholder={loanShareByKey.has(p.key) ? (loanShareByKey.get(p.key) ?? 0).toFixed(2) : '0.00'} value={p.amount} onChange={(e) => updateLoanParticipant(p.key, { amount: e.target.value })} />
+                            <Input label={!loanPerPerson && loanShareByKey.has(p.key) && p.amount.trim() === '' ? t('bills.shareAuto') : t('bills.theirShareShort')} type="number" min="0" step="0.01" placeholder={!loanPerPerson && loanShareByKey.has(p.key) ? (loanShareByKey.get(p.key) ?? 0).toFixed(2) : '0.00'} value={p.amount} onChange={(e) => updateLoanParticipant(p.key, { amount: e.target.value })} />
                           </div>
                         )}
                         {loanIsGroup && (
@@ -1420,13 +1438,17 @@ export default function TransactionsPage() {
                   <button type="button" onClick={addLoanParticipantRow} className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-dashed border-slate-300 dark:border-slate-600 text-xs font-bold text-slate-500 dark:text-slate-400 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
                     <Plus className="w-4 h-4" />{t('loans.addPerson')}
                   </button>
-                  {loanIsGroup && <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 px-1">{t('bills.splitAutoHint')}</p>}
+                  {loanIsGroup && <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 px-1">{loanPerPerson ? t('bills.splitModePerPersonHint') : t('bills.splitAutoHint')}</p>}
                   {loanIsGroup && loanUnassigned > 0 && <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400 px-1">{t('loans.unassigned', { amount: formatCurrency(loanUnassigned) })}</p>}
                   {loanOver && <p className="text-[11px] font-bold text-rose-600 dark:text-rose-400 px-1">{t('bills.splitExpenseOverTotal')}</p>}
                 </div>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Input label={loanIsGroup && !editingLoanId ? t('bills.totalAmount') : t('common.amountUsd')} type="number" min="0" step="0.01" placeholder="0.00" value={loanForm.amount} onChange={(e) => setLoanForm((f) => ({ ...f, amount: e.target.value }))} />
+                {loanPerPerson ? (
+                  <Input label={t('bills.computedTotal')} type="number" value={loanTotal.toFixed(2)} readOnly disabled />
+                ) : (
+                  <Input label={loanIsGroup && !editingLoanId ? t('bills.totalAmount') : t('common.amountUsd')} type="number" min="0" step="0.01" placeholder="0.00" value={loanForm.amount} onChange={(e) => setLoanForm((f) => ({ ...f, amount: e.target.value }))} />
+                )}
                 <Input label={t('common.date')} type="date" value={loanForm.date} onChange={(e) => setLoanForm((f) => ({ ...f, date: e.target.value }))} />
               </div>
               <Select
@@ -1501,8 +1523,19 @@ export default function TransactionsPage() {
             <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
               <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{t('bills.splitExpenseHelp')}</p>
               <Input label={t('common.description')} placeholder={t('bills.splitExpensePlaceholder')} value={splitExpenseForm.description} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, description: e.target.value }))} />
+              <div className="flex rounded-xl bg-slate-100 dark:bg-slate-700/60 p-0.5">
+                {(['divide', 'perPerson'] as const).map((m) => (
+                  <button key={m} type="button" onClick={() => setSeSplitMode(m)} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${seSplitMode === m ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}>
+                    {m === 'divide' ? t('bills.splitModeDivide') : t('bills.splitModePerPerson')}
+                  </button>
+                ))}
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Input label={t('bills.totalAmount')} type="number" min="0" step="0.01" placeholder="0.00" value={splitExpenseForm.total} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, total: e.target.value }))} />
+                {sePerPerson ? (
+                  <Input label={t('bills.computedTotal')} type="number" value={seTotal.toFixed(2)} readOnly disabled />
+                ) : (
+                  <Input label={t('bills.totalAmount')} type="number" min="0" step="0.01" placeholder="0.00" value={splitExpenseForm.total} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, total: e.target.value }))} />
+                )}
                 <Input label={t('common.date')} type="date" value={splitExpenseForm.date} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, date: e.target.value }))} />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1514,12 +1547,15 @@ export default function TransactionsPage() {
               <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2"><Users className="w-4 h-4" />{t('bills.whoShared')}</span>
-                  <button type="button" onClick={splitEqually} className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline">{t('bills.splitEqually')}</button>
+                  {!sePerPerson && <button type="button" onClick={splitEqually} className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline">{t('bills.splitEqually')}</button>}
                 </div>
                 <label className="flex items-center gap-2.5 cursor-pointer select-none">
                   <input type="checkbox" checked={splitExpenseForm.includeMe} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, includeMe: e.target.checked }))} className="w-4 h-4 rounded accent-indigo-600" />
                   <span className="text-xs font-medium text-slate-600 dark:text-slate-400">{t('bills.includeMe')}</span>
                 </label>
+                {sePerPerson && splitExpenseForm.includeMe && (
+                  <Input label={t('bills.yourShareInput')} type="number" min="0" step="0.01" placeholder="0.00" value={splitExpenseForm.myShare} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, myShare: e.target.value }))} />
+                )}
                 {splitParticipants.map((p) => (
                   <div key={p.key} className="space-y-2 rounded-xl bg-slate-50 dark:bg-slate-700/40 p-3">
                     <div className="flex gap-2 items-end">
@@ -1536,7 +1572,7 @@ export default function TransactionsPage() {
                         />
                       </div>
                       <div className="w-28 shrink-0">
-                        <Input label={seShareByKey.has(p.key) && p.amount.trim() === '' ? t('bills.shareAuto') : t('bills.theirShareShort')} type="number" min="0" step="0.01" placeholder={seShareByKey.has(p.key) ? (seShareByKey.get(p.key) ?? 0).toFixed(2) : '0.00'} value={p.amount} onChange={(e) => updateParticipant(p.key, { amount: e.target.value })} />
+                        <Input label={!sePerPerson && seShareByKey.has(p.key) && p.amount.trim() === '' ? t('bills.shareAuto') : t('bills.theirShareShort')} type="number" min="0" step="0.01" placeholder={!sePerPerson && seShareByKey.has(p.key) ? (seShareByKey.get(p.key) ?? 0).toFixed(2) : '0.00'} value={p.amount} onChange={(e) => updateParticipant(p.key, { amount: e.target.value })} />
                       </div>
                       <button type="button" onClick={() => removeParticipantRow(p.key)} disabled={splitParticipants.length === 1} className="mb-1.5 p-2 text-slate-400 dark:text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed" title={t('common.delete')}>
                         <X className="w-4 h-4" />
@@ -1553,7 +1589,7 @@ export default function TransactionsPage() {
                 <button type="button" onClick={addParticipantRow} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-slate-300 dark:border-slate-600 text-xs font-bold text-slate-500 dark:text-slate-400 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
                   <Plus className="w-4 h-4" />{t('bills.addPerson')}
                 </button>
-                <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 px-1">{t('bills.splitAutoHint')}</p>
+                <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 px-1">{sePerPerson ? t('bills.splitModePerPersonHint') : t('bills.splitAutoHint')}</p>
                 {seTotal > 0 && (
                   <div className={`flex items-center justify-between text-xs font-bold px-1 pt-1 ${seOver ? 'text-rose-600 dark:text-rose-400' : ''}`}>
                     <span className="text-slate-500 dark:text-slate-400">{t('bills.yourShare')}: <span className="text-slate-900 dark:text-slate-100">{formatCurrency(seMyShare)}</span></span>

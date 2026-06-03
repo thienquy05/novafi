@@ -1,6 +1,28 @@
 import { describe, it, expect } from 'vitest';
-import { computeSplitShares, isOneOffSplit, newOneOffGroupId, groupSplits } from '@/lib/splits';
+import { computeSplitShares, sumPerPersonShares, isOneOffSplit, newOneOffGroupId, groupSplits } from '@/lib/splits';
 import type { Split } from '@/types';
+
+describe('sumPerPersonShares', () => {
+  it('sums typed amounts into the total (you excluded)', () => {
+    const { shares, total, myShare, over } = sumPerPersonShares([50, 70, 35], 0, false);
+    expect(shares).toEqual([50, 70, 35]);
+    expect(total).toBe(155);
+    expect(myShare).toBe(0);
+    expect(over).toBe(false);
+  });
+
+  it('adds your own share to the total when included', () => {
+    const { total, myShare } = sumPerPersonShares([40, 60], 25, true);
+    expect(myShare).toBe(25);
+    expect(total).toBe(125);
+  });
+
+  it('treats blank entries as 0 (no auto-divide)', () => {
+    const { shares, total } = sumPerPersonShares([40, null, 20], 0, false);
+    expect(shares).toEqual([40, 0, 20]);
+    expect(total).toBe(60);
+  });
+});
 
 describe('computeSplitShares', () => {
   it('one blank absorbs the remaining balance', () => {

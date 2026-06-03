@@ -663,3 +663,27 @@ User raised a multi-part enhancement discussion (split bills/loans, reports, cus
 **Not done this batch (discussed):** recurring-Bills multi-person + "me" participants (one-off splits & group loans already support it; recurring `Bill` is still single `splitContactId`/`splitAmount` — flagged as the larger, schema-touching follow-up). Best-savings-month left as net income−expense per user's choice. Notifications/Vercel Cron skipped per user.
 
 **Verification:** `tsc --noEmit` clean; eslint 0 errors (only pre-existing setState-in-effect / `_lastCol` warnings); 309 tests pass (was 299).
+
+### Follow-up — multi-person bills, loan grouping, per-person split mode (same branch)
+
+User feedback after the first batch led to three more changes (decisions captured via AskUserQuestion).
+
+**Multi-person recurring bills (participants model).** Bills can now be split across many people, not just one.
+- `types`: `BillSplitParticipant {contactId, amount}`; `Bill.splitParticipants?` (legacy `splitContactId`/`splitAmount` kept for back-compat read).
+- `lib/calculations.ts`: `billParticipants(bill)` normalizer (multi → legacy single → []), `billOthersShare(bill)` (clamped sum), `myBillShare` rewritten = amount − billOthersShare (works for unsplit / legacy / multi).
+- `lib/sheets.ts`: additive Bills column **K** (`split_participants` JSON via `parseBillParticipants`), all four `Bills!A2:J200` ranges widened to `:K200`; `upsertBill` writes the JSON, deleteRowById col J→K.
+- `app/(app)/bills/page.tsx`: split form replaced single contact+share with a participant-row list (`billParticipantRows` state, `SplitParticipant`/`emptyParticipant`/`roundCents` locals). Add/remove rows, per-row inline new-contact (`handleAddParticipantContact`), `billSplitEqually`. Badge + pay-note handle 1 vs N (`splitBadgeGroup`/`splitPayNoteGroup`/`peopleCount`). Pay flow loops `billParticipants(payBill)` → one fronted transfer + Split per person (sequential). Removed dead `newContactName`/`handleAddContact`/`formShares`/`calcSplitShares` usage.
+
+**Group loans expandable (point 2).** Loans created together now collapse into one expandable card.
+- `types`: `Loan.groupId?`. `lib/sheets.ts`: additive Loans column **O** (`group_id`), range `:N`→`:O`, read `r[14]`/write `loan.groupId`.
+- `app/(app)/transactions/page.tsx`: `handleAddLoan` assigns a shared `groupId` when >1 person. `openLoanGroups` memo groups open loans by groupId; `renderOpenLoanCard(loan, nested?)` extracted; `renderOpenLoanGroup` = collapsed header (people count + total remaining + names) expanding to per-person cards (settle/edit/delete each). `expandedLoanGroups` Set state. New `loans.peopleCount`.
+
+**Per-person split mode (point 1) — toggle on all three split forms.** Inverse of the divide model: type each person's amount, total auto-sums.
+- `lib/splits.ts`: new pure `sumPerPersonShares(amounts, myAmount, includeMe)` → `{shares,total,myShare,over:false}` (blanks=0, no auto-divide; your typed share adds to total when included). 3 unit tests in `splits.test.ts`.
+- Each form got a `'divide' | 'perPerson'` segmented toggle; in perPerson the total field is read-only/computed (`bills.computedTotal`) and a "Your share" input (`bills.yourShareInput`) appears where a self-share applies:
+  - **One-off split** (`splitExpenseForm.myShare` + `seSplitMode`): your-share input shows only when `includeMe`.
+  - **Group loans** (`loanSplitMode`): no self share; total = sum of people.
+  - **Recurring bills** (`billSplitMode` + `billMyShare`): your-share always applies; `billPerPerson` gated on `splitEnabled`.
+- Save handlers + live previews branch between `computeSplitShares` (divide) and `sumPerPersonShares` (perPerson); "Split equally" + auto placeholders hidden in perPerson; over-total can't happen in perPerson. New i18n: `bills.splitModeDivide/splitModePerPerson/splitModePerPersonHint/computedTotal/yourShareInput` (en + vi).
+
+**Verification:** `tsc` clean; both locales valid; eslint 0 errors (pre-existing purity/setState-in-effect warnings only); **312 tests pass** (was 309; +3 sumPerPersonShares). Committed in stages: multi-person bills, loan grouping, then per-person mode.
