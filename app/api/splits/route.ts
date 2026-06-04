@@ -97,6 +97,48 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
+// Edit an existing split's metadata and, when the share amount/account changes,
+// rebuild the fronted cash transfer: reverse the old one, apply the new one, and
+// upsert the split — in a single in-memory balance pass. Paybacks (repaidAmount /
+// repaymentTxIds) are untouched; only the fronted principal row is rebuilt. This
+// mirrors the loans PUT so the two surfaces reconcile cash the same way.
+export async function PUT(req: NextRequest) {
+  const session = await auth();
+  if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { updated, newTx, removeTxId }: { updated: Split; newTx?: Transaction; removeTxId?: string } =
+    await req.json();
+
+  if (removeTxId || newTx) {
+    const [transactions, accounts] = await Promise.all([
+      getTransactions(session.accessToken, session.spreadsheetId),
+      getAccounts(session.accessToken, session.spreadsheetId),
+    ]);
+    let working: Account[] = accounts;
+
+    // Retire the old fronted transfer first (reverse its balance, drop the row).
+    if (removeTxId) {
+      const old = transactions.find((t) => t.id === removeTxId);
+      if (old) {
+        working = applyTransactionToBalances(working, old, 'reverse');
+        await deleteTransaction(session.accessToken, session.spreadsheetId, old.id);
+      }
+    }
+    // Write the new fronted transfer and apply its balance.
+    if (newTx) {
+      await addTransaction(session.accessToken, session.spreadsheetId, newTx);
+      working = applyTransactionToBalances(working, newTx, 'apply');
+    }
+
+    await persistChanged(session.accessToken, session.spreadsheetId, accounts, working);
+    invalidateAfterCash(session.spreadsheetId);
+  }
+
+  await upsertSplit(session.accessToken, session.spreadsheetId, updated);
+  invalidateCache(`splits:${session.spreadsheetId}`);
+  return NextResponse.json({ ok: true });
+}
+
 export async function DELETE(req: NextRequest) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

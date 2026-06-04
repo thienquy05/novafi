@@ -331,6 +331,7 @@
     "toastSplitPartial": "Payment recorded · {name} still owes {amount}",
     "toastSplitUnsettled": "{name}'s transfer undone",
     "toastFailedSplit": "Failed to update shared payment",
+    "toastSplitUpdated": "Shared payment updated",
     "splitExpenseTitle": "Split an Expense",
     "splitExpenseHelp": "Paid for something shared (like dinner)? Log it once and split it across people. Your share counts as an expense; everyone else's share is fronted from the account and tracked under \"Owed to You\" until they pay you back.",
     "splitExpensePlaceholder": "e.g. Dinner at Joe's",
