@@ -12,7 +12,7 @@ import { Collapsible } from '@/components/ui/Collapsible';
 import { formatCurrency, formatCompact, formatDate, generateId, today } from '@/lib/utils';
 import { transactionsToCsv } from '@/lib/csv';
 import { calcLoanRemaining } from '@/lib/calculations';
-import { buildSplitTx, groupSplits, isOneOffSplit, newOneOffGroupId, resolveSplit, splitRemaining } from '@/lib/splits';
+import { buildSplitTx, groupSplits, isOneOffSplit, newOneOffGroupId, resolveSplit, splitRemaining, type SplitGroup } from '@/lib/splits';
 import { motion, AnimatePresence } from 'framer-motion';
 import { EXPENSE_CATEGORIES } from '@/types';
 import type { Transaction, Account, Contact, Loan, Split } from '@/types';
@@ -222,11 +222,14 @@ export default function TransactionsPage() {
   const [splitPaybackFor, setSplitPaybackFor] = useState<string | null>(null);
   const [splitPaybackForm, setSplitPaybackForm] = useState({ amount: '', account: '' });
   const [recordingSplitPayback, setRecordingSplitPayback] = useState(false);
-  // Loan-style per-person edit for a pending split — splitEditFor is the split id
-  // whose inline edit form is open; the form holds that person's editable fields.
-  const [splitEditFor, setSplitEditFor] = useState<string | null>(null);
-  const [splitEditForm, setSplitEditForm] = useState({ contactId: '', amount: '', account: '', date: '', category: '', description: '' });
-  const [savingSplitEdit, setSavingSplitEdit] = useState(false);
+  // Whole-group edit for a pending split: editingGroupKey is the group whose
+  // card is replaced by the (reused) split-expense form, pre-filled with every
+  // member. editingGroupSplits snapshots that group's members so the save can
+  // reconcile (update / add / remove) against them. The form itself reuses
+  // splitExpenseForm + splitParticipants — only the submit handler differs.
+  const [editingGroupKey, setEditingGroupKey] = useState<string | null>(null);
+  const [editingGroupSplits, setEditingGroupSplits] = useState<Split[]>([]);
+  const [savingEditGroup, setSavingEditGroup] = useState(false);
   const [expandedSplitGroups, setExpandedSplitGroups] = useState<Set<string>>(new Set());
   const [showSplitHistory, setShowSplitHistory] = useState(false);
   const toast = useToast();
@@ -922,6 +925,8 @@ export default function TransactionsPage() {
   }
 
   function openSplitExpense() {
+    setEditingGroupKey(null);
+    setEditingGroupSplits([]);
     setSplitExpenseForm(EMPTY_SPLIT_EXPENSE);
     setSplitParticipants([emptyParticipant()]);
     setShowSplitExpense(true);
@@ -1076,72 +1081,123 @@ export default function TransactionsPage() {
     }
   }
 
-  // Open / close the inline per-person edit form for one pending split, mirroring
-  // the loan edit. Opening pre-fills with that person's current share, contact,
-  // account, date, category and the expense description. Closing the payback form
-  // first keeps only one inline panel open per row.
-  function openSplitEdit(split: Split) {
-    if (splitEditFor === split.id) { setSplitEditFor(null); return; }
+  // Open the whole-group edit form for a pending split group: the group's card is
+  // replaced in place by the same split-expense form used to create one, pre-filled
+  // with the total, description, date, category, account and one participant row per
+  // member. Closing any add form / payback panel first keeps a single panel open.
+  function openEditSplitGroup(group: SplitGroup) {
+    setShowSplitExpense(false);
     setSplitPaybackFor(null);
-    setSplitEditFor(split.id);
-    setSplitEditForm({
-      contactId: split.contactId,
-      amount: String(split.amount),
-      account: split.account,
-      date: split.date,
-      category: split.category,
-      description: split.billName,
+    setEditingGroupKey(group.key);
+    setEditingGroupSplits(group.splits);
+    setSplitExpenseForm({
+      description: group.billName,
+      total: String(roundCents(group.total)),
+      date: group.date,
+      account: group.splits[0]?.account ?? '',
+      category: group.splits[0]?.category ?? 'Food',
+      // Your own share isn't part of the group (it's a standalone expense row with
+      // no back-link), so group edit never touches it — keep it out of the form.
+      includeMe: false,
+      myShare: '',
     });
+    setSplitParticipants(
+      group.splits.map((s) => ({ key: s.id, contactId: s.contactId, amount: String(s.amount), newName: '' })),
+    );
   }
+  function cancelEditGroup() {
+    setEditingGroupKey(null);
+    setEditingGroupSplits([]);
+    setSplitExpenseForm(EMPTY_SPLIT_EXPENSE);
+    setSplitParticipants([emptyParticipant()]);
+  }
+  // Saves a whole-group edit by reconciling the resolved participant shares against
+  // the group's original members: a member still present is updated (its fronted
+  // transfer rebuilt via the splits PUT, paybacks preserved, settled recomputed); a
+  // newly-added person is created (POST); a removed person is deleted (DELETE, which
+  // cascades the reversal of its fronted/payback transfers). All members share the
+  // group's billId + date, so a date change moves the whole group together. Like the
+  // create flow this does NOT touch your own recorded expense share. A final reload
+  // resyncs splits and balances after the sequential writes.
+  async function handleSaveEditGroup() {
+    const originals = editingGroupSplits;
+    const description = splitExpenseForm.description.trim();
+    if (!description) return;
+    const namedRows = splitParticipants.filter((p) => !!contacts.find((c) => c.id === p.contactId));
+    if (namedRows.length === 0) { toast(t('bills.splitExpenseNeedPeople'), 'error'); return; }
+    const amounts = namedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0)));
+    const totalInput = splitExpenseForm.total.trim() === '' ? null : (parseFloat(splitExpenseForm.total) || 0);
+    const { shares, over, total } = resolveSplit(totalInput, amounts, false);
+    if (over) { toast(t('bills.splitExpenseOverTotal'), 'error'); return; }
+    if (total <= 0) return;
+    const resolved = namedRows
+      .map((p, i) => ({ contact: contacts.find((c) => c.id === p.contactId)!, amount: roundCents(shares[i]) }))
+      .filter((p) => p.amount > 0);
+    if (resolved.length === 0) { toast(t('bills.splitExpenseNeedPeople'), 'error'); return; }
 
-  // Saves edits to one pending split. The fronted cash transfer is rebuilt from
-  // the new amount/account (the splits API reverses the old one and applies the
-  // new one atomically); paybacks are preserved and `settled` is recomputed
-  // against the new share. For a single-person split this also edits the group
-  // total, since that one share IS the total.
-  async function handleEditSplit(split: Split) {
-    const amount = roundCents(parseFloat(splitEditForm.amount) || 0);
-    if (amount <= 0) return;
-    const contact = contacts.find((c) => c.id === splitEditForm.contactId);
-    if (!contact) return;
-    setSavingSplitEdit(true);
-    const { account, date, category } = splitEditForm;
-    const description = splitEditForm.description.trim() || split.billName;
-    const newTx = account
-      ? buildSplitTx('cashOut', amount, account, t('bills.txFronted', { name: contact.name, bill: description }), date)
-      : null;
-    const fullyPaid = roundCents(split.repaidAmount || 0) >= amount - 0.005;
-    const updated: Split = {
-      ...split,
-      contactId: contact.id,
-      contactName: contact.name,
-      billName: description,
-      amount,
-      account,
-      date,
-      category,
-      settled: fullyPaid,
-      settledDate: fullyPaid ? (split.settledDate || today()) : '',
-      frontedTxId: newTx ? newTx.id : '',
-    };
-    const prev = splits;
-    setSplits((list) => list.map((s) => s.id === split.id ? updated : s));
+    setSavingEditGroup(true);
+    const { date, account, category } = splitExpenseForm;
+    const groupId = originals[0]?.billId ?? newOneOffGroupId();
+    const usedOriginalIds = new Set<string>();
     try {
-      const res = await fetch('/api/splits', {
-        method: 'PUT',
-        body: JSON.stringify({ updated, newTx: newTx ?? undefined, removeTxId: split.frontedTxId || undefined }),
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!res.ok) throw new Error();
-      setSplitEditFor(null);
-      // Refresh balances/ledger when the fronted cash row changed.
-      if (newTx || split.frontedTxId) load();
+      // Update existing members / create new ones — sequentially, since each fronted
+      // transfer mutates the same account balance server-side.
+      for (const r of resolved) {
+        const orig = originals.find((o) => o.contactId === r.contact.id && !usedOriginalIds.has(o.id));
+        const frontedTx = account
+          ? buildSplitTx('cashOut', r.amount, account, t('bills.txFronted', { name: r.contact.name, bill: description }), date)
+          : null;
+        if (orig) {
+          usedOriginalIds.add(orig.id);
+          // Skip a member whose every editable field is unchanged (no cash churn).
+          const unchanged = roundCents(orig.amount) === r.amount && orig.account === account
+            && orig.date === date && orig.category === category && orig.billName === description;
+          if (unchanged) continue;
+          const fullyPaid = roundCents(orig.repaidAmount || 0) >= r.amount - 0.005;
+          const updated: Split = {
+            ...orig, contactName: r.contact.name, billName: description, amount: r.amount,
+            account, date, category, settled: fullyPaid,
+            settledDate: fullyPaid ? (orig.settledDate || today()) : '',
+            frontedTxId: frontedTx ? frontedTx.id : '',
+          };
+          const res = await fetch('/api/splits', {
+            method: 'PUT',
+            body: JSON.stringify({ updated, newTx: frontedTx ?? undefined, removeTxId: orig.frontedTxId || undefined }),
+            headers: { 'Content-Type': 'application/json' },
+          });
+          if (!res.ok) throw new Error();
+        } else {
+          const split: Split = {
+            id: generateId(), billId: groupId, billName: description,
+            contactId: r.contact.id, contactName: r.contact.name, amount: r.amount,
+            category, account, date, settled: false, settledDate: '',
+            repaidAmount: 0, repaymentTxIds: [],
+            frontedTxId: frontedTx?.id ?? '', settleTxId: '',
+          };
+          const res = await fetch('/api/splits', {
+            method: 'POST',
+            body: JSON.stringify(frontedTx ? { split, tx: frontedTx } : split),
+            headers: { 'Content-Type': 'application/json' },
+          });
+          if (!res.ok) throw new Error();
+        }
+      }
+      // Delete members dropped from the group (the DELETE cascades their cash rows).
+      for (const o of originals) {
+        if (usedOriginalIds.has(o.id)) continue;
+        const res = await fetch('/api/splits', {
+          method: 'DELETE', body: JSON.stringify({ id: o.id }), headers: { 'Content-Type': 'application/json' },
+        });
+        if (!res.ok) throw new Error();
+      }
+      await load();
+      cancelEditGroup();
       toast(t('bills.toastSplitUpdated'), 'success');
     } catch {
-      setSplits(prev);
       toast(t('bills.toastFailedSplit'), 'error');
+      await load();
     } finally {
-      setSavingSplitEdit(false);
+      setSavingEditGroup(false);
     }
   }
 
@@ -1150,7 +1206,6 @@ export default function TransactionsPage() {
   // payment" button, delete, and the inline payback form it toggles open.
   function renderPendingSplitRow(split: Split) {
     const expanded = splitPaybackFor === split.id;
-    const editing = splitEditFor === split.id;
     const remaining = splitRemaining(split);
     const partial = (split.repaidAmount || 0) > 0;
     const pct = split.amount > 0 ? Math.min(100, (split.repaidAmount / split.amount) * 100) : 0;
@@ -1172,10 +1227,7 @@ export default function TransactionsPage() {
           <Button size="sm" variant="secondary" className="h-9" onClick={() => openSplitPayback(split)}>
             <HandCoins className="w-4 h-4" />{t('bills.recordSplitPayment')}
           </Button>
-          <button title={t('common.edit')} onClick={() => openSplitEdit(split)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-indigo-500 dark:hover:text-indigo-400 rounded-lg transition-colors ml-auto">
-            <Pencil className="w-4 h-4" />
-          </button>
-          <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
+          <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors ml-auto">
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
@@ -1193,34 +1245,6 @@ export default function TransactionsPage() {
             <div className="flex gap-3">
               <Button variant="secondary" className="flex-1 h-10" onClick={() => setSplitPaybackFor(null)}>{t('common.cancel')}</Button>
               <Button className="flex-1 h-10" onClick={() => handleRecordSplitPayback(split)} disabled={recordingSplitPayback || !splitPaybackForm.amount}>{recordingSplitPayback ? t('common.saving') : t('loans.confirmPayback')}</Button>
-            </div>
-          </div>
-        </Collapsible>
-        <Collapsible open={editing}>
-          <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60 space-y-3">
-            <Input label={t('common.description')} value={splitEditForm.description} onChange={(e) => setSplitEditForm((f) => ({ ...f, description: e.target.value }))} />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Select
-                label={t('bills.person')}
-                value={splitEditForm.contactId}
-                options={[{ value: '', label: t('bills.selectContact') }, ...contacts.map((c) => ({ value: c.id, label: c.name }))]}
-                onChange={(e) => setSplitEditForm((f) => ({ ...f, contactId: e.target.value }))}
-              />
-              <Input label={t('bills.theirShare')} type="number" min="0" step="0.01" value={splitEditForm.amount} onChange={(e) => setSplitEditForm((f) => ({ ...f, amount: e.target.value }))} />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Input label={t('common.date')} type="date" value={splitEditForm.date} onChange={(e) => setSplitEditForm((f) => ({ ...f, date: e.target.value }))} />
-              <Select label={t('common.category')} value={splitEditForm.category} options={expenseCategories.map((c) => ({ value: c, label: c }))} onChange={(e) => setSplitEditForm((f) => ({ ...f, category: e.target.value }))} />
-            </div>
-            <Select
-              label={t('bills.payFromOptional')}
-              value={splitEditForm.account}
-              options={[{ value: '', label: t('loans.noAccount') }, ...accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))]}
-              onChange={(e) => setSplitEditForm((f) => ({ ...f, account: e.target.value }))}
-            />
-            <div className="flex gap-3">
-              <Button variant="secondary" className="flex-1 h-10" onClick={() => setSplitEditFor(null)}>{t('common.cancel')}</Button>
-              <Button className="flex-1 h-10" onClick={() => handleEditSplit(split)} disabled={savingSplitEdit || !splitEditForm.contactId || !splitEditForm.amount}>{savingSplitEdit ? t('common.saving') : t('common.save')}</Button>
             </div>
           </div>
         </Collapsible>
@@ -1265,6 +1289,105 @@ export default function TransactionsPage() {
   const seMyShare = seComputed.myShare;
   const seOver = seComputed.over;
   const seTotal = seComputed.total;
+
+  // The split-an-expense form, reused for both creating a new split and editing an
+  // existing group in place. The only differences in edit mode (editingGroupKey set):
+  // the create-only help text and the "include my share" controls are hidden (your
+  // own share isn't part of a group), and the footer saves the group instead.
+  function renderSplitExpenseForm() {
+    const editing = editingGroupKey !== null;
+    return (
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+        {!editing && <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{t('bills.splitExpenseHelp')}</p>}
+        <Input label={t('common.description')} placeholder={t('bills.splitExpensePlaceholder')} value={splitExpenseForm.description} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, description: e.target.value }))} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Input
+            label={!seHasTotal && seTotal > 0 ? t('bills.totalAmountAuto') : t('bills.totalAmount')}
+            type="number" min="0" step="0.01"
+            placeholder={!seHasTotal && seTotal > 0 ? seTotal.toFixed(2) : '0.00'}
+            value={splitExpenseForm.total}
+            onChange={(e) => setSplitExpenseForm((f) => ({ ...f, total: e.target.value }))}
+          />
+          <Input label={t('common.date')} type="date" value={splitExpenseForm.date} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, date: e.target.value }))} />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Select label={t('common.category')} value={splitExpenseForm.category} options={expenseCategories.map((c) => ({ value: c, label: c }))} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, category: e.target.value }))} />
+          <Select label={t('bills.payFromOptional')} value={splitExpenseForm.account} options={[{ value: '', label: t('loans.noAccount') }, ...accounts.map((a) => ({ value: a.id, label: a.name }))]} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, account: e.target.value }))} />
+        </div>
+
+        {/* Participants */}
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2"><Users className="w-4 h-4" />{t('bills.whoShared')}</span>
+            {seHasTotal && <button type="button" onClick={splitEqually} className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline">{t('bills.splitEqually')}</button>}
+          </div>
+          {!editing && (
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+              <input type="checkbox" checked={splitExpenseForm.includeMe} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, includeMe: e.target.checked }))} className="w-4 h-4 rounded accent-indigo-600" />
+              <span className="text-xs font-medium text-slate-600 dark:text-slate-400">{t('bills.includeMe')}</span>
+            </label>
+          )}
+          {!editing && !seHasTotal && splitExpenseForm.includeMe && (
+            <Input label={t('bills.yourShareInput')} type="number" min="0" step="0.01" placeholder="0.00" value={splitExpenseForm.myShare} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, myShare: e.target.value }))} />
+          )}
+          {splitParticipants.map((p) => (
+            <div key={p.key} className="space-y-2 rounded-xl bg-slate-50 dark:bg-slate-700/40 p-3">
+              <div className="flex gap-2 items-end">
+                <div className="flex-1 min-w-0">
+                  <Select
+                    label={t('bills.person')}
+                    value={p.contactId}
+                    options={[
+                      { value: '', label: t('bills.selectContact') },
+                      ...contacts.map((c) => ({ value: c.id, label: c.name })),
+                      { value: NEW_CONTACT, label: t('bills.addNewContact') },
+                    ]}
+                    onChange={(e) => updateParticipant(p.key, { contactId: e.target.value })}
+                  />
+                </div>
+                <div className="w-28 shrink-0">
+                  <Input label={seHasTotal && seShareByKey.has(p.key) && p.amount.trim() === '' ? t('bills.shareAuto') : t('bills.theirShareShort')} type="number" min="0" step="0.01" placeholder={seHasTotal && seShareByKey.has(p.key) ? (seShareByKey.get(p.key) ?? 0).toFixed(2) : '0.00'} value={p.amount} onChange={(e) => updateParticipant(p.key, { amount: e.target.value })} />
+                </div>
+                <button type="button" onClick={() => removeParticipantRow(p.key)} disabled={splitParticipants.length === 1} className="mb-1.5 p-2 text-slate-400 dark:text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed" title={t('common.delete')}>
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              {p.contactId === NEW_CONTACT && (
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1"><Input label={t('bills.newContactName')} placeholder="e.g. Alex" value={p.newName} onChange={(e) => updateParticipant(p.key, { newName: e.target.value })} /></div>
+                  <Button type="button" variant="secondary" className="shrink-0" onClick={() => handleAddParticipantContact(p)} disabled={addingContact || !p.newName.trim()}><UserPlus className="w-4 h-4" />{t('bills.addContact')}</Button>
+                </div>
+              )}
+            </div>
+          ))}
+          <button type="button" onClick={addParticipantRow} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-slate-300 dark:border-slate-600 text-xs font-bold text-slate-500 dark:text-slate-400 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+            <Plus className="w-4 h-4" />{t('bills.addPerson')}
+          </button>
+          <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 px-1">{t('bills.splitSmartHint')}</p>
+          {seTotal > 0 && (
+            <div className={`flex items-center justify-between text-xs font-bold px-1 pt-1 ${seOver ? 'text-rose-600 dark:text-rose-400' : ''}`}>
+              {!editing && <span className="text-slate-500 dark:text-slate-400">{t('bills.yourShare')}: <span className="text-slate-900 dark:text-slate-100">{formatCurrency(seMyShare)}</span></span>}
+              <span className="text-slate-500 dark:text-slate-400 ml-auto">{t('bills.theyOwe')}: <span className="text-emerald-600 dark:text-emerald-400">{formatCurrency(seOthersSum)}</span></span>
+            </div>
+          )}
+          {seOver && <p className="text-xs font-bold text-rose-600 dark:text-rose-400 px-1">{t('bills.splitExpenseOverTotal')}</p>}
+        </div>
+
+        <div className="flex gap-3 pt-1">
+          <Button variant="secondary" className="flex-1" onClick={editing ? cancelEditGroup : () => setShowSplitExpense(false)}>{t('common.cancel')}</Button>
+          {editing ? (
+            <Button className="flex-1" onClick={handleSaveEditGroup} disabled={savingEditGroup || !splitExpenseForm.description.trim() || seTotal <= 0 || seOver}>
+              {savingEditGroup ? t('common.saving') : t('common.save')}
+            </Button>
+          ) : (
+            <Button className="flex-1" onClick={handleSaveSplitExpense} disabled={savingSplitExpense || !splitExpenseForm.description.trim() || seTotal <= 0 || seOver}>
+              {savingSplitExpense ? t('common.saving') : t('bills.recordSplit')}
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   // Live preview for a NEW group loan. Total filled → divide across people
   // (blank = auto); total blank → sum each typed share. You never take a share.
@@ -1837,94 +1960,13 @@ export default function TransactionsPage() {
       </Modal>
 
       {/* ── Split Bills Modal ────────────────────────────────────────────── */}
-      <Modal open={splitsOpen} onClose={() => { setSplitsOpen(false); setShowSplitExpense(false); }} title={t('splits.title')}>
+      <Modal open={splitsOpen} onClose={() => { setSplitsOpen(false); setShowSplitExpense(false); setEditingGroupKey(null); setEditingGroupSplits([]); }} title={t('splits.title')}>
         <div className="space-y-4 pb-4">
-          {/* Split an expense: button → inline form (modal-style inner view) */}
-          {!showSplitExpense ? (
-            <Button className="w-full" onClick={openSplitExpense}><Plus className="w-4 h-4" />{t('bills.splitExpenseTitle')}</Button>
-          ) : (
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{t('bills.splitExpenseHelp')}</p>
-              <Input label={t('common.description')} placeholder={t('bills.splitExpensePlaceholder')} value={splitExpenseForm.description} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, description: e.target.value }))} />
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Input
-                  label={!seHasTotal && seTotal > 0 ? t('bills.totalAmountAuto') : t('bills.totalAmount')}
-                  type="number" min="0" step="0.01"
-                  placeholder={!seHasTotal && seTotal > 0 ? seTotal.toFixed(2) : '0.00'}
-                  value={splitExpenseForm.total}
-                  onChange={(e) => setSplitExpenseForm((f) => ({ ...f, total: e.target.value }))}
-                />
-                <Input label={t('common.date')} type="date" value={splitExpenseForm.date} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, date: e.target.value }))} />
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Select label={t('common.category')} value={splitExpenseForm.category} options={expenseCategories.map((c) => ({ value: c, label: c }))} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, category: e.target.value }))} />
-                <Select label={t('bills.payFromOptional')} value={splitExpenseForm.account} options={[{ value: '', label: t('loans.noAccount') }, ...accounts.map((a) => ({ value: a.id, label: a.name }))]} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, account: e.target.value }))} />
-              </div>
-
-              {/* Participants */}
-              <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2"><Users className="w-4 h-4" />{t('bills.whoShared')}</span>
-                  {seHasTotal && <button type="button" onClick={splitEqually} className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline">{t('bills.splitEqually')}</button>}
-                </div>
-                <label className="flex items-center gap-2.5 cursor-pointer select-none">
-                  <input type="checkbox" checked={splitExpenseForm.includeMe} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, includeMe: e.target.checked }))} className="w-4 h-4 rounded accent-indigo-600" />
-                  <span className="text-xs font-medium text-slate-600 dark:text-slate-400">{t('bills.includeMe')}</span>
-                </label>
-                {!seHasTotal && splitExpenseForm.includeMe && (
-                  <Input label={t('bills.yourShareInput')} type="number" min="0" step="0.01" placeholder="0.00" value={splitExpenseForm.myShare} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, myShare: e.target.value }))} />
-                )}
-                {splitParticipants.map((p) => (
-                  <div key={p.key} className="space-y-2 rounded-xl bg-slate-50 dark:bg-slate-700/40 p-3">
-                    <div className="flex gap-2 items-end">
-                      <div className="flex-1 min-w-0">
-                        <Select
-                          label={t('bills.person')}
-                          value={p.contactId}
-                          options={[
-                            { value: '', label: t('bills.selectContact') },
-                            ...contacts.map((c) => ({ value: c.id, label: c.name })),
-                            { value: NEW_CONTACT, label: t('bills.addNewContact') },
-                          ]}
-                          onChange={(e) => updateParticipant(p.key, { contactId: e.target.value })}
-                        />
-                      </div>
-                      <div className="w-28 shrink-0">
-                        <Input label={seHasTotal && seShareByKey.has(p.key) && p.amount.trim() === '' ? t('bills.shareAuto') : t('bills.theirShareShort')} type="number" min="0" step="0.01" placeholder={seHasTotal && seShareByKey.has(p.key) ? (seShareByKey.get(p.key) ?? 0).toFixed(2) : '0.00'} value={p.amount} onChange={(e) => updateParticipant(p.key, { amount: e.target.value })} />
-                      </div>
-                      <button type="button" onClick={() => removeParticipantRow(p.key)} disabled={splitParticipants.length === 1} className="mb-1.5 p-2 text-slate-400 dark:text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed" title={t('common.delete')}>
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                    {p.contactId === NEW_CONTACT && (
-                      <div className="flex gap-2 items-end">
-                        <div className="flex-1"><Input label={t('bills.newContactName')} placeholder="e.g. Alex" value={p.newName} onChange={(e) => updateParticipant(p.key, { newName: e.target.value })} /></div>
-                        <Button type="button" variant="secondary" className="shrink-0" onClick={() => handleAddParticipantContact(p)} disabled={addingContact || !p.newName.trim()}><UserPlus className="w-4 h-4" />{t('bills.addContact')}</Button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-                <button type="button" onClick={addParticipantRow} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-slate-300 dark:border-slate-600 text-xs font-bold text-slate-500 dark:text-slate-400 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
-                  <Plus className="w-4 h-4" />{t('bills.addPerson')}
-                </button>
-                <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 px-1">{t('bills.splitSmartHint')}</p>
-                {seTotal > 0 && (
-                  <div className={`flex items-center justify-between text-xs font-bold px-1 pt-1 ${seOver ? 'text-rose-600 dark:text-rose-400' : ''}`}>
-                    <span className="text-slate-500 dark:text-slate-400">{t('bills.yourShare')}: <span className="text-slate-900 dark:text-slate-100">{formatCurrency(seMyShare)}</span></span>
-                    <span className="text-slate-500 dark:text-slate-400">{t('bills.theyOwe')}: <span className="text-emerald-600 dark:text-emerald-400">{formatCurrency(seOthersSum)}</span></span>
-                  </div>
-                )}
-                {seOver && <p className="text-xs font-bold text-rose-600 dark:text-rose-400 px-1">{t('bills.splitExpenseOverTotal')}</p>}
-              </div>
-
-              <div className="flex gap-3 pt-1">
-                <Button variant="secondary" className="flex-1" onClick={() => setShowSplitExpense(false)}>{t('common.cancel')}</Button>
-                <Button className="flex-1" onClick={handleSaveSplitExpense} disabled={savingSplitExpense || !splitExpenseForm.description.trim() || seTotal <= 0 || seOver}>
-                  {savingSplitExpense ? t('common.saving') : t('bills.recordSplit')}
-                </Button>
-              </div>
-            </div>
-          )}
+          {/* Split an expense: button → inline form (modal-style inner view).
+              Hidden while a group is being edited (its form renders in place below). */}
+          {!editingGroupKey && (!showSplitExpense
+            ? <Button className="w-full" onClick={openSplitExpense}><Plus className="w-4 h-4" />{t('bills.splitExpenseTitle')}</Button>
+            : renderSplitExpenseForm())}
 
           {/* Total owed */}
           {totalOwedSplits > 0 && (
@@ -1944,18 +1986,27 @@ export default function TransactionsPage() {
             const subtitle = group.splits.length === 1
               ? `${group.splits[0].contactName} · ${t('bills.owedSince', { date: formatDate(group.date) })}`
               : t('bills.groupOwedSince', { n: group.splits.length, date: formatDate(group.date) });
+            // Editing this group: its card is replaced in place by the split form.
+            if (editingGroupKey === group.key) {
+              return <div key={group.key}>{renderSplitExpenseForm()}</div>;
+            }
             return (
               <div key={group.key} className="rounded-2xl bg-white dark:bg-slate-800 border border-emerald-100 dark:border-emerald-800/40 overflow-hidden">
-                <button onClick={() => toggleSplitGroup(group.key)} className="w-full flex items-center justify-between px-4 py-3 text-left">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{group.billName}</p>
-                      <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">{subtitle}</p>
+                <div className="flex items-center">
+                  <button onClick={() => toggleSplitGroup(group.key)} className="flex-1 min-w-0 flex items-center justify-between px-4 py-3 text-left">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{group.billName}</p>
+                        <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">{subtitle}</p>
+                      </div>
                     </div>
-                  </div>
-                  <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400 ml-2 shrink-0">{formatCurrency(groupRemaining)}</span>
-                </button>
+                    <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400 ml-2 shrink-0">{formatCurrency(groupRemaining)}</span>
+                  </button>
+                  <button title={t('common.edit')} onClick={() => openEditSplitGroup(group)} className="px-3 py-3 text-slate-300 dark:text-slate-600 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors shrink-0">
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                </div>
                 <Collapsible open={expanded}>
                   <div className="divide-y divide-slate-100 dark:divide-slate-700/60 border-t border-slate-100 dark:border-slate-700/60">
                     {group.splits.map((split) => renderPendingSplitRow(split))}
