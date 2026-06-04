@@ -2,6 +2,22 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-04 — Home "Budget Progress" container: match the Planning page's last-month comparison (branch claude/progress-container-comparison-IAwHC)
+
+**Bug reported (from a Home screenshot):** The Home **Budget Progress** container (the `BudgetBars` component) didn't show the last-month comparison the way the **Planning** page does. Its headline number and "vs last mo" figure ignored the rolled-over deficit, so they disagreed with the bar / "left" / "over" beneath them and with the Planning page. Visible symptoms with budget rollover on: a Transportation row read **`$0.00 / $150.00`** at the top yet showed a partly-filled bar, **`$87.13 left`**, and **`-$212.87 vs last mo`**; a Shopping row read **`$0.00`** in red yet **`$754.77 over`**.
+
+**Root cause:** `BudgetBars` already computed `usage = b.spent + rolledOver` (and used it for the bar, `remaining`, and the `over` flag), but two spots still used the raw `b.spent`:
+- The top-right headline rendered `formatCurrency(b.spent)` instead of `formatCurrency(usage)`, so when this month's actual spend was `$0` but a deficit had rolled over, it printed `$0.00` (even in red while saying "$X over").
+- The month-over-month badge computed `diff = b.spent - b.prevMonthSpent` instead of `usage - b.prevMonthSpent`, so it differed from the Planning page, whose `BudgetItem` uses `momDiff = usage - prevSpent`.
+
+**Fix (`app/(app)/dashboard/DashboardCharts.tsx`, `BudgetBars`):**
+- Headline amount now renders `formatCurrency(usage)` (the effective usage incl. rolled-over deficit), matching the bar/`remaining`/`over` it sits above and the Planning page's headline.
+- The "vs last mo" badge now computes `diff = usage - b.prevMonthSpent` (added a comment mirroring the Planning page's rationale), so the two pages report the same number.
+
+No data-model, i18n, or prop changes — the dashboard already passes `prevMonthSpent` and `rolledOver` into `BudgetBars`. The category-% chip still uses raw `b.spent` (unchanged; matches Planning's `categoryPct`).
+
+**Verification:** `npm ci` then `tsc --noEmit` clean; full vitest **324 passing**; `eslint` on the changed file — 0 errors (only pre-existing unused-import / setState-in-effect warnings remain).
+
 ## 2026-06-03 — Extend the loan-style record-payment UI to the Transactions "Split an Expense" tracker (branch claude/bills-payment-ui-consistency-Vi0D0)
 
 **Request (follow-up):** After converting the Bills "Owed to You" tracker, the user asked to upgrade the **Transactions-page one-time "Split an Expense"** tracker the same way — partial, loan-style record-payment per person instead of the checkbox.
