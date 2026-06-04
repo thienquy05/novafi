@@ -875,3 +875,20 @@ Changes (`app/(app)/transactions/page.tsx`):
 Best-effort caveat (accepted by user): for a split this syncs the person's share + both cash legs, but does NOT rebalance the original group total or your own recorded expense share. Swipe-delete stays disabled for managed rows (deleting from the ledger would orphan the owning record — remove via Loans/Splits, whose DELETE cascades).
 
 **Verification:** `tsc --noEmit` clean; 317 tests pass; eslint 0 errors.
+
+## 2026-06-04 — Add per-person edit to Split-an-Expense (loan-style)
+
+User: "we're missing edit button inside the split, make them similar to Loan, allow user to edit the transaction per person or total amount." The Loans tracker had a Pencil edit button per open loan; the Splits tracker's pending rows only had Record-payment + Delete. Mirrored the loan-edit model.
+
+Changes:
+- `app/api/splits/route.ts`: new **PUT** handler mirroring the loans PUT. Accepts `{ updated: Split; newTx?; removeTxId? }` — reverses the old fronted transfer's balance + deletes the row, applies the new fronted transfer, then upserts the split, all in one in-memory balance pass via `applyTransactionToBalances` + `persistChanged`. Paybacks (`repaidAmount`/`repaymentTxIds`) untouched. Invalidates splits + cash caches.
+- `app/(app)/transactions/page.tsx`:
+  - New state: `splitEditFor` (open split id), `splitEditForm` ({contactId, amount, account, date, category, description}), `savingSplitEdit`.
+  - `openSplitEdit(split)`: toggles the inline edit panel; closes the payback panel first (one panel open per row); pre-fills from the split.
+  - `handleEditSplit(split)`: rebuilds the fronted `cashOut` transfer via `buildSplitTx` from new amount/account/desc, recomputes `settled` against existing `repaidAmount`, optimistically updates `splits`, calls PUT `/api/splits` with `removeTxId: split.frontedTxId`, `load()`s when a cash row changed, reverts + toasts on failure.
+  - `renderPendingSplitRow`: added a Pencil edit button (between Record-payment and Delete, `ml-auto` moved onto it) and a second `<Collapsible open={editing}>` panel with description, person (contact Select), their-share amount, date, category, pay-from account, Cancel/Save.
+- i18n: `bills.toastSplitUpdated` (en: "Shared payment updated", vi). Reused existing keys (theirShare, person, selectContact, payFromOptional, txFronted, common.edit/save/date/category/description).
+
+Design notes: per-person edit (matches Loan, which edits a single contact even for group loans). For a single-person split that one share IS the group total, so "edit total amount" is covered. Does NOT redistribute a multi-person group total or re-touch your own recorded expense share (same best-effort caveat as the ledger-row amount sync). `description` edits only that row's `billName`; grouping keys on billId+date so no group break.
+
+**Verification:** `tsc --noEmit` clean; splits tests 20/20 pass; both locale JSONs parse.

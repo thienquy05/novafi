@@ -222,6 +222,11 @@ export default function TransactionsPage() {
   const [splitPaybackFor, setSplitPaybackFor] = useState<string | null>(null);
   const [splitPaybackForm, setSplitPaybackForm] = useState({ amount: '', account: '' });
   const [recordingSplitPayback, setRecordingSplitPayback] = useState(false);
+  // Loan-style per-person edit for a pending split — splitEditFor is the split id
+  // whose inline edit form is open; the form holds that person's editable fields.
+  const [splitEditFor, setSplitEditFor] = useState<string | null>(null);
+  const [splitEditForm, setSplitEditForm] = useState({ contactId: '', amount: '', account: '', date: '', category: '', description: '' });
+  const [savingSplitEdit, setSavingSplitEdit] = useState(false);
   const [expandedSplitGroups, setExpandedSplitGroups] = useState<Set<string>>(new Set());
   const [showSplitHistory, setShowSplitHistory] = useState(false);
   const toast = useToast();
@@ -1071,11 +1076,81 @@ export default function TransactionsPage() {
     }
   }
 
+  // Open / close the inline per-person edit form for one pending split, mirroring
+  // the loan edit. Opening pre-fills with that person's current share, contact,
+  // account, date, category and the expense description. Closing the payback form
+  // first keeps only one inline panel open per row.
+  function openSplitEdit(split: Split) {
+    if (splitEditFor === split.id) { setSplitEditFor(null); return; }
+    setSplitPaybackFor(null);
+    setSplitEditFor(split.id);
+    setSplitEditForm({
+      contactId: split.contactId,
+      amount: String(split.amount),
+      account: split.account,
+      date: split.date,
+      category: split.category,
+      description: split.billName,
+    });
+  }
+
+  // Saves edits to one pending split. The fronted cash transfer is rebuilt from
+  // the new amount/account (the splits API reverses the old one and applies the
+  // new one atomically); paybacks are preserved and `settled` is recomputed
+  // against the new share. For a single-person split this also edits the group
+  // total, since that one share IS the total.
+  async function handleEditSplit(split: Split) {
+    const amount = roundCents(parseFloat(splitEditForm.amount) || 0);
+    if (amount <= 0) return;
+    const contact = contacts.find((c) => c.id === splitEditForm.contactId);
+    if (!contact) return;
+    setSavingSplitEdit(true);
+    const { account, date, category } = splitEditForm;
+    const description = splitEditForm.description.trim() || split.billName;
+    const newTx = account
+      ? buildSplitTx('cashOut', amount, account, t('bills.txFronted', { name: contact.name, bill: description }), date)
+      : null;
+    const fullyPaid = roundCents(split.repaidAmount || 0) >= amount - 0.005;
+    const updated: Split = {
+      ...split,
+      contactId: contact.id,
+      contactName: contact.name,
+      billName: description,
+      amount,
+      account,
+      date,
+      category,
+      settled: fullyPaid,
+      settledDate: fullyPaid ? (split.settledDate || today()) : '',
+      frontedTxId: newTx ? newTx.id : '',
+    };
+    const prev = splits;
+    setSplits((list) => list.map((s) => s.id === split.id ? updated : s));
+    try {
+      const res = await fetch('/api/splits', {
+        method: 'PUT',
+        body: JSON.stringify({ updated, newTx: newTx ?? undefined, removeTxId: split.frontedTxId || undefined }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) throw new Error();
+      setSplitEditFor(null);
+      // Refresh balances/ledger when the fronted cash row changed.
+      if (newTx || split.frontedTxId) load();
+      toast(t('bills.toastSplitUpdated'), 'success');
+    } catch {
+      setSplits(prev);
+      toast(t('bills.toastFailedSplit'), 'error');
+    } finally {
+      setSavingSplitEdit(false);
+    }
+  }
+
   // One pending "owed to you" person inside a group card: remaining amount, a
   // progress bar + "{paid} of {total} paid" once partially paid, a "Record
   // payment" button, delete, and the inline payback form it toggles open.
   function renderPendingSplitRow(split: Split) {
     const expanded = splitPaybackFor === split.id;
+    const editing = splitEditFor === split.id;
     const remaining = splitRemaining(split);
     const partial = (split.repaidAmount || 0) > 0;
     const pct = split.amount > 0 ? Math.min(100, (split.repaidAmount / split.amount) * 100) : 0;
@@ -1097,7 +1172,10 @@ export default function TransactionsPage() {
           <Button size="sm" variant="secondary" className="h-9" onClick={() => openSplitPayback(split)}>
             <HandCoins className="w-4 h-4" />{t('bills.recordSplitPayment')}
           </Button>
-          <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors ml-auto">
+          <button title={t('common.edit')} onClick={() => openSplitEdit(split)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-indigo-500 dark:hover:text-indigo-400 rounded-lg transition-colors ml-auto">
+            <Pencil className="w-4 h-4" />
+          </button>
+          <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
@@ -1115,6 +1193,34 @@ export default function TransactionsPage() {
             <div className="flex gap-3">
               <Button variant="secondary" className="flex-1 h-10" onClick={() => setSplitPaybackFor(null)}>{t('common.cancel')}</Button>
               <Button className="flex-1 h-10" onClick={() => handleRecordSplitPayback(split)} disabled={recordingSplitPayback || !splitPaybackForm.amount}>{recordingSplitPayback ? t('common.saving') : t('loans.confirmPayback')}</Button>
+            </div>
+          </div>
+        </Collapsible>
+        <Collapsible open={editing}>
+          <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60 space-y-3">
+            <Input label={t('common.description')} value={splitEditForm.description} onChange={(e) => setSplitEditForm((f) => ({ ...f, description: e.target.value }))} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Select
+                label={t('bills.person')}
+                value={splitEditForm.contactId}
+                options={[{ value: '', label: t('bills.selectContact') }, ...contacts.map((c) => ({ value: c.id, label: c.name }))]}
+                onChange={(e) => setSplitEditForm((f) => ({ ...f, contactId: e.target.value }))}
+              />
+              <Input label={t('bills.theirShare')} type="number" min="0" step="0.01" value={splitEditForm.amount} onChange={(e) => setSplitEditForm((f) => ({ ...f, amount: e.target.value }))} />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Input label={t('common.date')} type="date" value={splitEditForm.date} onChange={(e) => setSplitEditForm((f) => ({ ...f, date: e.target.value }))} />
+              <Select label={t('common.category')} value={splitEditForm.category} options={expenseCategories.map((c) => ({ value: c, label: c }))} onChange={(e) => setSplitEditForm((f) => ({ ...f, category: e.target.value }))} />
+            </div>
+            <Select
+              label={t('bills.payFromOptional')}
+              value={splitEditForm.account}
+              options={[{ value: '', label: t('loans.noAccount') }, ...accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))]}
+              onChange={(e) => setSplitEditForm((f) => ({ ...f, account: e.target.value }))}
+            />
+            <div className="flex gap-3">
+              <Button variant="secondary" className="flex-1 h-10" onClick={() => setSplitEditFor(null)}>{t('common.cancel')}</Button>
+              <Button className="flex-1 h-10" onClick={() => handleEditSplit(split)} disabled={savingSplitEdit || !splitEditForm.contactId || !splitEditForm.amount}>{savingSplitEdit ? t('common.saving') : t('common.save')}</Button>
             </div>
           </div>
         </Collapsible>

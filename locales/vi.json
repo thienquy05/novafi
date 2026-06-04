@@ -331,6 +331,7 @@
     "toastSplitPartial": "Đã ghi nhận thanh toán · {name} còn nợ {amount}",
     "toastSplitUnsettled": "Đã hoàn tác khoản chuyển của {name}",
     "toastFailedSplit": "Không thể cập nhật thanh toán chung",
+    "toastSplitUpdated": "Đã cập nhật thanh toán chung",
     "splitExpenseTitle": "Chia một khoản chi",
     "splitExpenseHelp": "Bạn trả cho một khoản chung (như bữa tối)? Ghi lại một lần và chia cho mọi người. Phần của bạn được tính là chi tiêu; phần của người khác được ứng ra từ tài khoản và theo dõi trong \"Người khác nợ bạn\" cho đến khi họ trả lại.",
     "splitExpensePlaceholder": "vd: Bữa tối ở quán Joe",
