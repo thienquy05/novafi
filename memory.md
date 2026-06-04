@@ -911,3 +911,19 @@ No API change: reuses the splits `PUT` added in #69. No new i18n keys (reuses `b
 Caveat (same as create / per-person): does NOT touch your own recorded expense share, and reducing a member's share below what they've already repaid marks them settled.
 
 **Verification:** `tsc --noEmit` clean; splits tests 20/20; eslint 0 errors (only pre-existing set-state-in-effect warnings).
+
+## 2026-06-04 — Group-edit: reconcile YOUR own share (myShareTxId back-reference) (same branch claude/split-group-edit)
+
+User asked why the whole-group split edit didn't include the "include my share" option, and wanted editing it to move both the total and update their personal expense. Root cause: your own share is a standalone `expense` ledger row created at split time with NO link back to the group's Split records, so edit had no reliable way to find/update it.
+
+Fix — give the group a back-reference to that expense row:
+- `types/index.ts`: `Split.myShareTxId?: string` — id of your personal expense row, denormalized onto every group member ('' = not included).
+- `lib/sheets.ts`: new Splits column P `my_share_tx_id`. `SPLITS_HEADER` += 'my_share_tx_id'; getSplits range `A2:O1000`→`A2:P1000` + parse `r[15]`; upsertSplit appends `split.myShareTxId ?? ''`. (`deleteRowById`'s last-col arg is unused — deletes by id row — so no change needed there. Additive column; legacy rows read as ''.)
+- `handleSaveSplitExpense` (create): capture the created my-share expense's id into `myShareTxId` and stamp it on every member split.
+- `openEditSplitGroup`: look up the group's `myShareTxId` → find that tx in `transactions` → pre-fill `includeMe` + `myShare` from it. Total is pre-filled BLANK so the form sums the parts (your share + everyone's) and round-trips the stored amounts while letting you edit your share and watch the total move.
+- `handleSaveEditGroup`: now resolves with the real `includeMe`/`myShare`. Reconciles the personal expense FIRST: update in place (PUT /api/transactions) when it changed, create (POST) when newly included, delete (DELETE) when dropped to 0 — yielding the final `myShareTxId`, stamped onto every written member. Members whose cash-bearing fields are unchanged but whose my-share link changed get a cheap bare metadata upsert (POST split, fronted tx untouched); fully-unchanged members are skipped. So editing only your share = one transactions PUT + zero member cash churn (its id is unchanged).
+- `renderSplitExpenseForm`: removed the `!editing` gates so the include-my-share checkbox, the your-share input, and the your-share preview show in edit mode too.
+
+Caveat (pre-existing data): groups created before this column have `myShareTxId=''`; their old my-share expense (if any) is an unlinked orphan, so re-adding a share on edit creates a new expense rather than updating the orphan.
+
+**Verification:** `tsc --noEmit` clean; full suite 324/324 pass; eslint 0 errors (only pre-existing set-state-in-effect warnings).
