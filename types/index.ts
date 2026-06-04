@@ -147,6 +147,7 @@ export interface Split {
   repaymentTxIds: string[]; // ids of the cash-in `transfer`s for each payback
   frontedTxId?: string; // id of the `transfer` that fronted their share out of `account` ('' = note only)
   settleTxId?: string;  // legacy: id of a single full-settle `transfer` (older rows; superseded by repaymentTxIds)
+  myShareTxId?: string; // id of YOUR own `expense` row for this split group, denormalized onto every member ('' = you weren't included). Lets group-edit find & reconcile your personal share.
 }
 
 export interface Goal {

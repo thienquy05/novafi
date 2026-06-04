@@ -989,6 +989,9 @@ export default function TransactionsPage() {
     const created: Split[] = [];
     try {
       // Your share is the only real expense; the rest is fronted (see buildSplitTx).
+      // Its id is denormalized onto every member as `myShareTxId` so a later
+      // group-edit can find and reconcile it.
+      let myShareTxId = '';
       if (myShare > 0) {
         const tx: Transaction = {
           id: generateId(), date, description, amount: myShare,
@@ -996,6 +999,7 @@ export default function TransactionsPage() {
         };
         const txRes = await fetch('/api/transactions', { method: 'POST', body: JSON.stringify(tx), headers: { 'Content-Type': 'application/json' } });
         if (!txRes.ok) throw new Error();
+        myShareTxId = tx.id;
       }
       // Post each participant's split sequentially — every fronted transfer mutates
       // the same account balance server-side, so parallel writes would race.
@@ -1008,7 +1012,7 @@ export default function TransactionsPage() {
           contactId: p.contact.id, contactName: p.contact.name, amount: p.amount,
           category, account, date, settled: false, settledDate: '',
           repaidAmount: 0, repaymentTxIds: [],
-          frontedTxId: frontedTx?.id ?? '', settleTxId: '',
+          frontedTxId: frontedTx?.id ?? '', settleTxId: '', myShareTxId,
         };
         const sRes = await fetch('/api/splits', {
           method: 'POST',
@@ -1083,23 +1087,27 @@ export default function TransactionsPage() {
 
   // Open the whole-group edit form for a pending split group: the group's card is
   // replaced in place by the same split-expense form used to create one, pre-filled
-  // with the total, description, date, category, account and one participant row per
-  // member. Closing any add form / payback panel first keeps a single panel open.
+  // with the description, date, category, account, one participant row per member,
+  // and — if you originally included yourself — the "include my share" toggle + your
+  // share (looked up from the linked expense via myShareTxId). The total is left
+  // blank so the form sums the parts (your share + everyone's), which round-trips the
+  // stored amounts exactly while letting you edit your share and watch the total move.
+  // Closing any add form / payback panel first keeps a single panel open.
   function openEditSplitGroup(group: SplitGroup) {
     setShowSplitExpense(false);
     setSplitPaybackFor(null);
     setEditingGroupKey(group.key);
     setEditingGroupSplits(group.splits);
+    const myShareTxId = group.splits.find((s) => s.myShareTxId)?.myShareTxId ?? '';
+    const myTx = myShareTxId ? transactions.find((tx) => tx.id === myShareTxId) : undefined;
     setSplitExpenseForm({
       description: group.billName,
-      total: String(roundCents(group.total)),
+      total: '',
       date: group.date,
       account: group.splits[0]?.account ?? '',
       category: group.splits[0]?.category ?? 'Food',
-      // Your own share isn't part of the group (it's a standalone expense row with
-      // no back-link), so group edit never touches it — keep it out of the form.
-      includeMe: false,
-      myShare: '',
+      includeMe: !!myTx,
+      myShare: myTx ? String(myTx.amount) : '',
     });
     setSplitParticipants(
       group.splits.map((s) => ({ key: s.id, contactId: s.contactId, amount: String(s.amount), newName: '' })),
@@ -1116,9 +1124,12 @@ export default function TransactionsPage() {
   // transfer rebuilt via the splits PUT, paybacks preserved, settled recomputed); a
   // newly-added person is created (POST); a removed person is deleted (DELETE, which
   // cascades the reversal of its fronted/payback transfers). All members share the
-  // group's billId + date, so a date change moves the whole group together. Like the
-  // create flow this does NOT touch your own recorded expense share. A final reload
-  // resyncs splits and balances after the sequential writes.
+  // group's billId + date, so a date change moves the whole group together.
+  //
+  // Your own share is reconciled too: the linked `expense` row (myShareTxId) is
+  // updated when it changes, created when you newly include yourself, or deleted when
+  // you drop to 0 — and the resulting id is written onto every member so the group
+  // stays linked. A final reload resyncs splits and balances after the writes.
   async function handleSaveEditGroup() {
     const originals = editingGroupSplits;
     const description = splitExpenseForm.description.trim();
@@ -1127,7 +1138,7 @@ export default function TransactionsPage() {
     if (namedRows.length === 0) { toast(t('bills.splitExpenseNeedPeople'), 'error'); return; }
     const amounts = namedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0)));
     const totalInput = splitExpenseForm.total.trim() === '' ? null : (parseFloat(splitExpenseForm.total) || 0);
-    const { shares, over, total } = resolveSplit(totalInput, amounts, false);
+    const { shares, myShare, over, total } = resolveSplit(totalInput, amounts, splitExpenseForm.includeMe, parseFloat(splitExpenseForm.myShare) || 0);
     if (over) { toast(t('bills.splitExpenseOverTotal'), 'error'); return; }
     if (total <= 0) return;
     const resolved = namedRows
@@ -1140,6 +1151,28 @@ export default function TransactionsPage() {
     const groupId = originals[0]?.billId ?? newOneOffGroupId();
     const usedOriginalIds = new Set<string>();
     try {
+      // Reconcile YOUR personal share first (its id is stamped onto every member).
+      const newMyShare = roundCents(myShare);
+      const oldMyTxId = originals.find((o) => o.myShareTxId)?.myShareTxId ?? '';
+      const oldMyTx = oldMyTxId ? transactions.find((tx) => tx.id === oldMyTxId) : undefined;
+      let myShareTxId = '';
+      if (newMyShare > 0) {
+        if (oldMyTx) {
+          const updatedTx: Transaction = { ...oldMyTx, description, amount: newMyShare, type: 'expense', category, account, date };
+          const r = await fetch('/api/transactions', { method: 'PUT', body: JSON.stringify({ original: oldMyTx, updated: updatedTx }), headers: { 'Content-Type': 'application/json' } });
+          if (!r.ok) throw new Error();
+          myShareTxId = oldMyTx.id;
+        } else {
+          const newTx: Transaction = { id: generateId(), date, description, amount: newMyShare, type: 'expense', category, account, createdAt: new Date().toISOString() };
+          const r = await fetch('/api/transactions', { method: 'POST', body: JSON.stringify(newTx), headers: { 'Content-Type': 'application/json' } });
+          if (!r.ok) throw new Error();
+          myShareTxId = newTx.id;
+        }
+      } else if (oldMyTx) {
+        const r = await fetch('/api/transactions', { method: 'DELETE', body: JSON.stringify({ id: oldMyTx.id }), headers: { 'Content-Type': 'application/json' } });
+        if (!r.ok) throw new Error();
+      }
+
       // Update existing members / create new ones — sequentially, since each fronted
       // transfer mutates the same account balance server-side.
       for (const r of resolved) {
@@ -1149,16 +1182,31 @@ export default function TransactionsPage() {
           : null;
         if (orig) {
           usedOriginalIds.add(orig.id);
-          // Skip a member whose every editable field is unchanged (no cash churn).
-          const unchanged = roundCents(orig.amount) === r.amount && orig.account === account
-            && orig.date === date && orig.category === category && orig.billName === description;
-          if (unchanged) continue;
+          // A member's cash-bearing fields (their share, the account, date, and the
+          // description that names the fronted transfer) drive whether we rebuild that
+          // transfer; the my-share link is metadata only.
+          const fieldsSame = roundCents(orig.amount) === r.amount && orig.account === account
+            && orig.date === date && orig.category === category && orig.billName === description
+            && orig.contactName === r.contact.name;
+          const linkSame = (orig.myShareTxId ?? '') === myShareTxId;
+          if (fieldsSame && linkSame) continue; // nothing to do
+          if (fieldsSame) {
+            // Only your my-share link changed → cheap metadata upsert, keep the
+            // existing fronted transfer untouched (no ledger/balance churn).
+            const res = await fetch('/api/splits', {
+              method: 'POST',
+              body: JSON.stringify({ ...orig, myShareTxId }),
+              headers: { 'Content-Type': 'application/json' },
+            });
+            if (!res.ok) throw new Error();
+            continue;
+          }
           const fullyPaid = roundCents(orig.repaidAmount || 0) >= r.amount - 0.005;
           const updated: Split = {
             ...orig, contactName: r.contact.name, billName: description, amount: r.amount,
             account, date, category, settled: fullyPaid,
             settledDate: fullyPaid ? (orig.settledDate || today()) : '',
-            frontedTxId: frontedTx ? frontedTx.id : '',
+            frontedTxId: frontedTx ? frontedTx.id : '', myShareTxId,
           };
           const res = await fetch('/api/splits', {
             method: 'PUT',
@@ -1172,7 +1220,7 @@ export default function TransactionsPage() {
             contactId: r.contact.id, contactName: r.contact.name, amount: r.amount,
             category, account, date, settled: false, settledDate: '',
             repaidAmount: 0, repaymentTxIds: [],
-            frontedTxId: frontedTx?.id ?? '', settleTxId: '',
+            frontedTxId: frontedTx?.id ?? '', settleTxId: '', myShareTxId,
           };
           const res = await fetch('/api/splits', {
             method: 'POST',
@@ -1292,8 +1340,9 @@ export default function TransactionsPage() {
 
   // The split-an-expense form, reused for both creating a new split and editing an
   // existing group in place. The only differences in edit mode (editingGroupKey set):
-  // the create-only help text and the "include my share" controls are hidden (your
-  // own share isn't part of a group), and the footer saves the group instead.
+  // the create-only help text is hidden and the footer saves the group instead. The
+  // "include my share" controls show in both modes — on edit they're pre-filled from
+  // the group's linked personal expense (see openEditSplitGroup / handleSaveEditGroup).
   function renderSplitExpenseForm() {
     const editing = editingGroupKey !== null;
     return (
@@ -1321,13 +1370,11 @@ export default function TransactionsPage() {
             <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2"><Users className="w-4 h-4" />{t('bills.whoShared')}</span>
             {seHasTotal && <button type="button" onClick={splitEqually} className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline">{t('bills.splitEqually')}</button>}
           </div>
-          {!editing && (
-            <label className="flex items-center gap-2.5 cursor-pointer select-none">
-              <input type="checkbox" checked={splitExpenseForm.includeMe} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, includeMe: e.target.checked }))} className="w-4 h-4 rounded accent-indigo-600" />
-              <span className="text-xs font-medium text-slate-600 dark:text-slate-400">{t('bills.includeMe')}</span>
-            </label>
-          )}
-          {!editing && !seHasTotal && splitExpenseForm.includeMe && (
+          <label className="flex items-center gap-2.5 cursor-pointer select-none">
+            <input type="checkbox" checked={splitExpenseForm.includeMe} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, includeMe: e.target.checked }))} className="w-4 h-4 rounded accent-indigo-600" />
+            <span className="text-xs font-medium text-slate-600 dark:text-slate-400">{t('bills.includeMe')}</span>
+          </label>
+          {!seHasTotal && splitExpenseForm.includeMe && (
             <Input label={t('bills.yourShareInput')} type="number" min="0" step="0.01" placeholder="0.00" value={splitExpenseForm.myShare} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, myShare: e.target.value }))} />
           )}
           {splitParticipants.map((p) => (
@@ -1366,8 +1413,8 @@ export default function TransactionsPage() {
           <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 px-1">{t('bills.splitSmartHint')}</p>
           {seTotal > 0 && (
             <div className={`flex items-center justify-between text-xs font-bold px-1 pt-1 ${seOver ? 'text-rose-600 dark:text-rose-400' : ''}`}>
-              {!editing && <span className="text-slate-500 dark:text-slate-400">{t('bills.yourShare')}: <span className="text-slate-900 dark:text-slate-100">{formatCurrency(seMyShare)}</span></span>}
-              <span className="text-slate-500 dark:text-slate-400 ml-auto">{t('bills.theyOwe')}: <span className="text-emerald-600 dark:text-emerald-400">{formatCurrency(seOthersSum)}</span></span>
+              <span className="text-slate-500 dark:text-slate-400">{t('bills.yourShare')}: <span className="text-slate-900 dark:text-slate-100">{formatCurrency(seMyShare)}</span></span>
+              <span className="text-slate-500 dark:text-slate-400">{t('bills.theyOwe')}: <span className="text-emerald-600 dark:text-emerald-400">{formatCurrency(seOthersSum)}</span></span>
             </div>
           )}
           {seOver && <p className="text-xs font-bold text-rose-600 dark:text-rose-400 px-1">{t('bills.splitExpenseOverTotal')}</p>}

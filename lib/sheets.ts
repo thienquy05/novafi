@@ -86,6 +86,7 @@ const SPLITS_HEADER = [
   'id', 'bill_id', 'bill_name', 'contact_id', 'contact_name', 'amount',
   'category', 'account', 'date', 'settled', 'settled_date',
   'fronted_tx_id', 'settle_tx_id', 'repaid_amount', 'repayment_tx_ids',
+  'my_share_tx_id',
 ];
 const LOANS_HEADER = [
   'id', 'direction', 'contact_id', 'contact_name', 'account', 'principal',
@@ -732,7 +733,7 @@ export async function getSplits(
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'Splits!A2:O1000',
+      range: 'Splits!A2:P1000',
     });
     return (res.data.values ?? []).map((r) => ({
       id: r[0] ?? '',
@@ -750,6 +751,7 @@ export async function getSplits(
       settleTxId: r[12] ?? '',
       repaidAmount: Number(r[13] ?? 0),
       repaymentTxIds: String(r[14] ?? '').split('|').filter(Boolean),
+      myShareTxId: r[15] ?? '',
     }));
   } catch (err) {
     if (!isMissingTabError(err)) throw err;
@@ -778,6 +780,7 @@ export async function upsertSplit(
         String(split.settled), split.settledDate,
         split.frontedTxId ?? '', split.settleTxId ?? '',
         split.repaidAmount ?? 0, (split.repaymentTxIds ?? []).join('|'),
+        split.myShareTxId ?? '',
       ]],
     },
   });
