@@ -460,7 +460,7 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM, totalSpend }:
               </div>
               <div className="text-right">
                 <span className={`text-sm font-extrabold ${over ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>
-                  {formatCurrency(b.spent)}
+                  {formatCurrency(usage)}
                 </span>
                 <span className="text-xs font-bold text-slate-400 dark:text-slate-500"> / {formatCurrency(b.budget)}</span>
               </div>
@@ -487,7 +487,9 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM, totalSpend }:
               <div className="flex items-center gap-2">
                 {showMoM && b.prevMonthSpent !== undefined && (
                   (() => {
-                    const diff = b.spent - b.prevMonthSpent;
+                    // Compare last month against this month's effective usage (spent +
+                    // rolled-over deficit), mirroring the Planning page so the two agree.
+                    const diff = usage - b.prevMonthSpent;
                     if (Math.abs(diff) < 0.5) return <span className="text-xs font-bold text-slate-400 dark:text-slate-500">{t('charts.sameAsLastMo')}</span>;
                     return (
                       <span className={`text-xs font-bold ${diff > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
