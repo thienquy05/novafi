@@ -892,3 +892,22 @@ Changes:
 Design notes: per-person edit (matches Loan, which edits a single contact even for group loans). For a single-person split that one share IS the group total, so "edit total amount" is covered. Does NOT redistribute a multi-person group total or re-touch your own recorded expense share (same best-effort caveat as the ledger-row amount sync). `description` edits only that row's `billName`; grouping keys on billId+date so no group break.
 
 **Verification:** `tsc --noEmit` clean; splits tests 20/20 pass; both locale JSONs parse.
+
+## 2026-06-04 — Replace per-person split edit with whole-group edit (branch claude/split-group-edit)
+
+Follow-up to PR #69 (per-person inline split edit, now merged to master). User clarified they want to "edit the whole group": re-open the full split form for a group, edit the total AND each person's share, add/remove people, redistribute like creating. Chose this over "fixed total, redistribute rest" and over keeping the per-person model. So this PR REPLACES the per-row edit with a group-level edit (the group form can still edit a single person, so nothing is lost).
+
+Changes (`app/(app)/transactions/page.tsx`):
+- Removed per-person edit: state `splitEditFor`/`splitEditForm`/`savingSplitEdit`, fns `openSplitEdit`/`handleEditSplit`, the per-row Pencil button + its inline edit Collapsible in `renderPendingSplitRow`.
+- New state: `editingGroupKey` (group whose card is replaced by the form), `editingGroupSplits` (snapshot of members to reconcile against), `savingEditGroup`.
+- New `openEditSplitGroup(group: SplitGroup)`: pre-fills the SHARED `splitExpenseForm` + `splitParticipants` (one row per member, key = split id) with the group's total/description/date/category/account; forces `includeMe:false` (your own share isn't part of a group — it's a standalone expense row with no back-link, so group edit never touches it).
+- New `cancelEditGroup()` resets the shared form + clears editing keys. `openSplitExpense()` now also clears the editing keys so add-mode is clean.
+- New `handleSaveEditGroup()`: resolves shares via `resolveSplit(total, amounts, false)`, then reconciles resolved participants against `editingGroupSplits` by contactId — existing member → PUT `/api/splits` (rebuild fronted tx, preserve paybacks, recompute settled; skips members whose every field is unchanged); new person → POST `{split, tx}`; removed member → DELETE (cascades cash reversal). All members reuse the group's `billId` so a date change moves the whole group together. Sequential awaits (shared account balance mutates server-side), then `load()` to resync.
+- Extracted the split-an-expense form JSX into a reusable `renderSplitExpenseForm()` used both at the top (add mode) and in place of a group's card (edit mode, when `editingGroupKey === group.key`). In edit mode it hides the create-only help text and the "include my share" controls and swaps the footer to Save/Cancel→cancelEditGroup. Added a Pencil button to each pending group header (restructured header into a flex row: toggle button + edit button, avoiding nested buttons).
+- Modal `onClose` also clears editing keys.
+
+No API change: reuses the splits `PUT` added in #69. No new i18n keys (reuses `bills.toastSplitUpdated`, `common.save`, etc.).
+
+Caveat (same as create / per-person): does NOT touch your own recorded expense share, and reducing a member's share below what they've already repaid marks them settled.
+
+**Verification:** `tsc --noEmit` clean; splits tests 20/20; eslint 0 errors (only pre-existing set-state-in-effect warnings).
