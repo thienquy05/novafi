@@ -2,6 +2,13 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-05 — Fix sparkline gap: drop stroke-dash draw-in (branch claude/blank-space-lines-3FFJs)
+
+The KPI sparkline (e.g. the Liquid Net Worth hero tile) showed a blank gap in the middle of the line. Root cause: the `.spark-line` CSS draw-in animated `stroke-dashoffset` with `stroke-dasharray: 1`, relying on `pathLength={1}` to normalize the single dash to the full line. But the SVG renders with `preserveAspectRatio="none"` (stretched ~11× horizontally) and `vectorEffect="non-scaling-stroke"`, which makes the browser measure the dash in post-transform screen space — ignoring the `pathLength` normalization. The single dash no longer covered the stretched line, leaving it partially unpainted. (The shaded area fill has no stroke/dash, so it stayed continuous — which is why only the line showed the gap.)
+
+- **`components/ui/Sparkline.tsx`**: removed `className="spark-line"` and `pathLength={1}` from the line `<path>` so it always paints in full on render. Kept `vectorEffect="non-scaling-stroke"` (constant stroke width under the non-uniform stretch). Updated the header comment.
+- **`app/globals.css`**: removed the now-unused `@keyframes spark-draw`, the `.spark-line` rule, and its `prefers-reduced-motion` override.
+
 ## 2026-06-05 — Expressive Nova mascot + section-wide header identity (branch claude/novaFi-banner-ui-design-W3TMR)
 
 Two-part UI enhancement. (1) Redesigned the dashboard's Nova health-banner mascot from a simple color-changing face into a fully expressive, data-driven blob creature. (2) Brought the dashboard's premium header language to the remaining sections via a shared `PageHeader` primitive (icon emblem + `font-display` title). Verified: `npm run typecheck` clean, `npm run lint` 0 errors (pre-existing setState-in-effect warnings only, none in changed files), `npm run build` succeeds (all routes).

@@ -1,8 +1,9 @@
 /**
  * Tiny inline trend line for KPI cards. Pure SVG — no recharts, no client JS —
  * so it renders straight from the Server Component and stays cheap on mobile.
- * A CSS `stroke-dashoffset` draw-in (see `.spark-line` in globals.css) animates
- * it without scripting, and respects prefers-reduced-motion.
+ * The line paints in full on render: a stroke-dash draw-in was dropped because
+ * `non-scaling-stroke` under `preserveAspectRatio="none"` distorts the dash and
+ * leaves visible gaps in the line.
  */
 export function Sparkline({
   data,
@@ -58,9 +59,7 @@ export function Sparkline({
         strokeWidth={strokeWidth}
         strokeLinecap="round"
         strokeLinejoin="round"
-        pathLength={1}
         vectorEffect="non-scaling-stroke"
-        className="spark-line"
       />
     </svg>
   );
