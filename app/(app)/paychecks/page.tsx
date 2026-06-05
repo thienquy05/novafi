@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, Trash2, DollarSign } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -159,16 +160,18 @@ export default function PaychecksPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6 sm:space-y-8 pb-24 md:pb-8">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{t('paychecks.title')}</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-base font-medium mt-1">{t('paychecks.subtitle')}</p>
-        </div>
-        <Button onClick={() => setOpen(true)} className="w-full md:w-auto shadow-sm hover:shadow-md">
-          <Plus className="w-5 h-5" />
-          {t('paychecks.logPaycheck')}
-        </Button>
-      </div>
+      <PageHeader
+        icon={DollarSign}
+        tone="emerald"
+        title={t('paychecks.title')}
+        subtitle={t('paychecks.subtitle')}
+        action={
+          <Button onClick={() => setOpen(true)} className="w-full md:w-auto shadow-sm hover:shadow-md">
+            <Plus className="w-5 h-5" />
+            {t('paychecks.logPaycheck')}
+          </Button>
+        }
+      />
 
       {/* YTD Summary */}
       <div className="grid grid-cols-2 gap-4">

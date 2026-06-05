@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, Search, Pencil, RefreshCw, AlertCircle, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronLeft, ChevronRight, X, Filter, ArrowLeftRight, HandCoins, ArrowUpRight, ArrowDownLeft, UserPlus, Trash2, Check, Archive, Split as SplitIcon } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -1495,12 +1496,13 @@ export default function TransactionsPage() {
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{t('transactions.title')}</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mt-1">{t('transactions.subtitle')}</p>
-        </div>
-        <div className="flex gap-2 flex-wrap">
+      <PageHeader
+        icon={ArrowLeftRight}
+        tone="indigo"
+        title={t('transactions.title')}
+        subtitle={t('transactions.subtitle')}
+        action={
+          <div className="flex gap-2 flex-wrap md:justify-end">
           {templates.length > 0 && (
             <Button variant="secondary" className="shadow-sm" onClick={() => setShowTemplates(true)}>
               <BookmarkCheck className="w-4 h-4" />
@@ -1526,8 +1528,9 @@ export default function TransactionsPage() {
             {t('transactions.exportCsv')}
           </Button>
           <Button onClick={openAdd} className="shadow-sm"><Plus className="w-5 h-5" />{t('transactions.addTransaction')}</Button>
-        </div>
-      </div>
+          </div>
+        }
+      />
 
       {/* Month navigator — scopes the totals + ledger to one month */}
       <div className="flex items-center justify-between gap-2">

@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { RefreshCw, AlertCircle, BarChart3, TrendingUp, TrendingDown, DollarSign, Calendar } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { FitText } from '@/components/ui/FitText';
@@ -146,28 +147,30 @@ export default function ReportsPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{t('reports.title')}</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mt-1">{t('reports.subtitle')}</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden">
-            {years.map((y) => (
-              <button
-                key={y}
-                onClick={() => setSelectedYear(y)}
-                className={`px-4 py-2.5 text-sm font-bold transition-all duration-200 ${selectedYear === y ? 'bg-indigo-600 text-white' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'}`}
-              >
-                {y}
-              </button>
-            ))}
+      <PageHeader
+        icon={BarChart3}
+        tone="indigo"
+        title={t('reports.title')}
+        subtitle={t('reports.subtitle')}
+        action={
+          <div className="flex items-center gap-3">
+            <div className="flex bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden">
+              {years.map((y) => (
+                <button
+                  key={y}
+                  onClick={() => setSelectedYear(y)}
+                  className={`px-4 py-2.5 text-sm font-bold transition-all duration-200 ${selectedYear === y ? 'bg-indigo-600 text-white' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'}`}
+                >
+                  {y}
+                </button>
+              ))}
+            </div>
+            <Button variant="secondary" onClick={load} className="shadow-sm">
+              <RefreshCw className="w-4 h-4" />
+            </Button>
           </div>
-          <Button variant="secondary" onClick={load} className="shadow-sm">
-            <RefreshCw className="w-4 h-4" />
-          </Button>
-        </div>
-      </div>
+        }
+      />
 
       {loading ? (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

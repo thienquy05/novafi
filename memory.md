@@ -2,6 +2,26 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-05 — Expressive Nova mascot + section-wide header identity (branch claude/novaFi-banner-ui-design-W3TMR)
+
+Two-part UI enhancement. (1) Redesigned the dashboard's Nova health-banner mascot from a simple color-changing face into a fully expressive, data-driven blob creature. (2) Brought the dashboard's premium header language to the remaining sections via a shared `PageHeader` primitive (icon emblem + `font-display` title). Verified: `npm run typecheck` clean, `npm run lint` 0 errors (pre-existing setState-in-effect warnings only, none in changed files), `npm run build` succeeds (all routes).
+
+### Nova mascot redesign
+- **`app/(app)/dashboard/NovaAvatar.tsx`** (full rewrite): every expression now reads off `HealthStatus` through a `MOODS` map. New behaviours, all reduced-motion-gated:
+  - **Squishy blob body** (`BLOB` squircle path) replacing the plain circle, with a glossy top highlight and a radial body gradient.
+  - **Blinking eyes** — eyes wrapped in a `motion.g` that periodically squashes `scaleY` (single keyframe via `times`, no JS state), plus catchlights and happy-pupil offset.
+  - **Eyebrows** that arch up (great/good), angle outward (warning) or furrow into an angry V (danger), and **rosy cheeks** when happy (radial-gradient blush).
+  - **Little arms** (`Arm` sub-component) that wave when thriving, rest at the sides, or droop when stressed; **bead of sweat** on warning/danger.
+  - **Floating coins** (1–2, with `$` glyph) tossed around a prospering Nova; **sparkle crown** when great.
+  - **Pulsing status aura** + breathing speed that varies by mood (livelier when great, slow/heavy when danger).
+- **`app/(app)/dashboard/DashboardCharts.tsx`**: bumped the banner's `NovaAvatar` from `size={48}` → `size={56}` to give the richer character more presence. Banner layout otherwise unchanged.
+
+### Section header consistency (`PageHeader`)
+- **`components/ui/PageHeader.tsx` (new)**: shared section-page header — a tinted, rounded icon emblem (own `TONE_TILE` map mirroring `Card`'s tones) beside a `font-display` h1 + subtitle, with an optional right-aligned `action` slot (`flex … w-full md:w-auto`). Standardizes title sizing (`text-2xl md:text-4xl`) and adds the missing `font-display` that the dashboard header already had.
+- Applied `PageHeader` to every remaining section, each with its own icon + accent `tone`, preserving existing action buttons/controls:
+  - `accounts` → `Landmark` / indigo; `savings` → `PiggyBank` / purple (action only when accounts exist); `paychecks` → `DollarSign` / emerald; `bills` → `Calendar` / amber; `transactions` → `ArrowLeftRight` / indigo (toolbar buttons kept in a `flex-wrap` action); `reports` → `BarChart3` / indigo (year selector + refresh in action); `planning` → `Target` / purple (`mb-4 md:mb-6`, no action); `settings` → `SlidersHorizontal` / default (`mb-6`, reset/save in action).
+  - Removed the per-page hand-rolled header `<div>`s and their inconsistent `text-3xl`/`text-base`/no-`font-display` styling. All icons used were already imported in each page.
+
 ## 2026-06-05 — Modern dashboard UI pass: playful + data-dense (bento, Nova mascot, heatmap, count-up, sparklines, celebrations, haptics)
 
 A design-language upgrade of the dashboard toward a "playful & friendly + rich & data-dense" direction, building reusable primitives first so the same patterns aren't re-hand-rolled. Mobile-first throughout. Verified: `npm run typecheck` clean, `npm run lint` 0 errors (28 pre-existing warnings only, none in new files), `npm run build` succeeds (28 routes), `npm test` 341/341 pass.
