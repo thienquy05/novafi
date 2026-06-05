@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap, RefreshCw, AlertCircle, GripVertical } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { HelpHint } from '@/components/ui/HelpHint';
@@ -336,10 +337,13 @@ export default function PlanningPage() {
         </div>
       )}
       {/* Header */}
-      <div className="mb-4 md:mb-6">
-        <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{t('planning.title')}</h1>
-        <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mt-1">{t('planning.subtitle', { daysLeft })}</p>
-      </div>
+      <PageHeader
+        icon={Target}
+        tone="purple"
+        className="mb-4 md:mb-6"
+        title={t('planning.title')}
+        subtitle={t('planning.subtitle', { daysLeft })}
+      />
 
       {/* Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

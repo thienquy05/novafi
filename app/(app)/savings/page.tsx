@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ArrowDownLeft, ArrowUpRight, ArrowRightLeft, PiggyBank, Target, Pencil, CheckCircle2, Trash2 } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -185,24 +186,26 @@ export default function SavingsPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6 sm:space-y-8 pb-24 md:pb-8">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{t('savings.title')}</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-base font-medium mt-1">{t('savings.subtitle')}</p>
-        </div>
-        {accounts.length > 0 && (
-          <div className="flex gap-2 w-full md:w-auto">
-            <Button variant="secondary" onClick={() => openAction('withdraw')} className="flex-1 md:flex-none shadow-sm">
-              <ArrowUpRight className="w-5 h-5" />
-              {t('savings.withdraw')}
-            </Button>
-            <Button onClick={() => openAction('deposit')} className="flex-1 md:flex-none shadow-sm">
-              <ArrowDownLeft className="w-5 h-5" />
-              {t('savings.deposit')}
-            </Button>
-          </div>
-        )}
-      </div>
+      <PageHeader
+        icon={PiggyBank}
+        tone="purple"
+        title={t('savings.title')}
+        subtitle={t('savings.subtitle')}
+        action={
+          accounts.length > 0 ? (
+            <>
+              <Button variant="secondary" onClick={() => openAction('withdraw')} className="flex-1 md:flex-none shadow-sm">
+                <ArrowUpRight className="w-5 h-5" />
+                {t('savings.withdraw')}
+              </Button>
+              <Button onClick={() => openAction('deposit')} className="flex-1 md:flex-none shadow-sm">
+                <ArrowDownLeft className="w-5 h-5" />
+                {t('savings.deposit')}
+              </Button>
+            </>
+          ) : undefined
+        }
+      />
 
       {accounts.length === 0 ? (
         <Card className="text-center py-16 bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700/60">

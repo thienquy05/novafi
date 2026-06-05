@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Plus, Calendar, CheckCircle2, Circle, AlarmClock, Pencil, RefreshCw, AlertCircle, Banknote, Repeat, Users, UserPlus, HandCoins, Check, Trash2, ChevronDown } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -823,13 +824,15 @@ export default function BillsPage() {
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{t('bills.title')}</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mt-1">{t('bills.subtitle')}</p>
-        </div>
-        <Button onClick={openAdd} className="w-full md:w-auto shadow-sm"><Plus className="w-5 h-5" />{t('bills.addBill')}</Button>
-      </div>
+      <PageHeader
+        icon={Calendar}
+        tone="amber"
+        title={t('bills.title')}
+        subtitle={t('bills.subtitle')}
+        action={
+          <Button onClick={openAdd} className="w-full md:w-auto shadow-sm"><Plus className="w-5 h-5" />{t('bills.addBill')}</Button>
+        }
+      />
 
       <div className="grid grid-cols-3 gap-3">
         <Card className="p-4 sm:p-5 min-w-0">

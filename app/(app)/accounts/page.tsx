@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Plus, Trash2, CreditCard, Landmark, PiggyBank, TrendingUp, Pencil, CheckCircle2, RefreshCw, AlertCircle } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -214,15 +215,17 @@ export default function AccountsPage() {
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{t('accounts.title')}</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-base font-medium mt-1">{t('accounts.subtitle')}</p>
-        </div>
-        <Button onClick={openAdd} className="w-full md:w-auto shadow-sm hover:shadow-md">
-          <Plus className="w-5 h-5" />{t('accounts.addAccount')}
-        </Button>
-      </div>
+      <PageHeader
+        icon={Landmark}
+        tone="indigo"
+        title={t('accounts.title')}
+        subtitle={t('accounts.subtitle')}
+        action={
+          <Button onClick={openAdd} className="w-full md:w-auto shadow-sm hover:shadow-md">
+            <Plus className="w-5 h-5" />{t('accounts.addAccount')}
+          </Button>
+        }
+      />
 
       {/* Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, User, SlidersHorizontal, Receipt, Tags, Landmark, Building2, Database, ShieldCheck, ChevronDown, LogOut, Users, UserPlus, Trash2, Archive } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { BRACKETS_2026, STANDARD_DEDUCTION_2026 } from '@/lib/tax';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -287,23 +288,26 @@ export default function SettingsPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-3xl mx-auto pb-24 md:pb-8">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{t('settings.title')}</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-base font-medium mt-1">{t('settings.subtitle')}</p>
-        </div>
-        <div className="flex gap-3 w-full md:w-auto">
-          <Button variant="secondary" onClick={handleReset} className="flex-1 md:flex-none shadow-sm">
-            <RotateCcw className="w-4 h-4" />
-            <span className="hidden sm:inline">Reset Defaults</span>
-            <span className="sm:hidden">Reset</span>
-          </Button>
-          <Button onClick={handleSave} disabled={saving} className="flex-1 md:flex-none shadow-sm">
-            <Save className="w-4 h-4" />
-            {saving ? t('common.saving') : saved ? t('settings.saved') : t('settings.saveSettings')}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={SlidersHorizontal}
+        tone="default"
+        className="mb-6"
+        title={t('settings.title')}
+        subtitle={t('settings.subtitle')}
+        action={
+          <>
+            <Button variant="secondary" onClick={handleReset} className="flex-1 md:flex-none shadow-sm">
+              <RotateCcw className="w-4 h-4" />
+              <span className="hidden sm:inline">Reset Defaults</span>
+              <span className="sm:hidden">Reset</span>
+            </Button>
+            <Button onClick={handleSave} disabled={saving} className="flex-1 md:flex-none shadow-sm">
+              <Save className="w-4 h-4" />
+              {saving ? t('common.saving') : saved ? t('settings.saved') : t('settings.saveSettings')}
+            </Button>
+          </>
+        }
+      />
 
       {/* In-page section tabs — sticky, scrollable on mobile. These live inside
           the Settings page only; the app nav bar is unchanged. */}

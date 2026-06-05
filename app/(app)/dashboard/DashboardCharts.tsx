@@ -233,7 +233,7 @@ export function HealthBanner({
       animate={{ opacity: 1, y: 0 }}
       className={`flex items-center gap-4 px-5 py-4 rounded-3xl border ${cfg.bg}`}
     >
-      <NovaAvatar status={status} size={48} />
+      <NovaAvatar status={status} size={56} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5 flex-wrap">
           <p className={`text-base font-extrabold ${cfg.titleColor}`}>{title}</p>
