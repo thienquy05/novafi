@@ -10,6 +10,7 @@ import { formatCurrency } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { useTranslation } from '@/lib/i18n/context';
 import { useIsDark } from '@/hooks/useIsDark';
+import { NovaAvatar } from './NovaAvatar';
 
 /** Theme-aware colors for recharts SVG props (set via JS, not Tailwind). */
 const CHART = {
@@ -212,7 +213,6 @@ export function HealthBanner({
   };
 
   const cfg = configs[status];
-  const { Icon } = cfg;
 
   // Flexible, situation-aware title instead of a single fixed "already over".
   const overByPct = monthIncome > 0 ? (monthSpending - monthIncome) / monthIncome : 0;
@@ -233,9 +233,7 @@ export function HealthBanner({
       animate={{ opacity: 1, y: 0 }}
       className={`flex items-center gap-4 px-5 py-4 rounded-3xl border ${cfg.bg}`}
     >
-      <div className={`p-2.5 rounded-2xl shrink-0 ${cfg.iconBg}`}>
-        <Icon className={`w-5 h-5 ${cfg.iconColor}`} />
-      </div>
+      <NovaAvatar status={status} size={48} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5 flex-wrap">
           <p className={`text-base font-extrabold ${cfg.titleColor}`}>{title}</p>

@@ -2,6 +2,7 @@
 import { useState, type ReactNode } from 'react';
 import { motion, useMotionValue, useTransform, animate } from 'framer-motion';
 import { Trash2 } from 'lucide-react';
+import { Haptics } from '@/lib/haptics';
 
 /** Width of the revealed delete action. Kept compact for a tighter feel. */
 const REVEAL_W = 64;
@@ -39,6 +40,7 @@ export function SwipeToDelete({
 
   function snapOpen() {
     animate(x, -REVEAL_W, { type: 'spring', stiffness: 420, damping: 38 });
+    if (!revealed) Haptics.light(); // tick only on the open transition
     setRevealed(true);
   }
   function snapClose() {
@@ -60,7 +62,7 @@ export function SwipeToDelete({
       >
         <motion.button
           type="button"
-          onClick={() => { onDelete(); snapClose(); }}
+          onClick={() => { Haptics.medium(); onDelete(); snapClose(); }}
           style={{ scale: iconScale, opacity: iconOpacity }}
           className="flex flex-col items-center justify-center gap-0.5 text-white pr-1.5 tap-highlight-none"
           aria-label={label}

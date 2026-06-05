@@ -2,6 +2,36 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-05 — Modern dashboard UI pass: playful + data-dense (bento, Nova mascot, heatmap, count-up, sparklines, celebrations, haptics)
+
+A design-language upgrade of the dashboard toward a "playful & friendly + rich & data-dense" direction, building reusable primitives first so the same patterns aren't re-hand-rolled. Mobile-first throughout. Verified: `npm run typecheck` clean, `npm run lint` 0 errors (28 pre-existing warnings only, none in new files), `npm run build` succeeds (28 routes), `npm test` 341/341 pass.
+
+### Foundation (design language)
+- **`app/layout.tsx`**: added `Plus_Jakarta_Sans` via `next/font/google` as a display face exposed through the `--font-display` CSS variable (variable applied on `<body>`). Inter stays the default body font.
+- **`app/globals.css`**:
+  - Global `font-variant-numeric: tabular-nums` + `font-feature-settings: 'tnum'` on `body` — money columns/KPIs now line up (digit glyphs only; prose unaffected).
+  - Semantic finance tokens in `@theme`: `--color-success/danger/warning/savings` (mirror the emerald/rose/amber/violet language).
+  - New utilities: `.font-display` (opt-in display face + tight tracking), `.bento-hero` (soft mesh radial-gradient backdrop, light + dark), `.spark-line` (CSS `stroke-dashoffset` draw-in keyframe, reduced-motion aware).
+- **`lib/colors.ts` (new)**: single JS source of palette for canvas/SVG that can't read CSS vars — `SEMANTIC`, `STATUS_COLOR` (+ `HealthStatus` type), `HEATMAP_SCALE`/`HEATMAP_SCALE_DARK`, `CONFETTI_COLORS`.
+
+### Reusable primitives (new)
+- **`components/ui/Card.tsx`**: added a `tone` prop (`default|emerald|rose|amber|purple|indigo`) driving accent border classes, and a **`CardIcon`** helper for the tinted rounded icon-tile pattern (lucide child inherits `currentColor`, so one `tone` styles tile + glyph). Full literal class strings per tone (Tailwind v4 needs literals).
+- **`components/ui/AnimatedNumber.tsx`**: count-up number that also auto-fits font size like FitText. Writes the running value via `textContent` (no per-frame React re-render) and fits against the final/widest string once. Serializable props only (`kind: 'currency'|'percent'|'plain'`, `prefix`/`suffix`/`decimals`) so it can be used from the Server Component dashboard — **no function props across the RSC boundary**. Respects `prefers-reduced-motion`.
+- **`components/ui/Sparkline.tsx`**: pure-SVG inline trend line (no recharts, no client JS → renders straight from the Server Component). Area fill + CSS draw-in via `.spark-line`/`pathLength=1`.
+- **`lib/haptics.ts` (new)**: `haptic()` + `Haptics.{light,medium,success,warning}` over the Vibration API (no-ops where unsupported). Wired into `SwipeToDelete` (light tick on reveal, medium on delete confirm), `QuickAddTransaction` (success buzz on save, light on FAB tap).
+- **`lib/confetti.ts` (new)**: dependency-free canvas confetti burst, self-removing after ~1.4s, no-op under reduced motion / SSR. Palette from `lib/colors`.
+
+### Dashboard features
+- **`app/(app)/dashboard/NovaAvatar.tsx` (new)**: animated SVG "Nova" mascot whose color + mouth expression track `HealthStatus` (great/good/warning/danger/neutral), gentle breathing/float (reduced-motion aware), sparkle when thriving. Replaces the static icon tile in `HealthBanner` (`DashboardCharts.tsx`; removed the now-unused `Icon` destructure).
+- **`app/(app)/dashboard/SpendingHeatmap.tsx` (new)**: GitHub-style month grid, daily-spend intensity (sqrt-scaled, sky-blue ramp), localized weekday headers, today ring, future days faint/dashed, tap-to-select day detail + month total + no-spend-day count + Less→More legend. Light haptic on tap.
+- **`app/(app)/dashboard/Celebrations.tsx` (new)**: renders null; fires confetti + success haptic + toast the first time a milestone is newly crossed (savings rate ≥20%, health grade improved, a goal newly achieved). Uses `localStorage` (`nf_milestones_v1`) with a silent first-load baseline so a returning user's existing wins don't all pop.
+- **`app/(app)/dashboard/page.tsx`** (Server Component) rework:
+  - **Bento KPI grid**: Net Worth is a hero tile (full-width mobile, `lg:row-span-2` desktop, `.bento-hero` gradient) with count-up + a large sparkline + delta chip; the other four KPIs (income/spending/safe-to-spend/savings-rate) are 2-up tiles using `CardIcon` + `tone`. Income & spending get small sparklines; savings rate keeps the radial gauge.
+  - Assets/Liabilities/Savings tiles converted to `AnimatedNumber` count-up (liabilities passes `-totalDebt`).
+  - Spending pie converted from a full-width card into a **2-up "what vs when" row** with the new `SpendingHeatmap`.
+  - Server-side additions: 6-month income/spending/net-worth trend arrays; per-day spend map → `heatmapDays` + `todayIso` (local, not UTC); no-spend streak (consecutive zero-expense days up to today, capped 45, 0 when the user has no expenses); `achievedGoals`. No-spend streak ≥2 shows a 🔥 chip by the greeting; greeting + hero/headline numbers use `.font-display`.
+- **i18n** (`locales/en.json`, `locales/vi.json`): added `dashboard.{noSpendStreak,spendingCalendar,spendingCalendarSub}`, new `heatmap.{noSpend,noSpendDays,less,more}`, new `celebrate.{savingsRate,health,goal}`.
+
 ## 2026-06-05 — Performance & reusability pass: collapse Sheets round-trips, faster writes, lazy charts (branch claude/musing-curran-c60675)
 
 Latency in NovaFi is dominated by Google Sheets round-trips (quota ~60 reads + 60 writes/min/user), payload size, and client-bundle weight — not CPU. This pass cut round-trips and trimmed the bundle, building shared helpers first so the same boilerplate isn't rewritten per route/page. All existing invariants preserved (writes never auto-retried, ledger-row-first ordering, balance math stays in the pure tested `lib/calculations.ts`). Verified: `npm run typecheck` clean, `npm run lint` 0 errors (pre-existing warnings only), `npm run build` succeeds, `npm test` 331/331 pass (+7 new).
