@@ -1,19 +1,21 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
+import { NextResponse } from 'next/server';
 import { getSettings, saveSettings } from '@/lib/sheets';
+import { invalidateMany, CACHE_TTL } from '@/lib/cache';
+import { cachedGet, withSession } from '@/lib/apiRoute';
 import type { TaxSettings } from '@/types';
 
-export async function GET() {
-  const session = await auth();
-  if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const settings = await getSettings(session.accessToken, session.spreadsheetId);
-  return NextResponse.json(settings);
-}
+export const GET = cachedGet({
+  resource: 'settings',
+  ttl: CACHE_TTL.LONG,
+  fetch: ({ accessToken, spreadsheetId }) => getSettings(accessToken, spreadsheetId),
+});
 
-export async function PUT(req: NextRequest) {
-  const session = await auth();
-  if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+export const PUT = withSession(async ({ accessToken, spreadsheetId, req }) => {
   const body: TaxSettings = await req.json();
-  await saveSettings(session.accessToken, session.spreadsheetId, body);
+  await saveSettings(accessToken, spreadsheetId, body);
+  // Settings carry dashboard-affecting toggles (liquid net worth, budget rollover,
+  // display name, language) and the custom/hidden category lists — so a save must
+  // freshen the settings, categories, and dashboard caches.
+  invalidateMany(spreadsheetId, ['settings', 'categories', 'dashboard']);
   return NextResponse.json({ ok: true });
-}
+});

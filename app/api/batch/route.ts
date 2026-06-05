@@ -20,11 +20,13 @@ const TTL: Record<BatchKey, number> = {
   accounts: CACHE_TTL.SHORT,
   transactions: CACHE_TTL.SHORT,
   splits: CACHE_TTL.SHORT,
+  loans: CACHE_TTL.SHORT,
   bills: CACHE_TTL.LONG,
   paychecks: CACHE_TTL.LONG,
   budgets: CACHE_TTL.LONG,
   goals: CACHE_TTL.LONG,
   contacts: CACHE_TTL.LONG,
+  settings: CACHE_TTL.LONG,
 };
 
 export async function GET(req: NextRequest) {

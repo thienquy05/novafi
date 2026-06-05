@@ -1,36 +1,25 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
+import { NextResponse } from 'next/server';
 import { getContacts, upsertContact, deleteContact } from '@/lib/sheets';
-import { getCache, setCache, invalidateCache, CACHE_TTL } from '@/lib/cache';
+import { invalidateMany, CACHE_TTL } from '@/lib/cache';
+import { cachedGet, withSession } from '@/lib/apiRoute';
 import type { Contact } from '@/types';
 
-export async function GET() {
-  const session = await auth();
-  if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+export const GET = cachedGet({
+  resource: 'contacts',
+  ttl: CACHE_TTL.LONG,
+  fetch: ({ accessToken, spreadsheetId }) => getContacts(accessToken, spreadsheetId),
+});
 
-  const key = `contacts:${session.spreadsheetId}`;
-  const cached = getCache<Contact[]>(key);
-  if (cached) return NextResponse.json(cached);
-
-  const contacts = await getContacts(session.accessToken, session.spreadsheetId);
-  setCache(key, contacts, CACHE_TTL.LONG);
-  return NextResponse.json(contacts);
-}
-
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+export const POST = withSession(async ({ accessToken, spreadsheetId, req }) => {
   const body: Contact = await req.json();
-  await upsertContact(session.accessToken, session.spreadsheetId, body);
-  invalidateCache(`contacts:${session.spreadsheetId}`);
+  await upsertContact(accessToken, spreadsheetId, body);
+  invalidateMany(spreadsheetId, ['contacts']);
   return NextResponse.json({ ok: true });
-}
+});
 
-export async function DELETE(req: NextRequest) {
-  const session = await auth();
-  if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+export const DELETE = withSession(async ({ accessToken, spreadsheetId, req }) => {
   const { id } = await req.json();
-  await deleteContact(session.accessToken, session.spreadsheetId, id);
-  invalidateCache(`contacts:${session.spreadsheetId}`);
+  await deleteContact(accessToken, spreadsheetId, id);
+  invalidateMany(spreadsheetId, ['contacts']);
   return NextResponse.json({ ok: true });
-}
+});

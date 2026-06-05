@@ -1,99 +1,67 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
-import { getTransactions, addTransaction, deleteTransaction, updateTransaction, getAccounts, upsertAccount } from '@/lib/sheets';
-import { getCache, setCache, invalidateCache, CACHE_TTL } from '@/lib/cache';
+import { NextResponse } from 'next/server';
+import { getTransactions, addTransaction, deleteTransaction, updateTransaction, getAccounts, persistChangedAccounts } from '@/lib/sheets';
+import { invalidateMany, CACHE_TTL, TX_CACHES } from '@/lib/cache';
+import { cachedGet, withSession } from '@/lib/apiRoute';
 import { applyTransactionToBalances } from '@/lib/calculations';
-import type { Account, Transaction } from '@/types';
+import type { Transaction } from '@/types';
 
-// Persists only the accounts whose balance actually changed. applyTransactionToBalances
-// returns the same object reference for untouched accounts, so an identity check is enough.
-async function persistChanged(
-  accessToken: string,
-  spreadsheetId: string,
-  before: Account[],
-  after: Account[],
-): Promise<void> {
-  for (let i = 0; i < after.length; i++) {
-    if (after[i] !== before[i]) {
-      await upsertAccount(accessToken, spreadsheetId, after[i]);
-    }
-  }
-}
+export const GET = cachedGet({
+  resource: 'transactions',
+  ttl: CACHE_TTL.SHORT,
+  fetch: ({ accessToken, spreadsheetId }) => getTransactions(accessToken, spreadsheetId),
+});
 
-function invalidateTxCaches(spreadsheetId: string): void {
-  invalidateCache(`transactions:${spreadsheetId}`);
-  invalidateCache(`accounts:${spreadsheetId}`);
-  invalidateCache(`dashboard:${spreadsheetId}`);
-  invalidateCache(`badges:${spreadsheetId}`);
-}
-
-export async function GET() {
-  const session = await auth();
-  if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const key = `transactions:${session.spreadsheetId}`;
-  const cached = getCache<Transaction[]>(key);
-  if (cached) return NextResponse.json(cached);
-
-  const transactions = await getTransactions(session.accessToken, session.spreadsheetId);
-  setCache(key, transactions, CACHE_TTL.SHORT);
-  return NextResponse.json(transactions);
-}
-
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+export const POST = withSession(async ({ accessToken, spreadsheetId, req }) => {
   const body: Transaction = await req.json();
 
   // Write the ledger row first — it is the source of truth. If the balance
   // update below fails, the row is still recorded and the balance can be
   // corrected manually.
-  await addTransaction(session.accessToken, session.spreadsheetId, body);
+  await addTransaction(accessToken, spreadsheetId, body);
 
-  const accounts = await getAccounts(session.accessToken, session.spreadsheetId);
+  const accounts = await getAccounts(accessToken, spreadsheetId);
   const updated = applyTransactionToBalances(accounts, body, 'apply');
-  await persistChanged(session.accessToken, session.spreadsheetId, accounts, updated);
+  await persistChangedAccounts(accessToken, spreadsheetId, accounts, updated);
 
-  invalidateTxCaches(session.spreadsheetId);
-  return NextResponse.json({ ok: true });
-}
+  invalidateMany(spreadsheetId, TX_CACHES);
+  // Return the authoritative post-write accounts so the client can update
+  // balances without a second round trip (it already holds the new tx row).
+  return NextResponse.json({ ok: true, accounts: updated });
+});
 
-export async function PUT(req: NextRequest) {
-  const session = await auth();
-  if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+export const PUT = withSession(async ({ accessToken, spreadsheetId, req }) => {
   const { original, updated }: { original: Transaction; updated: Transaction } = await req.json();
 
-  await updateTransaction(session.accessToken, session.spreadsheetId, updated);
+  await updateTransaction(accessToken, spreadsheetId, updated);
 
   // Reverse the original effect, then apply the new one — single in-memory pass,
   // single source of truth for the balance math.
-  const accounts = await getAccounts(session.accessToken, session.spreadsheetId);
+  const accounts = await getAccounts(accessToken, spreadsheetId);
   const reversed = applyTransactionToBalances(accounts, original, 'reverse');
   const reapplied = applyTransactionToBalances(reversed, updated, 'apply');
-  await persistChanged(session.accessToken, session.spreadsheetId, accounts, reapplied);
+  await persistChangedAccounts(accessToken, spreadsheetId, accounts, reapplied);
 
-  invalidateTxCaches(session.spreadsheetId);
-  return NextResponse.json({ ok: true });
-}
+  invalidateMany(spreadsheetId, TX_CACHES);
+  return NextResponse.json({ ok: true, accounts: reapplied });
+});
 
-export async function DELETE(req: NextRequest) {
-  const session = await auth();
-  if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+export const DELETE = withSession(async ({ accessToken, spreadsheetId, req }) => {
   const { id } = await req.json();
 
   const [transactions, accounts] = await Promise.all([
-    getTransactions(session.accessToken, session.spreadsheetId),
-    getAccounts(session.accessToken, session.spreadsheetId),
+    getTransactions(accessToken, spreadsheetId),
+    getAccounts(accessToken, spreadsheetId),
   ]);
   const tx = transactions.find((t) => t.id === id);
 
-  await deleteTransaction(session.accessToken, session.spreadsheetId, id);
+  await deleteTransaction(accessToken, spreadsheetId, id);
 
+  let nextAccounts = accounts;
   if (tx) {
-    const updated = applyTransactionToBalances(accounts, tx, 'reverse');
-    await persistChanged(session.accessToken, session.spreadsheetId, accounts, updated);
+    nextAccounts = applyTransactionToBalances(accounts, tx, 'reverse');
+    await persistChangedAccounts(accessToken, spreadsheetId, accounts, nextAccounts);
   }
 
-  invalidateTxCaches(session.spreadsheetId);
-  return NextResponse.json({ ok: true });
-}
+  invalidateMany(spreadsheetId, TX_CACHES);
+  return NextResponse.json({ ok: true, accounts: nextAccounts });
+});

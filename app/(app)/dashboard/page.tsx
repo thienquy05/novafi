@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { auth } from '@/lib/auth';
-import { batchGetDashboardData, getNetWorthHistory, appendNetWorthSnapshot, getSettings } from '@/lib/sheets';
+import { batchGetDashboardData, appendNetWorthSnapshot } from '@/lib/sheets';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import {
   calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
@@ -18,7 +18,7 @@ import { SpendingPieChart, BudgetBars, GoalsSummary, NetWorthTrendChart, HealthB
 import { QuickAddTransaction } from './QuickAddTransaction';
 import { CategoryIconBadge } from '@/components/CategoryIcon';
 import type { NetWorthPoint } from './DashboardCharts';
-import { getCache, setCache } from '@/lib/cache';
+import { cachedOrFetch } from '@/lib/cache';
 import { FitText } from '@/components/ui/FitText';
 import { HelpHint } from '@/components/ui/HelpHint';
 import { t } from '@/lib/i18n';
@@ -36,35 +36,15 @@ export default async function DashboardPage() {
   const jar = await cookies();
   const lang: Language = jar.get('nf_lang')?.value === 'vi' ? 'vi' : 'en';
 
+  // One cached Sheets round trip for the whole dashboard (was three: dashboard
+  // batch + net-worth history + settings). batchGetDashboardData now folds
+  // Settings and NetWorthHistory into a single batchGet.
   const dashKey = `dashboard:${session.spreadsheetId}`;
-  const nwhKey  = `nwh:${session.spreadsheetId}`;
+  const dashData = await cachedOrFetch(dashKey, 45_000, () =>
+    batchGetDashboardData(session.accessToken, session.spreadsheetId),
+  );
 
-  const settingsKey = `settings:${session.spreadsheetId}`;
-  const [dashData, netWorthHistory, settings] = await Promise.all([
-    (async () => {
-      const cached = getCache<Awaited<ReturnType<typeof batchGetDashboardData>>>(dashKey);
-      if (cached) return cached;
-      const fresh = await batchGetDashboardData(session.accessToken, session.spreadsheetId);
-      setCache(dashKey, fresh, 45_000);
-      return fresh;
-    })(),
-    (async () => {
-      const cached = getCache<Awaited<ReturnType<typeof getNetWorthHistory>>>(nwhKey);
-      if (cached) return cached;
-      const fresh = await getNetWorthHistory(session.accessToken, session.spreadsheetId);
-      setCache(nwhKey, fresh, 45_000);
-      return fresh;
-    })(),
-    (async () => {
-      const cached = getCache<Awaited<ReturnType<typeof getSettings>>>(settingsKey);
-      if (cached) return cached;
-      const fresh = await getSettings(session.accessToken, session.spreadsheetId);
-      setCache(settingsKey, fresh, 45_000);
-      return fresh;
-    })(),
-  ]);
-
-  const { transactions, accounts, bills, budgets, goals } = dashData;
+  const { transactions, accounts, bills, budgets, goals, settings, netWorthHistory } = dashData;
 
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;

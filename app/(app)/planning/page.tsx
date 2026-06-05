@@ -17,6 +17,7 @@ import { Reorder, useDragControls } from 'framer-motion';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useTranslation } from '@/lib/i18n/context';
+import { loadBatch } from '@/lib/client/api';
 
 const PERIOD_OPTIONS = [
   { value: 'monthly', label: 'Monthly' },
@@ -71,13 +72,11 @@ export default function PlanningPage() {
   const load = useCallback(async () => {
     setError(false);
     try {
-      const [bRes, gRes, tRes, aRes, sRes] = await Promise.all([
-        fetch('/api/budgets'), fetch('/api/goals'), fetch('/api/transactions'), fetch('/api/accounts'), fetch('/api/settings'),
-      ]);
-      if (!bRes.ok || !gRes.ok) throw new Error();
-      const [b, g, tx, a, s] = await Promise.all([bRes.json(), gRes.json(), tRes.json(), aRes.json(), sRes.json()]);
-      setBudgets(b); setGoals(g); setTransactions(tx); setAccounts(a);
-      setRolloverEnabled(s?.budgetRollover === true);
+      // One /api/batch round trip instead of five separate Sheets reads.
+      const { budgets, goals, transactions, accounts, settings } =
+        await loadBatch(['budgets', 'goals', 'transactions', 'accounts', 'settings']);
+      setBudgets(budgets); setGoals(goals); setTransactions(transactions); setAccounts(accounts);
+      setRolloverEnabled(settings?.budgetRollover === true);
     } catch {
       setError(true);
     } finally {
