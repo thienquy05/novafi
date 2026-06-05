@@ -11,6 +11,7 @@ import { calcPaycheckTax } from '@/lib/tax';
 import { calcPaycheckTaxToSave, calcPaycheckDeposited } from '@/lib/calculations';
 import type { PaycheckEntry, TaxSettings, Account } from '@/types';
 import { useTranslation } from '@/lib/i18n/context';
+import { loadBatch } from '@/lib/client/api';
 
 const EMPTY_FORM = {
   date: today(),
@@ -34,12 +35,8 @@ export default function PaychecksPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [pcRes, stRes, accRes] = await Promise.all([
-      fetch('/api/paychecks'),
-      fetch('/api/settings'),
-      fetch('/api/accounts'),
-    ]);
-    const [pc, st, accs] = await Promise.all([pcRes.json(), stRes.json(), accRes.json()]);
+    // One /api/batch round trip instead of three separate Sheets reads.
+    const { paychecks: pc, settings: st, accounts: accs } = await loadBatch(['paychecks', 'settings', 'accounts']);
     const sorted = [...pc].sort((a: PaycheckEntry, b: PaycheckEntry) => b.date.localeCompare(a.date));
     setPaychecks(sorted);
     setSettings(st);

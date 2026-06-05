@@ -12,6 +12,7 @@ import { Collapsible } from '@/components/ui/Collapsible';
 import { formatCurrency, formatCompact, formatDate, generateId, today } from '@/lib/utils';
 import { transactionsToCsv } from '@/lib/csv';
 import { calcLoanRemaining } from '@/lib/calculations';
+import { loadBatch } from '@/lib/client/api';
 import { buildSplitTx, groupSplits, isOneOffSplit, newOneOffGroupId, resolveSplit, splitRemaining, type SplitGroup } from '@/lib/splits';
 import { motion, AnimatePresence } from 'framer-motion';
 import { EXPENSE_CATEGORIES } from '@/types';
@@ -239,16 +240,9 @@ export default function TransactionsPage() {
   const load = useCallback(async () => {
     setError(false);
     try {
-      const [txRes, accRes, loanRes, conRes, splitRes] = await Promise.all([
-        fetch('/api/transactions'), fetch('/api/accounts'), fetch('/api/loans'), fetch('/api/contacts'), fetch('/api/splits'),
-      ]);
-      if (!txRes.ok || !accRes.ok) throw new Error();
-      const [txs, accs, lns, cons, spls] = await Promise.all([
-        txRes.json(), accRes.json(),
-        loanRes.ok ? loanRes.json() : Promise.resolve([]),
-        conRes.ok ? conRes.json() : Promise.resolve([]),
-        splitRes.ok ? splitRes.json() : Promise.resolve([]),
-      ]);
+      // One /api/batch round trip instead of five separate Sheets reads.
+      const { transactions: txs, accounts: accs, loans: lns, contacts: cons, splits: spls } =
+        await loadBatch(['transactions', 'accounts', 'loans', 'contacts', 'splits']);
       setTransactions([...txs].sort((a: Transaction, b: Transaction) => {
         const dateCmp = b.date.localeCompare(a.date);
         if (dateCmp !== 0) return dateCmp;
@@ -450,13 +444,17 @@ export default function TransactionsPage() {
         headers: { 'Content-Type': 'application/json' },
       });
       if (!res.ok) throw new Error();
+      const data: { accounts?: Account[] } = await res.json().catch(() => ({}));
       // Loan/split-owned row: keep the owning record (and a split's other cash
       // leg) in sync when the amount changed.
-      if (editTarget && managedTxIds.has(editTarget.id) && roundCents(amount) !== roundCents(editTarget.amount)) {
-        await syncOwnerAmount(editTarget, amount);
-      }
+      const ownerSync = !!(editTarget && managedTxIds.has(editTarget.id) && roundCents(amount) !== roundCents(editTarget.amount));
+      if (ownerSync) await syncOwnerAmount(editTarget!, amount);
       toast(editTarget ? t('transactions.toastUpdated') : t('transactions.toastAdded'), 'success');
-      load();
+      // Owner-sync also rewrote the loan/split and its other cash leg → full
+      // reconcile. Otherwise the row was already inserted optimistically and the
+      // POST/PUT returned the authoritative balances, so skip the second round trip.
+      if (ownerSync || !data.accounts) load();
+      else setAccounts(data.accounts);
     } catch {
       toast(t('transactions.toastFailedSave'), 'error');
       await load();
@@ -471,6 +469,8 @@ export default function TransactionsPage() {
     try {
       const res = await fetch('/api/transactions', { method: 'POST', body: JSON.stringify(tx), headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error();
+      const data: { accounts?: Account[] } = await res.json().catch(() => ({}));
+      if (data.accounts) setAccounts(data.accounts); // authoritative balances, no reload
       toast(t('transactions.toastRestored'), 'success');
     } catch {
       setTransactions(prev);
@@ -486,6 +486,8 @@ export default function TransactionsPage() {
     try {
       const res = await fetch('/api/transactions', { method: 'DELETE', body: JSON.stringify({ id }), headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error();
+      const data: { accounts?: Account[] } = await res.json().catch(() => ({}));
+      if (data.accounts) setAccounts(data.accounts); // authoritative post-delete balances
       // Offer one-tap undo: re-creating the row also re-applies its balance effects.
       toast(t('transactions.toastDeleted'), 'success', removed ? { label: t('common.undo'), onClick: () => restoreTransaction(removed) } : undefined);
     } catch {

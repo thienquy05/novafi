@@ -107,16 +107,16 @@ function isMissingTabError(err: unknown): boolean {
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 
-export async function getSettings(
-  accessToken: string,
-  spreadsheetId: string
-): Promise<TaxSettings> {
-  const sheets = getSheetsClient(accessToken);
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: 'Settings!A2:B100',
-  });
-  const rows = res.data.values ?? [];
+// Range that holds the Settings key/value pairs. Exported so the dashboard's
+// combined batchGet can request the same range and reuse parseSettingsRows.
+export const SETTINGS_RANGE = 'Settings!A2:B100';
+
+/**
+ * Pure row→TaxSettings parser. Extracted from getSettings so the combined
+ * dashboard batchGet (one round trip for all dashboard data) can reuse the exact
+ * same parsing instead of duplicating the field mapping / defaults.
+ */
+export function parseSettingsRows(rows: string[][]): TaxSettings {
   const map: Record<string, string> = {};
   for (const [k, v] of rows) map[k] = v;
 
@@ -144,6 +144,18 @@ export async function getSettings(
     hiddenIncomeCategories: get('hidden_income_categories', '').split('|').filter(Boolean),
     language: (get('language', 'en') as Language),
   };
+}
+
+export async function getSettings(
+  accessToken: string,
+  spreadsheetId: string
+): Promise<TaxSettings> {
+  const sheets = getSheetsClient(accessToken);
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: SETTINGS_RANGE,
+  });
+  return parseSettingsRows((res.data.values ?? []) as string[][]);
 }
 
 export async function saveSettings(
@@ -406,6 +418,26 @@ export async function upsertAccount(
       values: [[account.id, account.name, account.type, account.institution, account.balance, account.last4, account.color, account.createdAt, account.openingBalance ?? '']],
     },
   });
+}
+
+/**
+ * Persist only the accounts whose balance actually changed. `applyTransactionToBalances`
+ * (lib/calculations) returns the SAME object reference for untouched accounts, so an
+ * identity check decides what to write — avoiding needless Sheets writes. Shared by the
+ * transactions / paychecks / loans / splits routes, which previously each hand-rolled
+ * this identical loop.
+ */
+export async function persistChangedAccounts(
+  accessToken: string,
+  spreadsheetId: string,
+  before: Account[],
+  after: Account[],
+): Promise<void> {
+  for (let i = 0; i < after.length; i++) {
+    if (after[i] !== before[i]) {
+      await upsertAccount(accessToken, spreadsheetId, after[i]);
+    }
+  }
 }
 
 export async function deleteAccount(
@@ -887,6 +919,20 @@ async function ensureNetWorthHistorySheet(
   });
 }
 
+// Range that holds the net-worth snapshots. Exported so the dashboard's combined
+// batchGet can request the same range and reuse parseNetWorthRows.
+export const NET_WORTH_RANGE = 'NetWorthHistory!A2:D';
+
+/** Pure row→NetWorthSnapshot parser, shared by getNetWorthHistory and the dashboard batch. */
+export function parseNetWorthRows(rows: string[][]): NetWorthSnapshot[] {
+  return rows.map((r) => ({
+    id: r[0] ?? '',
+    date: r[1] ?? '',
+    month: r[2] ?? '',
+    netWorth: Number(r[3] ?? 0),
+  }));
+}
+
 export async function getNetWorthHistory(
   accessToken: string,
   spreadsheetId: string
@@ -895,14 +941,9 @@ export async function getNetWorthHistory(
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'NetWorthHistory!A2:D',
+      range: NET_WORTH_RANGE,
     });
-    return (res.data.values ?? []).map((r) => ({
-      id: r[0] ?? '',
-      date: r[1] ?? '',
-      month: r[2] ?? '',
-      netWorth: Number(r[3] ?? 0),
-    }));
+    return parseNetWorthRows((res.data.values ?? []) as string[][]);
   } catch {
     await ensureNetWorthHistorySheet(accessToken, spreadsheetId);
     return [];
@@ -997,40 +1038,22 @@ export async function batchGetBadgesData(
   return { bills, budgets, transactions };
 }
 
-/**
- * Fetches all 6 main data sheets in a single batchGet API call.
- * Used by the dashboard instead of 6 separate requests.
- * NetWorthHistory is fetched separately because it may not exist yet.
- */
-export async function batchGetDashboardData(
-  accessToken: string,
-  spreadsheetId: string
-): Promise<{
+export type DashboardData = {
   paychecks: PaycheckEntry[];
   transactions: Transaction[];
   accounts: Account[];
   bills: Bill[];
   budgets: Budget[];
   goals: Goal[];
-}> {
-  const sheets = getSheetsClient(accessToken);
-  const ranges = [
-    'Paychecks!A2:L',
-    'Transactions!A2:I',
-    'Accounts!A2:I200',
-    'Bills!A2:K200',
-    'Budgets!A2:D200',
-    'Goals!A2:G200',
-  ];
-  const res = await sheets.spreadsheets.values.batchGet({
-    spreadsheetId,
-    ranges,
-    // Numeric cells must come back as numbers — currency-formatted cells
-    // would otherwise return "$100.00" strings that Number() turns into NaN.
-    valueRenderOption: 'UNFORMATTED_VALUE',
-  });
-  const vr = res.data.valueRanges ?? [];
+  settings: TaxSettings;
+  netWorthHistory: NetWorthSnapshot[];
+};
 
+// Parses the 7 always-present dashboard ranges (everything except NetWorthHistory)
+// from a batchGet response. Shared by the fast path and the legacy fallback below.
+function parseDashboardCore(
+  vr: { values?: unknown[][] | null }[],
+): Omit<DashboardData, 'netWorthHistory'> {
   const paychecks: PaycheckEntry[] = (vr[0]?.values ?? []).map((r) => ({
     id: r[0] ?? '',
     date: r[1] ?? '',
@@ -1044,7 +1067,7 @@ export async function batchGetDashboardData(
     notes: r[9] ?? '',
     gratuityAmount: Number(r[10] ?? 0),
     ficaWithheld: Number(r[11] ?? 0),
-  }));
+  })) as PaycheckEntry[];
   const transactions: Transaction[] = (vr[1]?.values ?? []).map((r) => ({
     id: r[0] ?? '',
     date: r[1] ?? '',
@@ -1055,7 +1078,7 @@ export async function batchGetDashboardData(
     account: r[6] ?? '',
     toAccount: r[7] ?? '',
     createdAt: r[8] ?? '',
-  }));
+  })) as Transaction[];
   const accounts: Account[] = (vr[2]?.values ?? []).map((r) => ({
     id: String(r[0] ?? ''),
     name: String(r[1] ?? ''),
@@ -1066,14 +1089,14 @@ export async function batchGetDashboardData(
     color: String(r[6] ?? '#6366f1'),
     createdAt: String(r[7] ?? ''),
     openingBalance: r[8] === undefined || r[8] === '' ? undefined : Number(r[8]),
-  }));
-  const bills: Bill[] = (vr[3]?.values ?? []).map(rowToBill);
+  })) as Account[];
+  const bills: Bill[] = (vr[3]?.values ?? []).map((r) => rowToBill(r as string[]));
   const budgets: Budget[] = (vr[4]?.values ?? []).map((r) => ({
     id: r[0] ?? '',
     category: r[1] ?? '',
     amount: Number(r[2] ?? 0),
     period: (r[3] ?? 'monthly') as Budget['period'],
-  }));
+  })) as Budget[];
   const goals: Goal[] = (vr[5]?.values ?? []).map((r) => ({
     id: r[0] ?? '',
     name: r[1] ?? '',
@@ -1082,9 +1105,60 @@ export async function batchGetDashboardData(
     deadline: r[4] ?? '',
     icon: r[5] ?? '🎯',
     linkedAccountId: r[6] ?? '',
-  }));
+  })) as Goal[];
+  const settings = parseSettingsRows((vr[6]?.values ?? []) as string[][]);
 
-  return { paychecks, transactions, accounts, bills, budgets, goals };
+  return { paychecks, transactions, accounts, bills, budgets, goals, settings };
+}
+
+/**
+ * Fetches everything the dashboard needs in a single batchGet — the 6 main data
+ * sheets PLUS Settings and NetWorthHistory — collapsing what used to be three
+ * parallel Sheets round trips (dashboard batch + getSettings + getNetWorthHistory)
+ * into one. Settings always exists, so it's safe to include. NetWorthHistory may
+ * be absent on a legacy spreadsheet (which would 400 the whole batch), so on
+ * failure we fall back to the 7 always-present ranges plus the auto-creating
+ * getNetWorthHistory getter — the original two-call behavior.
+ */
+const DASHBOARD_CORE_RANGES = [
+  'Paychecks!A2:L',
+  'Transactions!A2:I',
+  'Accounts!A2:I200',
+  'Bills!A2:K200',
+  'Budgets!A2:D200',
+  'Goals!A2:G200',
+  SETTINGS_RANGE,
+];
+
+export async function batchGetDashboardData(
+  accessToken: string,
+  spreadsheetId: string
+): Promise<DashboardData> {
+  const sheets = getSheetsClient(accessToken);
+  // Numeric cells must come back as numbers — currency-formatted cells would
+  // otherwise return "$100.00" strings that Number() turns into NaN.
+  const opts = { valueRenderOption: 'UNFORMATTED_VALUE' as const };
+
+  try {
+    const res = await sheets.spreadsheets.values.batchGet({
+      spreadsheetId,
+      ranges: [...DASHBOARD_CORE_RANGES, NET_WORTH_RANGE],
+      ...opts,
+    });
+    const vr = res.data.valueRanges ?? [];
+    return {
+      ...parseDashboardCore(vr),
+      netWorthHistory: parseNetWorthRows((vr[7]?.values ?? []) as string[][]),
+    };
+  } catch {
+    // Legacy sheet without the NetWorthHistory tab → fetch the safe ranges plus
+    // the snapshot history (which auto-creates the tab) separately.
+    const [res, netWorthHistory] = await Promise.all([
+      sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges: DASHBOARD_CORE_RANGES, ...opts }),
+      getNetWorthHistory(accessToken, spreadsheetId),
+    ]);
+    return { ...parseDashboardCore(res.data.valueRanges ?? []), netWorthHistory };
+  }
 }
 
 /**
@@ -1109,11 +1183,17 @@ type BatchResult = {
   goals: Goal[];
   contacts: Contact[];
   splits: Split[];
+  loans: Loan[];
+  settings: TaxSettings;
 };
+
+// Keys fetched via their own getter (auto-create a missing tab, or non-array
+// shape) rather than the shared batchGet of always-present array sheets.
+type NonBatchableKey = 'contacts' | 'splits' | 'loans' | 'settings';
 
 // Sheets that always exist and carry no auto-create fallback — safe to batchGet.
 const BATCHABLE_SHEETS: Record<
-  Exclude<BatchKey, 'contacts' | 'splits'>,
+  Exclude<BatchKey, NonBatchableKey>,
   { range: string; parse: (rows: string[][]) => unknown[] }
 > = {
   accounts:     { range: 'Accounts!A2:I200',  parse: (rows) => rows.map(rowToAccount) },
@@ -1128,6 +1208,8 @@ export const BATCH_KEYS = [
   ...Object.keys(BATCHABLE_SHEETS),
   'contacts',
   'splits',
+  'loans',
+  'settings',
 ] as BatchKey[];
 
 export async function batchGetSheets(
@@ -1139,7 +1221,7 @@ export async function batchGetSheets(
   const assign = out as Record<BatchKey, unknown>;
 
   const batched = keys.filter(
-    (k): k is Exclude<BatchKey, 'contacts' | 'splits'> => k in BATCHABLE_SHEETS
+    (k): k is Exclude<BatchKey, NonBatchableKey> => k in BATCHABLE_SHEETS
   );
 
   const tasks: Promise<void>[] = [];
@@ -1165,6 +1247,12 @@ export async function batchGetSheets(
   }
   if (keys.includes('splits')) {
     tasks.push(getSplits(accessToken, spreadsheetId).then((s) => { assign.splits = s; }));
+  }
+  if (keys.includes('loans')) {
+    tasks.push(getLoans(accessToken, spreadsheetId).then((l) => { assign.loans = l; }));
+  }
+  if (keys.includes('settings')) {
+    tasks.push(getSettings(accessToken, spreadsheetId).then((s) => { assign.settings = s; }));
   }
 
   await Promise.all(tasks);

@@ -148,10 +148,11 @@ export default function AccountsPage() {
       });
       if (!res.ok) throw new Error();
       toast(editTarget ? t('accounts.toastUpdated') : t('accounts.toastAdded'), 'success');
-      await load();
+      // The optimistic update already reflects every displayed field (the only
+      // server-maintained field, openingBalance, isn't shown) — so no reload needed.
     } catch {
       toast(t('accounts.toastFailedSave'), 'error');
-      await load();
+      await load(); // reconcile from server truth after a failed write
     } finally {
       setSaving(false);
     }

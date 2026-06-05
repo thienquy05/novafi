@@ -2,6 +2,41 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-05 — Performance & reusability pass: collapse Sheets round-trips, faster writes, lazy charts (branch claude/musing-curran-c60675)
+
+Latency in NovaFi is dominated by Google Sheets round-trips (quota ~60 reads + 60 writes/min/user), payload size, and client-bundle weight — not CPU. This pass cut round-trips and trimmed the bundle, building shared helpers first so the same boilerplate isn't rewritten per route/page. All existing invariants preserved (writes never auto-retried, ledger-row-first ordering, balance math stays in the pure tested `lib/calculations.ts`). Verified: `npm run typecheck` clean, `npm run lint` 0 errors (pre-existing warnings only), `npm run build` succeeds, `npm test` 331/331 pass (+7 new).
+
+### Part 0 — Reusable foundations (consumed by all later parts)
+- **`lib/cache.ts`**: added `cachedOrFetch(key, ttl, fetcher)` (get-or-populate; replaces the 3× copy-pasted cache IIFE in the dashboard and the body of every cached GET route) and `invalidateMany(spreadsheetId, resources[])` + named groups `TX_CACHES`/`ACCOUNT_CACHES`/`BILL_CACHES`/`BUDGET_CACHES`/`GOAL_CACHES` (replace the scattered per-line `invalidateCache(...)` clusters). Only uniformly-invalidated groups are named; conditional/partial routes (loans, paychecks, budget reorder, splits) pass explicit arrays so semantics are unchanged.
+- **`lib/apiRoute.ts` (new)**: `withSession(handler)` (auth + 401 guard, hands the handler `{accessToken, spreadsheetId, req}`) and `cachedGet({resource, ttl, fetch})` (composes withSession + cachedOrFetch with the per-user key `${resource}:${spreadsheetId}` — same key the mutating routes invalidate).
+- **`lib/sheets.ts`**: extracted pure `parseSettingsRows(rows)` (+ `SETTINGS_RANGE`) out of `getSettings`, and `parseNetWorthRows(rows)` (+ `NET_WORTH_RANGE`) out of `getNetWorthHistory`, so the combined dashboard batch reuses them. Extracted `persistChangedAccounts(...)` (the identity-check "write only changed accounts" loop that was **duplicated** in the transactions + loans routes and inlined in paychecks DELETE) — now shared by transactions/loans/paychecks/splits.
+- **`lib/client/api.ts` (new)**: `loadBatch(keys)` (one `/api/batch` round trip, typed) and `apiMutate(url, method, body)` (standard JSON mutation, throws `ApiError` w/ status+body). `import type`-only from server modules so the browser bundle stays clean.
+- **Converted ~12 routes** to `cachedGet`/`withSession`/`invalidateMany`: accounts, bills, budgets, goals, contacts, settings, categories, paychecks, loans, splits, transactions, transactions/backfill-categories. Badges left hand-written (bespoke non-`{error}` 401 body). **Fixed a latent staleness bug**: settings `PUT` previously invalidated nothing → now invalidates `['settings','categories','dashboard']` (it carries dashboard-affecting toggles + the custom/hidden category lists); also cached the settings GET (was uncached).
+
+### Part 1 — Batch the read paths
+- Extended `/api/batch` + `batchGetSheets` with two new keys: `loans` (lazy-tab getter like contacts/splits) and `settings` (returns the `TaxSettings` object). Added to `BatchResult`, `BATCH_KEYS`, and the route TTL map.
+- Migrated the 4 fan-out client pages from N parallel `fetch`es to ONE `loadBatch(...)`: **transactions** (5→1), **planning** (5→1), **paychecks** (3→1), **reports** (3→1). (bills + savings already used `/api/batch`.)
+- **Dashboard: 3 Sheets round-trips → 1.** `batchGetDashboardData` now folds Settings + NetWorthHistory into a single `values.batchGet` (8 ranges) and returns `settings`+`netWorthHistory` too (parsed via the reused parsers). NetWorthHistory may be absent on legacy sheets (would 400 the batch), so there's a graceful fallback to the 7 always-present ranges + the auto-creating `getNetWorthHistory`. Dashboard page now uses one `cachedOrFetch(dashKey, 45_000, …)` instead of three cache IIFEs (`getNetWorthHistory`/`getSettings` no longer imported there).
+
+### Part 4.1 — Tame polling
+- `hooks/useAutoRefresh.ts` default interval **30s → 60s** (the on-visibility refetch already covers the common "back to tab" case). Halves steady-state background Sheets load on the 3 auto-refreshing pages (savings/transactions/accounts), which all use the default.
+
+### Part 2 — Faster writes (kill the post-mutation full reload)
+- Transactions `POST`/`PUT`/`DELETE` now return `{ ok, accounts: <recomputed> }` — the authoritative post-write balances the route already computes (no extra Sheets read).
+- **transactions/page.tsx**: the page was already optimistic for the list; the redundant full `load()` after add/edit/delete/restore is replaced by `setAccounts(data.accounts)` from the response. Owner-sync edits (loan/split-managed rows) still `load()` (they touch loans/splits). Net: a plain add/edit/delete is now write + **0** extra reads (was write + a full 5-resource reload).
+- **accounts/page.tsx** `handleSave`: dropped the redundant success-path `load()` (optimistic state already reflects every displayed field; only the invisible `openingBalance` is server-maintained). `handleDelete` was already fully optimistic.
+- Other pages (savings/bills/planning/paychecks) keep `load()` after writes but it's now a **single batched call** (from Part 1), not 3–5.
+
+### Part 3 — Trim the client bundle (measured with `route-bundle-stats.json`)
+- Finding: **recharts (~420 KB chunk) was already route-isolated** by Turbopack to only `/dashboard` + `/reports`; the other 7 routes never load it. framer-motion is needed app-wide for drag gestures (Modal/SwipeToDelete) so it stays.
+- New reusable **`lib/dynamicChart.tsx`** = `next/dynamic(loader, {ssr:false, loading: skeleton})` for charts.
+- **Reports route: 1204 KB → 791 KB First Load JS (−413 KB).** Extracted the pure `SpendingPaceWidget` (no recharts) out of `DashboardCharts.tsx` into `app/(app)/dashboard/SpendingPaceWidget.tsx` (reports imported it, transitively pulling the recharts-heavy module); extracted the reports BarChart into `app/(app)/reports/MonthlyComparisonChart.tsx` loaded via `dynamicChart`. Reports no longer statically imports recharts. Dashboard keeps charts eager (it's a Server Component → can't `ssr:false`, and charts are its core content); only 3 of its exports use recharts.
+- Locale lazy-loading was assessed and **deliberately not done**: a correct fix needs an SSR/hydration refactor (server must pass the active dict) with a caching tradeoff (dict moves from a cached JS chunk into the per-request HTML), for a modest ~28 KB universal gain — not worth the risk here. Noted as a possible follow-up.
+
+### New tests
+- `lib/__tests__/cache.test.ts`: `cachedOrFetch` (hit skips fetcher; miss fetches + caches under TTL) and `invalidateMany` (clears named resources for one spreadsheet, leaves others).
+- `lib/__tests__/sheets-parse.test.ts` (new): `parseSettingsRows` (mapping + defaults) and `parseNetWorthRows`.
+
 ## 2026-06-04 — Home "Budget Progress" container: match the Planning page's last-month comparison (branch claude/progress-container-comparison-IAwHC)
 
 **Bug reported (from a Home screenshot):** The Home **Budget Progress** container (the `BudgetBars` component) didn't show the last-month comparison the way the **Planning** page does. Its headline number and "vs last mo" figure ignored the rolled-over deficit, so they disagreed with the bar / "left" / "over" beneath them and with the Planning page. Visible symptoms with budget rollover on: a Transportation row read **`$0.00 / $150.00`** at the top yet showed a partly-filled bar, **`$87.13 left`**, and **`-$212.87 vs last mo`**; a Shopping row read **`$0.00`** in red yet **`$754.77 over`**.
