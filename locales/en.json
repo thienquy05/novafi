@@ -134,7 +134,21 @@
     "billForecast": "Bills This Month",
     "billForecastSubtitle": "Remaining {daysLeft} days — what you still owe",
     "savingsRateKPI": "Savings Rate",
-    "savingsRateKPINote": "of income saved this month"
+    "savingsRateKPINote": "of income saved this month",
+    "noSpendStreak": "{n}-day no-spend streak",
+    "spendingCalendar": "Spending Calendar",
+    "spendingCalendarSub": "When your money went"
+  },
+  "heatmap": {
+    "noSpend": "No spend",
+    "noSpendDays": "{n} no-spend days this month",
+    "less": "Less",
+    "more": "More"
+  },
+  "celebrate": {
+    "savingsRate": "Savings rate hit {pct}%! 🎉",
+    "health": "Financial health improved to {grade}! 🎉",
+    "goal": "Goal reached: {name} 🎉"
   },
   "charts": {
     "netLabel": "net",

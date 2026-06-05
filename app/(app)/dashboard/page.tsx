@@ -12,14 +12,17 @@ import {
   calcSpendingVolatilityScore, calcCoefficientOfVariation,
   calcNetWorthProjection, myBillShare, calcRolloverDeficit,
 } from '@/lib/calculations';
-import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
-import { TrendingUp, TrendingDown, Calendar, PiggyBank, ArrowUpRight, Wallet, BarChart3, ArrowLeftRight } from 'lucide-react';
+import { Card, CardHeader, CardTitle, CardIcon, type CardTone } from '@/components/ui/Card';
+import { TrendingUp, TrendingDown, Calendar, PiggyBank, ArrowUpRight, Wallet, BarChart3, ArrowLeftRight, Flame, CalendarDays } from 'lucide-react';
 import { SpendingPieChart, BudgetBars, GoalsSummary, NetWorthTrendChart, HealthBanner, EmergencyFundWidget, FinancialHealthScore, SavingsRateGauge } from './DashboardCharts';
 import { QuickAddTransaction } from './QuickAddTransaction';
 import { CategoryIconBadge } from '@/components/CategoryIcon';
 import type { NetWorthPoint } from './DashboardCharts';
 import { cachedOrFetch } from '@/lib/cache';
-import { FitText } from '@/components/ui/FitText';
+import { AnimatedNumber } from '@/components/ui/AnimatedNumber';
+import { Sparkline } from '@/components/ui/Sparkline';
+import { Celebrations } from './Celebrations';
+import { SpendingHeatmap } from './SpendingHeatmap';
 import { HelpHint } from '@/components/ui/HelpHint';
 import { t } from '@/lib/i18n';
 import type { Language } from '@/types';
@@ -251,84 +254,146 @@ export default async function DashboardPage() {
   const incomeDelta = calcPctChange(monthIncome, prevMonthIncome);
   const netWorthDelta = prevNetWorth !== null ? calcPctChange(netWorth, prevNetWorth) : null;
 
-  const stats = [
+  // ── Sparkline trends: last 6 months of income / spending + net worth ──────
+  const trendMonthKeys = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const incomeTrend = trendMonthKeys.map((k) => monthlyTotals[k]?.income ?? 0);
+  const spendingTrend = trendMonthKeys.map((k) => monthlyTotals[k]?.expense ?? 0);
+  const netWorthSpark = netWorthPoints.slice(-6).map((p) => p.netWorth);
+
+  // ── Spending heatmap: expense total per calendar day this month ───────────
+  const dailySpend: Record<string, number> = {};
+  for (const tx of monthTx) {
+    if (tx.type === 'expense') dailySpend[tx.date] = (dailySpend[tx.date] ?? 0) + tx.amount;
+  }
+  const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const heatmapDays = Array.from({ length: daysInMonth }, (_, i) => {
+    const date = `${thisMonth}-${String(i + 1).padStart(2, '0')}`;
+    return { date, total: dailySpend[date] ?? 0 };
+  });
+
+  // ── No-spend streak: consecutive days up to today with zero expense ───────
+  const expenseDates = new Set(
+    transactions.filter((tx) => tx.type === 'expense' && tx.amount > 0).map((tx) => tx.date),
+  );
+  let noSpendStreak = 0;
+  if (expenseDates.size > 0) {
+    const cursor = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    for (let i = 0; i < 45; i++) {
+      const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`;
+      if (expenseDates.has(key)) break;
+      noSpendStreak++;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+  }
+
+  // Goals already hit — fed to the celebration watcher.
+  const achievedGoals = goalData
+    .filter((g) => g.target > 0 && g.current >= g.target)
+    .map((g) => ({ id: g.id, name: g.name }));
+
+  // ── KPI bento data ─────────────────────────────────────────────────────────
+  const heroStat = {
+    label: excludeLoans ? t('dashboard.liquidNetWorth', lang) : t('dashboard.netWorth', lang),
+    icon: Wallet,
+    tone: (netWorth >= 0 ? 'emerald' : 'rose') as CardTone,
+    rawValue: netWorth,
+    valueColor: netWorth >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400',
+    delta: netWorthDelta,
+    positiveIsGood: true,
+    annotation: excludeLoans && totalLoanDebt > 0 ? t('dashboard.loansExcl', lang) : null,
+    spark: netWorthSpark.length >= 2 ? netWorthSpark : null,
+  };
+  const HeroIcon = heroStat.icon;
+
+  const smallStats = [
     {
-      label: excludeLoans ? t('dashboard.liquidNetWorth', lang) : t('dashboard.netWorth', lang),
-      value: formatCurrency(netWorth),
-      icon: Wallet,
-      color: netWorth >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400',
-      bg: netWorth >= 0 ? 'bg-emerald-50 dark:bg-emerald-900/30' : 'bg-rose-50 dark:bg-rose-900/30',
-      border: netWorth >= 0 ? 'border-emerald-100 dark:border-emerald-800/50' : 'border-rose-100 dark:border-rose-800/50',
-      delta: netWorthDelta,
-      positiveIsGood: true,
-      annotation: excludeLoans && totalLoanDebt > 0 ? t('dashboard.loansExcl', lang) : null,
-      viz: null as number | null,
-    },
-    {
+      key: 'income',
       label: t('dashboard.monthIncome', lang),
-      value: formatCurrency(monthIncome),
       icon: ArrowUpRight,
-      color: 'text-emerald-600 dark:text-emerald-400',
-      bg: 'bg-emerald-50 dark:bg-emerald-900/30',
-      border: 'border-emerald-100 dark:border-emerald-800/50',
+      tone: 'emerald' as CardTone,
+      rawValue: monthIncome,
+      kind: 'currency' as const,
+      suffix: '',
+      valueColor: 'text-emerald-600 dark:text-emerald-400',
       delta: incomeDelta,
       positiveIsGood: true,
-      annotation: null,
-      viz: null,
+      annotation: null as string | null,
+      spark: incomeTrend.some((v) => v > 0) ? incomeTrend : null,
+      gauge: null as number | null,
     },
     {
+      key: 'spending',
       label: t('dashboard.monthSpending', lang),
-      value: formatCurrency(monthSpending),
       icon: TrendingDown,
-      color: 'text-rose-600 dark:text-rose-400',
-      bg: 'bg-rose-50 dark:bg-rose-900/30',
-      border: 'border-rose-100 dark:border-rose-800/50',
+      tone: 'rose' as CardTone,
+      rawValue: monthSpending,
+      kind: 'currency' as const,
+      suffix: '',
+      valueColor: 'text-rose-600 dark:text-rose-400',
       delta: spendingDelta,
       positiveIsGood: false,
       annotation: null,
-      viz: null,
+      spark: spendingTrend.some((v) => v > 0) ? spendingTrend : null,
+      gauge: null,
     },
     {
+      key: 'safe',
       label: t('dashboard.safeToSpend', lang),
-      value: overspent
-        ? formatCurrency(leftToSpend)
-        : `${formatCurrency(dailySafeToSpend)}${t('dashboard.perDay', lang)}`,
       icon: PiggyBank,
-      color: overspent ? 'text-rose-600 dark:text-rose-400' : 'text-indigo-600 dark:text-indigo-400',
-      bg: overspent ? 'bg-rose-50 dark:bg-rose-900/30' : 'bg-indigo-50 dark:bg-indigo-900/30',
-      border: overspent ? 'border-rose-100 dark:border-rose-800/50' : 'border-indigo-100 dark:border-indigo-800/50',
+      tone: (overspent ? 'rose' : 'indigo') as CardTone,
+      rawValue: overspent ? leftToSpend : dailySafeToSpend,
+      kind: 'currency' as const,
+      suffix: overspent ? '' : t('dashboard.perDay', lang),
+      valueColor: overspent ? 'text-rose-600 dark:text-rose-400' : 'text-indigo-600 dark:text-indigo-400',
       delta: null,
       positiveIsGood: true,
       annotation: overspent
         ? t('dashboard.safeToSpendOver', lang)
         : t('dashboard.safeToSpendNote', lang, { total: formatCurrency(leftToSpend), days: daysRemaining }),
-      viz: null,
+      spark: null,
+      gauge: null,
     },
     {
+      key: 'savings',
       label: t('dashboard.savingsRateKPI', lang),
-      value: `${savingsRate.toFixed(0)}%`,
       icon: TrendingUp,
-      color: savingsRate >= 20 ? 'text-emerald-600 dark:text-emerald-400' : savingsRate >= 10 ? 'text-indigo-600 dark:text-indigo-400' : 'text-amber-600 dark:text-amber-400',
-      bg: savingsRate >= 20 ? 'bg-emerald-50 dark:bg-emerald-900/30' : savingsRate >= 10 ? 'bg-indigo-50 dark:bg-indigo-900/30' : 'bg-amber-50 dark:bg-amber-900/30',
-      border: savingsRate >= 20 ? 'border-emerald-100 dark:border-emerald-800/50' : savingsRate >= 10 ? 'border-indigo-100 dark:border-indigo-800/50' : 'border-amber-100 dark:border-amber-800/50',
+      tone: (savingsRate >= 20 ? 'emerald' : savingsRate >= 10 ? 'indigo' : 'amber') as CardTone,
+      rawValue: savingsRate,
+      kind: 'percent' as const,
+      suffix: '',
+      valueColor: '',
       delta: null,
       positiveIsGood: true,
       annotation: t('dashboard.savingsRateKPINote', lang),
-      viz: savingsRate,
+      spark: null,
+      gauge: savingsRate,
     },
   ];
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
+      <Celebrations savingsRate={savingsRate} healthScore={healthScore} achievedGoals={achievedGoals} />
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">
+          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100 font-display">
             {t('dashboard.greeting', lang, { name: settings.displayName?.trim() || session.user?.name?.split(' ')[0] || '' })}
           </h1>
-          <p className="text-slate-500 dark:text-slate-400 text-sm md:text-base font-medium">
-            {t('dashboard.monthSummary', lang, { month: MONTH_NAMES[now.getMonth()], year: now.getFullYear(), daysLeft })}
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-slate-500 dark:text-slate-400 text-sm md:text-base font-medium">
+              {t('dashboard.monthSummary', lang, { month: MONTH_NAMES[now.getMonth()], year: now.getFullYear(), daysLeft })}
+            </p>
+            {noSpendStreak >= 2 && (
+              <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 border border-amber-100 dark:border-amber-800/50 px-2.5 py-1 rounded-full">
+                <Flame className="w-3.5 h-3.5" />
+                {t('dashboard.noSpendStreak', lang, { n: noSpendStreak })}
+              </span>
+            )}
+          </div>
         </div>
         <div className="hidden md:block">
           <QuickAddTransaction accounts={accounts} />
@@ -344,51 +409,115 @@ export default async function DashboardPage() {
         overBudgetCount={overBudgetCount}
       />
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
-        {stats.map(({ label, value, icon: Icon, color, bg, border, delta, positiveIsGood, annotation, viz }, idx) => (
-          <Card key={label} className={`border ${border} hover:border-slate-300 dark:hover:border-slate-600 ${idx === stats.length - 1 && stats.length % 2 !== 0 ? 'col-span-2 sm:col-span-1' : ''}`}>
-            <div className="flex items-center gap-3 mb-3">
-              <div className={`p-2.5 rounded-xl ${bg}`}>
-                <Icon className={`w-5 h-5 ${color}`} />
+      {/* KPI Bento — Net Worth hero + four metrics */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        {/* Net Worth hero */}
+        <Card
+          tone={heroStat.tone}
+          className="col-span-2 lg:row-span-2 bento-hero flex flex-col justify-between gap-4 overflow-hidden"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <CardIcon tone={heroStat.tone}>
+                <HeroIcon className="w-5 h-5" />
+              </CardIcon>
+              <div>
+                <p className="text-xs font-bold text-slate-500 dark:text-slate-400 leading-tight">{heroStat.label}</p>
+                {heroStat.annotation && (
+                  <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 mt-0.5">{heroStat.annotation}</p>
+                )}
               </div>
-              <p className="text-xs font-bold text-slate-500 dark:text-slate-400 leading-tight">{label}</p>
             </div>
-            {viz !== null ? (
-              <SavingsRateGauge value={viz} note={annotation ?? undefined} />
-            ) : (
-              <>
-                <FitText maxSize={28} minSize={13} className="font-extrabold text-slate-900 dark:text-slate-100 mt-0.5">{value}</FitText>
-                {delta !== null && Math.abs(delta) > 0.5 && (
-                  <p className={`text-xs font-bold mt-1.5 flex items-center gap-0.5 ${
-                    (positiveIsGood ? delta > 0 : delta < 0) ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
-                  }`}>
-                    {delta > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                    {Math.abs(delta).toFixed(0)}{t('dashboard.vsLastMonth', lang)}
-                  </p>
-                )}
-                {annotation && (
-                  <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-1.5">{annotation}</p>
-                )}
-              </>
+            {heroStat.delta !== null && Math.abs(heroStat.delta) > 0.5 && (
+              <span
+                className={`text-xs font-bold flex items-center gap-0.5 px-2 py-1 rounded-lg shrink-0 ${
+                  (heroStat.positiveIsGood ? heroStat.delta > 0 : heroStat.delta < 0)
+                    ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/30'
+                    : 'text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-900/30'
+                }`}
+              >
+                {heroStat.delta > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                {Math.abs(heroStat.delta).toFixed(0)}{t('dashboard.vsLastMonth', lang)}
+              </span>
             )}
-          </Card>
-        ))}
+          </div>
+          <AnimatedNumber
+            value={heroStat.rawValue}
+            kind="currency"
+            maxSize={46}
+            minSize={26}
+            className={`font-display font-extrabold ${heroStat.valueColor}`}
+          />
+          {heroStat.spark && (
+            <div className={heroStat.valueColor}>
+              <Sparkline data={heroStat.spark} height={42} strokeWidth={2.5} />
+            </div>
+          )}
+        </Card>
+
+        {/* Four KPI tiles */}
+        {smallStats.map((stat) => {
+          const Icon = stat.icon;
+          return (
+            <Card key={stat.key} tone={stat.tone} className="col-span-1 flex flex-col">
+              <div className="flex items-center gap-2.5 mb-2.5">
+                <CardIcon tone={stat.tone}>
+                  <Icon className="w-4 h-4" />
+                </CardIcon>
+                <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 leading-tight">{stat.label}</p>
+              </div>
+              {stat.gauge !== null ? (
+                <SavingsRateGauge value={stat.gauge} note={stat.annotation ?? undefined} />
+              ) : (
+                <>
+                  <AnimatedNumber
+                    value={stat.rawValue}
+                    kind={stat.kind}
+                    suffix={stat.suffix}
+                    maxSize={26}
+                    minSize={13}
+                    className={`font-display font-extrabold ${stat.valueColor || 'text-slate-900 dark:text-slate-100'}`}
+                  />
+                  {stat.delta !== null && Math.abs(stat.delta) > 0.5 && (
+                    <p
+                      className={`text-xs font-bold mt-1.5 flex items-center gap-0.5 ${
+                        (stat.positiveIsGood ? stat.delta > 0 : stat.delta < 0)
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : 'text-rose-600 dark:text-rose-400'
+                      }`}
+                    >
+                      {stat.delta > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                      {Math.abs(stat.delta).toFixed(0)}{t('dashboard.vsLastMonth', lang)}
+                    </p>
+                  )}
+                  {stat.annotation && (
+                    <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-1.5 leading-snug">{stat.annotation}</p>
+                  )}
+                  {stat.spark && (
+                    <div className={`mt-auto pt-3 ${stat.valueColor}`}>
+                      <Sparkline data={stat.spark} height={22} strokeWidth={2} />
+                    </div>
+                  )}
+                </>
+              )}
+            </Card>
+          );
+        })}
       </div>
 
       {/* Assets / Liabilities / Savings / Emergency Fund */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-emerald-100 dark:border-emerald-800/50 p-4">
           <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('common.assets', lang)}</p>
-          <FitText maxSize={18} minSize={11} className="font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">{formatCurrency(totalAssets)}</FitText>
+          <AnimatedNumber value={totalAssets} kind="currency" maxSize={18} minSize={11} className="font-display font-extrabold text-emerald-600 dark:text-emerald-400 mt-1" />
         </div>
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-rose-100 dark:border-rose-800/50 p-4">
           <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('common.liabilities', lang)}</p>
-          <FitText maxSize={18} minSize={11} className="font-extrabold text-rose-600 dark:text-rose-400 mt-1">{totalDebt > 0 ? `-${formatCurrency(totalDebt)}` : formatCurrency(0)}</FitText>
+          <AnimatedNumber value={totalDebt > 0 ? -totalDebt : 0} kind="currency" maxSize={18} minSize={11} className="font-display font-extrabold text-rose-600 dark:text-rose-400 mt-1" />
         </div>
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700/60 p-4">
           <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('dashboard.savings', lang)}</p>
-          <FitText maxSize={18} minSize={11} className="font-extrabold text-purple-600 dark:text-purple-400 mt-1">{formatCurrency(totalSaved)}</FitText>
+          <AnimatedNumber value={totalSaved} kind="currency" maxSize={18} minSize={11} className="font-display font-extrabold text-purple-600 dark:text-purple-400 mt-1" />
         </div>
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700/60 p-4">
           <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('dashboard.emergency', lang)}</p>
@@ -416,21 +545,40 @@ export default async function DashboardPage() {
         </div>
       </Card>
 
-      {/* Spending breakdown */}
-      <Card className="min-h-[380px] flex flex-col">
-        <CardHeader>
-          <div>
-            <CardTitle>{t('dashboard.spendingThisMonth', lang)}</CardTitle>
-            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">{t('dashboard.whereMoneyWent', lang)}</p>
+      {/* Spending: what (pie) + when (calendar heatmap) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <Card className="min-h-[380px] flex flex-col">
+          <CardHeader>
+            <div>
+              <CardTitle>{t('dashboard.spendingThisMonth', lang)}</CardTitle>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">{t('dashboard.whereMoneyWent', lang)}</p>
+            </div>
+            <div className="text-right">
+              <span className="text-xl font-extrabold text-slate-900 dark:text-slate-100 font-display">{formatCurrency(monthSpending)}</span>
+            </div>
+          </CardHeader>
+          <div className="flex-1 flex items-center justify-center">
+            <SpendingPieChart data={categoryData} />
           </div>
-          <div className="text-right">
-            <span className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(monthSpending)}</span>
+        </Card>
+
+        <Card className="min-h-[380px] flex flex-col">
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <CardIcon tone="indigo">
+                <CalendarDays className="w-5 h-5" />
+              </CardIcon>
+              <div>
+                <CardTitle>{t('dashboard.spendingCalendar', lang)}</CardTitle>
+                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('dashboard.spendingCalendarSub', lang)}</p>
+              </div>
+            </div>
+          </CardHeader>
+          <div className="flex-1 mt-1">
+            <SpendingHeatmap days={heatmapDays} todayIso={todayIso} />
           </div>
-        </CardHeader>
-        <div className="flex-1 flex items-center justify-center">
-          <SpendingPieChart data={categoryData} />
-        </div>
-      </Card>
+        </Card>
+      </div>
 
       {/* Emergency Fund + Health Score row */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">

@@ -134,7 +134,21 @@
     "billForecast": "Hóa đơn tháng này",
     "billForecastSubtitle": "Còn {daysLeft} ngày — những khoản còn phải trả",
     "savingsRateKPI": "Tỷ lệ tiết kiệm",
-    "savingsRateKPINote": "thu nhập tiết kiệm tháng này"
+    "savingsRateKPINote": "thu nhập tiết kiệm tháng này",
+    "noSpendStreak": "chuỗi {n} ngày không chi tiêu",
+    "spendingCalendar": "Lịch chi tiêu",
+    "spendingCalendarSub": "Bạn đã chi tiêu khi nào"
+  },
+  "heatmap": {
+    "noSpend": "Không chi tiêu",
+    "noSpendDays": "{n} ngày không chi tiêu trong tháng",
+    "less": "Ít",
+    "more": "Nhiều"
+  },
+  "celebrate": {
+    "savingsRate": "Tỷ lệ tiết kiệm đạt {pct}%! 🎉",
+    "health": "Sức khỏe tài chính cải thiện lên {grade}! 🎉",
+    "goal": "Đã đạt mục tiêu: {name} 🎉"
   },
   "charts": {
     "netLabel": "ròng",
