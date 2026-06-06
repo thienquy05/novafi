@@ -2,6 +2,46 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-06 — Premium animation Phase 1: ambient shimmer + fluid entrance (branch claude/premium-animation-design-JCTbK)
+
+First phase of a multi-phase premium-animation pass. Goal: mask Google Sheets API
+latency so the app feels fast — replace the flat gray skeleton pulse with an
+ambient sweeping shimmer, and make resolved content glide in instead of snapping.
+
+**Note on scope:** the brief floated morphing skeleton shapes into real cards via
+Framer `layoutId`. That can't cross Next.js's `loading.tsx` Suspense boundary (the
+skeleton fallback unmounts as the real segment mounts, so the two never coexist for
+a shared-element transition). Achieved the same *perceived* effect with a shimmer +
+a staggered entrance reveal instead.
+
+**Changes:**
+- **`app/globals.css`** (`@layer utilities`): added a `.shimmer` utility (light +
+  `.dark` tints matching the old `bg-slate-100 dark:bg-slate-700/50`) with a
+  `@keyframes shimmer-sweep` that slides an oversized (`background-size: 200%`)
+  translucent gradient highlight left→right (~1.8s, compositor-only via
+  `background-position`). Gated behind `@media (prefers-reduced-motion: reduce)` →
+  static tint, no sweep.
+- **`components/ui/Skeleton.tsx`**: base `Skeleton` primitive now renders
+  `shimmer rounded-2xl` instead of `animate-pulse bg-*`. All 9 layout-exact
+  skeleton compositions (`DashboardSkeleton`, `AccountsSkeleton`, …) upgrade
+  automatically — no other edits.
+- **`components/ui/Reveal.tsx` (new, `'use client'`)**: `StaggerReveal` wraps a
+  column of sections, cloning each direct child into a `motion.div` item that
+  fades + rises (`opacity 0→1`, `y 12→0`, 0.4s `easeOut`) with parent
+  `staggerChildren: 0.06`. Honors `useReducedMotion()` → renders children untouched
+  (instant, no transform), matching the AnimatedNumber/Collapsible convention.
+- **`app/(app)/dashboard/page.tsx`**: moved `space-y-5 sm:space-y-7` onto a
+  `<StaggerReveal>` wrapping the stacked sections (Header → bills/recent rows);
+  `<Celebrations>` watcher and the fixed mobile FAB stay outside it.
+
+**i18n:** none new.
+
+**Verification:** `npm ci` (deps were absent); `npm run typecheck` clean;
+`npm run lint` 0 errors (28 pre-existing warnings only, none in changed files);
+`npm test` 341/341 pass. Visual check not run in-env (dashboard returns null
+without a Google session). Phases 2–4 (sidebar/number morphs, Recharts easing,
+gamified micro-interactions) deferred per phase-by-phase delivery.
+
 ## 2026-06-05 — Fix sparkline gap: drop stroke-dash draw-in (branch claude/blank-space-lines-3FFJs)
 
 The KPI sparkline (e.g. the Liquid Net Worth hero tile) showed a blank gap in the middle of the line. Root cause: the `.spark-line` CSS draw-in animated `stroke-dashoffset` with `stroke-dasharray: 1`, relying on `pathLength={1}` to normalize the single dash to the full line. But the SVG renders with `preserveAspectRatio="none"` (stretched ~11× horizontally) and `vectorEffect="non-scaling-stroke"`, which makes the browser measure the dash in post-transform screen space — ignoring the `pathLength` normalization. The single dash no longer covered the stretched line, leaving it partially unpainted. (The shaded area fill has no stroke/dash, so it stayed continuous — which is why only the line showed the gap.)

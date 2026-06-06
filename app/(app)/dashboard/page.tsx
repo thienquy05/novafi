@@ -20,6 +20,7 @@ import { CategoryIconBadge } from '@/components/CategoryIcon';
 import type { NetWorthPoint } from './DashboardCharts';
 import { cachedOrFetch } from '@/lib/cache';
 import { AnimatedNumber } from '@/components/ui/AnimatedNumber';
+import { StaggerReveal } from '@/components/ui/Reveal';
 import { Sparkline } from '@/components/ui/Sparkline';
 import { Celebrations } from './Celebrations';
 import { SpendingHeatmap } from './SpendingHeatmap';
@@ -374,9 +375,10 @@ export default async function DashboardPage() {
   ];
 
   return (
-    <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
+    <div className="p-4 md:p-8 max-w-7xl mx-auto pb-28 md:pb-8">
       <Celebrations savingsRate={savingsRate} healthScore={healthScore} achievedGoals={achievedGoals} />
 
+      <StaggerReveal className="space-y-5 sm:space-y-7">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div className="space-y-1">
@@ -768,6 +770,8 @@ export default async function DashboardPage() {
           </div>
         </Card>
       </div>
+
+      </StaggerReveal>
 
       {/* Mobile FAB */}
       <div className="fixed bottom-20 right-4 z-50 md:hidden">
