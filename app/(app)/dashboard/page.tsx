@@ -20,6 +20,7 @@ import { CategoryIconBadge } from '@/components/CategoryIcon';
 import type { NetWorthPoint } from './DashboardCharts';
 import { cachedOrFetch } from '@/lib/cache';
 import { AnimatedNumber } from '@/components/ui/AnimatedNumber';
+import { RollingNumber } from '@/components/ui/RollingNumber';
 import { StaggerReveal } from '@/components/ui/Reveal';
 import { Sparkline } from '@/components/ui/Sparkline';
 import { Celebrations } from './Celebrations';
@@ -443,9 +444,8 @@ export default async function DashboardPage() {
               </span>
             )}
           </div>
-          <AnimatedNumber
+          <RollingNumber
             value={heroStat.rawValue}
-            kind="currency"
             maxSize={46}
             minSize={26}
             className={`font-display font-extrabold ${heroStat.valueColor}`}

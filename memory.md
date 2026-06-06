@@ -2,6 +2,38 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-06 — Premium animation Phase 2: gliding sidebar pill + odometer net worth (branch claude/premium-animation-design-JCTbK)
+
+Phase 2 of the premium-animation pass: physical-weight layout morphs. Per the
+product decision, the Net Worth card stays settings-driven (no new Full↔Liquid
+toggle) — instead its hero number gets a slot-machine digit roll on load.
+
+**Changes:**
+- **`components/ui/RollingNumber.tsx` (new, `'use client'`)**: odometer-style
+  currency display. Each digit is a vertical 0–9 reel masked to one glyph and
+  sprung to its target (`stiffness 190, damping 24`), with a left→right stagger
+  (`delay = digitIndex * 0.05`, capped 0.5s) so the number cascades into place.
+  Non-digit chars (`$ , . -`) render statically at the same `1em` height. Reuses
+  AnimatedNumber's container contract — `block`, `whitespace-nowrap`, shrink-to-fit
+  via a `ResizeObserver` font-size loop (tabular figures keep width stable while
+  rolling). Honors `useReducedMotion()` (renders the final string) and exposes the
+  value to AT via an `sr-only` span (reels are `aria-hidden`).
+- **`app/(app)/dashboard/page.tsx`**: hero Net Worth number swapped from
+  `AnimatedNumber` → `RollingNumber` (same `maxSize/minSize/className`). All other
+  KPIs keep `AnimatedNumber`.
+- **`components/Sidebar.tsx`** (desktop `Sidebar`): added a gliding hover pill.
+  New `hovered` state (set on `onMouseEnter`, cleared on the nav's `onMouseLeave`)
+  drives a `motion.div layoutId="sidebar-hover"` (`bg-slate-100 dark:bg-slate-800/70`)
+  that floats between non-active items (spring `bounce 0.2, duration 0.4`), sitting
+  under the existing `sidebar-active` indigo pill. Replaced the static
+  `hover:bg-slate-50 dark:hover:bg-slate-800` classes (kept the text-color hover).
+
+**i18n:** none new.
+
+**Verification:** `npm run typecheck` clean; `npm run lint` 0 errors (28 pre-existing
+warnings, unchanged); `npm test` 341/341; `npm run build` succeeds (all routes).
+Visual check not run in-env (no Google session). Phases 3–4 deferred.
+
 ## 2026-06-06 — Premium animation Phase 1: ambient shimmer + fluid entrance (branch claude/premium-animation-design-JCTbK)
 
 First phase of a multi-phase premium-animation pass. Goal: mask Google Sheets API
