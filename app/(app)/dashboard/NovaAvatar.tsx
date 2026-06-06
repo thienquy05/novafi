@@ -1,134 +1,192 @@
 'use client';
-import { motion, useReducedMotion, type Transition } from 'framer-motion';
+import { useEffect, useRef, useState } from 'react';
+import { motion, useAnimationControls, useReducedMotion } from 'framer-motion';
 import { STATUS_COLOR, type HealthStatus } from '@/lib/colors';
 
 /**
- * "Nova" — the money mascot. A squishy blob creature whose whole body language
- * tracks the user's financial health: it blinks, arches its brows, blushes,
- * waves its little arms and tosses coins when you're thriving — or droops,
- * furrows and sweats when spending runs hot. Every expression is data-driven
- * off `HealthStatus`, so the abstract score reads as a feeling at a glance.
+ * "Nova" — the money mascot. A soft, fur-covered forest creature that cradles a
+ * carved wooden seed-pod (a stylised "N" hidden in its grain) and trails a tail
+ * of growing leaves and buds. Its whole demeanour tracks the user's financial
+ * health: perky ears, a wide smile, lifted leaves and a sparkle when thriving —
+ * lowered ears, a worried mouth, sagging leaves and a bead of sweat when
+ * spending runs hot. Every expression is data-driven off `HealthStatus`, so the
+ * abstract score reads as a feeling at a glance and stays in lock-step with the
+ * dashboard's health banner.
  *
- * Everything is pure SVG + framer-motion (no raster assets) and every animation
- * is gated behind `useReducedMotion`, so it degrades to a calm, static face.
+ * Pure inline SVG + framer-motion (no raster assets, no extra deps), wrapped in
+ * a warm, nature-green ambient glow that subtly shifts toward the status colour.
+ * Idle motion is deliberately de-synced (breathing, a slow body sway, occasional
+ * blink, and per-leaf drift all run on different periods) so nothing feels
+ * mechanical. When the page first loads — or the user switches back to the tab —
+ * Nova lifts a paw and gives a little welcome-back wave. Everything is gated
+ * behind `useReducedMotion`, so it degrades to a calm, static creature.
  */
 
 type Mood = {
-  /** Two eyebrow strokes (left, right). */
+  /** Two soft brow strokes (left, right). */
   brows: [string, string];
   /** Mouth path. */
   mouth: string;
-  /** Whether the mouth is a filled shape (open grin/oh) vs a stroked line. */
+  /** Whether the mouth is a filled shape (open smile) vs a stroked line. */
   mouthFill?: boolean;
   /** Pupil vertical offset — looking up (worried) or level (content). */
   pupilDy: number;
-  /** Arm pose: 'up' waves, 'side' rests, 'droop' hangs low. */
-  arms: 'up' | 'side' | 'droop';
+  /** Ear splay in degrees — 0 perky/up, larger = lowered/droopy. */
+  earTilt: number;
+  /** Tail-leaf rest lift in degrees — positive lifts the cluster, negative sags it. */
+  leafLift: number;
   /** Rosy cheeks. */
   blush: boolean;
   /** Bead of sweat (stress). */
   sweat: boolean;
-  /** Floating coins tossed around a happy Nova. */
-  coins: number;
+  /** Twinkling sparkle for a thriving Nova. */
+  sparkle: boolean;
 };
 
-/** viewBox is 0 0 64 64; body is centered on (32, 35) with r≈19. */
+/** viewBox is 0 0 64 64; the body is an egg centred on (32, 38). */
 const MOODS: Record<HealthStatus, Mood> = {
   great: {
-    brows: ['M20 23 Q25 20 29 23', 'M35 23 Q39 20 44 23'],
-    mouth: 'M22 39 Q32 52 42 39 Q32 45 22 39 Z',
+    brows: ['M21 24 Q24.5 22 27.5 24', 'M36.5 24 Q39.5 22 43 24'],
+    mouth: 'M26.5 39 Q31.5 46 36.5 39 Q31.5 42.5 26.5 39 Z',
     mouthFill: true,
     pupilDy: 0,
-    arms: 'up',
+    earTilt: 0,
+    leafLift: 10,
     blush: true,
     sweat: false,
-    coins: 2,
+    sparkle: true,
   },
   good: {
-    brows: ['M21 24 Q25 22 29 24', 'M35 24 Q39 22 43 24'],
-    mouth: 'M24 40 Q32 47 40 40',
+    brows: ['M21.5 24.5 Q24.5 23 27.5 24.5', 'M36.5 24.5 Q39.5 23 42.5 24.5'],
+    mouth: 'M27.5 40 Q31.5 44 35.5 40',
     pupilDy: 0,
-    arms: 'side',
+    earTilt: 4,
+    leafLift: 6,
     blush: true,
     sweat: false,
-    coins: 1,
+    sparkle: false,
   },
   warning: {
-    brows: ['M21 23 L29 25', 'M35 25 L43 23'],
-    mouth: 'M25 43 Q32 41 39 43',
-    pupilDy: -0.8,
-    arms: 'side',
+    brows: ['M21 25 L27.5 26', 'M36.5 26 L43 25'],
+    mouth: 'M28.5 42 Q31.5 40.6 34.5 42',
+    pupilDy: -0.6,
+    earTilt: 16,
+    leafLift: -2,
     blush: false,
     sweat: true,
-    coins: 0,
+    sparkle: false,
   },
   danger: {
-    brows: ['M20 22 L29 26', 'M44 22 L35 26'],
-    mouth: 'M23 45 Q32 37 41 45',
-    pupilDy: -1.4,
-    arms: 'droop',
+    brows: ['M21 24 L27.5 27', 'M43 24 L36.5 27'],
+    mouth: 'M27.5 43 Q31.5 39.4 35.5 43',
+    pupilDy: -1.2,
+    earTilt: 28,
+    leafLift: -8,
     blush: false,
     sweat: true,
-    coins: 0,
+    sparkle: false,
   },
   neutral: {
-    brows: ['M21 24 L29 24', 'M35 24 L43 24'],
-    mouth: 'M26 42 L38 42',
+    brows: ['M21.5 25 L27.5 25', 'M36.5 25 L42.5 25'],
+    mouth: 'M28.5 41 Q31.5 41.7 34.5 41',
     pupilDy: 0,
-    arms: 'side',
+    earTilt: 8,
+    leafLift: 2,
     blush: false,
     sweat: false,
-    coins: 0,
+    sparkle: false,
   },
 };
 
-/** A squishy blob silhouette — not a perfect circle, gives Nova its character. */
-const BLOB =
-  'M32 15 C44 15 51 22 51 34 C51 45 44 53 32 53 C20 53 13 45 13 34 C13 22 20 15 32 15 Z';
+/** Warm fur palette — consistent across statuses so Nova reads as one creature;
+ *  the status colour comes through in the glow, iris ring, ears, pattern. */
+const FUR = {
+  base: '#f1d8b3',
+  shadow: '#e7c79f',
+  belly: '#fdf1de',
+  line: '#c9a274',
+  brow: '#7a5538',
+};
 
-/** Arm path + animation per pose. Shoulders sit on the blob's sides. */
-function Arm({
-  side,
-  pose,
-  color,
-  reduce,
-}: {
-  side: 'left' | 'right';
-  pose: Mood['arms'];
-  color: string;
-  reduce: boolean | null;
-}) {
-  const dir = side === 'left' ? -1 : 1;
-  const shoulderX = side === 'left' ? 14 : 50;
-  const shoulderY = 36;
+/** Soft, slightly pear-shaped furry body. */
+const BODY =
+  'M31.5 18 C43 18 49 27 49 39 C49 51 42 58 31.5 58 C21 58 14 51 14 39 C14 27 20 18 31.5 18 Z';
+/** Lighter belly patch. */
+const BELLY =
+  'M31.5 33 C39 33 42 40 42 47 C42 53 37 57 31.5 57 C26 57 21 53 21 47 C21 40 24 33 31.5 33 Z';
+/** Furry tufts on the crown for soft texture. */
+const CROWN_FUR = 'M24 22 q2 -3 4 0 M29.5 20.5 q2 -3 4 0 M35 22 q2 -3 4 0';
+/** Wispy fur flicks along the lower silhouette so the edge reads as soft fur. */
+const SIDE_FUR = 'M15 41 q-1.6 2 0.4 3.6 M15.6 46 q-1.6 2 0.4 3.6 M48.5 41 q1.6 2 -0.4 3.6 M47.9 46 q1.6 2 -0.4 3.6';
 
-  // End point of the little stub arm, per pose.
-  const end =
-    pose === 'up'
-      ? { x: shoulderX + dir * 7, y: 22 }
-      : pose === 'droop'
-        ? { x: shoulderX + dir * 4, y: 48 }
-        : { x: shoulderX + dir * 7, y: 40 };
+/** Ears — base points (left ≈ 22.5,23 · right ≈ 40.5,23) are the tilt pivots. */
+const EAR_R = 'M37 23 C38 14 41 10 44.5 12.5 C47 15 44.5 20 42 23 Z';
+const EAR_R_IN = 'M39 22 C40 15.5 42 13 43.5 15 C45 17 43.5 20 41.5 22 Z';
+const EAR_L = 'M26 23 C25 14 22 10 18.5 12.5 C16 15 18.5 20 21 23 Z';
+const EAR_L_IN = 'M24 22 C23 15.5 21 13 19.5 15 C18 17 19.5 20 21.5 22 Z';
 
-  const d = `M${shoulderX} ${shoulderY} Q${shoulderX + dir * 8} ${(shoulderY + end.y) / 2} ${end.x} ${end.y}`;
+/** Carved wooden seed-pod cradled in Nova's paws. */
+const POD =
+  'M31.5 43.5 C36.5 44.5 39 48 38 51.5 C37 55 34 57 31.5 57 C29 57 26 55 25 51.5 C24 48 26.5 44.5 31.5 43.5 Z';
+/** The three grain strokes that read as an "N" worked into the wood. */
+const POD_GRAIN_N = ['M28.5 47.5 Q28 51 28.5 54.4', 'M28.6 47.9 Q31.5 51 34.4 54.1', 'M34.5 47.5 Q35 51 34.5 54.4'];
+/** Faint horizontal grain arcs across the pod. */
+const POD_GRAIN_H = ['M27 49.2 Q31.5 50.2 36 49.2', 'M26.6 52 Q31.5 53 36.4 52'];
 
-  // Waving only the raised arms; resting/drooping arms stay put.
-  const wave: Transition | undefined =
-    reduce || pose !== 'up'
-      ? undefined
-      : { duration: 0.9, repeat: Infinity, repeatType: 'mirror', ease: 'easeInOut', delay: side === 'left' ? 0 : 0.18 };
+/** Little paws gripping the pod's shoulders. */
+const PAW_L = 'M22 47 C20.5 49 21 52 23.5 52 C26 52 27 49.5 26 47.5 C25 46 23 46 22 47 Z';
+const PAW_R = 'M41 47 C42.5 49 42 52 39.5 52 C37 52 36 49.5 37 47.5 C38 46 40 46 41 47 Z';
 
+/** Raised furry forearm + open paw, used only for the welcome-back wave. Drawn
+ *  in its "up" pose and oscillated about the shoulder pivot (43, 46). */
+const WAVE_ARM =
+  'M41 47 C44 42 48 36 50.5 31 C52.4 31.6 52.8 34.5 51.3 37.6 C49.6 41 46 46 43.5 48.5 C42.2 48.8 41 48.2 41 47 Z';
+
+/** Tail leaves (each almond + a centre vein), splaying up from a cluster base.
+ *  Each carries its own gentle sway timing so the cluster never moves in unison. */
+const LEAVES = [
+  { d: 'M44.5 50 Q40 45 39.5 37.5 Q45 40.5 46.5 48.5 Q45.5 51 44.5 50 Z', vein: 'M44.8 49.5 Q42.5 44 41 39', dur: 3.4, amp: 2.0 },
+  { d: 'M45.5 50 Q42.5 42 45 34 Q49.5 40 48 49.5 Q47 51 45.5 50 Z', vein: 'M46 49 Q45.5 42 46 36', dur: 4.2, amp: 3.0 },
+  { d: 'M47.5 50 Q49 44 55.5 39 Q54.5 46 50.5 50.5 Q48.5 51 47.5 50 Z', vein: 'M48.5 50 Q51 45 54 41', dur: 3.7, amp: 2.4 },
+];
+
+/** A single tail leaf that sways and bobs gently about its stem. */
+function Leaf({ leaf, color, delay, reduce }: { leaf: (typeof LEAVES)[number]; color: string; delay: number; reduce: boolean | null }) {
   return (
-    <motion.path
-      d={d}
-      fill="none"
-      stroke={color}
-      strokeWidth="4.5"
-      strokeLinecap="round"
-      style={{ transformBox: 'fill-box', transformOrigin: side === 'left' ? '0% 100%' : '100% 100%' }}
-      animate={wave ? { rotate: [dir * -8, dir * 10, dir * -8] } : undefined}
-      transition={wave}
-    />
+    <motion.g
+      style={{ transformBox: 'fill-box', transformOrigin: '50% 92%' }}
+      animate={reduce ? undefined : { rotate: [-leaf.amp, leaf.amp, -leaf.amp], y: [0, -0.7, 0] }}
+      transition={
+        reduce
+          ? undefined
+          : {
+              rotate: { duration: leaf.dur, repeat: Infinity, ease: 'easeInOut', delay },
+              y: { duration: leaf.dur * 1.35, repeat: Infinity, ease: 'easeInOut', delay },
+            }
+      }
+    >
+      <path d={leaf.d} fill={color} stroke="#2f7a42" strokeOpacity="0.35" strokeWidth="0.5" />
+      <path d={leaf.vein} fill="none" stroke="#2f7a42" strokeOpacity="0.55" strokeWidth="0.6" strokeLinecap="round" />
+    </motion.g>
+  );
+}
+
+/** One ear — splayed by the mood's tilt, with a soft idle wiggle for life. */
+function Ear({ side, tilt, reduce }: { side: 'left' | 'right'; tilt: number; reduce: boolean | null }) {
+  const dir = side === 'left' ? -1 : 1;
+  const base = dir * tilt;
+  const outline = side === 'left' ? EAR_L : EAR_R;
+  const inner = side === 'left' ? EAR_L_IN : EAR_R_IN;
+  const pivot = side === 'left' ? '22.5px 23px' : '40.5px 23px';
+  return (
+    <motion.g
+      style={{ transformBox: 'fill-box', transformOrigin: pivot }}
+      animate={reduce ? { rotate: base } : { rotate: [base - 1.6, base + 1.6, base - 1.6] }}
+      transition={reduce ? undefined : { duration: 4.6, repeat: Infinity, ease: 'easeInOut', delay: side === 'left' ? 0 : 0.5 }}
+    >
+      <path d={outline} fill={FUR.shadow} stroke={FUR.line} strokeOpacity="0.4" strokeWidth="0.6" />
+      <path d={inner} fill="#f7c7c0" fillOpacity="0.7" />
+    </motion.g>
   );
 }
 
@@ -141,6 +199,42 @@ export function NovaAvatar({ status, size = 52 }: { status: HealthStatus; size?:
   // Breathing pulse — quicker & livelier when thriving, slow & heavy when stressed.
   const breath = status === 'danger' ? 4.4 : happy ? 2.8 : 3.4;
 
+  // ── Welcome-back wave ──────────────────────────────────────────────────────
+  // Fires once on mount and whenever the tab regains visibility. The right paw
+  // lifts off the pod, waves a few times, then settles back. Throttled so rapid
+  // tab-flicking doesn't spam it; fully skipped under reduced-motion.
+  const [waving, setWaving] = useState(false);
+  const wave = useAnimationControls();
+  const lastGreet = useRef(0);
+
+  useEffect(() => {
+    if (reduce) return;
+    let cancelled = false;
+
+    const greet = async () => {
+      const now = Date.now();
+      if (now - lastGreet.current < 20000) return; // at most once per 20s
+      lastGreet.current = now;
+      setWaving(true);
+      try {
+        await wave.start({ opacity: 1, scale: 1, transition: { duration: 0.28, ease: 'easeOut' } });
+        await wave.start({ rotate: [2, 18, 0, 16, 2, 14, 4], transition: { duration: 1.35, ease: 'easeInOut' } });
+        await wave.start({ opacity: 0, scale: 0.9, transition: { duration: 0.3, ease: 'easeIn' } });
+      } catch {
+        /* controls unmounted mid-sequence */
+      }
+      if (!cancelled) setWaving(false);
+    };
+
+    greet();
+    const onVisible = () => { if (document.visibilityState === 'visible') greet(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [reduce, wave]);
+
   return (
     <motion.div
       className="relative shrink-0"
@@ -148,12 +242,19 @@ export function NovaAvatar({ status, size = 52 }: { status: HealthStatus; size?:
       animate={reduce ? undefined : { y: [0, -3, 0] }}
       transition={reduce ? undefined : { duration: breath, repeat: Infinity, ease: 'easeInOut' }}
     >
-      {/* Pulsing status aura */}
+      {/* Warm nature glow — soft green base layer… */}
+      <motion.div
+        className="absolute inset-0 rounded-full blur-xl"
+        style={{ backgroundColor: '#a6d49a' }}
+        animate={reduce ? { opacity: 0.3 } : { opacity: [0.24, 0.4, 0.24], scale: [0.94, 1.04, 0.94] }}
+        transition={reduce ? undefined : { duration: breath, repeat: Infinity, ease: 'easeInOut' }}
+      />
+      {/* …with a status-tinted layer (slightly de-synced) so the glow shimmers naturally. */}
       <motion.div
         className="absolute inset-0 rounded-full blur-xl"
         style={{ backgroundColor: color }}
-        animate={reduce ? { opacity: 0.32 } : { opacity: [0.22, 0.45, 0.22], scale: [0.92, 1.06, 0.92] }}
-        transition={reduce ? undefined : { duration: breath, repeat: Infinity, ease: 'easeInOut' }}
+        animate={reduce ? { opacity: 0.2 } : { opacity: [0.14, 0.32, 0.14], scale: [0.9, 1.08, 0.9] }}
+        transition={reduce ? undefined : { duration: breath * 1.25, repeat: Infinity, ease: 'easeInOut' }}
       />
 
       <motion.svg
@@ -161,118 +262,174 @@ export function NovaAvatar({ status, size = 52 }: { status: HealthStatus; size?:
         width={size}
         height={size}
         className="relative overflow-visible"
-        animate={reduce ? undefined : { scale: [1, 1.04, 1] }}
-        transition={reduce ? undefined : { duration: breath, repeat: Infinity, ease: 'easeInOut' }}
+        animate={reduce ? undefined : { scale: [1, 1.035, 1], rotate: [-1.1, 1.1, -1.1] }}
+        transition={
+          reduce
+            ? undefined
+            : {
+                scale: { duration: breath, repeat: Infinity, ease: 'easeInOut' },
+                rotate: { duration: breath * 1.7, repeat: Infinity, ease: 'easeInOut' },
+              }
+        }
         role="img"
         aria-label={`Financial health: ${status}`}
       >
         <defs>
-          <radialGradient id={`nova-body-${status}`} cx="34%" cy="26%" r="85%">
-            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.7" />
-            <stop offset="45%" stopColor={color} stopOpacity="1" />
-            <stop offset="100%" stopColor={color} stopOpacity="1" />
+          <radialGradient id={`nova-body-${status}`} cx="38%" cy="30%" r="80%">
+            <stop offset="0%" stopColor="#fbe8d2" />
+            <stop offset="55%" stopColor="#f1d8b3" />
+            <stop offset="100%" stopColor="#e3c191" />
           </radialGradient>
-          <radialGradient id="nova-blush" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="#ff8aa0" stopOpacity="0.8" />
+          <radialGradient id={`nova-iris-${status}`} cx="42%" cy="34%" r="70%">
+            <stop offset="0%" stopColor="#a9764a" />
+            <stop offset="100%" stopColor="#5b3a23" />
+          </radialGradient>
+          <radialGradient id={`nova-pod-${status}`} cx="40%" cy="30%" r="80%">
+            <stop offset="0%" stopColor="#cf9457" />
+            <stop offset="100%" stopColor="#8a5a2c" />
+          </radialGradient>
+          <linearGradient id={`nova-leaf-${status}`} x1="0" y1="1" x2="0.6" y2="0">
+            <stop offset="0%" stopColor="#3f9a52" />
+            <stop offset="100%" stopColor="#7ac77e" />
+          </linearGradient>
+          <radialGradient id={`nova-blush-${status}`} cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#ff8aa0" stopOpacity="0.85" />
             <stop offset="100%" stopColor="#ff8aa0" stopOpacity="0" />
           </radialGradient>
         </defs>
 
-        {/* Arms (behind the body so they tuck in at the shoulders) */}
-        <Arm side="left" pose={mood.arms} color={color} reduce={reduce} />
-        <Arm side="right" pose={mood.arms} color={color} reduce={reduce} />
+        {/* Tail — leaves + buds, lifted/sagged by mood, sprouting from behind the body */}
+        <g style={{ transform: `rotate(${-mood.leafLift}deg)`, transformBox: 'fill-box', transformOrigin: '45px 51px' }}>
+          <path d="M44 52 Q45.5 50 47.5 50" fill="none" stroke="#3f9a52" strokeWidth="1.4" strokeLinecap="round" />
+          <ellipse cx="43.6" cy="51" rx="2" ry="2.6" fill={`url(#nova-leaf-${status})`} />
+          <ellipse cx="50" cy="51.4" rx="1.6" ry="2.1" fill={`url(#nova-leaf-${status})`} />
+          <circle cx="43.6" cy="49" r="0.9" fill="#f4a8ba" />
+          <circle cx="50" cy="49.6" r="0.8" fill="#f4a8ba" />
+          {LEAVES.map((leaf, i) => (
+            <Leaf key={i} leaf={leaf} color={`url(#nova-leaf-${status})`} delay={i * 0.45} reduce={reduce} />
+          ))}
+        </g>
 
-        {/* Floating coins for a prospering Nova */}
-        {!reduce &&
-          Array.from({ length: mood.coins }).map((_, i) => {
-            const cx = i === 0 ? 13 : 51;
-            return (
-              <motion.g
-                key={i}
-                animate={{ y: [0, -7, 0], opacity: [0, 1, 0], rotate: [0, i === 0 ? -20 : 20, 0] }}
-                transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut', delay: i * 0.9 }}
-                style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
-              >
-                <circle cx={cx} cy={14} r="4.6" fill="#f7c948" stroke="#e0a92e" strokeWidth="1" />
-                <text
-                  x={cx}
-                  y={14}
-                  textAnchor="middle"
-                  dominantBaseline="central"
-                  fontSize="6"
-                  fontWeight="800"
-                  fill="#8a6300"
-                >
-                  $
-                </text>
-              </motion.g>
-            );
-          })}
+        {/* Ears (behind the head) */}
+        <Ear side="left" tilt={mood.earTilt} reduce={reduce} />
+        <Ear side="right" tilt={mood.earTilt} reduce={reduce} />
 
         {/* Body */}
-        <path d={BLOB} fill={`url(#nova-body-${status})`} />
-        {/* Soft top highlight for a glossy, gel-like body */}
-        <ellipse cx="26" cy="24" rx="9" ry="6" fill="#ffffff" opacity="0.28" />
+        <path d={BODY} fill={`url(#nova-body-${status})`} stroke={FUR.line} strokeOpacity="0.35" strokeWidth="0.8" />
+        <path d={BELLY} fill={FUR.belly} opacity="0.85" />
+        {/* Soft status-tinted dapple markings + a little forehead sprout-heart */}
+        <ellipse cx="21.5" cy="44" rx="3.2" ry="2.2" fill={color} opacity="0.12" />
+        <ellipse cx="42" cy="46" rx="2.8" ry="2" fill={color} opacity="0.12" />
+        <path d="M31.5 27 C30.4 25.6 28.8 26 28.8 27.3 C28.8 28.6 31.5 30 31.5 30 C31.5 30 34.2 28.6 34.2 27.3 C34.2 26 32.6 25.6 31.5 27 Z" fill={color} opacity="0.16" />
+        {/* Fur tufts on the crown + soft fur flicks on the lower silhouette */}
+        <path d={CROWN_FUR} fill="none" stroke={FUR.shadow} strokeWidth="0.9" strokeLinecap="round" />
+        <path d={SIDE_FUR} fill="none" stroke={FUR.shadow} strokeOpacity="0.7" strokeWidth="0.8" strokeLinecap="round" />
 
         {/* Cheeks */}
         {mood.blush && (
           <>
-            <ellipse cx="22" cy="38" rx="4" ry="2.6" fill="url(#nova-blush)" />
-            <ellipse cx="42" cy="38" rx="4" ry="2.6" fill="url(#nova-blush)" />
+            <ellipse cx="20.5" cy="35.5" rx="3.4" ry="2.2" fill={`url(#nova-blush-${status})`} />
+            <ellipse cx="42.5" cy="35.5" rx="3.4" ry="2.2" fill={`url(#nova-blush-${status})`} />
           </>
         )}
 
-        {/* Eyebrows */}
-        <path d={mood.brows[0]} fill="none" stroke="#0f172a" strokeOpacity="0.8" strokeWidth="2" strokeLinecap="round" />
-        <path d={mood.brows[1]} fill="none" stroke="#0f172a" strokeOpacity="0.8" strokeWidth="2" strokeLinecap="round" />
+        {/* Brows */}
+        <path d={mood.brows[0]} fill="none" stroke={FUR.brow} strokeOpacity="0.55" strokeWidth="1.6" strokeLinecap="round" />
+        <path d={mood.brows[1]} fill="none" stroke={FUR.brow} strokeOpacity="0.55" strokeWidth="1.6" strokeLinecap="round" />
 
-        {/* Eyes — wrapped in a group that periodically blinks (scaleY squash) */}
+        {/* Eyes — large, multi-layered; the group blinks naturally (quick close, softer open) */}
         <motion.g
           style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
-          animate={reduce ? undefined : { scaleY: [1, 1, 0.1, 1, 1] }}
+          animate={reduce ? undefined : { scaleY: [1, 1, 0.08, 1, 1] }}
           transition={
             reduce
               ? undefined
-              : { duration: 4.2, times: [0, 0.92, 0.95, 0.98, 1], repeat: Infinity, ease: 'easeInOut' }
+              : { duration: 5.2, times: [0, 0.92, 0.945, 0.99, 1], repeat: Infinity, ease: 'easeInOut' }
           }
         >
-          <circle cx="25" cy="31" r="4.3" fill="#fff" />
-          <circle cx="39" cy="31" r="4.3" fill="#fff" />
-          <circle cx={happy ? 25.6 : 25} cy={31 + mood.pupilDy} r="2.1" fill="#0f172a" />
-          <circle cx={happy ? 39.6 : 39} cy={31 + mood.pupilDy} r="2.1" fill="#0f172a" />
-          {/* Catchlights */}
-          <circle cx={happy ? 26.6 : 26} cy={30 + mood.pupilDy} r="0.7" fill="#fff" />
-          <circle cx={happy ? 40.6 : 40} cy={30 + mood.pupilDy} r="0.7" fill="#fff" />
+          {/* sclera */}
+          <circle cx="24.5" cy="31" r="5" fill="#fffaf2" />
+          <circle cx="38.5" cy="31" r="5" fill="#fffaf2" />
+          {/* iris */}
+          <circle cx="24.5" cy={31 + mood.pupilDy} r="3.4" fill={`url(#nova-iris-${status})`} />
+          <circle cx="38.5" cy={31 + mood.pupilDy} r="3.4" fill={`url(#nova-iris-${status})`} />
+          {/* status-tinted iris ring */}
+          <circle cx="24.5" cy={31 + mood.pupilDy} r="3.4" fill="none" stroke={color} strokeOpacity="0.7" strokeWidth="0.8" />
+          <circle cx="38.5" cy={31 + mood.pupilDy} r="3.4" fill="none" stroke={color} strokeOpacity="0.7" strokeWidth="0.8" />
+          {/* pupil */}
+          <circle cx="24.5" cy={31 + mood.pupilDy} r="1.9" fill="#241509" />
+          <circle cx="38.5" cy={31 + mood.pupilDy} r="1.9" fill="#241509" />
+          {/* layered catchlights */}
+          <circle cx="23.2" cy={29.6 + mood.pupilDy} r="0.95" fill="#fff" />
+          <circle cx="37.2" cy={29.6 + mood.pupilDy} r="0.95" fill="#fff" />
+          <circle cx="25.4" cy={32 + mood.pupilDy} r="0.5" fill="#fff" fillOpacity="0.8" />
+          <circle cx="39.4" cy={32 + mood.pupilDy} r="0.5" fill="#fff" fillOpacity="0.8" />
         </motion.g>
+
+        {/* Nose */}
+        <path
+          d="M31.5 37.2 C30 36 28.8 34.6 30.2 33.8 C31 33.3 31.5 34 31.5 34 C31.5 34 32 33.3 32.8 33.8 C34.2 34.6 33 36 31.5 37.2 Z"
+          fill="#6b4a36"
+        />
 
         {/* Mouth */}
         <path
           d={mood.mouth}
-          fill={mood.mouthFill ? '#0f172a' : 'none'}
-          fillOpacity={mood.mouthFill ? 0.82 : undefined}
-          stroke="#0f172a"
-          strokeOpacity="0.82"
-          strokeWidth="2.2"
+          fill={mood.mouthFill ? '#6b4a36' : 'none'}
+          stroke="#6b4a36"
+          strokeOpacity="0.9"
+          strokeWidth="1.6"
           strokeLinejoin="round"
           strokeLinecap="round"
         />
 
+        {/* Seed-pod cradled in the paws */}
+        <path d={POD} fill={`url(#nova-pod-${status})`} stroke="#6e431f" strokeOpacity="0.5" strokeWidth="0.7" />
+        <ellipse cx="29.5" cy="46.5" rx="2.6" ry="1.4" fill="#fff" opacity="0.18" />
+        {POD_GRAIN_H.map((d, i) => (
+          <path key={`h${i}`} d={d} fill="none" stroke="#b07a45" strokeOpacity="0.5" strokeWidth="0.5" strokeLinecap="round" />
+        ))}
+        {POD_GRAIN_N.map((d, i) => (
+          <path key={`n${i}`} d={d} fill="none" stroke="#5a360f" strokeOpacity="0.85" strokeWidth="1" strokeLinecap="round" />
+        ))}
+
+        {/* Left paw always grips the pod. The right paw lifts off when waving. */}
+        <path d={PAW_L} fill={FUR.base} stroke={FUR.line} strokeOpacity="0.5" strokeWidth="0.6" />
+        <path d="M23 49 v2.4 M24.6 49 v2.4" stroke={FUR.line} strokeOpacity="0.5" strokeWidth="0.5" strokeLinecap="round" />
+        <motion.g animate={{ opacity: waving ? 0 : 1 }} transition={{ duration: 0.2 }}>
+          <path d={PAW_R} fill={FUR.base} stroke={FUR.line} strokeOpacity="0.5" strokeWidth="0.6" />
+          <path d="M39.4 49 v2.4 M41 49 v2.4" stroke={FUR.line} strokeOpacity="0.5" strokeWidth="0.5" strokeLinecap="round" />
+        </motion.g>
+
+        {/* Welcome-back wave arm — hidden until greeting, oscillates about the shoulder */}
+        <motion.g
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={wave}
+          style={{ transformBox: 'fill-box', transformOrigin: '43px 46px' }}
+        >
+          <path d={WAVE_ARM} fill={FUR.base} stroke={FUR.line} strokeOpacity="0.5" strokeWidth="0.6" />
+          {/* little toe pads so it reads as an open, waving paw */}
+          <circle cx="49.4" cy="30.4" r="1" fill={FUR.base} stroke={FUR.line} strokeOpacity="0.5" strokeWidth="0.5" />
+          <circle cx="51.4" cy="30" r="1" fill={FUR.base} stroke={FUR.line} strokeOpacity="0.5" strokeWidth="0.5" />
+          <circle cx="52.8" cy="31.4" r="0.9" fill={FUR.base} stroke={FUR.line} strokeOpacity="0.5" strokeWidth="0.5" />
+        </motion.g>
+
         {/* Bead of sweat when money's tight */}
         {mood.sweat && (
           <motion.path
-            d="M47 24 q2.6 4 0 6 a2 2 0 1 1 0 -6 Z"
+            d="M45 25 q2.4 3.6 0 5.4 a1.8 1.8 0 1 1 0 -5.4 Z"
             fill="#7cc6ff"
             stroke="#4aa3e8"
             strokeWidth="0.5"
-            animate={reduce ? undefined : { y: [0, 2.5, 0], opacity: [0.85, 1, 0.85] }}
+            animate={reduce ? undefined : { y: [0, 2.4, 0], opacity: [0.85, 1, 0.85] }}
             transition={reduce ? undefined : { duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
           />
         )}
 
-        {/* Sparkle crown for a thriving Nova */}
-        {status === 'great' && (
+        {/* Sparkle for a thriving Nova */}
+        {mood.sparkle && (
           <motion.path
-            d="M32 4 l1.5 3.4 3.4 1.5 -3.4 1.5 -1.5 3.4 -1.5 -3.4 -3.4 -1.5 3.4 -1.5 z"
+            d="M31.5 5 l1.4 3.2 3.2 1.4 -3.2 1.4 -1.4 3.2 -1.4 -3.2 -3.2 -1.4 3.2 -1.4 z"
             fill="#fff"
             animate={reduce ? undefined : { opacity: [0.4, 1, 0.4], scale: [0.8, 1.15, 0.8], rotate: [0, 20, 0] }}
             transition={reduce ? undefined : { duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
