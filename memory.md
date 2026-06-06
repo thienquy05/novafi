@@ -13,11 +13,17 @@ Replaced the dashboard health-banner mascot's glossy "squishy blob" with a premi
   - **Tail** = cluster of leaves (`LEAVES`, each almond + centre vein) and rounded buds with pink tips, sprouting from behind.
   - **Glow**: two blurred radial layers — warm nature-green base (`#a6d49a`) + a `STATUS_COLOR[status]`-tinted layer — so the warm glow still tracks health (user-confirmed).
 - Data-driven moods via the kept `MOODS: Record<HealthStatus, Mood>` map. Per status: ear splay (`earTilt` 0→28°), mouth, brows, `pupilDy` (worried up-glance), tail `leafLift` (+10° thriving → −8° sagging), `blush`, `sweat`, `sparkle`. great = perky ears/open smile/blush/lifted leaves/sparkle; good = gentle smile/blush; neutral = soft flat; warning = lowered ears/worried mouth/sweat/sagging; danger = droopy ears/frown/furrowed brows/sweat.
-- Animations, all `useReducedMotion`-gated (degrade to a calm static creature): container float + body scale "breathing" (speed keyed to status — livelier when thriving, slow/heavy in danger), eye-group blink (scaleY squash), per-leaf sway (`Leaf` sub-component, staggered `rotate` about each stem), plus conditional sparkle (great) / sweat drip (warning·danger).
-- New sub-components `Ear` (rotates each ear about its base by `earTilt`) and `Leaf`. Unique `<defs>` ids per status to avoid cross-instance bleed. `role="img"` + `aria-label` preserved.
+- Animations, all `useReducedMotion`-gated (degrade to a calm static creature). Deliberately **de-synced for natural motion** — nothing moves in lock-step:
+  - "Breathing": container float (period `breath`, status-keyed — livelier thriving, slow/heavy in danger) + body scale on `breath` **plus a slow body sway** (`rotate` on `breath*1.7`); the two glow layers shimmer on `breath` vs `breath*1.25`.
+  - Eye-group **blink** retuned to a real cadence — quick close / softer open (`times [0,.92,.945,.99,1]`, ~5.2s).
+  - **Per-leaf** sway: each `LEAVES` entry has its own `dur`/`amp`; `Leaf` rotates about its stem on that duration with an offset vertical `y` bob (`dur*1.35`), so the tail never moves in unison.
+  - **Ear idle wiggle**: `Ear` is now a `motion.g` oscillating ±1.6° around its `earTilt` base (offset L/R) for subtle life.
+  - Conditional sparkle (great) / sweat drip (warning·danger).
+- **Welcome-back wave** (new): on mount and on `document` `visibilitychange`→visible, Nova lifts its right paw off the pod and waves. Driven by `useAnimationControls` (`wave`): lift-in → `rotate` oscillation (`WAVE_ARM` shoulder pivot 43,46) → lower-out; a `waving` state cross-fades the resting `PAW_R` out during the wave. Throttled to ≤1×/20s via a `lastGreet` ref; skipped entirely under reduced-motion. Client-only (`'use client'`, guarded effect).
+- Sub-components `Ear` and `Leaf`. Added `SIDE_FUR` (wispy fur flicks on the lower silhouette) on top of `CROWN_FUR` for a softer, furrier edge. Unique `<defs>` ids per status to avoid cross-instance bleed. `role="img"` + `aria-label` preserved.
 - **`DashboardCharts.tsx`** usage unchanged (`<NovaAvatar status={status} size={56} />`).
 
-Frame review: generated a static all-5-states preview SVG and shared it before committing.
+Frame review: generated a static preview SVG (all 5 states + a wave-pose panel) and shared it before committing; iterated on user feedback ("more natural" + "wave when they open back the website").
 
 **Verification:** `npm run typecheck` clean; `npm run lint` 0 errors/0 warnings on the file; `npm run build` succeeds (all routes).
 
