@@ -16,7 +16,7 @@ import { Card, CardHeader, CardTitle, CardIcon, type CardTone } from '@/componen
 import { TrendingUp, TrendingDown, Calendar, PiggyBank, ArrowUpRight, Wallet, BarChart3, ArrowLeftRight, Flame, CalendarDays } from 'lucide-react';
 import { SpendingPieChart, BudgetBars, GoalsSummary, NetWorthTrendChart, HealthBanner, EmergencyFundWidget, FinancialHealthScore, SavingsRateGauge } from './DashboardCharts';
 import { QuickAddTransaction } from './QuickAddTransaction';
-import { CategoryIconBadge } from '@/components/CategoryIcon';
+import { RecentTransactions } from './RecentTransactions';
 import type { NetWorthPoint } from './DashboardCharts';
 import { cachedOrFetch } from '@/lib/cache';
 import { AnimatedNumber } from '@/components/ui/AnimatedNumber';
@@ -699,7 +699,7 @@ export default async function DashboardPage() {
                   return (
                     <div key={bill.id} className="flex items-center justify-between p-3.5 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors border border-transparent hover:border-slate-100 dark:hover:border-slate-700/60">
                       <div className="flex items-center gap-3">
-                        <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${isUrgent ? 'bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
+                        <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${isUrgent ? 'bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400 pulse-glow' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
                           <Calendar className="w-4 h-4" />
                         </div>
                         <div>
@@ -732,41 +732,18 @@ export default async function DashboardPage() {
             <a href="/transactions" className="whitespace-nowrap text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 dark:hover:text-emerald-400 transition-colors bg-emerald-50 dark:bg-emerald-900/30 px-3 py-1.5 rounded-lg">{t('common.viewAll', lang)}</a>
           </CardHeader>
           <div className="mt-2">
-            {recentTx.length === 0 ? (
-              <div className="flex items-center gap-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700/60">
-                <div className="w-11 h-11 rounded-full flex items-center justify-center bg-slate-200 dark:bg-slate-600 text-slate-400 dark:text-slate-500">
-                  <ArrowLeftRight className="w-5 h-5" />
-                </div>
-                <div>
-                  <p className="text-sm text-slate-900 dark:text-slate-100 font-bold">{t('dashboard.noTransactions', lang)}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">{t('dashboard.addOneToStart', lang)}</p>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {recentTx.map((tx) => {
-                  const isIncome = tx.type === 'income';
-                  return (
-                    <div key={tx.id} className="flex items-center justify-between p-3.5 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors border border-transparent hover:border-slate-100 dark:hover:border-slate-700/60">
-                      <div className="flex items-center gap-3">
-                        <CategoryIconBadge
-                          category={tx.category}
-                          type={tx.type}
-                          className="w-11 h-11 rounded-xl"
-                        />
-                        <div>
-                          <p className="text-sm text-slate-900 dark:text-slate-100 font-bold">{tx.description || tx.category}</p>
-                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{tx.category} · {formatDate(tx.date)}</p>
-                        </div>
-                      </div>
-                      <span className={`text-sm font-extrabold ${isIncome ? 'text-emerald-600 dark:text-emerald-400' : tx.type === 'transfer' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-900 dark:text-slate-100'}`}>
-                        {isIncome ? '+' : tx.type === 'transfer' ? '' : '-'}{formatCurrency(tx.amount)}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <RecentTransactions
+              items={recentTx.map((tx) => ({
+                id: tx.id,
+                date: tx.date,
+                description: tx.description,
+                amount: tx.amount,
+                type: tx.type,
+                category: tx.category,
+              }))}
+              emptyTitle={t('dashboard.noTransactions', lang)}
+              emptySub={t('dashboard.addOneToStart', lang)}
+            />
           </div>
         </Card>
       </div>

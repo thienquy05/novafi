@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   ComposedChart, BarChart, Bar, Line, XAxis, YAxis, CartesianGrid,
@@ -7,7 +7,7 @@ import {
 } from 'recharts';
 import { AlertTriangle, TrendingUp, TrendingDown, Sparkles, DollarSign, Target, Zap } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
-import { motion, useReducedMotion } from 'framer-motion';
+import { animate, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from '@/lib/i18n/context';
 import { useIsDark } from '@/hooks/useIsDark';
 import { NovaAvatar } from './NovaAvatar';
@@ -722,6 +722,50 @@ export function EmergencyFundWidget({
 
 // ── Financial Health Score ─────────────────────────────────────────────────────
 
+/**
+ * The composite-score gauge: a conic-gradient arc that sweeps from 0 to the score
+ * while the number counts up to match. An 'A' grade earns a soft emerald glow.
+ * Driven imperatively (refs + framer `animate`) so the per-frame updates don't
+ * re-render. Honors reduced-motion by painting the final state instantly.
+ */
+function HealthRing({
+  score, grade, ringColor, ringTrack, gradeColor,
+}: {
+  score: number; grade: string; ringColor: string; ringTrack: string; gradeColor: string;
+}) {
+  const reduce = useReducedMotion();
+  const ringRef = useRef<HTMLDivElement>(null);
+  const numRef = useRef<HTMLSpanElement>(null);
+  const isA = grade === 'A';
+
+  useEffect(() => {
+    const ring = ringRef.current, num = numRef.current;
+    if (!ring || !num) return;
+    const paint = (v: number) => {
+      ring.style.background = `conic-gradient(${ringColor} ${v * 3.6}deg, ${ringTrack} 0deg)`;
+      num.textContent = String(Math.round(v));
+    };
+    if (reduce) { paint(score); return; }
+    const controls = animate(0, score, { duration: 1.4, ease: 'easeOut', onUpdate: paint });
+    return () => controls.stop();
+  }, [score, ringColor, ringTrack, reduce]);
+
+  return (
+    <div className="text-center">
+      <div
+        ref={ringRef}
+        className="relative w-16 h-16 flex items-center justify-center rounded-full"
+        style={{ background: `conic-gradient(${ringColor} ${reduce ? score * 3.6 : 0}deg, ${ringTrack} 0deg)` }}
+      >
+        <div className="absolute inset-1.5 bg-white dark:bg-slate-800 rounded-full flex flex-col items-center justify-center">
+          <span className={`text-lg font-extrabold leading-none ${gradeColor} ${isA ? 'drop-shadow-[0_0_10px_rgba(16,185,129,0.55)]' : ''}`}>{grade}</span>
+          <span ref={numRef} className="text-[10px] font-bold text-slate-400 dark:text-slate-500">{reduce ? score : 0}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
   const { t } = useTranslation();
   const {
@@ -771,19 +815,13 @@ export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
           <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('charts.financialHealth')}</p>
           <p className="text-slate-500 dark:text-slate-400 text-xs font-medium mt-0.5">{t('charts.healthScore')}</p>
         </div>
-        <div className="text-center">
-          <div
-            className="relative w-16 h-16 flex items-center justify-center rounded-full"
-            style={{
-              background: `conic-gradient(${ringColor} ${score * 3.6}deg, ${ringTrack} 0deg)`,
-            }}
-          >
-            <div className="absolute inset-1.5 bg-white dark:bg-slate-800 rounded-full flex flex-col items-center justify-center">
-              <span className={`text-lg font-extrabold leading-none ${gradeColors[grade]}`}>{grade}</span>
-              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">{score}</span>
-            </div>
-          </div>
-        </div>
+        <HealthRing
+          score={score}
+          grade={grade}
+          ringColor={ringColor}
+          ringTrack={ringTrack}
+          gradeColor={gradeColors[grade]}
+        />
       </div>
       <div className="space-y-2.5">
         {components.map((c) => {

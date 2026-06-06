@@ -2,6 +2,48 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-06 — Premium animation Phase 4: gamified micro-interactions (branch claude/premium-animation-design-JCTbK)
+
+Final phase: juicy, tactile feedback on the key financial moments. Three pieces,
+all reduced-motion-aware.
+
+**1. Financial Health ring count-up + 'A' glow**
+- **`app/(app)/dashboard/DashboardCharts.tsx`**: extracted the static conic-gradient
+  gauge into a new `HealthRing` client sub-component. On mount it sweeps the arc
+  from 0 → score (`animate(0, score, { duration: 1.4, ease: 'easeOut' })`) and
+  counts the number up in lockstep, driven imperatively via refs (style.background
+  + textContent) so the per-frame updates don't re-render. An 'A' grade gets a soft
+  emerald `drop-shadow` glow. Reduced-motion paints the final state instantly.
+  Added `animate` + `useRef` to the existing imports.
+
+**2. Urgent-bill ambient pulse glow**
+- **`app/globals.css`**: new `.pulse-glow` utility + `@keyframes pulse-glow` — a
+  soft rose halo (`box-shadow`) that breathes ~2.4s; added to the reduced-motion
+  media block (animation: none).
+- **`app/(app)/bills/page.tsx`** (active bill row, `isUrgent` icon tile) and
+  **`app/(app)/dashboard/page.tsx`** (bill-forecast `isUrgent` icon circle): append
+  `pulse-glow` to the existing urgent (≤3 days) styling.
+
+**3. Quick-Add receipt slide-in**
+- **`app/(app)/dashboard/RecentTransactions.tsx` (new, `'use client'`)**: the
+  dashboard "Recent" ledger, extracted from the server page. Tracks shown ids in
+  `seen` state (lazy-seeded with the initial rows so they don't animate on load).
+  After a Quick Add → `router.refresh()`, the new row is absent from `seen`, so it
+  slides in from the top (`initial y:-18, scale:.96` → spring `stiffness 380,
+  damping 30`) while `layout` springs the older rows down; `AnimatePresence`
+  fades out rows that fall off the list. Honors reduced-motion.
+- **`app/(app)/dashboard/page.tsx`**: replaced the inline recent-tx list with
+  `<RecentTransactions items={…} emptyTitle/emptySub={t(…)} />`; swapped the now-unused
+  `CategoryIconBadge` import for `RecentTransactions` (badge now lives in the new
+  component).
+
+**i18n:** none new (empty-state strings still translated server-side and passed in).
+
+**Verification:** `npm run typecheck` clean; `npm run lint` 0 errors (29 warnings = 28
+pre-existing + 1 same-class setState-in-effect in RecentTransactions); `npm test`
+341/341; `npm run build` succeeds. Visual check not run in-env (no Google session).
+Completes the 4-phase premium-animation pass.
+
 ## 2026-06-06 — Premium animation Phase 3: tuned Recharts glide (branch claude/premium-animation-design-JCTbK)
 
 Phase 3: fluid data morphing. Recharts has no Framer-style spring physics (its
