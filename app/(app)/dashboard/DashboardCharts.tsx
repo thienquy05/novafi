@@ -7,7 +7,7 @@ import {
 } from 'recharts';
 import { AlertTriangle, TrendingUp, TrendingDown, Sparkles, DollarSign, Target, Zap } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from '@/lib/i18n/context';
 import { useIsDark } from '@/hooks/useIsDark';
 import { NovaAvatar } from './NovaAvatar';
@@ -25,6 +25,19 @@ function useChartReady() {
   const [ready, setReady] = useState(false);
   useEffect(() => { setReady(true); }, []);
   return ready;
+}
+
+/** Shared Recharts series animation — a tuned ease-out glide that also re-runs
+ *  when the dataset changes (year/filter switches interpolate bar heights instead
+ *  of snapping). Disabled under prefers-reduced-motion. Spread onto a series:
+ *  `<Bar {...anim} />`. */
+function useChartAnim(duration = 800) {
+  const reduce = useReducedMotion();
+  return {
+    isAnimationActive: !reduce,
+    animationDuration: reduce ? 0 : duration,
+    animationEasing: 'ease-out' as const,
+  };
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -280,6 +293,7 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
   const displayData = isEmpty ? [{ name: t('charts.noExpenseData'), value: 1 }] : cleanData;
   const ready = useChartReady();
   const c = useIsDark() ? CHART.dark : CHART.light;
+  const anim = useChartAnim(700);
   const categoryTotal = data.reduce((s, d) => s + d.value, 0);
   const tCategory = (name: string) => { const k = `categories.${name}`; const r = t(k); return r === k ? name : r; };
 
@@ -298,6 +312,7 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
               dataKey="value"
               stroke="none"
               cornerRadius={isEmpty ? 0 : 6}
+              {...anim}
             >
               {displayData.map((entry) => (
                 <Cell
@@ -357,6 +372,7 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
   const isEmpty = data.every(d => d.income === 0 && d.expenses === 0);
   const ready = useChartReady();
   const c = useIsDark() ? CHART.dark : CHART.light;
+  const anim = useChartAnim(800);
   const hasNet = data.some((d) => d.net !== undefined);
 
   return (
@@ -380,8 +396,8 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
           />
           {!isEmpty && <Tooltip content={<BarTooltip />} cursor={{ fill: c.cursor }} />}
           {hasNet && <ReferenceLine y={0} stroke={c.grid} strokeDasharray="4 4" />}
-          <Bar dataKey="income" name={t('common.income')} fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={32} />
-          <Bar dataKey="expenses" name={t('common.expenses')} fill="#f43f5e" radius={[6, 6, 0, 0]} maxBarSize={32} />
+          <Bar dataKey="income" name={t('common.income')} fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={32} {...anim} />
+          <Bar dataKey="expenses" name={t('common.expenses')} fill="#f43f5e" radius={[6, 6, 0, 0]} maxBarSize={32} {...anim} animationBegin={anim.isAnimationActive ? 120 : 0} />
           {hasNet && (
             <Line
               type="monotone"
@@ -391,6 +407,7 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
               strokeWidth={2.5}
               dot={{ r: 3, fill: '#6366f1', strokeWidth: 0 }}
               activeDot={{ r: 5 }}
+              {...anim}
             />
           )}
         </ComposedChart>
@@ -528,6 +545,7 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
   const { t } = useTranslation();
   const ready = useChartReady();
   const c = useIsDark() ? CHART.dark : CHART.light;
+  const anim = useChartAnim(900);
 
   if (data.length < 2) {
     return (
@@ -614,6 +632,7 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
               dot={{ fill: stroke, strokeWidth: 0, r: 4 }}
               activeDot={{ r: 6, fill: stroke, strokeWidth: 0 }}
               connectNulls={false}
+              {...anim}
             />
             {projection && projection.length > 0 && (
               <Line
@@ -625,6 +644,7 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
                 dot={false}
                 activeDot={{ r: 4, fill: stroke, strokeWidth: 0 }}
                 connectNulls
+                {...anim}
               />
             )}
           </ComposedChart>

@@ -2,6 +2,33 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-06 — Premium animation Phase 3: tuned Recharts glide (branch claude/premium-animation-design-JCTbK)
+
+Phase 3: fluid data morphing. Recharts has no Framer-style spring physics (its
+engine only supports ease/linear), so — per the agreed approach — charts use a
+tuned native ease-out glide that also re-runs on dataset changes (year selector /
+filters interpolate bar heights instead of snapping). All animation is gated on
+`useReducedMotion()`.
+
+**Changes:**
+- **`app/(app)/dashboard/DashboardCharts.tsx`**: added a `useChartAnim(duration)`
+  helper (next to `useChartReady`) returning
+  `{ isAnimationActive: !reduce, animationDuration: reduce ? 0 : duration, animationEasing: 'ease-out' }`.
+  Spread onto the `SpendingPieChart` `<Pie>` (700ms), `MonthlyBarChart` bars + net
+  line (800ms; expenses bar gets `animationBegin={120}` for a subtle stagger), and
+  `NetWorthTrendChart` `<Area>` + projection `<Line>` (900ms). Extended the
+  framer-motion import with `useReducedMotion`.
+- **`app/(app)/reports/MonthlyComparisonChart.tsx`**: same inline anim object
+  (800ms, reduced-motion-aware) spread onto both bars; expenses staggered via
+  `animationBegin={120}`. So switching the year selector glides the bars to the new
+  dataset. Added `useReducedMotion` import.
+
+**i18n:** none new.
+
+**Verification:** `npm run typecheck` clean; `npm run lint` 0 errors (28 pre-existing
+warnings, unchanged); `npm test` 341/341; `npm run build` succeeds. Visual check not
+run in-env (no Google session). Phase 4 (gamified micro-interactions) deferred.
+
 ## 2026-06-06 — Premium animation Phase 2: gliding sidebar pill + odometer net worth (branch claude/premium-animation-design-JCTbK)
 
 Phase 2 of the premium-animation pass: physical-weight layout morphs. Per the
