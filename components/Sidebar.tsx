@@ -85,6 +85,7 @@ export function Sidebar() {
   const path = usePathname();
   const badges = useBadges();
   const { t } = useTranslation();
+  const [hovered, setHovered] = useState<string | null>(null);
 
   return (
     <aside className="hidden md:flex flex-col w-64 min-h-screen bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-r border-slate-200 dark:border-slate-700/50 px-4 py-8 shrink-0 relative z-50">
@@ -101,7 +102,7 @@ export function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav className="flex flex-col gap-1.5 flex-1">
+      <nav className="flex flex-col gap-1.5 flex-1" onMouseLeave={() => setHovered(null)}>
         {NAV.map(({ href, labelKey, icon: Icon, badgeKey }) => {
           const active = path === href || path.startsWith(href + '/');
           const badgeCount = badgeKey ? badges[badgeKey] : 0;
@@ -109,13 +110,24 @@ export function Sidebar() {
             <Link
               key={href}
               href={href}
+              onMouseEnter={() => setHovered(href)}
               className={cn(
                 'relative flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-semibold transition-colors duration-150 group overflow-hidden tap-highlight-none select-none',
                 active
                   ? 'text-indigo-600 dark:text-indigo-400'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
               )}
             >
+              {/* Gliding hover pill — floats to whichever non-active item the
+                  pointer is over, sitting under the active indigo pill. */}
+              {hovered === href && !active && (
+                <motion.div
+                  layoutId="sidebar-hover"
+                  className="absolute inset-0 bg-slate-100 dark:bg-slate-800/70 rounded-xl"
+                  initial={false}
+                  transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
+                />
+              )}
               {active && (
                 <motion.div
                   layoutId="sidebar-active"

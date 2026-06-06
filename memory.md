@@ -2,6 +2,147 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-06 — Premium animation Phase 4: gamified micro-interactions (branch claude/premium-animation-design-JCTbK)
+
+Final phase: juicy, tactile feedback on the key financial moments. Three pieces,
+all reduced-motion-aware.
+
+**1. Financial Health ring count-up + 'A' glow**
+- **`app/(app)/dashboard/DashboardCharts.tsx`**: extracted the static conic-gradient
+  gauge into a new `HealthRing` client sub-component. On mount it sweeps the arc
+  from 0 → score (`animate(0, score, { duration: 1.4, ease: 'easeOut' })`) and
+  counts the number up in lockstep, driven imperatively via refs (style.background
+  + textContent) so the per-frame updates don't re-render. An 'A' grade gets a soft
+  emerald `drop-shadow` glow. Reduced-motion paints the final state instantly.
+  Added `animate` + `useRef` to the existing imports.
+
+**2. Urgent-bill ambient pulse glow**
+- **`app/globals.css`**: new `.pulse-glow` utility + `@keyframes pulse-glow` — a
+  soft rose halo (`box-shadow`) that breathes ~2.4s; added to the reduced-motion
+  media block (animation: none).
+- **`app/(app)/bills/page.tsx`** (active bill row, `isUrgent` icon tile) and
+  **`app/(app)/dashboard/page.tsx`** (bill-forecast `isUrgent` icon circle): append
+  `pulse-glow` to the existing urgent (≤3 days) styling.
+
+**3. Quick-Add receipt slide-in**
+- **`app/(app)/dashboard/RecentTransactions.tsx` (new, `'use client'`)**: the
+  dashboard "Recent" ledger, extracted from the server page. Tracks shown ids in
+  `seen` state (lazy-seeded with the initial rows so they don't animate on load).
+  After a Quick Add → `router.refresh()`, the new row is absent from `seen`, so it
+  slides in from the top (`initial y:-18, scale:.96` → spring `stiffness 380,
+  damping 30`) while `layout` springs the older rows down; `AnimatePresence`
+  fades out rows that fall off the list. Honors reduced-motion.
+- **`app/(app)/dashboard/page.tsx`**: replaced the inline recent-tx list with
+  `<RecentTransactions items={…} emptyTitle/emptySub={t(…)} />`; swapped the now-unused
+  `CategoryIconBadge` import for `RecentTransactions` (badge now lives in the new
+  component).
+
+**i18n:** none new (empty-state strings still translated server-side and passed in).
+
+**Verification:** `npm run typecheck` clean; `npm run lint` 0 errors (29 warnings = 28
+pre-existing + 1 same-class setState-in-effect in RecentTransactions); `npm test`
+341/341; `npm run build` succeeds. Visual check not run in-env (no Google session).
+Completes the 4-phase premium-animation pass.
+
+## 2026-06-06 — Premium animation Phase 3: tuned Recharts glide (branch claude/premium-animation-design-JCTbK)
+
+Phase 3: fluid data morphing. Recharts has no Framer-style spring physics (its
+engine only supports ease/linear), so — per the agreed approach — charts use a
+tuned native ease-out glide that also re-runs on dataset changes (year selector /
+filters interpolate bar heights instead of snapping). All animation is gated on
+`useReducedMotion()`.
+
+**Changes:**
+- **`app/(app)/dashboard/DashboardCharts.tsx`**: added a `useChartAnim(duration)`
+  helper (next to `useChartReady`) returning
+  `{ isAnimationActive: !reduce, animationDuration: reduce ? 0 : duration, animationEasing: 'ease-out' }`.
+  Spread onto the `SpendingPieChart` `<Pie>` (700ms), `MonthlyBarChart` bars + net
+  line (800ms; expenses bar gets `animationBegin={120}` for a subtle stagger), and
+  `NetWorthTrendChart` `<Area>` + projection `<Line>` (900ms). Extended the
+  framer-motion import with `useReducedMotion`.
+- **`app/(app)/reports/MonthlyComparisonChart.tsx`**: same inline anim object
+  (800ms, reduced-motion-aware) spread onto both bars; expenses staggered via
+  `animationBegin={120}`. So switching the year selector glides the bars to the new
+  dataset. Added `useReducedMotion` import.
+
+**i18n:** none new.
+
+**Verification:** `npm run typecheck` clean; `npm run lint` 0 errors (28 pre-existing
+warnings, unchanged); `npm test` 341/341; `npm run build` succeeds. Visual check not
+run in-env (no Google session). Phase 4 (gamified micro-interactions) deferred.
+
+## 2026-06-06 — Premium animation Phase 2: gliding sidebar pill + odometer net worth (branch claude/premium-animation-design-JCTbK)
+
+Phase 2 of the premium-animation pass: physical-weight layout morphs. Per the
+product decision, the Net Worth card stays settings-driven (no new Full↔Liquid
+toggle) — instead its hero number gets a slot-machine digit roll on load.
+
+**Changes:**
+- **`components/ui/RollingNumber.tsx` (new, `'use client'`)**: odometer-style
+  currency display. Each digit is a vertical 0–9 reel masked to one glyph and
+  sprung to its target (`stiffness 190, damping 24`), with a left→right stagger
+  (`delay = digitIndex * 0.05`, capped 0.5s) so the number cascades into place.
+  Non-digit chars (`$ , . -`) render statically at the same `1em` height. Reuses
+  AnimatedNumber's container contract — `block`, `whitespace-nowrap`, shrink-to-fit
+  via a `ResizeObserver` font-size loop (tabular figures keep width stable while
+  rolling). Honors `useReducedMotion()` (renders the final string) and exposes the
+  value to AT via an `sr-only` span (reels are `aria-hidden`).
+- **`app/(app)/dashboard/page.tsx`**: hero Net Worth number swapped from
+  `AnimatedNumber` → `RollingNumber` (same `maxSize/minSize/className`). All other
+  KPIs keep `AnimatedNumber`.
+- **`components/Sidebar.tsx`** (desktop `Sidebar`): added a gliding hover pill.
+  New `hovered` state (set on `onMouseEnter`, cleared on the nav's `onMouseLeave`)
+  drives a `motion.div layoutId="sidebar-hover"` (`bg-slate-100 dark:bg-slate-800/70`)
+  that floats between non-active items (spring `bounce 0.2, duration 0.4`), sitting
+  under the existing `sidebar-active` indigo pill. Replaced the static
+  `hover:bg-slate-50 dark:hover:bg-slate-800` classes (kept the text-color hover).
+
+**i18n:** none new.
+
+**Verification:** `npm run typecheck` clean; `npm run lint` 0 errors (28 pre-existing
+warnings, unchanged); `npm test` 341/341; `npm run build` succeeds (all routes).
+Visual check not run in-env (no Google session). Phases 3–4 deferred.
+
+## 2026-06-06 — Premium animation Phase 1: ambient shimmer + fluid entrance (branch claude/premium-animation-design-JCTbK)
+
+First phase of a multi-phase premium-animation pass. Goal: mask Google Sheets API
+latency so the app feels fast — replace the flat gray skeleton pulse with an
+ambient sweeping shimmer, and make resolved content glide in instead of snapping.
+
+**Note on scope:** the brief floated morphing skeleton shapes into real cards via
+Framer `layoutId`. That can't cross Next.js's `loading.tsx` Suspense boundary (the
+skeleton fallback unmounts as the real segment mounts, so the two never coexist for
+a shared-element transition). Achieved the same *perceived* effect with a shimmer +
+a staggered entrance reveal instead.
+
+**Changes:**
+- **`app/globals.css`** (`@layer utilities`): added a `.shimmer` utility (light +
+  `.dark` tints matching the old `bg-slate-100 dark:bg-slate-700/50`) with a
+  `@keyframes shimmer-sweep` that slides an oversized (`background-size: 200%`)
+  translucent gradient highlight left→right (~1.8s, compositor-only via
+  `background-position`). Gated behind `@media (prefers-reduced-motion: reduce)` →
+  static tint, no sweep.
+- **`components/ui/Skeleton.tsx`**: base `Skeleton` primitive now renders
+  `shimmer rounded-2xl` instead of `animate-pulse bg-*`. All 9 layout-exact
+  skeleton compositions (`DashboardSkeleton`, `AccountsSkeleton`, …) upgrade
+  automatically — no other edits.
+- **`components/ui/Reveal.tsx` (new, `'use client'`)**: `StaggerReveal` wraps a
+  column of sections, cloning each direct child into a `motion.div` item that
+  fades + rises (`opacity 0→1`, `y 12→0`, 0.4s `easeOut`) with parent
+  `staggerChildren: 0.06`. Honors `useReducedMotion()` → renders children untouched
+  (instant, no transform), matching the AnimatedNumber/Collapsible convention.
+- **`app/(app)/dashboard/page.tsx`**: moved `space-y-5 sm:space-y-7` onto a
+  `<StaggerReveal>` wrapping the stacked sections (Header → bills/recent rows);
+  `<Celebrations>` watcher and the fixed mobile FAB stay outside it.
+
+**i18n:** none new.
+
+**Verification:** `npm ci` (deps were absent); `npm run typecheck` clean;
+`npm run lint` 0 errors (28 pre-existing warnings only, none in changed files);
+`npm test` 341/341 pass. Visual check not run in-env (dashboard returns null
+without a Google session). Phases 2–4 (sidebar/number morphs, Recharts easing,
+gamified micro-interactions) deferred per phase-by-phase delivery.
+
 ## 2026-06-06 — Redesign Nova: organic furry forest mascot (branch claude/novaifi-mascot-asset-RURcb)
 
 Replaced the dashboard health-banner mascot's glossy "squishy blob" with a premium, fully organic furry creature, per request. No armor/metal/cyber themes (none existed; the new design is entirely botanical). Kept the component a lightweight pure-SVG + framer-motion asset (no raster, no new deps) and — critically — kept the exact `NovaAvatar({ status, size })` contract and all `status`-driven cues so the avatar stays in lock-step with `HealthBanner` and the rest of the dashboard. No chart/data/status-computation logic touched; `lib/colors.ts` untouched.

@@ -924,7 +924,7 @@ export default function BillsPage() {
                     <SwipeToDelete key={bill.id} onDelete={() => handleDelete(bill.id)}>
                       <div className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-5 rounded-3xl bg-white dark:bg-slate-800 border transition-all duration-200 gap-3 sm:gap-0 ${isUrgent ? 'border-rose-200 dark:border-rose-800/50 bg-rose-50/30' : isDueSoon ? 'border-amber-200 dark:border-amber-800/50 bg-amber-50/30' : 'border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 hover:shadow-sm'}`}>
                         <div className="flex items-center gap-4">
-                          <div className={`flex items-center justify-center w-12 h-12 rounded-2xl shrink-0 border ${isUrgent ? 'bg-rose-100 dark:bg-rose-900/40 border-rose-200 dark:border-rose-800/50' : isDueSoon ? 'bg-amber-100 dark:bg-amber-900/40 border-amber-200 dark:border-amber-800/50' : 'bg-slate-100 dark:bg-slate-700 border-slate-200 dark:border-slate-700'}`}>
+                          <div className={`flex items-center justify-center w-12 h-12 rounded-2xl shrink-0 border ${isUrgent ? 'bg-rose-100 dark:bg-rose-900/40 border-rose-200 dark:border-rose-800/50 pulse-glow' : isDueSoon ? 'bg-amber-100 dark:bg-amber-900/40 border-amber-200 dark:border-amber-800/50' : 'bg-slate-100 dark:bg-slate-700 border-slate-200 dark:border-slate-700'}`}>
                             <AlarmClock className={`w-5 h-5 ${isUrgent ? 'text-rose-600 dark:text-rose-400' : isDueSoon ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'}`} />
                           </div>
                           <div>

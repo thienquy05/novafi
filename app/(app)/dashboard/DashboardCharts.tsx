@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   ComposedChart, BarChart, Bar, Line, XAxis, YAxis, CartesianGrid,
@@ -7,7 +7,7 @@ import {
 } from 'recharts';
 import { AlertTriangle, TrendingUp, TrendingDown, Sparkles, DollarSign, Target, Zap } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
-import { motion } from 'framer-motion';
+import { animate, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from '@/lib/i18n/context';
 import { useIsDark } from '@/hooks/useIsDark';
 import { NovaAvatar } from './NovaAvatar';
@@ -25,6 +25,19 @@ function useChartReady() {
   const [ready, setReady] = useState(false);
   useEffect(() => { setReady(true); }, []);
   return ready;
+}
+
+/** Shared Recharts series animation — a tuned ease-out glide that also re-runs
+ *  when the dataset changes (year/filter switches interpolate bar heights instead
+ *  of snapping). Disabled under prefers-reduced-motion. Spread onto a series:
+ *  `<Bar {...anim} />`. */
+function useChartAnim(duration = 800) {
+  const reduce = useReducedMotion();
+  return {
+    isAnimationActive: !reduce,
+    animationDuration: reduce ? 0 : duration,
+    animationEasing: 'ease-out' as const,
+  };
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -280,6 +293,7 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
   const displayData = isEmpty ? [{ name: t('charts.noExpenseData'), value: 1 }] : cleanData;
   const ready = useChartReady();
   const c = useIsDark() ? CHART.dark : CHART.light;
+  const anim = useChartAnim(700);
   const categoryTotal = data.reduce((s, d) => s + d.value, 0);
   const tCategory = (name: string) => { const k = `categories.${name}`; const r = t(k); return r === k ? name : r; };
 
@@ -298,6 +312,7 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
               dataKey="value"
               stroke="none"
               cornerRadius={isEmpty ? 0 : 6}
+              {...anim}
             >
               {displayData.map((entry) => (
                 <Cell
@@ -357,6 +372,7 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
   const isEmpty = data.every(d => d.income === 0 && d.expenses === 0);
   const ready = useChartReady();
   const c = useIsDark() ? CHART.dark : CHART.light;
+  const anim = useChartAnim(800);
   const hasNet = data.some((d) => d.net !== undefined);
 
   return (
@@ -380,8 +396,8 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
           />
           {!isEmpty && <Tooltip content={<BarTooltip />} cursor={{ fill: c.cursor }} />}
           {hasNet && <ReferenceLine y={0} stroke={c.grid} strokeDasharray="4 4" />}
-          <Bar dataKey="income" name={t('common.income')} fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={32} />
-          <Bar dataKey="expenses" name={t('common.expenses')} fill="#f43f5e" radius={[6, 6, 0, 0]} maxBarSize={32} />
+          <Bar dataKey="income" name={t('common.income')} fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={32} {...anim} />
+          <Bar dataKey="expenses" name={t('common.expenses')} fill="#f43f5e" radius={[6, 6, 0, 0]} maxBarSize={32} {...anim} animationBegin={anim.isAnimationActive ? 120 : 0} />
           {hasNet && (
             <Line
               type="monotone"
@@ -391,6 +407,7 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
               strokeWidth={2.5}
               dot={{ r: 3, fill: '#6366f1', strokeWidth: 0 }}
               activeDot={{ r: 5 }}
+              {...anim}
             />
           )}
         </ComposedChart>
@@ -528,6 +545,7 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
   const { t } = useTranslation();
   const ready = useChartReady();
   const c = useIsDark() ? CHART.dark : CHART.light;
+  const anim = useChartAnim(900);
 
   if (data.length < 2) {
     return (
@@ -614,6 +632,7 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
               dot={{ fill: stroke, strokeWidth: 0, r: 4 }}
               activeDot={{ r: 6, fill: stroke, strokeWidth: 0 }}
               connectNulls={false}
+              {...anim}
             />
             {projection && projection.length > 0 && (
               <Line
@@ -625,6 +644,7 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
                 dot={false}
                 activeDot={{ r: 4, fill: stroke, strokeWidth: 0 }}
                 connectNulls
+                {...anim}
               />
             )}
           </ComposedChart>
@@ -702,6 +722,50 @@ export function EmergencyFundWidget({
 
 // ── Financial Health Score ─────────────────────────────────────────────────────
 
+/**
+ * The composite-score gauge: a conic-gradient arc that sweeps from 0 to the score
+ * while the number counts up to match. An 'A' grade earns a soft emerald glow.
+ * Driven imperatively (refs + framer `animate`) so the per-frame updates don't
+ * re-render. Honors reduced-motion by painting the final state instantly.
+ */
+function HealthRing({
+  score, grade, ringColor, ringTrack, gradeColor,
+}: {
+  score: number; grade: string; ringColor: string; ringTrack: string; gradeColor: string;
+}) {
+  const reduce = useReducedMotion();
+  const ringRef = useRef<HTMLDivElement>(null);
+  const numRef = useRef<HTMLSpanElement>(null);
+  const isA = grade === 'A';
+
+  useEffect(() => {
+    const ring = ringRef.current, num = numRef.current;
+    if (!ring || !num) return;
+    const paint = (v: number) => {
+      ring.style.background = `conic-gradient(${ringColor} ${v * 3.6}deg, ${ringTrack} 0deg)`;
+      num.textContent = String(Math.round(v));
+    };
+    if (reduce) { paint(score); return; }
+    const controls = animate(0, score, { duration: 1.4, ease: 'easeOut', onUpdate: paint });
+    return () => controls.stop();
+  }, [score, ringColor, ringTrack, reduce]);
+
+  return (
+    <div className="text-center">
+      <div
+        ref={ringRef}
+        className="relative w-16 h-16 flex items-center justify-center rounded-full"
+        style={{ background: `conic-gradient(${ringColor} ${reduce ? score * 3.6 : 0}deg, ${ringTrack} 0deg)` }}
+      >
+        <div className="absolute inset-1.5 bg-white dark:bg-slate-800 rounded-full flex flex-col items-center justify-center">
+          <span className={`text-lg font-extrabold leading-none ${gradeColor} ${isA ? 'drop-shadow-[0_0_10px_rgba(16,185,129,0.55)]' : ''}`}>{grade}</span>
+          <span ref={numRef} className="text-[10px] font-bold text-slate-400 dark:text-slate-500">{reduce ? score : 0}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
   const { t } = useTranslation();
   const {
@@ -751,19 +815,13 @@ export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
           <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('charts.financialHealth')}</p>
           <p className="text-slate-500 dark:text-slate-400 text-xs font-medium mt-0.5">{t('charts.healthScore')}</p>
         </div>
-        <div className="text-center">
-          <div
-            className="relative w-16 h-16 flex items-center justify-center rounded-full"
-            style={{
-              background: `conic-gradient(${ringColor} ${score * 3.6}deg, ${ringTrack} 0deg)`,
-            }}
-          >
-            <div className="absolute inset-1.5 bg-white dark:bg-slate-800 rounded-full flex flex-col items-center justify-center">
-              <span className={`text-lg font-extrabold leading-none ${gradeColors[grade]}`}>{grade}</span>
-              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">{score}</span>
-            </div>
-          </div>
-        </div>
+        <HealthRing
+          score={score}
+          grade={grade}
+          ringColor={ringColor}
+          ringTrack={ringTrack}
+          gradeColor={gradeColors[grade]}
+        />
       </div>
       <div className="space-y-2.5">
         {components.map((c) => {
