@@ -2,6 +2,25 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-06 — Redesign Nova: organic furry forest mascot (branch claude/novaifi-mascot-asset-RURcb)
+
+Replaced the dashboard health-banner mascot's glossy "squishy blob" with a premium, fully organic furry creature, per request. No armor/metal/cyber themes (none existed; the new design is entirely botanical). Kept the component a lightweight pure-SVG + framer-motion asset (no raster, no new deps) and — critically — kept the exact `NovaAvatar({ status, size })` contract and all `status`-driven cues so the avatar stays in lock-step with `HealthBanner` and the rest of the dashboard. No chart/data/status-computation logic touched; `lib/colors.ts` untouched.
+
+- **`app/(app)/dashboard/NovaAvatar.tsx`** (full rewrite): new creature anatomy, all inline SVG paths/gradients:
+  - Soft fur body (warm cream→tan radial gradient `nova-body-${status}`), lighter belly patch, furry crown tufts, two rounded furry ears, status-tinted dapple markings + a forehead sprout-heart.
+  - Multi-layered eyes: sclera → warm honey iris (`nova-iris-${status}`) → status-tinted iris ring → dark pupil → two-layer catchlights; delicate heart-nose + soft mouth.
+  - Small paws cradling a carved **wooden seed-pod** (`nova-pod-${status}`) with a stylized **"N" worked into the grain** (`POD_GRAIN_N` strokes over faint horizontal `POD_GRAIN_H` arcs).
+  - **Tail** = cluster of leaves (`LEAVES`, each almond + centre vein) and rounded buds with pink tips, sprouting from behind.
+  - **Glow**: two blurred radial layers — warm nature-green base (`#a6d49a`) + a `STATUS_COLOR[status]`-tinted layer — so the warm glow still tracks health (user-confirmed).
+- Data-driven moods via the kept `MOODS: Record<HealthStatus, Mood>` map. Per status: ear splay (`earTilt` 0→28°), mouth, brows, `pupilDy` (worried up-glance), tail `leafLift` (+10° thriving → −8° sagging), `blush`, `sweat`, `sparkle`. great = perky ears/open smile/blush/lifted leaves/sparkle; good = gentle smile/blush; neutral = soft flat; warning = lowered ears/worried mouth/sweat/sagging; danger = droopy ears/frown/furrowed brows/sweat.
+- Animations, all `useReducedMotion`-gated (degrade to a calm static creature): container float + body scale "breathing" (speed keyed to status — livelier when thriving, slow/heavy in danger), eye-group blink (scaleY squash), per-leaf sway (`Leaf` sub-component, staggered `rotate` about each stem), plus conditional sparkle (great) / sweat drip (warning·danger).
+- New sub-components `Ear` (rotates each ear about its base by `earTilt`) and `Leaf`. Unique `<defs>` ids per status to avoid cross-instance bleed. `role="img"` + `aria-label` preserved.
+- **`DashboardCharts.tsx`** usage unchanged (`<NovaAvatar status={status} size={56} />`).
+
+Frame review: generated a static all-5-states preview SVG and shared it before committing.
+
+**Verification:** `npm run typecheck` clean; `npm run lint` 0 errors/0 warnings on the file; `npm run build` succeeds (all routes).
+
 ## 2026-06-05 — Fix sparkline gap: drop stroke-dash draw-in (branch claude/blank-space-lines-3FFJs)
 
 The KPI sparkline (e.g. the Liquid Net Worth hero tile) showed a blank gap in the middle of the line. Root cause: the `.spark-line` CSS draw-in animated `stroke-dashoffset` with `stroke-dasharray: 1`, relying on `pathLength={1}` to normalize the single dash to the full line. But the SVG renders with `preserveAspectRatio="none"` (stretched ~11× horizontally) and `vectorEffect="non-scaling-stroke"`, which makes the browser measure the dash in post-transform screen space — ignoring the `pathLength` normalization. The single dash no longer covered the stretched line, leaving it partially unpainted. (The shaded area fill has no stroke/dash, so it stayed continuous — which is why only the line showed the gap.)
