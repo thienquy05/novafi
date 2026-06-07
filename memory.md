@@ -2,6 +2,23 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-07 — Fix Safe-to-Spend basis: checking cash on hand, not month income flow (branch claude/safe-to-spend-calc-aZapf)
+
+User asked to verify the Safe-to-Spend calculation ("I think we have something wrong"). The three pure functions were arithmetically correct and well-tested, but the **inputs** fed in at `app/(app)/dashboard/page.tsx` were on the wrong basis.
+
+**Root cause:** `leftToSpend = monthIncome − monthCashSpending − upcomingBillsTotal` computes this month's *net cash flow*, not money actually available. It implicitly assumes you start each month with a $0 balance, so the error equals your real start-of-month checking balance. Concretely: before payday is logged, `monthIncome` is ~0 while bills are still due, so the KPI showed a large false "overspent" deficit even when the account was flush. Mirror bug: money already swept to savings still counted as spendable (a deposit→deposit transfer isn't subtracted by `calcMonthCashSpending`).
+
+**Decision (user choice):** drive Safe-to-Spend from **checking-only balance − bills still due**. Savings is treated as set aside (not spendable).
+
+Changes:
+- `lib/calculations.ts` — new pure fn `calcCheckingBalance(accounts)`: sums `type === 'checking'` balances only (savings/credit/loan/investment excluded). Refactored `calcSafeToSpend` from `(income, spending, bills)` to `(availableCash, billsDue) => roundCents(availableCash − billsDue)`; rewrote its comment to explain the cash-on-hand basis and why the old income-flow basis showed a false early-month deficit. Still surfaces a negative shortfall (no floor at 0). `calcSafeToSpendDaily` unchanged.
+- `app/(app)/dashboard/page.tsx` — import `calcCheckingBalance`, drop unused `calcMonthCashSpending` import. Compute `checkingBalance = calcCheckingBalance(accounts)` and `leftToSpend = calcSafeToSpend(checkingBalance, upcomingBillsTotal)`. Removed the `monthCashSpending` line. `daysRemaining`/`dailySafeToSpend`/`overspent` and the KPI card (lines ~344-360) consume the same vars, so no display plumbing changed. `overspent` now means "checking cash < bills still due."
+- `lib/__tests__/calculations.test.ts` — new `calcCheckingBalance` suite (checking-only from MIXED_ACCOUNTS = 5000; multi-checking sum; zero when none). Rewrote the `calcSafeToSpend` suite to the 2-arg signature (cash − bills; negative shortfall; no-bills; cent rounding). Added `calcCheckingBalance` to imports.
+
+Note: `calcMonthCashSpending` is now unused by the app but kept (with its 6-case test suite) as a valid cash-basis utility for possible future use.
+
+**Verification:** `tsc --noEmit` clean; full suite 343/343 pass; eslint clean on the two touched source files.
+
 ## 2026-06-06 — Premium animation Phase 4: gamified micro-interactions (branch claude/premium-animation-design-JCTbK)
 
 Final phase: juicy, tactile feedback on the key financial moments. Three pieces,

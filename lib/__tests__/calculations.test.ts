@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
+  calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings, calcCheckingBalance,
   calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, calcSafeToSpendDaily, calcMonthCashSpending, pctChange,
   normalizeMonthlyBudget,
   calcRolloverDeficit, calcEffectiveSpent,
@@ -140,6 +140,25 @@ describe('calcLiquidSavings', () => {
   });
 });
 
+describe('calcCheckingBalance', () => {
+  it('sums checking only — savings is set aside, not spendable', () => {
+    expect(calcCheckingBalance(MIXED_ACCOUNTS)).toBe(5000); // savings/credit/loan excluded
+  });
+
+  it('sums multiple checking accounts', () => {
+    const accounts = [
+      makeAccount({ type: 'checking', balance: 1200 }),
+      makeAccount({ type: 'checking', balance: 800 }),
+      makeAccount({ type: 'savings', balance: 9999 }),
+    ];
+    expect(calcCheckingBalance(accounts)).toBe(2000);
+  });
+
+  it('zero when there are no checking accounts', () => {
+    expect(calcCheckingBalance([makeAccount({ type: 'savings', balance: 5000 })])).toBe(0);
+  });
+});
+
 // ── Cash Flow ─────────────────────────────────────────────────────────────────
 
 const TRANSACTIONS: Transaction[] = [
@@ -207,24 +226,20 @@ describe('calcSavingsRate', () => {
 });
 
 describe('calcSafeToSpend', () => {
-  it('income - spending - bills', () => {
-    expect(calcSafeToSpend(5000, 2000, 500)).toBe(2500);
+  it('checking cash on hand minus bills still due', () => {
+    expect(calcSafeToSpend(5000, 500)).toBe(4500);
   });
 
-  it('goes negative when spending exceeds income', () => {
-    expect(calcSafeToSpend(5000, 5500, 0)).toBe(-500);
+  it('goes negative when bills due exceed checking cash → surfaces the shortfall', () => {
+    expect(calcSafeToSpend(300, 800)).toBe(-500);
   });
 
-  it('bills push result negative → surfaces the shortfall', () => {
-    expect(calcSafeToSpend(1000, 800, 300)).toBe(-100);
-  });
-
-  it('no bills', () => {
-    expect(calcSafeToSpend(3000, 1000, 0)).toBe(2000);
+  it('no bills due → the full checking balance is spendable', () => {
+    expect(calcSafeToSpend(3000, 0)).toBe(3000);
   });
 
   it('rounds float drift to cents', () => {
-    expect(calcSafeToSpend(1000.1, 0.2, 0)).toBe(999.9);
+    expect(calcSafeToSpend(1000.1, 0.2)).toBe(999.9);
   });
 });
 

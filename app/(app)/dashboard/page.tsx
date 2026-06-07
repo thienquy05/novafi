@@ -3,8 +3,8 @@ import { auth } from '@/lib/auth';
 import { batchGetDashboardData, appendNetWorthSnapshot } from '@/lib/sheets';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import {
-  calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
-  calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, calcSafeToSpendDaily, calcMonthCashSpending, pctChange as calcPctChange,
+  calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings, calcCheckingBalance,
+  calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, calcSafeToSpendDaily, pctChange as calcPctChange,
   normalizeMonthlyBudget, calcAvgMonthlyExpense, calcEmergencyFundMonths,
   calcSavingsRateScore, calcEmergencyScore, calcBudgetScore,
   calcDebtToIncomeScore, calcDebtToIncomeRatio,
@@ -127,16 +127,16 @@ export default async function DashboardPage() {
   // Total remaining bills this month (rest-of-month forecast) — your share only.
   const upcomingBillsTotal = upcomingBills.reduce((s, b) => s + myBillShare(b), 0);
 
-  // Safe to spend — forward-looking daily allowance. The leftover is cash-basis:
-  // unlike `monthSpending` (accrual; counts a card charge the moment it's made,
-  // used for savings rate), `monthCashSpending` counts only real cash leaving the
-  // bank — expenses from deposit accounts PLUS payments toward debt — so a card
-  // purchase and its later payoff aren't double-counted. From that leftover we
-  // subtract the bills STILL due (already-paid bills are part of cash spending),
-  // then spread it across the days left so the KPI answers "how much can I spend
-  // per day for the rest of the month" instead of restating income − spending.
-  const monthCashSpending = calcMonthCashSpending(transactions, accounts, thisMonth);
-  const leftToSpend = calcSafeToSpend(monthIncome, monthCashSpending, upcomingBillsTotal);
+  // Safe to spend — forward-looking daily allowance on a CASH-ON-HAND basis. We
+  // start from the cash actually sitting in your checking account(s) right now
+  // (savings is treated as set aside, not spendable), subtract the bills STILL
+  // due this month, then spread what's left across the days remaining so the KPI
+  // answers "how much can I spend per day for the rest of the month." Using the
+  // real checking balance — rather than this month's income minus spending —
+  // avoids the old false deficit early in the month, before payday was logged
+  // (that basis implicitly assumed you started the month with a $0 balance).
+  const checkingBalance = calcCheckingBalance(accounts);
+  const leftToSpend = calcSafeToSpend(checkingBalance, upcomingBillsTotal);
   const daysRemaining = daysLeft + 1; // include today, so it's never 0
   const dailySafeToSpend = calcSafeToSpendDaily(leftToSpend, daysRemaining);
   const overspent = leftToSpend < 0;
