@@ -2,6 +2,21 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-07 — Revert Safe-to-Spend to income basis; keep cash-basis "spent" (branch claude/safe-to-spend-calc-aZapf)
+
+Follow-up to the checking-balance change below. User reconsidered and wants Safe-to-Spend driven by **income and upcoming bills, minus money already spent** — i.e. the ORIGINAL `income − spending − bills` formula — using **logged income this month** (accepting the early-month/pre-payday behavior), and **leaving budgets out** for now.
+
+This fully reverts the prior commit's code: `lib/calculations.ts`, `app/(app)/dashboard/page.tsx`, and `lib/__tests__/calculations.test.ts` were restored to their pre-change state via `git checkout HEAD~1 -- …`. Net effect on code = none versus before this branch.
+
+Final state (unchanged original design):
+- `calcSafeToSpend(income, spending, bills) = roundCents(income − spending − bills)`, can go negative (surfaces the shortfall, no floor at 0).
+- Dashboard: `spending` = `calcMonthCashSpending(transactions, accounts, thisMonth)` (cash-basis "money already spent": expenses from deposit accounts + payments toward debt; card charges excluded so a charge + its payoff aren't double-counted). `leftToSpend = calcSafeToSpend(monthIncome, monthCashSpending, upcomingBillsTotal)`, spread over `daysRemaining = daysLeft + 1` via `calcSafeToSpendDaily`.
+- `calcCheckingBalance` (added below) is removed again; no longer referenced.
+
+Known limitation the user accepted: because `monthIncome` is logged income only, the KPI can read a large negative ("overspent") early in the month before payday is recorded, and savings sweeps don't reduce it. Budget integration deferred.
+
+**Verification:** `tsc --noEmit` clean; calc suite 234/234 pass.
+
 ## 2026-06-07 — Fix Safe-to-Spend basis: checking cash on hand, not month income flow (branch claude/safe-to-spend-calc-aZapf)
 
 User asked to verify the Safe-to-Spend calculation ("I think we have something wrong"). The three pure functions were arithmetically correct and well-tested, but the **inputs** fed in at `app/(app)/dashboard/page.tsx` were on the wrong basis.

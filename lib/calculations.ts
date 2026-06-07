@@ -34,15 +34,6 @@ export function calcLiquidSavings(accounts: Account[]): number {
     .reduce((s, a) => s + a.balance, 0);
 }
 
-// Cash you can actually spend right now: the balance of your checking
-// account(s) only. Savings is deliberately excluded — money moved to savings is
-// treated as set aside, not spendable — which is what "safe to spend" builds on.
-export function calcCheckingBalance(accounts: Account[]): number {
-  return accounts
-    .filter((a) => a.type === 'checking')
-    .reduce((s, a) => s + a.balance, 0);
-}
-
 // ── Cash Flow ─────────────────────────────────────────────────────────────────
 
 export function calcMonthIncome(transactions: Transaction[], monthKey: string): number {
@@ -62,17 +53,13 @@ export function calcSavingsRate(income: number, spending: number): number {
   return Math.max(0, ((income - spending) / income) * 100);
 }
 
-// Money left to spend for the REST of the month, on a CASH-ON-HAND basis: the
-// cash actually sitting in your checking account(s) right now minus the bills
-// still due this month. We use the real balance (not this month's income minus
-// spending) so the figure reflects money you genuinely have — the income-flow
-// basis falsely showed a deep deficit early in the month, before payday was
-// logged, because it implicitly assumed you started the month with $0. Can go
-// negative when the bills still due exceed your checking cash; we surface that
-// shortfall instead of flooring at 0 so you see exactly how far short you are.
-// Pair with `calcSafeToSpendDaily` to turn this leftover into a per-day allowance.
-export function calcSafeToSpend(availableCash: number, billsDue: number): number {
-  return roundCents(availableCash - billsDue);
+// Money left to spend for the REST of the month: this month's income minus the
+// cash already spent minus the bills still due. Can go negative when those
+// outflows exceed income — we surface that shortfall instead of flooring at 0 so
+// you see exactly how far under you are, not just "$0.00". Pair with
+// `calcSafeToSpendDaily` to turn this leftover into a per-day allowance.
+export function calcSafeToSpend(income: number, spending: number, bills: number): number {
+  return roundCents(income - spending - bills);
 }
 
 // Forward-looking daily allowance: spread the money left to spend evenly across
