@@ -7,6 +7,7 @@ import {
   DollarSign,
   ArrowLeftRight,
   Settings,
+  LogOut,
   Landmark,
   PiggyBank,
   Calendar,
@@ -17,10 +18,13 @@ import {
   ChevronUp,
   ChevronDown,
   Sliders,
+  type LucideIcon,
 } from 'lucide-react';
+import { signOut } from 'next-auth/react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LogoMark } from './LogoMark';
+import { QuickAddTransaction } from '@/app/(app)/dashboard/QuickAddTransaction';
 import { useTranslation } from '@/lib/i18n/context';
 
 type BadgeCounts = { overdueBills: number; overBudget: number };
@@ -69,16 +73,52 @@ function NavBadge({ count, tone = 'red' }: { count: number; tone?: 'red' | 'ambe
   );
 }
 
-const NAV = [
-  { href: '/dashboard',    labelKey: 'nav.dashboard',    icon: LayoutDashboard, badgeKey: null as keyof BadgeCounts | null },
-  { href: '/accounts',     labelKey: 'nav.accounts',     icon: Landmark,        badgeKey: null },
-  { href: '/paychecks',    labelKey: 'nav.paychecks',    icon: DollarSign,      badgeKey: null },
-  { href: '/transactions', labelKey: 'nav.transactions', icon: ArrowLeftRight,  badgeKey: null },
-  { href: '/savings',      labelKey: 'nav.savings',      icon: PiggyBank,       badgeKey: null },
-  { href: '/bills',        labelKey: 'nav.bills',        icon: Calendar,        badgeKey: 'overdueBills' as keyof BadgeCounts },
-  { href: '/planning',     labelKey: 'nav.planning',     icon: BarChart3,       badgeKey: 'overBudget' as keyof BadgeCounts },
-  { href: '/reports',      labelKey: 'nav.reports',      icon: FileText,        badgeKey: null },
-  { href: '/settings',     labelKey: 'nav.settings',     icon: Settings,        badgeKey: null },
+type NavItem = { href: string; labelKey: string; icon: LucideIcon; badgeKey: keyof BadgeCounts | null };
+
+// Desktop sidebar: items grouped under subtle section labels (Settings is pinned
+// separately at the bottom). 1 click to anything — these are visual dividers, not
+// collapsible accordions.
+const NAV_GROUPS: { labelKey: string; items: NavItem[] }[] = [
+  {
+    labelKey: 'nav.groupOverview',
+    items: [
+      { href: '/dashboard', labelKey: 'nav.dashboard', icon: LayoutDashboard, badgeKey: null },
+      { href: '/reports',   labelKey: 'nav.reports',   icon: FileText,        badgeKey: null },
+    ],
+  },
+  {
+    labelKey: 'nav.groupMoney',
+    items: [
+      { href: '/accounts',     labelKey: 'nav.accounts',     icon: Landmark,       badgeKey: null },
+      { href: '/transactions', labelKey: 'nav.transactions', icon: ArrowLeftRight, badgeKey: null },
+      { href: '/paychecks',    labelKey: 'nav.paychecks',    icon: DollarSign,     badgeKey: null },
+    ],
+  },
+  {
+    labelKey: 'nav.groupPlan',
+    items: [
+      { href: '/savings',  labelKey: 'nav.savings',  icon: PiggyBank, badgeKey: null },
+      { href: '/bills',    labelKey: 'nav.bills',    icon: Calendar,  badgeKey: 'overdueBills' },
+      { href: '/planning', labelKey: 'nav.planning', icon: BarChart3, badgeKey: 'overBudget' },
+    ],
+  },
+];
+
+const SETTINGS_ITEM: NavItem = { href: '/settings', labelKey: 'nav.settings', icon: Settings, badgeKey: null };
+
+// Which group each route belongs to — used to label items in the mobile "More" sheet.
+type GroupKey = 'overview' | 'money' | 'plan' | 'system';
+const NAV_GROUP_OF: Record<string, GroupKey> = {
+  '/dashboard': 'overview', '/reports': 'overview',
+  '/accounts': 'money', '/transactions': 'money', '/paychecks': 'money',
+  '/savings': 'plan', '/bills': 'plan', '/planning': 'plan',
+  '/settings': 'system',
+};
+const MORE_GROUPS: { key: GroupKey; labelKey: string }[] = [
+  { key: 'overview', labelKey: 'nav.groupOverview' },
+  { key: 'money', labelKey: 'nav.groupMoney' },
+  { key: 'plan', labelKey: 'nav.groupPlan' },
+  { key: 'system', labelKey: 'nav.groupSystem' },
 ];
 
 export function Sidebar() {
@@ -87,10 +127,52 @@ export function Sidebar() {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState<string | null>(null);
 
+  const renderLink = ({ href, labelKey, icon: Icon, badgeKey }: NavItem) => {
+    const active = path === href || path.startsWith(href + '/');
+    const badgeCount = badgeKey ? badges[badgeKey] : 0;
+    return (
+      <Link
+        key={href}
+        href={href}
+        onMouseEnter={() => setHovered(href)}
+        className={cn(
+          'relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors duration-150 group overflow-hidden tap-highlight-none select-none',
+          active
+            ? 'text-indigo-600 dark:text-indigo-400'
+            : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+        )}
+      >
+        {/* Gliding hover pill — floats to whichever non-active item the pointer
+            is over, sitting under the active indigo pill. */}
+        {hovered === href && !active && (
+          <motion.div
+            layoutId="sidebar-hover"
+            className="absolute inset-0 bg-slate-100 dark:bg-slate-800/70 rounded-xl"
+            initial={false}
+            transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
+          />
+        )}
+        {active && (
+          <motion.div
+            layoutId="sidebar-active"
+            className="absolute inset-0 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50 rounded-xl"
+            initial={false}
+            transition={{ type: 'spring', bounce: 0.15, duration: 0.35 }}
+          />
+        )}
+        <Icon className={cn('w-5 h-5 shrink-0 relative z-10 transition-colors duration-150', active ? 'text-indigo-600 dark:text-indigo-400' : 'group-hover:text-slate-900 dark:group-hover:text-slate-100')} />
+        <span className="relative z-10 flex-1">{t(labelKey)}</span>
+        {badgeCount > 0 && (
+          <NavBadge count={badgeCount} tone={badgeKey === 'overdueBills' ? 'red' : 'amber'} />
+        )}
+      </Link>
+    );
+  };
+
   return (
-    <aside className="hidden md:flex flex-col w-64 min-h-screen bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-r border-slate-200 dark:border-slate-700/50 px-4 py-8 shrink-0 relative z-50">
+    <aside className="hidden md:flex flex-col w-64 h-screen sticky top-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-r border-slate-200 dark:border-slate-700/50 px-4 py-6 shrink-0 z-50">
       {/* Logo */}
-      <div className="flex items-center gap-3 px-2 mb-10">
+      <div className="flex items-center gap-3 px-2 mb-5">
         <div className="relative">
           <div className="absolute inset-0 bg-indigo-500 rounded-xl blur opacity-30" />
           <LogoMark className="relative w-10 h-10 rounded-xl shadow-lg" />
@@ -101,53 +183,34 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* Nav */}
-      <nav className="flex flex-col gap-1.5 flex-1" onMouseLeave={() => setHovered(null)}>
-        {NAV.map(({ href, labelKey, icon: Icon, badgeKey }) => {
-          const active = path === href || path.startsWith(href + '/');
-          const badgeCount = badgeKey ? badges[badgeKey] : 0;
-          return (
-            <Link
-              key={href}
-              href={href}
-              onMouseEnter={() => setHovered(href)}
-              className={cn(
-                'relative flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-semibold transition-colors duration-150 group overflow-hidden tap-highlight-none select-none',
-                active
-                  ? 'text-indigo-600 dark:text-indigo-400'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
-              )}
-            >
-              {/* Gliding hover pill — floats to whichever non-active item the
-                  pointer is over, sitting under the active indigo pill. */}
-              {hovered === href && !active && (
-                <motion.div
-                  layoutId="sidebar-hover"
-                  className="absolute inset-0 bg-slate-100 dark:bg-slate-800/70 rounded-xl"
-                  initial={false}
-                  transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
-                />
-              )}
-              {active && (
-                <motion.div
-                  layoutId="sidebar-active"
-                  className="absolute inset-0 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50 rounded-xl"
-                  initial={false}
-                  transition={{ type: 'spring', bounce: 0.15, duration: 0.35 }}
-                />
-              )}
-              <Icon className={cn('w-5 h-5 shrink-0 relative z-10 transition-colors duration-150', active ? 'text-indigo-600 dark:text-indigo-400' : 'group-hover:text-slate-900 dark:group-hover:text-slate-100')} />
-              <span className="relative z-10 flex-1">{t(labelKey)}</span>
-              {badgeCount > 0 && (
-                <NavBadge
-                  count={badgeCount}
-                  tone={badgeKey === 'overdueBills' ? 'red' : 'amber'}
-                />
-              )}
-            </Link>
-          );
-        })}
+      {/* Primary action */}
+      <div className="mb-4">
+        <QuickAddTransaction variant="sidebar" />
+      </div>
+
+      {/* Grouped nav — scrolls only if the viewport is too short to fit everything */}
+      <nav className="flex flex-col flex-1 overflow-y-auto hide-scrollbar -mx-1 px-1" onMouseLeave={() => setHovered(null)}>
+        {NAV_GROUPS.map((group) => (
+          <div key={group.labelKey} className="mb-2">
+            <p className="px-3 pt-2 pb-1 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">{t(group.labelKey)}</p>
+            <div className="flex flex-col gap-1">
+              {group.items.map(renderLink)}
+            </div>
+          </div>
+        ))}
       </nav>
+
+      {/* Settings + Sign out (pinned to the bottom) */}
+      <div className="pt-3 mt-2 border-t border-slate-100 dark:border-slate-700/50 flex flex-col gap-1">
+        {renderLink(SETTINGS_ITEM)}
+        <button
+          onClick={() => signOut({ callbackUrl: '/' })}
+          className="group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors duration-150 tap-highlight-none select-none"
+        >
+          <LogOut className="w-5 h-5 shrink-0 group-hover:scale-110 transition-transform duration-150" />
+          {t('nav.signOut')}
+        </button>
+      </div>
     </aside>
   );
 }
@@ -165,11 +228,11 @@ export function MobileHeader() {
 
 const MOBILE_NAV_ORDER_KEY = 'novafi_mobile_nav_order';
 
-const ALL_MOBILE_NAV = [
-  { href: '/dashboard',    labelKey: 'nav.home',         icon: LayoutDashboard, badgeKey: null as keyof BadgeCounts | null },
+const ALL_MOBILE_NAV: NavItem[] = [
+  { href: '/dashboard',    labelKey: 'nav.home',         icon: LayoutDashboard, badgeKey: null },
   { href: '/transactions', labelKey: 'nav.spending',     icon: ArrowLeftRight,  badgeKey: null },
-  { href: '/bills',        labelKey: 'nav.bills',        icon: Calendar,        badgeKey: 'overdueBills' as keyof BadgeCounts },
-  { href: '/planning',     labelKey: 'nav.planning',     icon: BarChart3,       badgeKey: 'overBudget' as keyof BadgeCounts },
+  { href: '/bills',        labelKey: 'nav.bills',        icon: Calendar,        badgeKey: 'overdueBills' },
+  { href: '/planning',     labelKey: 'nav.planning',     icon: BarChart3,       badgeKey: 'overBudget' },
   { href: '/accounts',     labelKey: 'nav.accounts',     icon: Landmark,        badgeKey: null },
   { href: '/savings',      labelKey: 'nav.savings',      icon: PiggyBank,       badgeKey: null },
   { href: '/paychecks',    labelKey: 'nav.paychecks',    icon: DollarSign,      badgeKey: null },
@@ -177,13 +240,13 @@ const ALL_MOBILE_NAV = [
   { href: '/settings',     labelKey: 'nav.settings',     icon: Settings,        badgeKey: null },
 ];
 
-function getMobileNavOrder(): typeof ALL_MOBILE_NAV {
+function getMobileNavOrder(): NavItem[] {
   if (typeof window === 'undefined') return ALL_MOBILE_NAV;
   try {
     const raw = localStorage.getItem(MOBILE_NAV_ORDER_KEY);
     if (!raw) return ALL_MOBILE_NAV;
     const order: string[] = JSON.parse(raw);
-    const sorted = order.map((href) => ALL_MOBILE_NAV.find((n) => n.href === href)).filter(Boolean) as typeof ALL_MOBILE_NAV;
+    const sorted = order.map((href) => ALL_MOBILE_NAV.find((n) => n.href === href)).filter(Boolean) as NavItem[];
     const missing = ALL_MOBILE_NAV.filter((n) => !order.includes(n.href));
     return [...sorted, ...missing];
   } catch {
@@ -223,8 +286,9 @@ export function MobileNav() {
     };
   }, [sheetOpen, customizeOpen]);
 
-  const primaryNav = navOrder.slice(0, 4);
-  const moreNav = navOrder.slice(4);
+  // 3 primary slots flank a raised center "+"; the rest live in the More sheet.
+  const primaryNav = navOrder.slice(0, 3);
+  const moreNav = navOrder.slice(3);
   const moreActive = moreNav.some(({ href }) => path === href || path.startsWith(href + '/'));
 
   function moveItem(index: number, direction: 'up' | 'down') {
@@ -240,6 +304,75 @@ export function MobileNav() {
     setNavOrder(ALL_MOBILE_NAV);
     try { localStorage.removeItem(MOBILE_NAV_ORDER_KEY); } catch { /* ignore */ }
   }
+
+  // Bottom-bar tile (icon + label, with active pill).
+  const renderBottomItem = ({ href, labelKey, icon: Icon, badgeKey }: NavItem) => {
+    const active = path === href || path.startsWith(href + '/');
+    const badgeCount = badgeKey ? badges[badgeKey] : 0;
+    return (
+      <Link
+        key={href}
+        href={href}
+        className={cn(
+          'relative flex flex-col items-center gap-1 p-2 rounded-xl transition-colors duration-150 min-w-[56px] min-h-[52px] justify-center tap-highlight-none select-none',
+          active ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'
+        )}
+      >
+        <AnimatePresence>
+          {active && (
+            <motion.div
+              layoutId="mobile-nav-active"
+              className="absolute inset-0 bg-indigo-50 dark:bg-indigo-900/30 rounded-xl"
+              initial={false}
+              exit={{ opacity: 0 }}
+              transition={{ type: 'spring', bounce: 0.15, duration: 0.35 }}
+            />
+          )}
+        </AnimatePresence>
+        <div className="relative">
+          <Icon className={cn('w-5 h-5 relative z-10', active && 'drop-shadow-[0_0_8px_rgba(79,70,229,0.3)]')} />
+          {badgeCount > 0 && (
+            <span className={cn(
+              'absolute -top-1.5 -right-1.5 z-20 text-white text-[9px] font-extrabold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5',
+              badgeKey === 'overdueBills' ? 'bg-rose-500' : 'bg-amber-500'
+            )}>
+              {badgeCount > 9 ? '9+' : badgeCount}
+            </span>
+          )}
+        </div>
+        <span className="text-[10px] font-semibold relative z-10 leading-tight">{t(labelKey)}</span>
+      </Link>
+    );
+  };
+
+  // Tile inside the More sheet grid.
+  const renderMoreItem = ({ href, labelKey, icon: Icon, badgeKey }: NavItem) => {
+    const active = path === href || path.startsWith(href + '/');
+    const badgeCount = badgeKey ? badges[badgeKey] : 0;
+    return (
+      <Link
+        key={href}
+        href={href}
+        className={cn(
+          'flex flex-col items-center gap-1.5 py-3 px-1 rounded-2xl transition-colors duration-150 tap-highlight-none select-none',
+          active ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 active:bg-slate-50 dark:active:bg-slate-700'
+        )}
+      >
+        <div className="relative">
+          <Icon className="w-6 h-6" />
+          {badgeCount > 0 && (
+            <span className={cn(
+              'absolute -top-1.5 -right-1.5 z-20 text-white text-[9px] font-extrabold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5',
+              badgeKey === 'overdueBills' ? 'bg-rose-500' : 'bg-amber-500'
+            )}>
+              {badgeCount > 9 ? '9+' : badgeCount}
+            </span>
+          )}
+        </div>
+        <span className="text-[10px] font-semibold leading-tight text-center">{t(labelKey)}</span>
+      </Link>
+    );
+  };
 
   return (
     <>
@@ -280,12 +413,12 @@ export function MobileNav() {
               </button>
             </div>
 
-            <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">{t('nav.firstFourItems')}</p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">{t('nav.firstThreeItems')}</p>
 
             <div className="space-y-0.5">
               {navOrder.map(({ href, labelKey, icon: Icon }, index) => (
                 <div key={href}>
-                  {index === 4 && (
+                  {index === 3 && (
                     <div className="flex items-center gap-2 my-3">
                       <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />
                       <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{t('nav.more')}</span>
@@ -327,7 +460,7 @@ export function MobileNav() {
         )}
       </AnimatePresence>
 
-      {/* Slide-up sheet */}
+      {/* Slide-up "More" sheet — overflow items grouped by section */}
       <AnimatePresence>
         {sheetOpen && !customizeOpen && (
           <motion.div
@@ -337,36 +470,21 @@ export function MobileNav() {
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring', bounce: 0.1, duration: 0.38 }}
-            className="md:hidden fixed bottom-[72px] left-0 right-0 z-50 bg-white dark:bg-slate-800 rounded-t-3xl border-t border-slate-200 dark:border-slate-700 shadow-[0_-20px_60px_rgba(0,0,0,0.12)] px-4 pt-5 pb-6"
+            className="md:hidden fixed bottom-[72px] left-0 right-0 z-50 bg-white dark:bg-slate-800 rounded-t-3xl border-t border-slate-200 dark:border-slate-700 shadow-[0_-20px_60px_rgba(0,0,0,0.12)] px-4 pt-5 pb-6 max-h-[70vh] overflow-y-auto"
           >
             <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full mx-auto mb-5" />
 
-            <div className="grid grid-cols-5 gap-2">
-              {moreNav.map(({ href, labelKey, icon: Icon, badgeKey }) => {
-                const active = path === href || path.startsWith(href + '/');
-                const badgeCount = badgeKey ? badges[badgeKey] : 0;
+            <div className="space-y-4">
+              {MORE_GROUPS.map((g) => {
+                const items = moreNav.filter((n) => NAV_GROUP_OF[n.href] === g.key);
+                if (items.length === 0) return null;
                 return (
-                  <Link
-                    key={href}
-                    href={href}
-                    className={cn(
-                      'flex flex-col items-center gap-1.5 py-3 px-1 rounded-2xl transition-colors duration-150 tap-highlight-none select-none',
-                      active ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 active:bg-slate-50 dark:active:bg-slate-700'
-                    )}
-                  >
-                    <div className="relative">
-                      <Icon className="w-6 h-6" />
-                      {badgeCount > 0 && (
-                        <span className={cn(
-                          'absolute -top-1.5 -right-1.5 z-20 text-white text-[9px] font-extrabold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5',
-                          badgeKey === 'overdueBills' ? 'bg-rose-500' : 'bg-amber-500'
-                        )}>
-                          {badgeCount > 9 ? '9+' : badgeCount}
-                        </span>
-                      )}
+                  <div key={g.key}>
+                    <p className="px-1 mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">{t(g.labelKey)}</p>
+                    <div className="grid grid-cols-4 gap-2">
+                      {items.map(renderMoreItem)}
                     </div>
-                    <span className="text-[10px] font-semibold leading-tight text-center">{t(labelKey)}</span>
-                  </Link>
+                  </div>
                 );
               })}
             </div>
@@ -384,52 +502,19 @@ export function MobileNav() {
         )}
       </AnimatePresence>
 
-      {/* Bottom bar */}
+      {/* Bottom bar: 2 nav · raised "+" · 1 nav · More */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-t border-slate-200 dark:border-slate-700/50 px-2 py-2 flex items-center justify-around z-50 pb-safe shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
-        {primaryNav.map(({ href, labelKey, icon: Icon, badgeKey }) => {
-          const active = path === href || path.startsWith(href + '/');
-          const badgeCount = badgeKey ? badges[badgeKey] : 0;
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={cn(
-                'relative flex flex-col items-center gap-1 p-2 rounded-xl transition-colors duration-150 min-w-[58px] min-h-[52px] justify-center tap-highlight-none select-none',
-                active ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'
-              )}
-            >
-              <AnimatePresence>
-                {active && (
-                  <motion.div
-                    layoutId="mobile-nav-active"
-                    className="absolute inset-0 bg-indigo-50 dark:bg-indigo-900/30 rounded-xl"
-                    initial={false}
-                    exit={{ opacity: 0 }}
-                    transition={{ type: 'spring', bounce: 0.15, duration: 0.35 }}
-                  />
-                )}
-              </AnimatePresence>
-              <div className="relative">
-                <Icon className={cn('w-5 h-5 relative z-10', active && 'drop-shadow-[0_0_8px_rgba(79,70,229,0.3)]')} />
-                {badgeCount > 0 && (
-                  <span className={cn(
-                    'absolute -top-1.5 -right-1.5 z-20 text-white text-[9px] font-extrabold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5',
-                    badgeKey === 'overdueBills' ? 'bg-rose-500' : 'bg-amber-500'
-                  )}>
-                    {badgeCount > 9 ? '9+' : badgeCount}
-                  </span>
-                )}
-              </div>
-              <span className="text-[10px] font-semibold relative z-10 leading-tight">{t(labelKey)}</span>
-            </Link>
-          );
-        })}
+        {primaryNav.slice(0, 2).map(renderBottomItem)}
+
+        <QuickAddTransaction variant="navFab" />
+
+        {primaryNav.slice(2, 3).map(renderBottomItem)}
 
         {/* More button */}
         <button
           onClick={() => setSheetOpen((v) => !v)}
           className={cn(
-            'relative flex flex-col items-center gap-1 p-2 rounded-xl transition-colors duration-150 min-w-[58px] min-h-[52px] justify-center tap-highlight-none select-none',
+            'relative flex flex-col items-center gap-1 p-2 rounded-xl transition-colors duration-150 min-w-[56px] min-h-[52px] justify-center tap-highlight-none select-none',
             (moreActive || sheetOpen) ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'
           )}
         >

@@ -28,6 +28,20 @@ export function formatCompact(amount: number): string {
   return formatCurrency(amount);
 }
 
+/**
+ * Compact currency for chart axis ticks. Unlike formatCompact, it never shows
+ * cents (axis labels must stay short) and scales to the actual magnitude so
+ * small datasets render real values (e.g. "$250") instead of collapsing to
+ * "$0k". Handles negatives for net-worth-style charts that cross zero.
+ */
+export function formatAxisCurrency(value: number): string {
+  const abs = Math.abs(value);
+  const sign = value < 0 ? '-' : '';
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(1).replace(/\.0$/, '')}k`;
+  return `${sign}$${Math.round(abs)}`;
+}
+
 export function formatDate(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString('en-US', {

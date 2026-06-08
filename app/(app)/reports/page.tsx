@@ -10,11 +10,13 @@ import type { Transaction, Budget } from '@/types';
 import { calcSpendingPace, calcRolloverDeficit, normalizeMonthlyBudget } from '@/lib/calculations';
 import { SpendingPaceWidget } from '../dashboard/SpendingPaceWidget';
 import { useTranslation } from '@/lib/i18n/context';
+import { motion, useReducedMotion } from 'framer-motion';
 import { loadBatch } from '@/lib/client/api';
 import { dynamicChart } from '@/lib/dynamicChart';
 
 // Recharts loads lazily so it stays out of the reports route's first-load JS.
 const MonthlyComparisonChart = dynamicChart(() => import('./MonthlyComparisonChart'));
+const TopMerchantsChart = dynamicChart(() => import('./TopMerchantsChart'));
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -33,6 +35,7 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const reduced = useReducedMotion();
 
   const load = useCallback(async () => {
     setError(false);
@@ -265,9 +268,9 @@ export default function ReportsPage() {
             <CardHeader>
               <CardTitle>{t('reports.monthlyCashFlow', { year: selectedYear })}</CardTitle>
             </CardHeader>
-            <div className="h-64 w-full mt-4">
+            <figure className="h-64 w-full mt-4" role="img" aria-label={t('reports.monthlyCashFlow', { year: selectedYear })}>
               <MonthlyComparisonChart data={monthlyData} />
-            </div>
+            </figure>
           </Card>
 
           {/* Category breakdown + Top merchants */}
@@ -293,9 +296,12 @@ export default function ReportsPage() {
                           </div>
                         </div>
                         <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all duration-700"
-                            style={{ width: `${pct}%`, backgroundColor: CATEGORY_COLORS[c.name] ?? DEFAULT_COLOR }}
+                          <motion.div
+                            className="h-full rounded-full"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${pct}%` }}
+                            transition={{ duration: reduced ? 0 : 0.7, ease: 'easeOut' }}
+                            style={{ backgroundColor: CATEGORY_COLORS[c.name] ?? DEFAULT_COLOR }}
                           />
                         </div>
                       </div>
@@ -310,20 +316,14 @@ export default function ReportsPage() {
               {topMerchants.length === 0 ? (
                 <p className="text-slate-400 dark:text-slate-500 font-medium text-sm py-8 text-center">{t('reports.noMerchantData', { year: selectedYear })}</p>
               ) : (
-                <div className="mt-4 space-y-2 max-h-72 overflow-y-auto hide-scrollbar pr-1">
-                  {topMerchants.map((m, i) => (
-                    <div key={m.name} className="flex items-center justify-between p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <span className="w-6 h-6 rounded-lg bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-xs font-extrabold text-slate-500 dark:text-slate-400 shrink-0">{i + 1}</span>
-                        <div>
-                          <p className="text-sm font-bold text-slate-900 dark:text-slate-100 capitalize">{m.name}</p>
-                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{m.count} {t('reports.transactions')}</p>
-                        </div>
-                      </div>
-                      <span className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(m.total)}</span>
-                    </div>
-                  ))}
-                </div>
+                <figure
+                  className="w-full mt-4"
+                  style={{ height: Math.max(160, topMerchants.length * 38) }}
+                  role="img"
+                  aria-label={t('reports.topMerchants')}
+                >
+                  <TopMerchantsChart data={topMerchants} />
+                </figure>
               )}
             </Card>
           </div>

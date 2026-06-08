@@ -14,8 +14,7 @@ import {
 } from '@/lib/calculations';
 import { Card, CardHeader, CardTitle, CardIcon, type CardTone } from '@/components/ui/Card';
 import { TrendingUp, TrendingDown, Calendar, PiggyBank, ArrowUpRight, Wallet, BarChart3, ArrowLeftRight, Flame, CalendarDays } from 'lucide-react';
-import { SpendingPieChart, BudgetBars, GoalsSummary, NetWorthTrendChart, HealthBanner, EmergencyFundWidget, FinancialHealthScore, SavingsRateGauge } from './DashboardCharts';
-import { QuickAddTransaction } from './QuickAddTransaction';
+import { SpendingPieChart, BudgetBars, BudgetVsActualChart, MonthlyBarChart, GoalsSummary, NetWorthTrendChart, HealthBanner, EmergencyFundWidget, FinancialHealthScore, SavingsRateGauge } from './DashboardCharts';
 import { RecentTransactions } from './RecentTransactions';
 import type { NetWorthPoint } from './DashboardCharts';
 import { cachedOrFetch } from '@/lib/cache';
@@ -168,6 +167,15 @@ export default async function DashboardPage() {
     if (tx.type === 'income') monthlyTotals[key].income += tx.amount;
     else if (tx.type === 'expense') monthlyTotals[key].expense += tx.amount;
   }
+
+  // Last 6 months income vs expenses for the dashboard cash-flow chart
+  const cashFlowData = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const income = monthlyTotals[key]?.income ?? 0;
+    const expenses = monthlyTotals[key]?.expense ?? 0;
+    return { month: MONTH_SHORT[d.getMonth()], income, expenses, net: income - expenses };
+  });
 
   // Budget vs actual this month — reuse categorySpend (already computed above)
   const prevMonthCategorySpend: Record<string, number> = {};
@@ -398,9 +406,6 @@ export default async function DashboardPage() {
             )}
           </div>
         </div>
-        <div className="hidden md:block">
-          <QuickAddTransaction accounts={accounts} />
-        </div>
       </div>
 
       {/* Health Banner */}
@@ -547,6 +552,22 @@ export default async function DashboardPage() {
         </div>
       </Card>
 
+      {/* Monthly Cash Flow */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <CardIcon tone="indigo">
+              <BarChart3 className="w-5 h-5" />
+            </CardIcon>
+            <div>
+              <CardTitle>{t('dashboard.cashFlow', lang)}</CardTitle>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('dashboard.cashFlowSubtitle', lang)}</p>
+            </div>
+          </div>
+        </CardHeader>
+        <MonthlyBarChart data={cashFlowData} />
+      </Card>
+
       {/* Spending: what (pie) + when (calendar heatmap) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <Card className="min-h-[380px] flex flex-col">
@@ -637,6 +658,7 @@ export default async function DashboardPage() {
             <a href="/planning" className="whitespace-nowrap text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg">{t('common.manage', lang)}</a>
           </CardHeader>
           <div className="mt-4">
+            <BudgetVsActualChart data={budgetData} />
             <BudgetBars data={budgetData} daysLeft={daysLeft} daysElapsed={daysElapsed} showMoM totalSpend={totalMonthSpend} />
           </div>
         </Card>
@@ -749,11 +771,6 @@ export default async function DashboardPage() {
       </div>
 
       </StaggerReveal>
-
-      {/* Mobile FAB */}
-      <div className="fixed bottom-20 right-4 z-50 md:hidden">
-        <QuickAddTransaction accounts={accounts} isFab />
-      </div>
     </div>
   );
 }

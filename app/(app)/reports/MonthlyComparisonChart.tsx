@@ -2,14 +2,9 @@
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useReducedMotion } from 'framer-motion';
 import { useIsDark } from '@/hooks/useIsDark';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatAxisCurrency } from '@/lib/utils';
 
 export type MonthlyComparisonDatum = { month: string; income: number; expenses: number };
-
-function fmt(v: number) {
-  if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(0)}k`;
-  return `$${v.toFixed(0)}`;
-}
 
 // The monthly income-vs-expense bar chart. Isolated into its own module so the
 // reports page can load Recharts lazily (via lib/dynamicChart) instead of carrying
@@ -33,7 +28,7 @@ export default function MonthlyComparisonChart({ data }: { data: MonthlyComparis
         <CartesianGrid strokeDasharray="3 3" stroke={c.grid} vertical={false} />
         {/* interval={0} forces all 12 month labels; Recharts otherwise auto-thins them (dropping Jan/Mar/May/Sep…). minTickGap=0 keeps them all even when tight. */}
         <XAxis dataKey="month" interval={0} minTickGap={0} tick={{ fill: c.axis, fontSize: 10, fontWeight: 600 }} axisLine={false} tickLine={false} dy={10} />
-        <YAxis tick={{ fill: c.axis, fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} tickFormatter={fmt} width={52} />
+        <YAxis tick={{ fill: c.axis, fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} tickFormatter={formatAxisCurrency} width={52} />
         <Tooltip formatter={(v) => formatCurrency(Number(v))} cursor={{ fill: c.cursor }} contentStyle={{ ...c.tip, borderRadius: 16, fontSize: 13, fontWeight: 700 }} itemStyle={{ color: c.tip.color }} labelStyle={{ color: c.tip.color }} />
         <Bar dataKey="income" name="Income" fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={28} {...anim} />
         <Bar dataKey="expenses" name="Expenses" fill="#f43f5e" radius={[6, 6, 0, 0]} maxBarSize={28} {...anim} animationBegin={anim.isAnimationActive ? 120 : 0} />

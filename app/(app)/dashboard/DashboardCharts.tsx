@@ -3,10 +3,10 @@ import { useEffect, useRef, useState } from 'react';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   ComposedChart, BarChart, Bar, Line, XAxis, YAxis, CartesianGrid,
-  AreaChart, Area, ReferenceLine, Legend,
+  Area, ReferenceLine, Legend,
 } from 'recharts';
-import { AlertTriangle, TrendingUp, TrendingDown, Sparkles, DollarSign, Target, Zap } from 'lucide-react';
-import { formatCurrency } from '@/lib/utils';
+import { AlertTriangle, TrendingUp, Sparkles, DollarSign, Target } from 'lucide-react';
+import { formatCurrency, formatAxisCurrency } from '@/lib/utils';
 import { animate, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from '@/lib/i18n/context';
 import { useIsDark } from '@/hooks/useIsDark';
@@ -299,7 +299,11 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
 
   return (
     <div className="flex flex-col md:flex-row items-center gap-8 w-full">
-      <div className="w-full md:w-56 h-56 relative">
+      <div
+        className="w-full md:w-56 h-56 relative"
+        role="img"
+        aria-label={isEmpty ? t('charts.noExpenseData') : `${t('charts.total')}: ${formatCurrency(categoryTotal)}`}
+      >
         {!ready ? <div className="w-full h-full rounded-full bg-slate-100 dark:bg-slate-700 animate-pulse" /> : <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
@@ -325,9 +329,14 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
             {!isEmpty && <Tooltip content={<CustomTooltip />} cursor={{ fill: 'transparent' }} />}
           </PieChart>
         </ResponsiveContainer>}
-        {isEmpty && (
+        {isEmpty ? (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <span className="text-slate-400 dark:text-slate-500 font-bold text-lg">{formatCurrency(0)}</span>
+          </div>
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{t('charts.total')}</span>
+            <span className="text-lg font-extrabold text-slate-900 dark:text-slate-100 leading-tight">{formatCurrency(categoryTotal)}</span>
           </div>
         )}
       </div>
@@ -376,7 +385,7 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
   const hasNet = data.some((d) => d.net !== undefined);
 
   return (
-    <div className="h-64 w-full mt-4">
+    <figure className="h-64 w-full mt-4" role="img" aria-label={`${t('dashboard.cashFlow')}: ${t('common.income')} vs ${t('common.expenses')}`}>
       {!ready ? <div className="w-full h-full rounded-2xl bg-slate-100 dark:bg-slate-700 animate-pulse" /> : <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} barGap={6}>
           <CartesianGrid strokeDasharray="3 3" stroke={c.grid} vertical={false} />
@@ -391,7 +400,7 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
             tick={{ fill: c.axis, fontSize: 12, fontWeight: 600 }}
             axisLine={false}
             tickLine={false}
-            tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+            tickFormatter={formatAxisCurrency}
             width={60}
           />
           {!isEmpty && <Tooltip content={<BarTooltip />} cursor={{ fill: c.cursor }} />}
@@ -412,7 +421,7 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
           )}
         </ComposedChart>
       </ResponsiveContainer>}
-    </div>
+    </figure>
   );
 }
 
@@ -526,6 +535,65 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM, totalSpend }:
   );
 }
 
+// ── Budget vs Actual (grouped bars) ───────────────────────────────────────────
+
+/** At-a-glance comparison of budget vs spent across all categories. Complements
+ *  BudgetBars (which shows per-category detail) by making cross-category
+ *  magnitudes directly comparable. Spent bar turns rose when over budget. */
+export function BudgetVsActualChart({ data }: { data: BudgetData[] }) {
+  const { t } = useTranslation();
+  const ready = useChartReady();
+  const reduced = useReducedMotion();
+  const c = useIsDark() ? CHART.dark : CHART.light;
+
+  if (data.length < 2) return null;
+
+  const chartData = data
+    .map((b) => ({ category: b.category.replace(/^categories\./, ''), budget: b.budget, spent: b.spent }))
+    .sort((a, b) => b.spent - a.spent);
+  const height = Math.max(140, chartData.length * 52);
+
+  return (
+    <figure
+      className="w-full mb-5 pb-5 border-b border-slate-100 dark:border-slate-700/60"
+      style={{ height: height + 20 }}
+      role="img"
+      aria-label={t('dashboard.budgetProgress')}
+    >
+      {!ready ? <div className="w-full h-full rounded-2xl bg-slate-100 dark:bg-slate-700 animate-pulse" /> : (
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 12, left: 0, bottom: 0 }} barGap={2} barCategoryGap={12}>
+            <CartesianGrid strokeDasharray="3 3" stroke={c.grid} horizontal={false} />
+            <XAxis
+              type="number"
+              tickFormatter={formatAxisCurrency}
+              tick={{ fill: c.axis, fontSize: 11, fontWeight: 600 }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              type="category"
+              dataKey="category"
+              width={88}
+              tick={{ fill: c.axis, fontSize: 11, fontWeight: 700 }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <Tooltip content={<BarTooltip />} cursor={{ fill: c.cursor }} />
+            <Legend wrapperStyle={{ fontSize: 12, fontWeight: 700, paddingTop: 8 }} />
+            <Bar dataKey="budget" name={t('charts.budget')} fill={c.track} radius={[0, 5, 5, 0]} maxBarSize={13} isAnimationActive={!reduced} />
+            <Bar dataKey="spent" name={t('charts.spent')} radius={[0, 5, 5, 0]} maxBarSize={13} isAnimationActive={!reduced}>
+              {chartData.map((d) => (
+                <Cell key={d.category} fill={d.spent > d.budget ? '#f43f5e' : '#6366f1'} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </figure>
+  );
+}
+
 // ── Net Worth Trend Chart ─────────────────────────────────────────────────────
 
 function NetWorthTooltip({ active, payload, label }: { active?: boolean; payload?: { value: number }[]; label?: string }) {
@@ -593,7 +661,7 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
           </span>
         )}
       </div>
-      <div className="h-52 w-full">
+      <figure className="h-52 w-full" role="img" aria-label={`${t('dashboard.netWorthTrend')}: ${formatCurrency(latest)}`}>
         {!ready ? <div className="w-full h-full rounded-2xl bg-slate-100 dark:bg-slate-700 animate-pulse" /> : <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={chartData} margin={{ top: 8, right: 10, left: -10, bottom: 0 }}>
             <defs>
@@ -618,7 +686,7 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
               tick={{ fill: c.axis, fontSize: 12, fontWeight: 600 }}
               axisLine={false}
               tickLine={false}
-              tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+              tickFormatter={formatAxisCurrency}
               width={56}
             />
             <ReferenceLine y={0} stroke={c.grid} strokeDasharray="4 4" />
@@ -649,7 +717,7 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
             )}
           </ComposedChart>
         </ResponsiveContainer>}
-      </div>
+      </figure>
     </div>
   );
 }

@@ -1233,3 +1233,94 @@ Fix — give the group a back-reference to that expense row:
 Caveat (pre-existing data): groups created before this column have `myShareTxId=''`; their old my-share expense (if any) is an unlinked orphan, so re-adding a share on edit creates a new expense rather than updating the orphan.
 
 **Verification:** `tsc --noEmit` clean; full suite 324/324 pass; eslint 0 errors (only pre-existing set-state-in-effect warnings).
+## 2026-06-08 — Chart data correctness: adaptive currency axis formatter
+
+**Goal:** Chart Y-axes were hardcoded to divide by 1000 (`$${(v/1000).toFixed(0)}k`), so any dataset under $1,000 collapsed every tick to "$0k" — the axis looked broken/static rather than scaling to the actual amounts. Fix all chart axis formatters so they reflect real values across magnitudes (cents-free), including negatives for net-worth charts that cross zero.
+
+**Changes:**
+- `lib/utils.ts` — Added `formatAxisCurrency(value)`: `>=1M` → `$1.2M`, `>=1k` → `$1.5k` (trailing `.0` trimmed, e.g. `$1k`/`$12k`), `<1000` → rounded `$250` (no cents). Handles negatives (`-$5k`). Distinct from `formatCompact` (which keeps cents below $1k and is used by the transactions summary cards — left untouched).
+- `app/(app)/dashboard/DashboardCharts.tsx` — Imported `formatAxisCurrency`; replaced both hardcoded `tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`}` (MonthlyBarChart YAxis line ~376, NetWorthTrendChart YAxis line ~590).
+- `app/(app)/reports/page.tsx` — Removed the local `fmt()` helper (same `÷1000` blind spot, also never handled millions) and its `tickFormatter={fmt}`; now imports and uses `formatAxisCurrency` on the monthly cash-flow YAxis.
+- `lib/__tests__/utils.test.ts` — New file: 5 tests covering small amounts (no `$0k`), no-cents rounding, thousands with `.0` trim, millions, and negatives.
+
+**Notes:**
+- Recharts is only used in those two files (`grep -rln recharts app components`), so all chart axes are now consistent.
+- Recharts auto-scales the Y domain to the data already; the bug was purely the tick *label* formatter, not the domain.
+- Tooltips still use full-precision `formatCurrency` (cents shown on hover) — only axis ticks use the compact form.
+- Pre-existing lint warnings in DashboardCharts (unused `BarChart`/`AreaChart`/`Legend` imports, `set-state-in-effect`) are untouched and unrelated.
+
+**Verification:** `npx tsc --noEmit` clean; `npm test` 6179/6179 passing (was 6174 + 5 new).
+
+## 2026-06-08 — Dashboard/reports chart enhancements + chart accessibility (Groups A/B/C)
+
+**Goal:** Follow-up batch after the axis-formatter fix. Three groups: (A) wire up the missing cash-flow chart + add a budget-vs-actual chart; (B) visual polish (pie center total, animated health ring, animated report bars); (C) accessibility (prefers-reduced-motion + aria-labels on all charts).
+
+**Group A — chart data:**
+- `app/(app)/dashboard/page.tsx` — Built `cashFlowData` (last 6 months income/expenses/net from the existing `monthlyTotals` map, reusing `MONTH_SHORT`); rendered a new "Cash Flow" Card (uses existing `dashboard.cashFlow`/`cashFlowSubtitle` locale keys + `BarChart3` icon) after the Net Worth Trend card. `MonthlyBarChart` was previously defined but never rendered. Also rendered `BudgetVsActualChart` above `BudgetBars` in the budget card. Imported both from `./DashboardCharts`.
+- `app/(app)/dashboard/DashboardCharts.tsx` — New exported `BudgetVsActualChart`: horizontal grouped recharts BarChart (budget = grey track, spent = indigo, rose Cell when over budget), sorted by spend, height scales with category count, `return null` when `< 2` budgets (avoids a pointless single-bar chart). Complements (does not replace) the detailed `BudgetBars`.
+
+**Group B — polish (all in DashboardCharts.tsx / reports/page.tsx):**
+- `SpendingPieChart` — Added a center overlay showing `charts.total` + `formatCurrency(categoryTotal)` for the non-empty state (donut hole was empty before).
+- `FinancialHealthScore` — Replaced the static `conic-gradient` ring with an animated framer-motion SVG ring (strokeDashoffset, same technique as `SavingsRateGauge`); `ringTrack` reused for the track circle.
+- `reports/page.tsx` — Category breakdown bars now use `motion.div` animating width 0→pct (were static divs with a `transition-all` that never triggered).
+
+**Group C — accessibility:**
+- `components/MotionProvider.tsx` (new) — `'use client'` wrapper rendering `<MotionConfig reducedMotion="user">`; added around the app tree in `app/(app)/layout.tsx`. Makes ALL framer-motion animations honor the OS Reduce-Motion setting globally (sidebar, cards, gauges, progress bars).
+- Recharts has its own animation system (not governed by MotionConfig), so each chart component now reads `useReducedMotion()` and passes `isAnimationActive={!reduced}` to Pie/Bar/Line/Area (DashboardCharts: SpendingPieChart, MonthlyBarChart, NetWorthTrendChart, BudgetVsActualChart; reports monthly cash-flow Bars). The animated SVG health ring and report bars also gate their `transition.duration` on `reduced`.
+- aria-labels: every chart container changed to `<figure role="img" aria-label=...>` with a meaningful summary (pie → total, cash flow → income vs expenses, net worth → latest value, health → score/grade, reports cash flow → title).
+- Removed the genuinely-unused `AreaChart` recharts import (was dead before); `BarChart`/`Legend` are now used by `BudgetVsActualChart`.
+
+**Locales:** Added `charts.total`/`charts.budget`/`charts.spent` to `locales/en.json` & `vi.json`. (`dashboard.cashFlow`/`cashFlowSubtitle` already existed.)
+
+**Notes:**
+- `BudgetVsActualChart` intentionally duplicates the budget data shown by `BudgetBars` (one gives cross-category comparison, the other per-category detail). Flagged to the user in case they prefer only one.
+- Recharts auto-scales chart domains to data already; combined with the earlier `formatAxisCurrency`, small datasets now render correctly.
+
+**Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors (only pre-existing `set-state-in-effect` + unused-import warnings unrelated to this work); `npm test` 6179/6179 passing; `npm run build` compiled successfully (27/27 pages).
+
+## 2026-06-08 — Quick Add transfers + Top Merchants bar chart (Group D #6, #7)
+
+**Goal:** (#6) Let users log transfers from the dashboard Quick Add (previously expense/income only); (#7) replace the reports Top Merchants text list with a horizontal bar chart. (Group D #9 sidebar work was explicitly descoped by the user.)
+
+**#6 — Transfer in Quick Add (`app/(app)/dashboard/QuickAddTransaction.tsx`):**
+- Mirrors the existing transactions-page transfer model (no API/type changes — `Transaction.toAccount` + `type:'transfer'` already supported; the POST is identical to what the transactions page already does).
+- `EMPTY_FORM` gains `toAccount: ''`.
+- Toggle expanded to 3-way (expense/income/**transfer**), transfer styled blue to match the transactions page.
+- `handleTypeChange('transfer')` sets `category: 'Transfer'`.
+- Fields are now transfer-aware: category hidden for transfers; account select relabeled "From Account" (`transactions.fromAccount`); a "To Account" select (`transactions.toAccount`) appears, its options excluding the chosen from-account.
+- `handleSave` builds the transfer tx (`category:'Transfer'`, `account`=from, `toAccount`=to) and requires both accounts; Save button disabled until amount + both accounts set.
+- Used existing `common.transfer` label (the stale `quickAdd.transferLabel` key still literally reads "None" — left untouched, not used).
+
+**#7 — Top Merchants horizontal bar chart (`app/(app)/reports/page.tsx`):**
+- Replaced the ranked text list with a vertical-layout recharts `BarChart` (merchant on Y, spend on X via `formatAxisCurrency`, indigo bars). Sorted descending so rank is implicit.
+- Custom `Tooltip content` shows merchant name + `formatCurrency(total)` + `count` (`reports.transactions`) — the per-merchant count that the list used to show inline now lives in the tooltip (chosen option A).
+- YAxis `tickFormatter` capitalizes + truncates long names to 14 chars. Height scales with merchant count. Inherits Group C treatment: `<figure role="img" aria-label>` + `isAnimationActive={!reduced}` + `!ready` skeleton.
+
+**Notes:**
+- No locale keys added — all needed keys (`transactions.fromAccount/toAccount`, `common.transfer/selectPlaceholder`, `reports.topMerchants/transactions`) already existed.
+- Group D #9 (sidebar user info + collapse) intentionally NOT implemented per user.
+
+**Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors (pre-existing warnings only); `npm test` 6179/6179 passing; `npm run build` compiled successfully (27/27 pages).
+
+## 2026-06-08 — Sidebar/nav redesign: section groups + persistent Quick Add (desktop + mobile)
+
+**Goal:** Make the nav scannable and give quick-add a persistent home on every page (was dashboard-only). Mobile-first app, so both the desktop sidebar and the mobile bottom bar were redesigned together. (Decision: static group labels, NOT collapsible accordions — only 9 items, 1 click to anything.)
+
+**`app/(app)/dashboard/QuickAddTransaction.tsx`:**
+- Replaced `isFab?: boolean` prop with `variant?: 'header' | 'fab' | 'sidebar' | 'navFab'` (default 'header'). New triggers: `sidebar` = full-width filled indigo "+ Quick Add" button; `navFab` = raised circular center "+" for the mobile bottom bar (`-mt-7`, shadow).
+- `accounts` prop is now optional. When omitted (sidebar / bottom-bar usage) it lazily fetches `/api/accounts` the first time the modal opens (nav stays mounted across routes, so ~once per session). When provided it stays in sync via effect. Account dropdowns only render `a.name`, so no stale-balance concern.
+
+**`components/Sidebar.tsx` (rewritten):**
+- Desktop `Sidebar`: logo → full-width `<QuickAddTransaction variant="sidebar" />` → grouped nav (OVERVIEW: Dashboard, Reports · MONEY: Accounts, Transactions, Paychecks · PLAN: Savings, Bills, Planning) with subtle uppercase labels → Settings + Sign out pinned at the bottom (border-top). `aside` is now `h-screen sticky top-0` with the nav region `flex-1 overflow-y-auto` so the footer pins and only the list scrolls on short viewports. Kept the `layoutId="sidebar-active"` animated pill (extracted to a `renderLink` helper). Settings moved out of the groups to the pinned footer.
+- Mobile `MobileNav`: bottom bar is now **2 nav · raised center "+" (navFab) · 1 nav · More** (`primaryNav = slice(0,3)`, was 4). The "More" slide-up sheet groups its overflow items by section using `NAV_GROUP_OF` + `MORE_GROUPS` (Overview/Money/Plan/System labels, `grid-cols-4`). Customize sheet divider moved from index 4→3 and hint switched to `nav.firstThreeItems`. Extracted `renderBottomItem` / `renderMoreItem` helpers.
+- Typed the nav data: `NavItem` type, `NAV_GROUPS`, `SETTINGS_ITEM`, `ALL_MOBILE_NAV: NavItem[]`. Imports `QuickAddTransaction` from `@/app/(app)/dashboard/QuickAddTransaction` and `type LucideIcon`.
+
+**`app/(app)/dashboard/page.tsx`:** Removed the now-duplicate dashboard quick-add — the desktop header `<QuickAddTransaction>` button and the mobile floating FAB (plus the import). Quick-add is global in the nav now. `accounts` is still used by the dashboard calculations.
+
+**Locales:** Added `nav.groupOverview/groupMoney/groupPlan/groupSystem` and `nav.firstThreeItems` to en/vi. (`nav.firstFourItems` left in place, now unused.)
+
+**Notes:**
+- Descoped per user: sidebar user-info block + desktop collapse (old item #9).
+- Modal is a `fixed z-[200]` overlay, so embedding the trigger inside the nav flex doesn't affect layout.
+
+**Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors (pre-existing warnings only); `npm test` 6179/6179 passing; `npm run build` compiled successfully (27/27 pages).
