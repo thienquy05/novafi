@@ -15,6 +15,7 @@ import { transactionsToCsv } from '@/lib/csv';
 import { calcLoanRemaining } from '@/lib/calculations';
 import { loadBatch } from '@/lib/client/api';
 import { buildSplitTx, groupSplits, isOneOffSplit, newOneOffGroupId, resolveSplit, splitRemaining, type SplitGroup } from '@/lib/splits';
+import { validateSplit, buildSplitTransactions, groupLedgerItems, type SplitLine, type SplitGroupView } from '@/lib/tx-split';
 import { motion, AnimatePresence } from 'framer-motion';
 import { EXPENSE_CATEGORIES } from '@/types';
 import type { Transaction, Account, Contact, Loan, Split } from '@/types';
@@ -143,6 +144,14 @@ function roundCents(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+// Ledger ordering: newest date first, then newest creation time (createdAt falls
+// back to id, which is time-sortable). Shared by inserts, edits, and splits.
+function txSort(a: Transaction, b: Transaction): number {
+  const dateCmp = b.date.localeCompare(a.date);
+  if (dateCmp !== 0) return dateCmp;
+  return (b.createdAt ?? b.id).localeCompare(a.createdAt ?? a.id);
+}
+
 // Builds the cash-movement transaction for a loan principal or payback. It's a
 // `transfer` with an external (empty) counterparty so it shifts the account
 // balance WITHOUT counting as income or expense. Cash leaves the account when
@@ -234,6 +243,19 @@ export default function TransactionsPage() {
   const [savingEditGroup, setSavingEditGroup] = useState(false);
   const [expandedSplitGroups, setExpandedSplitGroups] = useState<Set<string>>(new Set());
   const [showSplitHistory, setShowSplitHistory] = useState(false);
+
+  // ── Category split (split one purchase across budget categories — stored as
+  // separate rows sharing a splitGroupId; unrelated to the people-split above) ──
+  const [splitMode, setSplitMode] = useState(false);
+  const [splitShared, setSplitShared] = useState({ date: today(), description: '', account: '' });
+  const [splitLines, setSplitLines] = useState<SplitLine[]>([]);
+  // What this split replaces: a single source row (id), an existing group
+  // (groupId), or nothing (a brand-new split). `total` is the locked amount the
+  // lines must sum to when replacing, so the balance can't drift.
+  const [splitReplace, setSplitReplace] = useState<{ id?: string; groupId?: string; total: number } | null>(null);
+  const [savingSplit, setSavingSplit] = useState(false);
+  const [expandedTxSplits, setExpandedTxSplits] = useState<Set<string>>(new Set());
+
   const toast = useToast();
   const { expenseCategories, incomeCategories, archivedExpenseCategories, archivedIncomeCategories } = useCategories();
   const { t } = useTranslation();
@@ -426,11 +448,6 @@ export default function TransactionsPage() {
       createdAt: editTarget?.createdAt ?? new Date().toISOString(),
     };
 
-    const txSort = (a: Transaction, b: Transaction) => {
-      const dateCmp = b.date.localeCompare(a.date);
-      if (dateCmp !== 0) return dateCmp;
-      return (b.createdAt ?? b.id).localeCompare(a.createdAt ?? a.id);
-    };
     if (editTarget) {
       setTransactions((prev) => prev.map((tx) => tx.id === editTarget.id ? updated : tx));
     } else {
@@ -495,6 +512,123 @@ export default function TransactionsPage() {
       setTransactions(prev);
       toast(t('transactions.toastFailedDelete'), 'error');
     }
+  }
+
+  // ── Category split ──────────────────────────────────────────────────────────
+  function emptySplitLine(): SplitLine {
+    return { id: generateId(), category: expenseCategories[0] ?? 'Food', amount: '' };
+  }
+  function closeSplit() { setSplitMode(false); setSplitLines([]); setSplitReplace(null); }
+  // Brand-new split (from the add modal): start with two blank lines.
+  function openNewSplit() {
+    closeModal();
+    setSplitReplace(null);
+    setSplitShared({ date: form.date || today(), description: form.description, account: form.account });
+    setSplitLines(
+      form.amount
+        ? [{ id: generateId(), category: form.category || (expenseCategories[0] ?? 'Food'), amount: form.amount }, emptySplitLine()]
+        : [emptySplitLine(), emptySplitLine()],
+    );
+    setSplitMode(true);
+  }
+  // Split an existing single expense: lock the total, seed line 1 with the
+  // original category + full amount, line 2 blank to reallocate.
+  function openCatSplitExpense(tx: Transaction) {
+    closeModal();
+    setSplitReplace({ id: tx.id, total: roundCents(tx.amount) });
+    setSplitShared({ date: tx.date, description: tx.description, account: tx.account });
+    setSplitLines([
+      { id: generateId(), category: tx.category, amount: String(tx.amount) },
+      emptySplitLine(),
+    ]);
+    setSplitMode(true);
+  }
+  function openEditCatSplit(group: SplitGroupView) {
+    const first = group.transactions[0];
+    setSplitReplace({ groupId: group.splitGroupId, total: group.total });
+    setSplitShared({ date: first.date, description: first.description, account: first.account });
+    setSplitLines(group.transactions.map((g) => ({ id: generateId(), category: g.category, amount: String(g.amount) })));
+    setSplitMode(true);
+  }
+  function addSplitLine() { setSplitLines((prev) => [...prev, emptySplitLine()]); }
+  function updateSplitLine(id: string, patch: Partial<SplitLine>) {
+    setSplitLines((prev) => prev.map((l) => l.id === id ? { ...l, ...patch } : l));
+  }
+  function removeSplitLine(id: string) {
+    setSplitLines((prev) => prev.length > 2 ? prev.filter((l) => l.id !== id) : prev);
+  }
+
+  const splitValidation = validateSplit(splitLines, splitReplace?.total ?? null);
+
+  async function handleSaveSplit() {
+    if (!splitValidation.ok) return;
+    setSavingSplit(true);
+    const groupId = splitReplace?.groupId ?? generateId();
+    const createdAt = new Date().toISOString();
+    const rows = buildSplitTransactions(
+      { date: splitShared.date, description: splitShared.description, account: splitShared.account, createdAt },
+      splitLines, groupId, generateId,
+    );
+    const replaceId = splitReplace?.id;
+    const replaceGroupId = splitReplace?.groupId;
+    const prev = transactions;
+    setTransactions((txs) => {
+      let next = txs;
+      if (replaceGroupId) next = next.filter((tx) => tx.splitGroupId !== replaceGroupId);
+      if (replaceId) next = next.filter((tx) => tx.id !== replaceId);
+      return [...rows, ...next].sort(txSort);
+    });
+    closeSplit();
+    try {
+      const res = await fetch('/api/transactions', {
+        method: 'POST',
+        body: JSON.stringify({ splits: rows, replaceId, replaceGroupId }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) throw new Error();
+      const data: { accounts?: Account[] } = await res.json().catch(() => ({}));
+      if (data.accounts) setAccounts(data.accounts);
+      else load();
+      toast(t('transactions.toastSplitSaved'), 'success');
+    } catch {
+      setTransactions(prev);
+      toast(t('transactions.toastFailedSave'), 'error');
+      await load();
+    } finally {
+      setSavingSplit(false);
+    }
+  }
+
+  function restoreSplitGroup(rows: Transaction[]) {
+    setTransactions((txs) => [...rows, ...txs].sort(txSort));
+    fetch('/api/transactions', { method: 'POST', body: JSON.stringify({ splits: rows }), headers: { 'Content-Type': 'application/json' } })
+      .then((res) => res.json()).then((data: { accounts?: Account[] }) => { if (data.accounts) setAccounts(data.accounts); })
+      .catch(() => load());
+  }
+
+  async function handleDeleteSplitGroup(group: SplitGroupView) {
+    if (!confirm(t('transactions.confirmDeleteSplit'))) return;
+    const removed = group.transactions;
+    const prev = transactions;
+    setTransactions((txs) => txs.filter((tx) => tx.splitGroupId !== group.splitGroupId));
+    try {
+      const res = await fetch('/api/transactions', { method: 'DELETE', body: JSON.stringify({ groupId: group.splitGroupId }), headers: { 'Content-Type': 'application/json' } });
+      if (!res.ok) throw new Error();
+      const data: { accounts?: Account[] } = await res.json().catch(() => ({}));
+      if (data.accounts) setAccounts(data.accounts);
+      toast(t('transactions.toastDeleted'), 'success', { label: t('common.undo'), onClick: () => restoreSplitGroup(removed) });
+    } catch {
+      setTransactions(prev);
+      toast(t('transactions.toastFailedDelete'), 'error');
+    }
+  }
+
+  function toggleTxSplitExpand(groupId: string) {
+    setExpandedTxSplits((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId); else next.add(groupId);
+      return next;
+    });
   }
 
   // ── Loans / IOUs ──────────────────────────────────────────────────────────
@@ -1745,8 +1879,26 @@ export default function TransactionsPage() {
                 <div className="flex-1 h-px bg-slate-100 dark:bg-slate-800" />
               </div>
               <div className="space-y-2">
-                {txs.map((tx) => (
-                  <SwipeableRow key={tx.id} tx={tx} accountName={accountName} onEdit={openEdit} onDelete={handleDelete} managed={managedTxIds.has(tx.id)} />
+                {groupLedgerItems(txs).map((item) => item.kind === 'group' ? (
+                  <SplitGroupRow
+                    key={item.group.splitGroupId}
+                    group={item.group}
+                    accountName={accountName}
+                    expanded={expandedTxSplits.has(item.group.splitGroupId)}
+                    onToggle={() => toggleTxSplitExpand(item.group.splitGroupId)}
+                    onEdit={() => openEditCatSplit(item.group)}
+                    onDelete={() => handleDeleteSplitGroup(item.group)}
+                  />
+                ) : (
+                  <SwipeableRow
+                    key={item.tx.id}
+                    tx={item.tx}
+                    accountName={accountName}
+                    onEdit={openEdit}
+                    onDelete={handleDelete}
+                    managed={managedTxIds.has(item.tx.id)}
+                    onSplit={item.tx.type === 'expense' && !managedTxIds.has(item.tx.id) ? openCatSplitExpense : undefined}
+                  />
                 ))}
               </div>
             </div>
@@ -1812,22 +1964,92 @@ export default function TransactionsPage() {
               </div>
             );
           })()}
-          {/* Save as template */}
-          {!editTarget && (
-            <button
-              type="button"
-              onClick={saveAsTemplate}
-              className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
-            >
-              <Bookmark className="w-3.5 h-3.5" />
-              {t('transactions.saveAsTemplate')}
-            </button>
-          )}
+          {/* Split / Save-as-template actions (expenses only) */}
+          <div className="flex items-center gap-4 flex-wrap">
+            {!editTarget && (
+              <button
+                type="button"
+                onClick={saveAsTemplate}
+                className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
+              >
+                <Bookmark className="w-3.5 h-3.5" />
+                {t('transactions.saveAsTemplate')}
+              </button>
+            )}
+            {form.type === 'expense' && !editManaged && (
+              <button
+                type="button"
+                onClick={() => editTarget ? openCatSplitExpense(editTarget) : openNewSplit()}
+                className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
+              >
+                <SplitIcon className="w-3.5 h-3.5" />
+                {t('transactions.splitByCategory')}
+              </button>
+            )}
+          </div>
         </div>
         <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={closeModal}>{t('common.cancel')}</Button>
             <Button className="flex-1" onClick={handleSave} disabled={saving || !form.amount}>{saving ? t('common.saving') : editTarget ? t('transactions.saveChanges') : t('transactions.addTransaction')}</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Split-by-category Modal ──────────────────────────────────────── */}
+      <Modal open={splitMode} onClose={closeSplit} title={splitReplace?.groupId ? t('transactions.editSplit') : t('transactions.splitByCategory')}>
+        <div className="space-y-4 pb-4">
+          <div className="flex items-start gap-2.5 text-sm rounded-2xl border border-indigo-200 dark:border-indigo-800/50 bg-indigo-50 dark:bg-indigo-900/20 p-3.5">
+            <SplitIcon className="w-4 h-4 text-indigo-600 dark:text-indigo-400 mt-0.5 shrink-0" />
+            <p className="font-medium text-indigo-800 dark:text-indigo-300">{t('transactions.splitHint')}</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input label={t('common.date')} type="date" value={splitShared.date} onChange={(e) => setSplitShared((s) => ({ ...s, date: e.target.value }))} />
+            <Input label={t('common.description')} placeholder="e.g. Target" value={splitShared.description} onChange={(e) => setSplitShared((s) => ({ ...s, description: e.target.value }))} />
+          </div>
+          <Select
+            label={t('common.account')}
+            value={splitShared.account}
+            options={[{ value: '', label: t('common.nonePlaceholder') }, ...accounts.map((a) => ({ value: a.id, label: a.type === 'credit' || a.type === 'loan' ? `${a.name} (owed: ${formatCurrency(a.balance)})` : `${a.name} (${formatCurrency(a.balance)})` }))]}
+            onChange={(e) => setSplitShared((s) => ({ ...s, account: e.target.value }))}
+          />
+          <div className="space-y-2.5">
+            <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">{t('transactions.splitLines')}</label>
+            {splitLines.map((line) => (
+              <div key={line.id} className="flex gap-2 items-end">
+                <div className="flex-1 min-w-0">
+                  <Select
+                    label={t('common.category')}
+                    value={line.category}
+                    options={expenseCategories.map((c) => ({ value: c, label: c }))}
+                    onChange={(e) => updateSplitLine(line.id, { category: e.target.value })}
+                  />
+                </div>
+                <div className="w-28 shrink-0">
+                  <Input label={t('common.amountUsd')} type="number" inputMode="decimal" min="0" step="0.01" placeholder="0.00" value={line.amount} onChange={(e) => updateSplitLine(line.id, { amount: e.target.value })} />
+                </div>
+                <Button type="button" variant="secondary" className="shrink-0 px-2.5 mb-px h-[42px]" disabled={splitLines.length <= 2} onClick={() => removeSplitLine(line.id)} title={t('common.delete')}><Trash2 className="w-4 h-4" /></Button>
+              </div>
+            ))}
+            <Button type="button" variant="secondary" className="w-full" onClick={addSplitLine}><Plus className="w-4 h-4" />{t('transactions.addSplitLine')}</Button>
+          </div>
+          <div className="flex items-center justify-between text-sm font-bold px-1">
+            <span className="text-slate-500 dark:text-slate-400">{t('transactions.splitTotal')}</span>
+            <span className="text-slate-900 dark:text-slate-100 tabular-nums">{formatCurrency(splitValidation.total)}</span>
+          </div>
+          {splitReplace?.total != null && Math.abs(splitValidation.remaining) > 0.005 && (
+            <p className="text-xs font-bold text-rose-500 dark:text-rose-400 px-1 text-right">
+              {splitValidation.remaining > 0
+                ? t('transactions.splitUnderBy', { amount: formatCurrency(splitValidation.remaining) })
+                : t('transactions.splitOverBy', { amount: formatCurrency(Math.abs(splitValidation.remaining)) })}
+              {' '}({t('transactions.splitMustMatch', { total: formatCurrency(splitReplace.total) })})
+            </p>
+          )}
+        </div>
+        <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+          <div className="flex gap-3">
+            <Button variant="secondary" className="flex-1" onClick={closeSplit}>{t('common.cancel')}</Button>
+            <Button className="flex-1" onClick={handleSaveSplit} disabled={savingSplit || !splitValidation.ok}>{savingSplit ? t('common.saving') : t('transactions.saveSplit')}</Button>
           </div>
         </div>
       </Modal>
@@ -2219,9 +2441,11 @@ type SwipeRowProps = {
   onDelete: (id: string) => void;
   /** Loan/split-owned row: delete is managed from Loans/Splits, so it's locked here. */
   managed?: boolean;
+  /** When set, shows a "split into categories" button (eligible expenses only). */
+  onSplit?: (tx: Transaction) => void;
 };
 
-function SwipeableRow({ tx, accountName, onEdit, onDelete, managed }: SwipeRowProps) {
+function SwipeableRow({ tx, accountName, onEdit, onDelete, managed, onSplit }: SwipeRowProps) {
   return (
     <SwipeToDelete onDelete={() => onDelete(tx.id)} disabled={managed}>
       <div className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 rounded-3xl select-none">
@@ -2240,10 +2464,71 @@ function SwipeableRow({ tx, accountName, onEdit, onDelete, managed }: SwipeRowPr
           <span className={`text-sm font-extrabold whitespace-nowrap ${tx.type === 'income' ? 'text-emerald-600 dark:text-emerald-400' : tx.type === 'transfer' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-900 dark:text-slate-100'}`}>
             {tx.type === 'income' ? '+' : tx.type === 'transfer' ? '' : '-'}{formatCurrency(tx.amount)}
           </span>
+          {onSplit && (
+            <Button variant="ghost" size="icon" title="Split into categories" className="text-slate-400 dark:text-slate-500 h-9 w-9 rounded-xl hover:text-indigo-600 dark:hover:text-indigo-400" onClick={(e) => { e.stopPropagation(); onSplit(tx); }}>
+              <SplitIcon className="w-3.5 h-3.5" />
+            </Button>
+          )}
           <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 h-9 w-9 rounded-xl" onClick={(e) => { e.stopPropagation(); onEdit(tx); }}>
             <Pencil className="w-3.5 h-3.5" />
           </Button>
         </div>
+      </div>
+    </SwipeToDelete>
+  );
+}
+
+// One collapsed ledger entry for a category split: shows the merchant + combined
+// total with a count badge; expands to list each category line. Edit re-opens the
+// split editor; swipe (or the implicit group delete) removes every row at once.
+function SplitGroupRow({ group, accountName, expanded, onToggle, onEdit, onDelete }: {
+  group: SplitGroupView;
+  accountName: (id: string) => string;
+  expanded: boolean;
+  onToggle: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const first = group.transactions[0];
+  const n = group.transactions.length;
+  return (
+    <SwipeToDelete onDelete={onDelete}>
+      <div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 rounded-3xl select-none overflow-hidden">
+        <div className="flex items-center justify-between p-4">
+          <button type="button" onClick={onToggle} className="flex items-center gap-3.5 flex-1 min-w-0 text-left tap-highlight-none">
+            <span className="grid place-items-center w-11 h-11 rounded-2xl bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50 text-indigo-600 dark:text-indigo-400 shrink-0">
+              <SplitIcon className="w-5 h-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{first.description || `${n} categories`}</p>
+              <div className="flex items-center gap-1 mt-0.5">
+                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate min-w-0">
+                  <span className="text-indigo-600 dark:text-indigo-400 font-bold">{n}-way split</span>{first.account ? ` · ${accountName(first.account)}` : ''}
+                </p>
+                <ChevronDown className={`w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+              </div>
+            </div>
+          </button>
+          <div className="flex items-center gap-1.5 ml-3 shrink-0">
+            <span className="text-sm font-extrabold whitespace-nowrap text-slate-900 dark:text-slate-100">-{formatCurrency(group.total)}</span>
+            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 h-9 w-9 rounded-xl" onClick={(e) => { e.stopPropagation(); onEdit(); }}>
+              <Pencil className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </div>
+        {expanded && (
+          <div className="px-4 pb-3 -mt-1 space-y-1.5">
+            {group.transactions.map((g) => (
+              <div key={g.id} className="flex items-center justify-between gap-3 pl-14 pr-1">
+                <div className="flex items-center gap-2 min-w-0">
+                  <CategoryIconBadge category={g.category} type="expense" className="w-7 h-7 rounded-lg" />
+                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 truncate">{g.category}</span>
+                </div>
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">{formatCurrency(g.amount)}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </SwipeToDelete>
   );

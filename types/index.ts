@@ -70,6 +70,10 @@ export interface Transaction {
   account: string;
   toAccount?: string; // for transfers
   createdAt?: string; // ISO timestamp for same-day ordering; absent on pre-existing rows
+  // Category split: one purchase recorded as several rows (each its own category +
+  // amount) sharing this id. Absent/'' = a normal standalone transaction. Distinct
+  // from the people-split (Split type) which shares a cost across contacts.
+  splitGroupId?: string;
 }
 
 export interface Account {

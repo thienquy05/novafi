@@ -272,7 +272,7 @@ export async function getTransactions(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Transactions!A2:I',
+    range: 'Transactions!A2:J',
     valueRenderOption: 'UNFORMATTED_VALUE',
   });
   return (res.data.values ?? []).map(rowToTransaction);
@@ -289,7 +289,13 @@ function rowToTransaction(r: string[]): Transaction {
     account: r[6] ?? '',
     toAccount: r[7] ?? '',
     createdAt: r[8] ?? '',
+    splitGroupId: r[9] ?? '',
   };
+}
+
+// Serialize one transaction to its sheet row (column order = A..J).
+function transactionRow(tx: Transaction): (string | number)[] {
+  return [tx.id, tx.date, tx.description, tx.amount, tx.type, tx.category, tx.account, tx.toAccount ?? '', tx.createdAt ?? '', tx.splitGroupId ?? ''];
 }
 
 export async function addTransaction(
@@ -304,7 +310,27 @@ export async function addTransaction(
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
-      values: [[tx.id, tx.date, tx.description, tx.amount, tx.type, tx.category, tx.account, tx.toAccount ?? '', tx.createdAt ?? '']],
+      values: [transactionRow(tx)],
+    },
+  });
+}
+
+// Appends several transaction rows in a single API call — used to write a split
+// group atomically (one append, all rows share the splitGroupId).
+export async function addTransactions(
+  accessToken: string,
+  spreadsheetId: string,
+  txs: Transaction[]
+): Promise<void> {
+  if (txs.length === 0) return;
+  const sheets = getSheetsClient(accessToken);
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: 'Transactions!A1',
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: {
+      values: txs.map(transactionRow),
     },
   });
 }
@@ -314,7 +340,7 @@ export async function deleteTransaction(
   spreadsheetId: string,
   id: string
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Transactions', id, 'I');
+  await deleteRowById(accessToken, spreadsheetId, 'Transactions', id, 'J');
 }
 
 export async function updateTransaction(
@@ -322,7 +348,7 @@ export async function updateTransaction(
   spreadsheetId: string,
   tx: Transaction
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Transactions', tx.id, 'I');
+  await deleteRowById(accessToken, spreadsheetId, 'Transactions', tx.id, 'J');
   const sheets = getSheetsClient(accessToken);
   await sheets.spreadsheets.values.append({
     spreadsheetId,
@@ -330,7 +356,7 @@ export async function updateTransaction(
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
-      values: [[tx.id, tx.date, tx.description, tx.amount, tx.type, tx.category, tx.account, tx.toAccount ?? '', tx.createdAt ?? '']],
+      values: [transactionRow(tx)],
     },
   });
 }
@@ -1009,7 +1035,7 @@ export async function batchGetBadgesData(
   const ranges = [
     'Bills!A2:L200',
     'Budgets!A2:D200',
-    'Transactions!A2:I',
+    'Transactions!A2:J',
   ];
   const res = await sheets.spreadsheets.values.batchGet({
     spreadsheetId,
@@ -1036,6 +1062,7 @@ export async function batchGetBadgesData(
     account: r[6] ?? '',
     toAccount: r[7] ?? '',
     createdAt: r[8] ?? '',
+    splitGroupId: r[9] ?? '',
   }));
   return { bills, budgets, transactions };
 }
@@ -1080,6 +1107,7 @@ function parseDashboardCore(
     account: r[6] ?? '',
     toAccount: r[7] ?? '',
     createdAt: r[8] ?? '',
+    splitGroupId: r[9] ?? '',
   })) as Transaction[];
   const accounts: Account[] = (vr[2]?.values ?? []).map((r) => ({
     id: String(r[0] ?? ''),
@@ -1124,7 +1152,7 @@ function parseDashboardCore(
  */
 const DASHBOARD_CORE_RANGES = [
   'Paychecks!A2:L',
-  'Transactions!A2:I',
+  'Transactions!A2:J',
   'Accounts!A2:I200',
   'Bills!A2:L200',
   'Budgets!A2:D200',
@@ -1199,7 +1227,7 @@ const BATCHABLE_SHEETS: Record<
   { range: string; parse: (rows: string[][]) => unknown[] }
 > = {
   accounts:     { range: 'Accounts!A2:I200',  parse: (rows) => rows.map(rowToAccount) },
-  transactions: { range: 'Transactions!A2:I', parse: (rows) => rows.map(rowToTransaction) },
+  transactions: { range: 'Transactions!A2:J', parse: (rows) => rows.map(rowToTransaction) },
   bills:        { range: 'Bills!A2:L200',     parse: (rows) => rows.map(rowToBill) },
   paychecks:    { range: 'Paychecks!A2:L',    parse: (rows) => rows.map(rowToPaycheck) },
   budgets:      { range: 'Budgets!A2:E200',   parse: parseBudgets },
