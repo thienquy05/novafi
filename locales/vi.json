@@ -147,7 +147,7 @@
   },
   "heatmap": {
     "noSpend": "Không chi tiêu",
-    "noSpendDays": "{n} ngày không tiêu đồng nào trong tháng",
+    "noSpendDays": "Bạn đã {n} ngày không tiêu tiền",
     "income": "Thu nhập",
     "spent": "Chi tiêu",
     "net": "Ròng",

@@ -147,7 +147,7 @@
   },
   "heatmap": {
     "noSpend": "No spend",
-    "noSpendDays": "{n} spend-free days so far this month",
+    "noSpendDays": "You've gone {n} days without spending",
     "income": "Income",
     "spent": "Spent",
     "net": "Net",
