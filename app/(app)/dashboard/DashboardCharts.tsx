@@ -10,6 +10,7 @@ import { formatCurrency, formatAxisCurrency } from '@/lib/utils';
 import { animate, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from '@/lib/i18n/context';
 import { useIsDark } from '@/hooks/useIsDark';
+import { HelpHint } from '@/components/ui/HelpHint';
 import { NovaAvatar } from './NovaAvatar';
 
 /** Theme-aware colors for recharts SVG props (set via JS, not Tailwind). */
@@ -879,9 +880,15 @@ export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
   return (
     <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700/60 p-5 space-y-4">
       <div className="flex items-center justify-between">
-        <div>
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('charts.financialHealth')}</p>
-          <p className="text-slate-500 dark:text-slate-400 text-xs font-medium mt-0.5">{t('charts.healthScore')}</p>
+        <div className="flex items-start gap-1.5">
+          <div>
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('charts.financialHealth')}</p>
+            <p className="text-slate-500 dark:text-slate-400 text-xs font-medium mt-0.5">{t('charts.healthScore')}</p>
+          </div>
+          <HelpHint label={t('charts.healthHelpTitle')} align="left">
+            <p className="font-bold mb-1.5">{t('charts.healthHelpTitle')}</p>
+            <p>{t('charts.healthHelp')}</p>
+          </HelpHint>
         </div>
         <HealthRing
           score={score}

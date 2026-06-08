@@ -6,7 +6,48 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ## Current Version — NovaFi Web App (Next.js + Google Sheets)
 
-**Last Updated:** May 29, 2026
+**Last Updated:** June 8, 2026
+
+---
+
+## 2026-06-08 — Header dark-mode toggle + Health Score help tooltip (branch claude/blissful-einstein-CH02F)
+
+UI-enhancement pass. Two genuinely-missing items shipped; a survey of the wider
+backlog found that **skeleton loaders**, the **mobile bottom nav bar**, and most
+**empty states** already exist, so they were intentionally skipped (see notes).
+
+**1. Floating dark-mode toggle (was buried in Settings only).**
+- New `components/ui/ThemeToggle.tsx` — a compact sun/moon icon button. Reads/writes
+  the same source of truth as the Settings toggle: the `.dark` class on
+  `<html>` + `localStorage` key `nf_theme` (the key the pre-paint script in
+  `app/layout.tsx` reads), so the two controls stay in sync automatically. State
+  initializes to `null` and resolves from the live DOM class in `useEffect` after
+  mount → no hydration mismatch (server and first client render both show Sun).
+  Animated icon swap via framer-motion `AnimatePresence mode="wait"`.
+- Wired into `components/ui/PageHeader.tsx` so **every section page** gets it for
+  free (PageHeader is used by accounts, transactions, bills, planning, paychecks,
+  reports, savings, settings). Dual placement: mobile instance rides the title row
+  (`ml-auto … md:hidden`); desktop instance sits in the right-hand control cluster
+  next to the page action (`max-md:hidden` to avoid clashing with the base `grid`
+  display utility). The control wrapper is `hidden md:flex` when a page has no
+  `action`, so pages without an action button don't get a stray mobile gap.
+- i18n: added `nav.toggleTheme` (aria/title label) to `locales/en.json` + `vi.json`.
+
+**2. Contextual tooltip on the Financial Health Score.**
+- `app/(app)/dashboard/DashboardCharts.tsx` `FinancialHealthScore` header now has a
+  `HelpHint` (the existing popover primitive, already used on Budget Progress)
+  explaining the 0–100 six-factor weighting and A–F grade cutoffs.
+- i18n: added `charts.healthHelpTitle` + `charts.healthHelp` to both locales.
+
+**Skipped (already implemented — confirmed by code survey):**
+- Skeleton loaders — `components/ui/Skeleton.tsx` + per-route `loading.tsx` on all pages.
+- Mobile bottom nav bar — `MobileNav` in `components/Sidebar.tsx` (3 tabs + raised
+  "+" FAB + slide-up "More" sheet, even user-reorderable).
+- Empty states — accounts/paychecks/bills/transactions/savings/planning all already
+  have them; a few sub-tab empties are bare `<p>` text and could be unified into a
+  shared `EmptyState` component later (deferred, low value).
+
+Verification: `tsc --noEmit` clean, `eslint` 0 errors, `vitest` 346/346 passing.
 
 ---
 
