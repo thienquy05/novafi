@@ -545,7 +545,7 @@ export async function getBills(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Bills!A2:K200',
+    range: 'Bills!A2:L200',
   });
   return (res.data.values ?? []).map(rowToBill);
 }
@@ -567,6 +567,7 @@ function rowToBill(r: string[]): Bill {
     splitContactId,
     splitAmount: splitContactId && r[9] !== undefined && r[9] !== '' ? Number(r[9]) : undefined,
     splitParticipants: parseBillParticipants(r[10]),
+    variable: r[11] === 'true',
   };
 }
 
@@ -591,7 +592,7 @@ export async function upsertBill(
   spreadsheetId: string,
   bill: Bill
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Bills', bill.id, 'K');
+  await deleteRowById(accessToken, spreadsheetId, 'Bills', bill.id, 'L');
   const sheets = getSheetsClient(accessToken);
   const participants = bill.splitParticipants && bill.splitParticipants.length > 0
     ? JSON.stringify(bill.splitParticipants)
@@ -606,6 +607,7 @@ export async function upsertBill(
         bill.id, bill.name, bill.amount, bill.frequency, bill.nextDue,
         bill.account, bill.category, String(bill.isActive),
         bill.splitContactId ?? '', bill.splitAmount ?? '', participants,
+        String(bill.variable ?? false),
       ]],
     },
   });
@@ -1005,7 +1007,7 @@ export async function batchGetBadgesData(
 ): Promise<{ bills: Bill[]; budgets: Budget[]; transactions: Transaction[] }> {
   const sheets = getSheetsClient(accessToken);
   const ranges = [
-    'Bills!A2:K200',
+    'Bills!A2:L200',
     'Budgets!A2:D200',
     'Transactions!A2:I',
   ];
@@ -1124,7 +1126,7 @@ const DASHBOARD_CORE_RANGES = [
   'Paychecks!A2:L',
   'Transactions!A2:I',
   'Accounts!A2:I200',
-  'Bills!A2:K200',
+  'Bills!A2:L200',
   'Budgets!A2:D200',
   'Goals!A2:G200',
   SETTINGS_RANGE,
@@ -1198,7 +1200,7 @@ const BATCHABLE_SHEETS: Record<
 > = {
   accounts:     { range: 'Accounts!A2:I200',  parse: (rows) => rows.map(rowToAccount) },
   transactions: { range: 'Transactions!A2:I', parse: (rows) => rows.map(rowToTransaction) },
-  bills:        { range: 'Bills!A2:K200',     parse: (rows) => rows.map(rowToBill) },
+  bills:        { range: 'Bills!A2:L200',     parse: (rows) => rows.map(rowToBill) },
   paychecks:    { range: 'Paychecks!A2:L',    parse: (rows) => rows.map(rowToPaycheck) },
   budgets:      { range: 'Budgets!A2:E200',   parse: parseBudgets },
   goals:        { range: 'Goals!A2:H200',     parse: parseGoals },

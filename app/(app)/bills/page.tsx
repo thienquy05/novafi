@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Plus, Calendar, CheckCircle2, Circle, AlarmClock, Pencil, RefreshCw, AlertCircle, Banknote, Repeat, Users, UserPlus, HandCoins, Check, Trash2, ChevronDown } from 'lucide-react';
+import { Plus, Calendar, CheckCircle2, Circle, AlarmClock, Pencil, RefreshCw, AlertCircle, Banknote, Repeat, Users, UserPlus, HandCoins, Check, Trash2, ChevronDown, Gauge } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -116,6 +116,7 @@ function nextDueAfter(currentDue: string, frequency: Bill['frequency']): string 
     case 'monthly': d.setMonth(d.getMonth() + 1); break;
     case 'quarterly': d.setMonth(d.getMonth() + 3); break;
     case 'yearly': d.setFullYear(d.getFullYear() + 1); break;
+    case 'once': break; // one-time charge: no next occurrence (the bill is deactivated on pay)
   }
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
@@ -123,7 +124,7 @@ function nextDueAfter(currentDue: string, frequency: Bill['frequency']): string 
 const EMPTY_FORM = {
   name: '', amount: '', frequency: 'monthly' as Bill['frequency'],
   nextDue: today(), account: '', category: 'Bills', isActive: true,
-  splitEnabled: false,
+  splitEnabled: false, variable: false,
 };
 
 // Sentinel option value that opens the inline "add new contact" input.
@@ -384,6 +385,7 @@ export default function BillsPage() {
     monthly: t('common.monthly'),
     quarterly: t('common.quarterly'),
     yearly: t('common.yearly'),
+    once: t('common.oneTime'),
   };
 
   const load = useCallback(async () => {
@@ -418,7 +420,7 @@ export default function BillsPage() {
     setForm({
       name: bill.name, amount: String(bill.amount), frequency: bill.frequency,
       nextDue: bill.nextDue, account: bill.account ?? '', category: bill.category, isActive: bill.isActive,
-      splitEnabled: parts.length > 0,
+      splitEnabled: parts.length > 0, variable: bill.variable === true,
     });
     setBillParticipantRows(parts.length > 0
       ? parts.map((p) => ({ key: generateId(), contactId: p.contactId, amount: String(p.amount), newName: '' }))
@@ -483,6 +485,7 @@ export default function BillsPage() {
       account: form.account,
       category: form.category,
       isActive: editingId ? form.isActive : true,
+      variable: form.variable,
       // New bills use the participants model exclusively; clear legacy fields.
       splitContactId: '',
       splitAmount: undefined,
@@ -518,8 +521,22 @@ export default function BillsPage() {
 
   function closePayModal() { setPayBill(null); }
 
-  async function advanceBillDue(bill: Bill) {
-    const updated: Bill = { ...bill, nextDue: nextDueAfter(bill.nextDue, bill.frequency) };
+  // Advances a bill after it's paid (or skipped). A one-time ('once') bill has no
+  // next occurrence, so it's deactivated instead of rolled forward. For a variable
+  // bill (energy/gas) the stored amount is just an estimate, so when an actual
+  // paid amount is known we refresh the estimate to it — but only for unsplit
+  // bills, where `paidAmount` is the whole charge (on split bills it's just your
+  // share, which must not overwrite the total).
+  async function advanceBillDue(bill: Bill, paidAmount?: number) {
+    const isOnce = bill.frequency === 'once';
+    const refreshEstimate =
+      bill.variable && paidAmount != null && paidAmount > 0 && billParticipants(bill).length === 0;
+    const updated: Bill = {
+      ...bill,
+      nextDue: isOnce ? bill.nextDue : nextDueAfter(bill.nextDue, bill.frequency),
+      isActive: isOnce ? false : bill.isActive,
+      amount: refreshEstimate ? roundCents(paidAmount!) : bill.amount,
+    };
     setBills((prev) => prev.map((b) => b.id === bill.id ? updated : b).sort((x, y) => x.nextDue.localeCompare(y.nextDue)));
     await fetch('/api/bills', { method: 'POST', body: JSON.stringify(updated), headers: { 'Content-Type': 'application/json' } });
   }
@@ -576,7 +593,7 @@ export default function BillsPage() {
       // Confirm the expense wrote before creating the split records, otherwise a
       // failed transaction would leave orphaned "owed to you" entries.
       const txPromise = fetch('/api/transactions', { method: 'POST', body: JSON.stringify(tx), headers: { 'Content-Type': 'application/json' } });
-      const advancePromise = advanceBillDue(payBill);
+      const advancePromise = advanceBillDue(payBill, tx.amount);
       const txRes = await txPromise;
       await advancePromise;
       if (!txRes.ok) throw new Error();
@@ -772,7 +789,7 @@ export default function BillsPage() {
   const activeBills = bills.filter((b) => b.isActive);
   const inactiveBills = bills.filter((b) => !b.isActive);
   const monthlyTotal = activeBills.reduce((s, b) => {
-    const m: Record<Bill['frequency'], number> = { weekly: 52 / 12, biweekly: 26 / 12, monthly: 1, quarterly: 1 / 3, yearly: 1 / 12 };
+    const m: Record<Bill['frequency'], number> = { weekly: 52 / 12, biweekly: 26 / 12, monthly: 1, quarterly: 1 / 3, yearly: 1 / 12, once: 0 };
     return s + myBillShare(b) * m[b.frequency];
   }, 0);
   const overdueBills = activeBills.filter((b) => parseLocalDate(b.nextDue) < todayMidnight);
@@ -948,7 +965,7 @@ export default function BillsPage() {
                           </div>
                         </div>
                         <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto pl-16 sm:pl-0 gap-3 sm:gap-5">
-                          <span className={`text-base font-extrabold ${isUrgent ? 'text-rose-600 dark:text-rose-400' : isDueSoon ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-slate-100'}`}>{formatCurrency(bill.amount)}</span>
+                          <span title={bill.variable ? t('bills.variableAmountHint') : undefined} className={`text-base font-extrabold ${isUrgent ? 'text-rose-600 dark:text-rose-400' : isDueSoon ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-slate-100'}`}>{bill.variable ? '~' : ''}{formatCurrency(bill.amount)}</span>
                           <div className="flex gap-1.5">
                             <button title="Edit" onClick={(e) => { e.stopPropagation(); openEdit(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
                             <button title="Mark paid" onClick={(e) => { e.stopPropagation(); openPayModal(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-xl transition-colors"><CheckCircle2 className="w-4 h-4" /></button>
@@ -972,7 +989,7 @@ export default function BillsPage() {
                     <div className="flex items-center justify-between p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700">
                       <div>
                         <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{bill.name}</p>
-                        <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{FREQUENCY_LABELS[bill.frequency]} · {formatCurrency(bill.amount)}</p>
+                        <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{FREQUENCY_LABELS[bill.frequency]} · {bill.variable ? '~' : ''}{formatCurrency(bill.amount)}</p>
                       </div>
                       <div className="flex gap-1.5">
                         <button title="Edit" onClick={(e) => { e.stopPropagation(); openEdit(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
@@ -1008,6 +1025,12 @@ export default function BillsPage() {
               }</p>
             </div>
           ) : null}
+          {payBill?.variable && billParticipants(payBill).length === 0 && (
+            <div className="flex items-start gap-2.5 px-3.5 py-3 rounded-2xl bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50">
+              <Gauge className="w-4 h-4 text-indigo-600 dark:text-indigo-400 mt-0.5 shrink-0" />
+              <p className="text-xs text-indigo-700 dark:text-indigo-300 font-medium">{t('bills.variablePayHint')}</p>
+            </div>
+          )}
           <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">This will record an expense transaction and save a recurring template for quick re-use.</p>
         </div>
         <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
@@ -1025,7 +1048,7 @@ export default function BillsPage() {
           <Input label={t('bills.billName')} placeholder="e.g. Netflix, Rent, Car Insurance" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
-              label={form.splitEnabled && !billHasTotal && billTotal > 0 ? t('bills.totalAmountAuto') : t('common.amountUsd')}
+              label={form.splitEnabled && !billHasTotal && billTotal > 0 ? t('bills.totalAmountAuto') : form.variable ? t('bills.estimatedAmount') : t('common.amountUsd')}
               type="number" min="0" step="0.01"
               placeholder={form.splitEnabled && !billHasTotal && billTotal > 0 ? billTotal.toFixed(2) : '0.00'}
               value={form.amount}
@@ -1033,6 +1056,20 @@ export default function BillsPage() {
             />
             <Select label={t('common.frequency')} value={form.frequency} options={Object.entries(FREQUENCY_LABELS).map(([value, label]) => ({ value, label }))} onChange={(e) => setForm((f) => ({ ...f, frequency: e.target.value as Bill['frequency'] }))} />
           </div>
+          {/* Variable (flexible) amount — e.g. energy/gas. The amount becomes an
+              estimate; recording a payment refreshes it to the actual charge. */}
+          <label className="flex items-start gap-3 cursor-pointer select-none rounded-2xl border border-slate-200 dark:border-slate-700 p-3.5">
+            <input
+              type="checkbox"
+              checked={form.variable}
+              onChange={(e) => setForm((f) => ({ ...f, variable: e.target.checked }))}
+              className="w-5 h-5 mt-0.5 rounded accent-indigo-600 shrink-0"
+            />
+            <span>
+              <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2"><Gauge className="w-4 h-4" />{t('bills.variableAmount')}</span>
+              <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">{t('bills.variableAmountDesc')}</span>
+            </span>
+          </label>
           <Input label={t('bills.nextDueDate')} type="date" value={form.nextDue} onChange={(e) => setForm((f) => ({ ...f, nextDue: e.target.value }))} />
           <Select label={t('common.category')} value={form.category} options={expenseCategories.map((c) => ({ value: c, label: c }))} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} />
           {accounts.length > 0 && (

@@ -10,6 +10,41 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-06-08 — Flexible bills: variable-amount + one-time (branch claude/intelligent-dirac-t0g3xm)
+
+User asked for "flexible bills" — variable amount each cycle (energy/gas) and a
+one-time non-recurring payment. Both shipped.
+
+- `types/index.ts` — `Bill.frequency` union gains `'once'` (non-recurring); added
+  optional `variable?: boolean`.
+- `lib/sheets.ts` — new **column L** = `variable`. Read range `Bills!A2:K200` →
+  `A2:L200` (all 4 sites: `getBills`, both batchGets, loadBatch registry).
+  `rowToBill` reads `r[11] === 'true'`; `upsertBill` appends `String(bill.variable
+  ?? false)` and its delete `_lastCol` bumped `'K'`→`'L'` (cosmetic — arg unused).
+- `app/(app)/bills/page.tsx`:
+  - `nextDueAfter` `'once'` case = no advance. `FREQUENCY_LABELS` + the
+    monthly-equivalent `m` map (`once: 0`, so one-time bills don't inflate the
+    monthly recurring total) — both `Record<Bill['frequency'],…>` so TS enforced
+    completeness. `EMPTY_FORM` + `openEdit` + `handleSave` carry `variable`.
+  - `advanceBillDue(bill, paidAmount?)` rewritten: a `'once'` bill is **deactivated**
+    (`isActive:false`) instead of rolled forward; a **variable** bill that is NOT
+    split has its `amount` estimate refreshed to the actual `paidAmount` on pay
+    (split bills excluded — there `paidAmount` is only your share). Called from
+    `handleRecordPayment` with `tx.amount`.
+  - Form: new "Variable amount" checkbox (Gauge icon) under the freq row; amount
+    label switches to "Estimated Amount" when variable. One-time is just a freq
+    option. Pay modal shows an indigo variable hint. Bill cards (active + paused)
+    prefix the amount with `~` when variable.
+- i18n (en + vi): `common.oneTime`; `bills.variableAmount/variableAmountDesc/
+  variableAmountHint/estimatedAmount/variablePayHint`.
+
+Note: the **Pay** modal already let you enter any amount per payment, so variable
+amounts worked at pay-time before — this adds the estimate semantics + one-time.
+
+Verification: `tsc` clean, `eslint` 0 errors, 352/352 tests.
+
+---
+
 ## 2026-06-08 — Dark-mode toggle relocated to NovaFi header + budget-bar rollover fix (branch claude/intelligent-dirac-t0g3xm)
 
 Two user-reported items from the enhancement batch (split + flexible-bill items
