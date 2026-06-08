@@ -1,11 +1,12 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { RefreshCw, AlertCircle, BarChart3, TrendingUp, TrendingDown, DollarSign, Calendar } from 'lucide-react';
+import { RefreshCw, AlertCircle, BarChart3, TrendingUp, TrendingDown, DollarSign, Calendar, Download, Printer } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { FitText } from '@/components/ui/FitText';
 import { formatCurrency } from '@/lib/utils';
+import { reportToCsv, reportToHtml, type ReportExportData } from '@/lib/report-export';
 import type { Transaction, Budget } from '@/types';
 import { calcSpendingPace, calcRolloverDeficit, normalizeMonthlyBudget } from '@/lib/calculations';
 import { SpendingPaceWidget } from '../dashboard/SpendingPaceWidget';
@@ -148,6 +149,62 @@ export default function ReportsPage() {
     };
   }, [transactions, budgets, budgetRollover]);
 
+  const exportData: ReportExportData = { year: selectedYear, yearIncome, yearExpense, yearSavings, savingsRate, monthlyData, categoryData, topMerchants };
+  const noData = yearIncome === 0 && yearExpense === 0;
+
+  function handleExportCsv() {
+    const csv = reportToCsv(exportData);
+    // Leading BOM so Excel reads UTF-8 (localized category names) correctly.
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `novafi-report-${selectedYear}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleExportPdf() {
+    const html = reportToHtml(exportData, {
+      title: t('reports.annualReport'),
+      generatedOn: t('reports.generatedOn'),
+      totalIncome: t('reports.totalIncome'),
+      totalSpent: t('reports.totalSpent'),
+      netSaved: t('reports.netSaved'),
+      savingsRate: t('reports.savingsRate'),
+      monthlyBreakdown: t('reports.monthlyBreakdown'),
+      month: t('reports.tableMonth'),
+      income: t('reports.tableIncome'),
+      spent: t('reports.tableSpent'),
+      saved: t('reports.tableSaved'),
+      total: t('reports.tableTotal'),
+      spendingByCategory: t('reports.spendingByCategory'),
+      category: t('reports.exportCategory'),
+      amount: t('reports.exportAmount'),
+      share: t('reports.exportShare'),
+      topMerchants: t('reports.topMerchants'),
+      merchant: t('reports.exportMerchant'),
+      visits: t('reports.exportVisits'),
+    });
+    // Render into an off-screen iframe and print — lets the user "Save as PDF"
+    // with no PDF library and without navigating away.
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+    document.body.appendChild(iframe);
+    const doc = iframe.contentWindow?.document;
+    if (!doc) { iframe.remove(); return; }
+    doc.open();
+    doc.write(html);
+    doc.close();
+    // Give the layout + logo image a tick before printing, then clean up.
+    setTimeout(() => {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+      setTimeout(() => iframe.remove(), 1000);
+    }, 300);
+  }
+
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
       <PageHeader
@@ -156,7 +213,7 @@ export default function ReportsPage() {
         title={t('reports.title')}
         subtitle={t('reports.subtitle')}
         action={
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <div className="flex bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden">
               {years.map((y) => (
                 <button
@@ -168,7 +225,13 @@ export default function ReportsPage() {
                 </button>
               ))}
             </div>
-            <Button variant="secondary" onClick={load} className="shadow-sm">
+            <Button variant="secondary" onClick={handleExportCsv} disabled={noData} className="shadow-sm" title={t('reports.exportCsv')}>
+              <Download className="w-4 h-4" /><span className="hidden sm:inline">CSV</span>
+            </Button>
+            <Button variant="secondary" onClick={handleExportPdf} disabled={noData} className="shadow-sm" title={t('reports.exportPdf')}>
+              <Printer className="w-4 h-4" /><span className="hidden sm:inline">PDF</span>
+            </Button>
+            <Button variant="secondary" onClick={load} className="shadow-sm" title={t('common.refresh')}>
               <RefreshCw className="w-4 h-4" />
             </Button>
           </div>

@@ -6,7 +6,193 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ## Current Version — NovaFi Web App (Next.js + Google Sheets)
 
-**Last Updated:** May 29, 2026
+**Last Updated:** June 8, 2026
+
+---
+
+## 2026-06-08 — NEXT SESSION: Transaction split (category split) — agreed design
+
+Deferred to next session by user decision (this session already shipped 5
+features). **Agreed storage approach: separate rows + group ID** (NOT a single
+row with a JSON splits column).
+
+Plan when picked up:
+- Schema: add a new `splitGroupId` column (J) to the `Transactions` sheet. Each
+  split is a normal transaction row (its own category + amount) sharing the same
+  `splitGroupId`. Update `lib/sheets.ts` ranges `A2:I` → `A2:J`,
+  `rowToTransaction`, `addTransaction`, `updateTransaction`, and the delete
+  column bound (`I` → `J`). Add `splitGroupId?: string` to `types/index.ts`
+  `Transaction`.
+- Why this approach: every existing category/total aggregation (dashboard pie,
+  budgets, reports, health score, account balance, Money Calendar) keeps working
+  unchanged because each split is just a normal transaction. Lowest regression
+  risk.
+- UI: a "Split" mode in the add-transaction flow (transactions page; consider
+  QuickAddTransaction too) — enter N category+amount lines that must sum to the
+  receipt total; write all rows atomically (one append with multiple values).
+  Ledger groups rows by `splitGroupId` into one expandable entry; edit/delete
+  operate on the whole group. Keep account-balance reconciliation correct
+  (sum of splits = receipt total, already naturally handled).
+- Tests: split-sum validation, grouped display, group delete restores balance.
+- Watch out: existing rows have no column J (treat missing as ''); the existing
+  *people* "Split Expense"/`Split` category feature is unrelated — don't conflate.
+
+---
+
+## 2026-06-08 — Money Calendar follow-up: restore + reword no-spend days (branch claude/blissful-einstein-CH02F)
+
+User check: confirmed today's expense still counts in the calendar (today is
+`isToday`, not `isFuture` which is strictly `date > todayIso`), and the 🔥
+no-spend *streak* badge (`dashboard.noSpendStreak`, in the greeting header) was
+never affected. The Money Calendar rewrite had, however, dropped the old footer
+line "{n} no-spend days this month". Restored it as a subtle centered line under
+the Income/Spent/Net summary (only when `noSpendDays > 0`), recomputed in the
+component (`d.total <= 0 && d.date <= todayIso`). Reworded the copy to sound more
+natural: `heatmap.noSpendDays` → "{n} spend-free days so far this month" (EN) /
+"{n} ngày không tiêu đồng nào trong tháng" (VI).
+
+## 2026-06-08 — Dashboard "Money Calendar" (spending heatmap → full month calendar) (branch claude/blissful-einstein-CH02F)
+
+Per user request: fold everything for the month into one calendar — spending,
+income, and bills due (past + upcoming) — with an at-a-glance income/expense
+notice. Enhanced the existing spending heatmap rather than adding a new page.
+
+- `app/(app)/dashboard/SpendingHeatmap.tsx` — `HeatmapDay` now carries
+  `income?` and `bills?: {name, amount}[]` alongside `total` (expense, still
+  drives the heat tint). Each cell shows up to two marker dots: emerald = income
+  that day, amber = bills due. Footer is now dual-mode: with a day selected it
+  lists that day's spent / income / each bill (name + your-share amount); with
+  nothing selected it shows three summary stats for the month — Income / Spent /
+  Net (indigo when ≥0, rose when negative). Added a marker legend
+  (income · bills due · less→more heat). New `DetailRow` + `SummaryStat`
+  subcomponents. Dropped the old no-spend-days footer line (`heatmap.noSpendDays`
+  key now unused but left in place).
+- `app/(app)/dashboard/page.tsx` — calendar data build now also aggregates
+  `dailyIncome` (income transactions) and `dailyBills` (active bills whose
+  `nextDue` is in the current month, `myBillShare(b)` for split bills), and
+  passes them through `heatmapDays`.
+- i18n: `heatmap.income/spent/net/billsDue` (en + vi); retitled the card
+  `dashboard.spendingCalendar` → "Money Calendar" / "Lịch tài chính" with a new
+  subtitle "Spending, income & bills by day".
+
+Verification: `tsc` clean, `eslint` 0 errors, `next build` succeeds, 352/352 tests.
+
+---
+
+## 2026-06-08 — Annual report export: CSV + PDF (branch claude/blissful-einstein-CH02F)
+
+The Reports page (full-year analytics) had no export — CSV existed only on the
+Transactions page (current-month ledger, `lib/csv.ts`). Added a full-year export
+distinct from that ledger export.
+
+- `lib/report-export.ts` (pure, unit-tested):
+  - `reportToCsv(data)` — multi-section RFC-4180 CSV: Summary, Monthly Breakdown
+    (with per-month Saved + totals row), Spending by Category (with % share),
+    Top Merchants. Plain 2-decimal numbers (no currency symbol) for spreadsheets.
+  - `reportToHtml(data, labels)` — self-contained, print-ready HTML doc (brand
+    header w/ icon, KPI cards, tables; `@media print` page-break rules). HTML-
+    escapes user-controlled category/merchant names.
+  - Types: `ReportExportData`, `ReportLabels`.
+- `app/(app)/reports/page.tsx` — CSV + PDF buttons in the PageHeader action row
+  (next to the year selector + refresh; disabled when the selected year has no
+  data). CSV downloads via Blob with a UTF-8 BOM (Excel reads localized names).
+  PDF renders the HTML into an off-screen iframe and calls `print()` so the user
+  can "Save as PDF" — no PDF library, no navigation. Reuses existing `reports.*`
+  i18n labels; added `reports.annualReport/generatedOn/exportCsv/exportPdf/
+  exportCategory/exportAmount/exportShare/exportMerchant/exportVisits` and
+  `common.refresh` (en + vi).
+- `lib/__tests__/report-export.test.ts` — 6 tests (section presence, decimal
+  formatting, per-month saved + totals, category share %, HTML doc + escaping).
+
+Note while surveying the backlog: **net worth projection is already implemented**
+(`calcNetWorthProjection`, 6 months forward, dashed projected series in
+`NetWorthTrendChart` via the `projection` prop) — no work needed.
+
+Verification: `tsc` clean, `eslint` 0 errors, `vitest` 352/352 (was 346).
+
+---
+
+## 2026-06-08 — PWA installability + brand icon redesign (branch claude/blissful-einstein-CH02F)
+
+**PWA (home-screen install, no push yet — push deferred until the recurring-
+transaction notifications discussion).** Followed the Next 16 PWA guide in
+`node_modules/next/dist/docs/01-app/02-guides/progressive-web-apps.md`.
+- `public/manifest.json` upgraded from a single SVG icon to real PNG icons
+  (192, 512, maskable-512) plus the SVG; added `scope: "/"`.
+- PNG icons generated from `public/icon.svg` with **sharp** (already a dep). The
+  maskable variant composites the logo at 76% on a `#0B3B62` field so it survives
+  circular/squircle masking. Re-runnable via a throwaway script (not committed).
+- `public/sw.js` — service worker. Strategy: `/api/*` never handled (always live,
+  never cached financial data); navigations = network-first → cache → offline
+  shell; static assets (`/_next/static`, images, fonts, manifest) =
+  stale-while-revalidate. `VERSION` constant gates cache invalidation.
+- `public/offline.html` — branded offline fallback (inline CSS, dark-mode aware).
+- `components/PWA.tsx` — client component mounted in `app/(app)/layout.tsx`.
+  Registers the SW (production only, to avoid stale dev caches), captures
+  `beforeinstallprompt` for a custom Install button on Chromium, and shows a
+  Share→Add-to-Home-Screen hint on iOS (which has no programmatic install).
+  Hidden when already standalone or after dismissal (`nf_pwa_dismissed`).
+  i18n: new `pwa.*` keys in en + vi.
+- `next.config.ts` — `headers()` for `/sw.js`: correct Content-Type, `no-cache`,
+  and `Service-Worker-Allowed: /` so the SW can control the whole origin.
+
+**Icon redesign ($5000 brief — "creative & unique").** Replaced the old crown
+mark with a **"rising nova"**: a white→silver growth ribbon arcing up-right into a
+glowing golden four-point nova starburst (with two twinkles), on a deep
+indigo→royal-blue→azure squircle with a glassy top sheen. Reads as finance
+(growth curve) + "Nova" (star) and unifies with the app's indigo accent.
+- `public/icon.svg` — new master art (rounded-rect clip, gradients, glow/soft-
+  shadow filters).
+- `app/icon.svg` — synced copy (App Router uses this for the browser-tab icon).
+- `app/favicon.ico` — regenerated (16/32/48 PNG-payload ICO via a small encoder).
+- `public/icon-192/512`, `icon-maskable-512`, `apple-touch-icon.png` — re-rendered.
+- `components/LogoMark.tsx` — in-app sidebar/header logo ported to the new mark
+  (JSX/camelCase SVG, `lm-` prefixed ids).
+- `app/layout.tsx` — `apple-touch-icon` now points to the PNG; `theme-color` meta
+  aligned to `#4f46e5` (was `#1568a3`, mismatched the manifest).
+
+Verification: `tsc` clean, `eslint` 0 errors, `next build` succeeds.
+
+---
+
+## 2026-06-08 — Header dark-mode toggle + Health Score help tooltip (branch claude/blissful-einstein-CH02F)
+
+UI-enhancement pass. Two genuinely-missing items shipped; a survey of the wider
+backlog found that **skeleton loaders**, the **mobile bottom nav bar**, and most
+**empty states** already exist, so they were intentionally skipped (see notes).
+
+**1. Floating dark-mode toggle (was buried in Settings only).**
+- New `components/ui/ThemeToggle.tsx` — a compact sun/moon icon button. Reads/writes
+  the same source of truth as the Settings toggle: the `.dark` class on
+  `<html>` + `localStorage` key `nf_theme` (the key the pre-paint script in
+  `app/layout.tsx` reads), so the two controls stay in sync automatically. State
+  initializes to `null` and resolves from the live DOM class in `useEffect` after
+  mount → no hydration mismatch (server and first client render both show Sun).
+  Animated icon swap via framer-motion `AnimatePresence mode="wait"`.
+- Wired into `components/ui/PageHeader.tsx` so **every section page** gets it for
+  free (PageHeader is used by accounts, transactions, bills, planning, paychecks,
+  reports, savings, settings). Dual placement: mobile instance rides the title row
+  (`ml-auto … md:hidden`); desktop instance sits in the right-hand control cluster
+  next to the page action (`max-md:hidden` to avoid clashing with the base `grid`
+  display utility). The control wrapper is `hidden md:flex` when a page has no
+  `action`, so pages without an action button don't get a stray mobile gap.
+- i18n: added `nav.toggleTheme` (aria/title label) to `locales/en.json` + `vi.json`.
+
+**2. Contextual tooltip on the Financial Health Score.**
+- `app/(app)/dashboard/DashboardCharts.tsx` `FinancialHealthScore` header now has a
+  `HelpHint` (the existing popover primitive, already used on Budget Progress)
+  explaining the 0–100 six-factor weighting and A–F grade cutoffs.
+- i18n: added `charts.healthHelpTitle` + `charts.healthHelp` to both locales.
+
+**Skipped (already implemented — confirmed by code survey):**
+- Skeleton loaders — `components/ui/Skeleton.tsx` + per-route `loading.tsx` on all pages.
+- Mobile bottom nav bar — `MobileNav` in `components/Sidebar.tsx` (3 tabs + raised
+  "+" FAB + slide-up "More" sheet, even user-reorderable).
+- Empty states — accounts/paychecks/bills/transactions/savings/planning all already
+  have them; a few sub-tab empties are bare `<p>` text and could be unified into a
+  shared `EmptyState` component later (deferred, low value).
+
+Verification: `tsc --noEmit` clean, `eslint` 0 errors, `vitest` 346/346 passing.
 
 ---
 

@@ -10,6 +10,7 @@
     "reports": "Reports",
     "settings": "Settings",
     "signOut": "Sign Out",
+    "toggleTheme": "Toggle dark mode",
     "customize": "Customize",
     "navigationOrder": "Navigation Order",
     "resetToDefault": "Reset to Default",
@@ -28,6 +29,7 @@
   "common": {
     "save": "Save",
     "saving": "Saving…",
+    "refresh": "Refresh",
     "cancel": "Cancel",
     "delete": "Delete",
     "undo": "Undo",
@@ -140,12 +142,16 @@
     "savingsRateKPI": "Savings Rate",
     "savingsRateKPINote": "of income saved this month",
     "noSpendStreak": "{n}-day no-spend streak",
-    "spendingCalendar": "Spending Calendar",
-    "spendingCalendarSub": "When your money went"
+    "spendingCalendar": "Money Calendar",
+    "spendingCalendarSub": "Spending, income & bills by day"
   },
   "heatmap": {
     "noSpend": "No spend",
-    "noSpendDays": "{n} no-spend days this month",
+    "noSpendDays": "You've gone {n} days without spending",
+    "income": "Income",
+    "spent": "Spent",
+    "net": "Net",
+    "billsDue": "Bills due",
     "less": "Less",
     "more": "More"
   },
@@ -178,6 +184,8 @@
     "noExpenseData": "no expense data",
     "financialHealth": "Financial Health",
     "healthScore": "6-factor composite score",
+    "healthHelpTitle": "How your score is built",
+    "healthHelp": "A 0–100 score from six weighted factors: savings rate (25), emergency fund (20), debt-to-income (20), budget control (15), net-worth trend (10), and spending stability (10). 85+ is an A, 70+ a B, 55+ a C, 40+ a D. The bars below show how many points each factor earned.",
     "savingsRate": "Savings Rate",
     "budgetControl": "Budget Control",
     "debtToIncome": "Debt-to-Income",
@@ -548,6 +556,15 @@
   "reports": {
     "title": "Annual Report",
     "subtitle": "Year-in-review for your finances",
+    "annualReport": "Annual Report",
+    "generatedOn": "Generated",
+    "exportCsv": "Export CSV",
+    "exportPdf": "Export PDF",
+    "exportCategory": "Category",
+    "exportAmount": "Amount",
+    "exportShare": "% of Spending",
+    "exportMerchant": "Merchant",
+    "exportVisits": "Visits",
     "totalIncome": "Total Income",
     "totalSpent": "Total Spent",
     "netSaved": "Net Saved",
@@ -666,5 +683,12 @@
     "deleteBlocked": "{count} transaction(s) use this category — archive it instead.",
     "archivedSection": "Archived",
     "restoreHint": "Tap to restore"
+  },
+  "pwa": {
+    "installTitle": "Install NovaFi",
+    "installBody": "Add NovaFi to your home screen for a faster, full-screen experience.",
+    "install": "Install",
+    "later": "Not now",
+    "iosHint": "Tap the Share button, then \"Add to Home Screen\" to install NovaFi."
   }
 }

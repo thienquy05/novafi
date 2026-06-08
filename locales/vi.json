@@ -10,6 +10,7 @@
     "reports": "Báo cáo",
     "settings": "Cài đặt",
     "signOut": "Đăng xuất",
+    "toggleTheme": "Chuyển chế độ tối",
     "customize": "Tùy chỉnh",
     "navigationOrder": "Thứ tự điều hướng",
     "resetToDefault": "Đặt lại mặc định",
@@ -28,6 +29,7 @@
   "common": {
     "save": "Lưu",
     "saving": "Đang lưu…",
+    "refresh": "Làm mới",
     "cancel": "Hủy",
     "delete": "Xóa",
     "undo": "Hoàn tác",
@@ -140,12 +142,16 @@
     "savingsRateKPI": "Tỷ lệ tiết kiệm",
     "savingsRateKPINote": "thu nhập tiết kiệm tháng này",
     "noSpendStreak": "chuỗi {n} ngày không chi tiêu",
-    "spendingCalendar": "Lịch chi tiêu",
-    "spendingCalendarSub": "Bạn đã chi tiêu khi nào"
+    "spendingCalendar": "Lịch tài chính",
+    "spendingCalendarSub": "Chi tiêu, thu nhập & hóa đơn theo ngày"
   },
   "heatmap": {
     "noSpend": "Không chi tiêu",
-    "noSpendDays": "{n} ngày không chi tiêu trong tháng",
+    "noSpendDays": "Bạn đã {n} ngày không tiêu tiền",
+    "income": "Thu nhập",
+    "spent": "Chi tiêu",
+    "net": "Ròng",
+    "billsDue": "Hóa đơn đến hạn",
     "less": "Ít",
     "more": "Nhiều"
   },
@@ -178,6 +184,8 @@
     "noExpenseData": "không có dữ liệu chi tiêu",
     "financialHealth": "Sức khỏe tài chính",
     "healthScore": "Điểm tổng hợp 6 yếu tố",
+    "healthHelpTitle": "Cách tính điểm của bạn",
+    "healthHelp": "Điểm từ 0–100 dựa trên sáu yếu tố có trọng số: tỷ lệ tiết kiệm (25), quỹ khẩn cấp (20), nợ trên thu nhập (20), kiểm soát ngân sách (15), xu hướng tài sản ròng (10) và độ ổn định chi tiêu (10). 85+ là A, 70+ là B, 55+ là C, 40+ là D. Các thanh bên dưới cho biết mỗi yếu tố đạt bao nhiêu điểm.",
     "savingsRate": "Tỷ lệ tiết kiệm",
     "budgetControl": "Kiểm soát ngân sách",
     "debtToIncome": "Nợ trên thu nhập",
@@ -548,6 +556,15 @@
   "reports": {
     "title": "Báo cáo năm",
     "subtitle": "Tổng kết tài chính cả năm",
+    "annualReport": "Báo cáo năm",
+    "generatedOn": "Tạo ngày",
+    "exportCsv": "Xuất CSV",
+    "exportPdf": "Xuất PDF",
+    "exportCategory": "Danh mục",
+    "exportAmount": "Số tiền",
+    "exportShare": "% chi tiêu",
+    "exportMerchant": "Cửa hàng",
+    "exportVisits": "Lượt",
     "totalIncome": "Tổng thu nhập",
     "totalSpent": "Tổng chi tiêu",
     "netSaved": "Đã tiết kiệm ròng",
@@ -666,5 +683,12 @@
     "deleteBlocked": "{count} giao dịch đang dùng danh mục này — hãy lưu trữ thay vì xóa.",
     "archivedSection": "Đã lưu trữ",
     "restoreHint": "Chạm để khôi phục"
+  },
+  "pwa": {
+    "installTitle": "Cài đặt NovaFi",
+    "installBody": "Thêm NovaFi vào màn hình chính để trải nghiệm nhanh hơn, toàn màn hình.",
+    "install": "Cài đặt",
+    "later": "Để sau",
+    "iosHint": "Chạm nút Chia sẻ, rồi chọn \"Thêm vào MH chính\" để cài NovaFi."
   }
 }

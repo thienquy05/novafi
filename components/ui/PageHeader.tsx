@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils';
 import type { LucideIcon } from 'lucide-react';
 import type { CardTone } from './Card';
+import { ThemeToggle } from './ThemeToggle';
 
 // Mirrors Card's TONE_TILE language, scaled up for the page-level emblem.
 // Literal class strings are required by Tailwind v4 (no templating from vars).
@@ -55,8 +56,24 @@ export function PageHeader({
             <p className="text-slate-500 dark:text-slate-400 text-sm md:text-base font-medium mt-0.5">{subtitle}</p>
           )}
         </div>
+        {/* Mobile: the toggle rides at the right edge of the title row so it stays
+            reachable even when the action button drops to its own full-width row. */}
+        <ThemeToggle className="ml-auto shrink-0 md:hidden" />
       </div>
-      {action && <div className="flex gap-2 sm:gap-3 w-full md:w-auto shrink-0">{action}</div>}
+      <div
+        className={cn(
+          'items-center gap-2 sm:gap-3 shrink-0',
+          // With an action: full-width row on mobile, inline on desktop.
+          // Without one: only the desktop cluster needs to exist, so stay hidden
+          // on mobile (the toggle already lives in the title row there).
+          action ? 'flex w-full md:w-auto' : 'hidden md:flex',
+        )}
+      >
+        {action}
+        {/* Desktop: sits in the right-hand control cluster next to the page action.
+            max-md:hidden keeps it off mobile without clashing with the base display. */}
+        <ThemeToggle className="max-md:hidden" />
+      </div>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { Sidebar, MobileNav, MobileHeader } from '@/components/Sidebar';
 import { MotionProvider } from '@/components/MotionProvider';
+import { PWA } from '@/components/PWA';
 import { AlertTriangle } from 'lucide-react';
 import { t } from '@/lib/i18n';
 import type { Language } from '@/types';
@@ -62,6 +63,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           {children}
         </main>
         <MobileNav />
+        <PWA />
       </div>
     </MotionProvider>
   );
