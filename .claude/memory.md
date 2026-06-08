@@ -10,6 +10,49 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-06-08 — PWA installability + brand icon redesign (branch claude/blissful-einstein-CH02F)
+
+**PWA (home-screen install, no push yet — push deferred until the recurring-
+transaction notifications discussion).** Followed the Next 16 PWA guide in
+`node_modules/next/dist/docs/01-app/02-guides/progressive-web-apps.md`.
+- `public/manifest.json` upgraded from a single SVG icon to real PNG icons
+  (192, 512, maskable-512) plus the SVG; added `scope: "/"`.
+- PNG icons generated from `public/icon.svg` with **sharp** (already a dep). The
+  maskable variant composites the logo at 76% on a `#0B3B62` field so it survives
+  circular/squircle masking. Re-runnable via a throwaway script (not committed).
+- `public/sw.js` — service worker. Strategy: `/api/*` never handled (always live,
+  never cached financial data); navigations = network-first → cache → offline
+  shell; static assets (`/_next/static`, images, fonts, manifest) =
+  stale-while-revalidate. `VERSION` constant gates cache invalidation.
+- `public/offline.html` — branded offline fallback (inline CSS, dark-mode aware).
+- `components/PWA.tsx` — client component mounted in `app/(app)/layout.tsx`.
+  Registers the SW (production only, to avoid stale dev caches), captures
+  `beforeinstallprompt` for a custom Install button on Chromium, and shows a
+  Share→Add-to-Home-Screen hint on iOS (which has no programmatic install).
+  Hidden when already standalone or after dismissal (`nf_pwa_dismissed`).
+  i18n: new `pwa.*` keys in en + vi.
+- `next.config.ts` — `headers()` for `/sw.js`: correct Content-Type, `no-cache`,
+  and `Service-Worker-Allowed: /` so the SW can control the whole origin.
+
+**Icon redesign ($5000 brief — "creative & unique").** Replaced the old crown
+mark with a **"rising nova"**: a white→silver growth ribbon arcing up-right into a
+glowing golden four-point nova starburst (with two twinkles), on a deep
+indigo→royal-blue→azure squircle with a glassy top sheen. Reads as finance
+(growth curve) + "Nova" (star) and unifies with the app's indigo accent.
+- `public/icon.svg` — new master art (rounded-rect clip, gradients, glow/soft-
+  shadow filters).
+- `app/icon.svg` — synced copy (App Router uses this for the browser-tab icon).
+- `app/favicon.ico` — regenerated (16/32/48 PNG-payload ICO via a small encoder).
+- `public/icon-192/512`, `icon-maskable-512`, `apple-touch-icon.png` — re-rendered.
+- `components/LogoMark.tsx` — in-app sidebar/header logo ported to the new mark
+  (JSX/camelCase SVG, `lm-` prefixed ids).
+- `app/layout.tsx` — `apple-touch-icon` now points to the PNG; `theme-color` meta
+  aligned to `#4f46e5` (was `#1568a3`, mismatched the manifest).
+
+Verification: `tsc` clean, `eslint` 0 errors, `next build` succeeds.
+
+---
+
 ## 2026-06-08 — Header dark-mode toggle + Health Score help tooltip (branch claude/blissful-einstein-CH02F)
 
 UI-enhancement pass. Two genuinely-missing items shipped; a survey of the wider

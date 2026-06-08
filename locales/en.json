@@ -669,5 +669,12 @@
     "deleteBlocked": "{count} transaction(s) use this category — archive it instead.",
     "archivedSection": "Archived",
     "restoreHint": "Tap to restore"
+  },
+  "pwa": {
+    "installTitle": "Install NovaFi",
+    "installBody": "Add NovaFi to your home screen for a faster, full-screen experience.",
+    "install": "Install",
+    "later": "Not now",
+    "iosHint": "Tap the Share button, then \"Add to Home Screen\" to install NovaFi."
   }
 }

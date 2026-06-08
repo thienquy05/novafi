@@ -669,5 +669,12 @@
     "deleteBlocked": "{count} giao dịch đang dùng danh mục này — hãy lưu trữ thay vì xóa.",
     "archivedSection": "Đã lưu trữ",
     "restoreHint": "Chạm để khôi phục"
+  },
+  "pwa": {
+    "installTitle": "Cài đặt NovaFi",
+    "installBody": "Thêm NovaFi vào màn hình chính để trải nghiệm nhanh hơn, toàn màn hình.",
+    "install": "Cài đặt",
+    "later": "Để sau",
+    "iosHint": "Chạm nút Chia sẻ, rồi chọn \"Thêm vào MH chính\" để cài NovaFi."
   }
 }

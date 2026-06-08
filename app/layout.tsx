@@ -39,8 +39,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang={lang} suppressHydrationWarning>
       <head>
-        <meta name="theme-color" content="#1568a3" />
-        <link rel="apple-touch-icon" href="/icon.svg" />
+        <meta name="theme-color" content="#4f46e5" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         {/* Apply stored dark mode class before first paint to prevent flash */}
         <script
           dangerouslySetInnerHTML={{
