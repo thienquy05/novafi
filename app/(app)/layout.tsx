@@ -2,6 +2,7 @@ import { auth, signOut } from '@/lib/auth';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { Sidebar, MobileNav, MobileHeader } from '@/components/Sidebar';
+import { MotionProvider } from '@/components/MotionProvider';
 import { AlertTriangle } from 'lucide-react';
 import { t } from '@/lib/i18n';
 import type { Language } from '@/types';
@@ -53,13 +54,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex flex-col md:flex-row min-h-screen bg-slate-50 dark:bg-slate-900 pb-16 md:pb-0 relative overflow-hidden">
-      <MobileHeader />
-      <Sidebar />
-      <main className="flex-1 min-w-0 overflow-auto relative z-10">
-        {children}
-      </main>
-      <MobileNav />
-    </div>
+    <MotionProvider>
+      <div className="flex flex-col md:flex-row min-h-screen bg-slate-50 dark:bg-slate-900 pb-16 md:pb-0 relative overflow-hidden">
+        <MobileHeader />
+        <Sidebar />
+        <main className="flex-1 min-w-0 overflow-auto relative z-10">
+          {children}
+        </main>
+        <MobileNav />
+      </div>
+    </MotionProvider>
   );
 }

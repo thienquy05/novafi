@@ -3,12 +3,12 @@ import { useEffect, useState } from 'react';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   ComposedChart, BarChart, Bar, Line, XAxis, YAxis, CartesianGrid,
-  AreaChart, Area, ReferenceLine, Legend,
+  Area, ReferenceLine, Legend,
 } from 'recharts';
 import { AlertTriangle, TrendingUp, TrendingDown, Sparkles, DollarSign, Target, Zap } from 'lucide-react';
 import type { SpendingPaceItem } from '@/lib/calculations';
-import { formatCurrency } from '@/lib/utils';
-import { motion } from 'framer-motion';
+import { formatCurrency, formatAxisCurrency } from '@/lib/utils';
+import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from '@/lib/i18n/context';
 import { useIsDark } from '@/hooks/useIsDark';
 
@@ -277,13 +277,18 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
   const cleanData = data.map(d => ({ ...d, name: d.name.replace(/^categories\./, '') }));
   const displayData = isEmpty ? [{ name: t('charts.noExpenseData'), value: 1 }] : cleanData;
   const ready = useChartReady();
+  const reduced = useReducedMotion();
   const c = useIsDark() ? CHART.dark : CHART.light;
   const categoryTotal = data.reduce((s, d) => s + d.value, 0);
   const tCategory = (name: string) => { const k = `categories.${name}`; const r = t(k); return r === k ? name : r; };
 
   return (
     <div className="flex flex-col md:flex-row items-center gap-8 w-full">
-      <div className="w-full md:w-56 h-56 relative">
+      <div
+        className="w-full md:w-56 h-56 relative"
+        role="img"
+        aria-label={isEmpty ? t('charts.noExpenseData') : `${t('charts.total')}: ${formatCurrency(categoryTotal)}`}
+      >
         {!ready ? <div className="w-full h-full rounded-full bg-slate-100 dark:bg-slate-700 animate-pulse" /> : <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
@@ -296,6 +301,7 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
               dataKey="value"
               stroke="none"
               cornerRadius={isEmpty ? 0 : 6}
+              isAnimationActive={!reduced}
             >
               {displayData.map((entry) => (
                 <Cell
@@ -308,9 +314,14 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
             {!isEmpty && <Tooltip content={<CustomTooltip />} cursor={{ fill: 'transparent' }} />}
           </PieChart>
         </ResponsiveContainer>}
-        {isEmpty && (
+        {isEmpty ? (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <span className="text-slate-400 dark:text-slate-500 font-bold text-lg">{formatCurrency(0)}</span>
+          </div>
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{t('charts.total')}</span>
+            <span className="text-lg font-extrabold text-slate-900 dark:text-slate-100 leading-tight">{formatCurrency(categoryTotal)}</span>
           </div>
         )}
       </div>
@@ -354,11 +365,12 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
   const { t } = useTranslation();
   const isEmpty = data.every(d => d.income === 0 && d.expenses === 0);
   const ready = useChartReady();
+  const reduced = useReducedMotion();
   const c = useIsDark() ? CHART.dark : CHART.light;
   const hasNet = data.some((d) => d.net !== undefined);
 
   return (
-    <div className="h-64 w-full mt-4">
+    <figure className="h-64 w-full mt-4" role="img" aria-label={`${t('dashboard.cashFlow')}: ${t('common.income')} vs ${t('common.expenses')}`}>
       {!ready ? <div className="w-full h-full rounded-2xl bg-slate-100 dark:bg-slate-700 animate-pulse" /> : <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} barGap={6}>
           <CartesianGrid strokeDasharray="3 3" stroke={c.grid} vertical={false} />
@@ -373,13 +385,13 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
             tick={{ fill: c.axis, fontSize: 12, fontWeight: 600 }}
             axisLine={false}
             tickLine={false}
-            tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+            tickFormatter={formatAxisCurrency}
             width={60}
           />
           {!isEmpty && <Tooltip content={<BarTooltip />} cursor={{ fill: c.cursor }} />}
           {hasNet && <ReferenceLine y={0} stroke={c.grid} strokeDasharray="4 4" />}
-          <Bar dataKey="income" name={t('common.income')} fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={32} />
-          <Bar dataKey="expenses" name={t('common.expenses')} fill="#f43f5e" radius={[6, 6, 0, 0]} maxBarSize={32} />
+          <Bar dataKey="income" name={t('common.income')} fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={32} isAnimationActive={!reduced} />
+          <Bar dataKey="expenses" name={t('common.expenses')} fill="#f43f5e" radius={[6, 6, 0, 0]} maxBarSize={32} isAnimationActive={!reduced} />
           {hasNet && (
             <Line
               type="monotone"
@@ -389,11 +401,12 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
               strokeWidth={2.5}
               dot={{ r: 3, fill: '#6366f1', strokeWidth: 0 }}
               activeDot={{ r: 5 }}
+              isAnimationActive={!reduced}
             />
           )}
         </ComposedChart>
       </ResponsiveContainer>}
-    </div>
+    </figure>
   );
 }
 
@@ -496,6 +509,65 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM, totalSpend }:
   );
 }
 
+// ── Budget vs Actual (grouped bars) ───────────────────────────────────────────
+
+/** At-a-glance comparison of budget vs spent across all categories. Complements
+ *  BudgetBars (which shows per-category detail) by making cross-category
+ *  magnitudes directly comparable. Spent bar turns rose when over budget. */
+export function BudgetVsActualChart({ data }: { data: BudgetData[] }) {
+  const { t } = useTranslation();
+  const ready = useChartReady();
+  const reduced = useReducedMotion();
+  const c = useIsDark() ? CHART.dark : CHART.light;
+
+  if (data.length < 2) return null;
+
+  const chartData = data
+    .map((b) => ({ category: b.category.replace(/^categories\./, ''), budget: b.budget, spent: b.spent }))
+    .sort((a, b) => b.spent - a.spent);
+  const height = Math.max(140, chartData.length * 52);
+
+  return (
+    <figure
+      className="w-full mb-5 pb-5 border-b border-slate-100 dark:border-slate-700/60"
+      style={{ height: height + 20 }}
+      role="img"
+      aria-label={t('dashboard.budgetProgress')}
+    >
+      {!ready ? <div className="w-full h-full rounded-2xl bg-slate-100 dark:bg-slate-700 animate-pulse" /> : (
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 12, left: 0, bottom: 0 }} barGap={2} barCategoryGap={12}>
+            <CartesianGrid strokeDasharray="3 3" stroke={c.grid} horizontal={false} />
+            <XAxis
+              type="number"
+              tickFormatter={formatAxisCurrency}
+              tick={{ fill: c.axis, fontSize: 11, fontWeight: 600 }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              type="category"
+              dataKey="category"
+              width={88}
+              tick={{ fill: c.axis, fontSize: 11, fontWeight: 700 }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <Tooltip content={<BarTooltip />} cursor={{ fill: c.cursor }} />
+            <Legend wrapperStyle={{ fontSize: 12, fontWeight: 700, paddingTop: 8 }} />
+            <Bar dataKey="budget" name={t('charts.budget')} fill={c.track} radius={[0, 5, 5, 0]} maxBarSize={13} isAnimationActive={!reduced} />
+            <Bar dataKey="spent" name={t('charts.spent')} radius={[0, 5, 5, 0]} maxBarSize={13} isAnimationActive={!reduced}>
+              {chartData.map((d) => (
+                <Cell key={d.category} fill={d.spent > d.budget ? '#f43f5e' : '#6366f1'} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </figure>
+  );
+}
+
 // ── Net Worth Trend Chart ─────────────────────────────────────────────────────
 
 function NetWorthTooltip({ active, payload, label }: { active?: boolean; payload?: { value: number }[]; label?: string }) {
@@ -514,6 +586,7 @@ function NetWorthTooltip({ active, payload, label }: { active?: boolean; payload
 export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]; projection?: { label: string; netWorth?: number; projected?: number }[] }) {
   const { t } = useTranslation();
   const ready = useChartReady();
+  const reduced = useReducedMotion();
   const c = useIsDark() ? CHART.dark : CHART.light;
 
   if (data.length < 2) {
@@ -562,7 +635,7 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
           </span>
         )}
       </div>
-      <div className="h-52 w-full">
+      <figure className="h-52 w-full" role="img" aria-label={`${t('dashboard.netWorthTrend')}: ${formatCurrency(latest)}`}>
         {!ready ? <div className="w-full h-full rounded-2xl bg-slate-100 dark:bg-slate-700 animate-pulse" /> : <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={chartData} margin={{ top: 8, right: 10, left: -10, bottom: 0 }}>
             <defs>
@@ -587,7 +660,7 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
               tick={{ fill: c.axis, fontSize: 12, fontWeight: 600 }}
               axisLine={false}
               tickLine={false}
-              tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+              tickFormatter={formatAxisCurrency}
               width={56}
             />
             <ReferenceLine y={0} stroke={c.grid} strokeDasharray="4 4" />
@@ -601,6 +674,7 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
               dot={{ fill: stroke, strokeWidth: 0, r: 4 }}
               activeDot={{ r: 6, fill: stroke, strokeWidth: 0 }}
               connectNulls={false}
+              isAnimationActive={!reduced}
             />
             {projection && projection.length > 0 && (
               <Line
@@ -612,11 +686,12 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
                 dot={false}
                 activeDot={{ r: 4, fill: stroke, strokeWidth: 0 }}
                 connectNulls
+                isAnimationActive={!reduced}
               />
             )}
           </ComposedChart>
         </ResponsiveContainer>}
-      </div>
+      </figure>
     </div>
   );
 }
@@ -691,6 +766,8 @@ export function EmergencyFundWidget({
 
 export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
   const { t } = useTranslation();
+  const ready = useChartReady();
+  const reduced = useReducedMotion();
   const {
     score, savingsRate, emergencyFundMonths, overBudgetCount, budgetCount,
     dti, netWorthTrendPct, spendingCv, breakdown,
@@ -738,17 +815,26 @@ export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
           <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('charts.financialHealth')}</p>
           <p className="text-slate-500 dark:text-slate-400 text-xs font-medium mt-0.5">{t('charts.healthScore')}</p>
         </div>
-        <div className="text-center">
-          <div
-            className="relative w-16 h-16 flex items-center justify-center rounded-full"
-            style={{
-              background: `conic-gradient(${ringColor} ${score * 3.6}deg, ${ringTrack} 0deg)`,
-            }}
-          >
-            <div className="absolute inset-1.5 bg-white dark:bg-slate-800 rounded-full flex flex-col items-center justify-center">
-              <span className={`text-lg font-extrabold leading-none ${gradeColors[grade]}`}>{grade}</span>
-              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">{score}</span>
-            </div>
+        <div className="relative w-16 h-16" role="img" aria-label={`${t('charts.healthScore')}: ${score}/100 (${grade})`}>
+          <svg viewBox="0 0 64 64" className="w-16 h-16 -rotate-90">
+            <circle cx="32" cy="32" r="28" fill="none" stroke={ringTrack} strokeWidth="6" />
+            <motion.circle
+              cx="32"
+              cy="32"
+              r="28"
+              fill="none"
+              stroke={ringColor}
+              strokeWidth="6"
+              strokeLinecap="round"
+              strokeDasharray={2 * Math.PI * 28}
+              initial={{ strokeDashoffset: 2 * Math.PI * 28 }}
+              animate={{ strokeDashoffset: ready ? (2 * Math.PI * 28) * (1 - Math.max(0, Math.min(100, score)) / 100) : 2 * Math.PI * 28 }}
+              transition={{ duration: reduced ? 0 : 1.1, ease: 'easeOut' }}
+            />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className={`text-lg font-extrabold leading-none ${gradeColors[grade]}`}>{grade}</span>
+            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">{score}</span>
           </div>
         </div>
       </div>

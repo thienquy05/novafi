@@ -18,7 +18,12 @@
     "firstFourItems": "4 mục đầu tiên xuất hiện ở thanh dưới. Phần còn lại trong Thêm.",
     "wealthManagement": "Quản lý tài sản",
     "home": "Trang chủ",
-    "spending": "Chi tiêu"
+    "spending": "Chi tiêu",
+    "groupOverview": "Tổng quan",
+    "groupMoney": "Tiền",
+    "groupPlan": "Kế hoạch",
+    "groupSystem": "Hệ thống",
+    "firstThreeItems": "3 mục đầu tiên xuất hiện ở thanh dưới. Phần còn lại trong Thêm."
   },
   "common": {
     "save": "Lưu",
@@ -62,7 +67,6 @@
     "period": "Kỳ hạn",
     "frequency": "Tần suất",
     "name": "Tên",
-    "type": "Loại",
     "balance": "Số dư",
     "assets": "Tài sản",
     "liabilities": "Nợ phải trả",
@@ -175,7 +179,10 @@
     "overshoot": "vượt dự kiến",
     "allOnTrack": "Tất cả đều đúng hướng",
     "paceOnTrack": "đúng hướng",
-    "projected": "Dự báo"
+    "projected": "Dự báo",
+    "total": "Tổng",
+    "budget": "Ngân sách",
+    "spent": "Đã chi"
   },
   "quickAdd": {
     "title": "Giao dịch mới",

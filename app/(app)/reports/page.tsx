@@ -4,7 +4,7 @@ import { RefreshCw, AlertCircle, BarChart3, TrendingUp, TrendingDown, DollarSign
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { FitText } from '@/components/ui/FitText';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatAxisCurrency } from '@/lib/utils';
 import type { Transaction, Budget } from '@/types';
 import { calcSpendingPace } from '@/lib/calculations';
 import { SpendingPaceWidget } from '../dashboard/DashboardCharts';
@@ -13,6 +13,7 @@ import {
 } from 'recharts';
 import { useTranslation } from '@/lib/i18n/context';
 import { useIsDark } from '@/hooks/useIsDark';
+import { motion, useReducedMotion } from 'framer-motion';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -29,11 +30,6 @@ function useChartReady() {
   return ready;
 }
 
-function fmt(v: number) {
-  if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(0)}k`;
-  return `$${v.toFixed(0)}`;
-}
-
 export default function ReportsPage() {
   const { t } = useTranslation();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -42,6 +38,7 @@ export default function ReportsPage() {
   const [error, setError] = useState(false);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const ready = useChartReady();
+  const reduced = useReducedMotion();
   const c = useIsDark()
     ? { grid: '#334155', axis: '#94a3b8', cursor: 'rgba(148, 163, 184, 0.08)', tip: { background: '#1e293b', color: '#f1f5f9', border: '1px solid #334155' } }
     : { grid: '#e2e8f0', axis: '#64748b', cursor: '#f8fafc', tip: { background: '#ffffff', color: '#0f172a', border: '1px solid #e2e8f0' } };
@@ -259,20 +256,20 @@ export default function ReportsPage() {
             <CardHeader>
               <CardTitle>{t('reports.monthlyCashFlow', { year: selectedYear })}</CardTitle>
             </CardHeader>
-            <div className="h-64 w-full mt-4">
+            <figure className="h-64 w-full mt-4" role="img" aria-label={t('reports.monthlyCashFlow', { year: selectedYear })}>
               {!ready ? <div className="w-full h-full rounded-2xl bg-slate-100 dark:bg-slate-700 animate-pulse" /> : (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={monthlyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} barGap={4}>
                     <CartesianGrid strokeDasharray="3 3" stroke={c.grid} vertical={false} />
                     <XAxis dataKey="month" tick={{ fill: c.axis, fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} dy={10} />
-                    <YAxis tick={{ fill: c.axis, fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} tickFormatter={fmt} width={52} />
+                    <YAxis tick={{ fill: c.axis, fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} tickFormatter={formatAxisCurrency} width={52} />
                     <Tooltip formatter={(v) => formatCurrency(Number(v))} cursor={{ fill: c.cursor }} contentStyle={{ ...c.tip, borderRadius: 16, fontSize: 13, fontWeight: 700 }} itemStyle={{ color: c.tip.color }} labelStyle={{ color: c.tip.color }} />
-                    <Bar dataKey="income" name="Income" fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={28} />
-                    <Bar dataKey="expenses" name="Expenses" fill="#f43f5e" radius={[6, 6, 0, 0]} maxBarSize={28} />
+                    <Bar dataKey="income" name="Income" fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={28} isAnimationActive={!reduced} />
+                    <Bar dataKey="expenses" name="Expenses" fill="#f43f5e" radius={[6, 6, 0, 0]} maxBarSize={28} isAnimationActive={!reduced} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
-            </div>
+            </figure>
           </Card>
 
           {/* Category breakdown + Top merchants */}
@@ -298,9 +295,12 @@ export default function ReportsPage() {
                           </div>
                         </div>
                         <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all duration-700"
-                            style={{ width: `${pct}%`, backgroundColor: CATEGORY_COLORS[c.name] ?? DEFAULT_COLOR }}
+                          <motion.div
+                            className="h-full rounded-full"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${pct}%` }}
+                            transition={{ duration: reduced ? 0 : 0.7, ease: 'easeOut' }}
+                            style={{ backgroundColor: CATEGORY_COLORS[c.name] ?? DEFAULT_COLOR }}
                           />
                         </div>
                       </div>
@@ -315,20 +315,48 @@ export default function ReportsPage() {
               {topMerchants.length === 0 ? (
                 <p className="text-slate-400 dark:text-slate-500 font-medium text-sm py-8 text-center">{t('reports.noMerchantData', { year: selectedYear })}</p>
               ) : (
-                <div className="mt-4 space-y-2 max-h-72 overflow-y-auto hide-scrollbar pr-1">
-                  {topMerchants.map((m, i) => (
-                    <div key={m.name} className="flex items-center justify-between p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <span className="w-6 h-6 rounded-lg bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-xs font-extrabold text-slate-500 dark:text-slate-400 shrink-0">{i + 1}</span>
-                        <div>
-                          <p className="text-sm font-bold text-slate-900 dark:text-slate-100 capitalize">{m.name}</p>
-                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{m.count} {t('reports.transactions')}</p>
-                        </div>
-                      </div>
-                      <span className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(m.total)}</span>
-                    </div>
-                  ))}
-                </div>
+                <figure
+                  className="w-full mt-4"
+                  style={{ height: Math.max(160, topMerchants.length * 38) }}
+                  role="img"
+                  aria-label={t('reports.topMerchants')}
+                >
+                  {!ready ? <div className="w-full h-full rounded-2xl bg-slate-100 dark:bg-slate-700 animate-pulse" /> : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={topMerchants} layout="vertical" margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={c.grid} horizontal={false} />
+                        <XAxis type="number" tickFormatter={formatAxisCurrency} tick={{ fill: c.axis, fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} />
+                        <YAxis
+                          type="category"
+                          dataKey="name"
+                          width={96}
+                          tick={{ fill: c.axis, fontSize: 11, fontWeight: 700 }}
+                          axisLine={false}
+                          tickLine={false}
+                          tickFormatter={(s: string) => {
+                            const cap = s.charAt(0).toUpperCase() + s.slice(1);
+                            return cap.length > 14 ? `${cap.slice(0, 13)}…` : cap;
+                          }}
+                        />
+                        <Tooltip
+                          cursor={{ fill: c.cursor }}
+                          content={({ active, payload }) => {
+                            if (!active || !payload?.length) return null;
+                            const d = payload[0].payload as { name: string; total: number; count: number };
+                            return (
+                              <div className="rounded-2xl px-4 py-3 shadow-xl" style={{ ...c.tip }}>
+                                <p className="text-sm font-bold capitalize" style={{ color: c.tip.color }}>{d.name}</p>
+                                <p className="text-base font-extrabold" style={{ color: c.tip.color }}>{formatCurrency(d.total)}</p>
+                                <p className="text-xs font-medium" style={{ color: c.axis }}>{d.count} {t('reports.transactions')}</p>
+                              </div>
+                            );
+                          }}
+                        />
+                        <Bar dataKey="total" fill="#6366f1" radius={[0, 5, 5, 0]} maxBarSize={22} isAnimationActive={!reduced} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </figure>
               )}
             </Card>
           </div>

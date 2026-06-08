@@ -18,7 +18,12 @@
     "firstFourItems": "First 4 items appear in the bottom bar. The rest go in More.",
     "wealthManagement": "Wealth Management",
     "home": "Home",
-    "spending": "Spending"
+    "spending": "Spending",
+    "groupOverview": "Overview",
+    "groupMoney": "Money",
+    "groupPlan": "Plan",
+    "groupSystem": "System",
+    "firstThreeItems": "First 3 items appear in the bottom bar. The rest go in More."
   },
   "common": {
     "save": "Save",
@@ -62,7 +67,6 @@
     "period": "Period",
     "frequency": "Frequency",
     "name": "Name",
-    "type": "Type",
     "balance": "Balance",
     "assets": "Assets",
     "liabilities": "Liabilities",
@@ -175,7 +179,10 @@
     "overshoot": "overshoot",
     "allOnTrack": "All categories on track",
     "paceOnTrack": "on track",
-    "projected": "Projected"
+    "projected": "Projected",
+    "total": "Total",
+    "budget": "Budget",
+    "spent": "Spent"
   },
   "quickAdd": {
     "title": "New Transaction",
