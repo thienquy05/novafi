@@ -32,17 +32,19 @@ export function SpendingHeatmap({ days, todayIso }: { days: HeatmapDay[]; todayI
   const scale = dark ? HEATMAP_SCALE_DARK : HEATMAP_SCALE;
   const [selected, setSelected] = useState<string | null>(null);
 
-  const { max, monthExpense, monthIncome, leadBlanks, weekdayLabels } = useMemo(() => {
+  const { max, monthExpense, monthIncome, noSpendDays, leadBlanks, weekdayLabels } = useMemo(() => {
     const max = days.reduce((m, d) => Math.max(m, d.total), 0);
     const monthExpense = days.reduce((s, d) => s + d.total, 0);
     const monthIncome = days.reduce((s, d) => s + (d.income ?? 0), 0);
+    // Days up to today with zero spending — a gentle "spend-free" tally.
+    const noSpendDays = days.filter((d) => d.total <= 0 && d.date <= todayIso).length;
     // Align day 1 under its weekday column (0 = Sunday).
     const firstWeekday = days.length ? new Date(days[0].date + 'T00:00:00').getDay() : 0;
     // Localized single-letter weekday headers (Sun..Sat).
     const fmt = new Intl.DateTimeFormat(lang === 'vi' ? 'vi-VN' : 'en-US', { weekday: 'narrow' });
     const weekdayLabels = Array.from({ length: 7 }, (_, i) => fmt.format(new Date(2023, 0, 1 + i)));
-    return { max, monthExpense, monthIncome, leadBlanks: firstWeekday, weekdayLabels };
-  }, [days, lang]);
+    return { max, monthExpense, monthIncome, noSpendDays, leadBlanks: firstWeekday, weekdayLabels };
+  }, [days, todayIso, lang]);
 
   // sqrt curve spreads low/medium days out instead of bunching them near 0.
   const bucket = (total: number) => {
@@ -143,15 +145,22 @@ export function SpendingHeatmap({ days, todayIso }: { days: HeatmapDay[]; todayI
             </div>
           </div>
         ) : (
-          <div className="flex items-stretch gap-2">
-            <SummaryStat label={t('heatmap.income')} value={formatCurrency(monthIncome)} tone="emerald" />
-            <SummaryStat label={t('heatmap.spent')} value={formatCurrency(monthExpense)} tone="rose" />
-            <SummaryStat
-              label={t('heatmap.net')}
-              value={`${monthNet >= 0 ? '+' : ''}${formatCurrency(monthNet)}`}
-              tone={monthNet >= 0 ? 'indigo' : 'rose'}
-            />
-          </div>
+          <>
+            <div className="flex items-stretch gap-2">
+              <SummaryStat label={t('heatmap.income')} value={formatCurrency(monthIncome)} tone="emerald" />
+              <SummaryStat label={t('heatmap.spent')} value={formatCurrency(monthExpense)} tone="rose" />
+              <SummaryStat
+                label={t('heatmap.net')}
+                value={`${monthNet >= 0 ? '+' : ''}${formatCurrency(monthNet)}`}
+                tone={monthNet >= 0 ? 'indigo' : 'rose'}
+              />
+            </div>
+            {noSpendDays > 0 && (
+              <p className="text-center text-[11px] font-semibold text-slate-400 dark:text-slate-500 mt-2">
+                {t('heatmap.noSpendDays', { n: noSpendDays })}
+              </p>
+            )}
+          </>
         )}
 
         {/* Marker legend */}

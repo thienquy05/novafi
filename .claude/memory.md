@@ -39,6 +39,18 @@ Plan when picked up:
 
 ---
 
+## 2026-06-08 — Money Calendar follow-up: restore + reword no-spend days (branch claude/blissful-einstein-CH02F)
+
+User check: confirmed today's expense still counts in the calendar (today is
+`isToday`, not `isFuture` which is strictly `date > todayIso`), and the 🔥
+no-spend *streak* badge (`dashboard.noSpendStreak`, in the greeting header) was
+never affected. The Money Calendar rewrite had, however, dropped the old footer
+line "{n} no-spend days this month". Restored it as a subtle centered line under
+the Income/Spent/Net summary (only when `noSpendDays > 0`), recomputed in the
+component (`d.total <= 0 && d.date <= todayIso`). Reworded the copy to sound more
+natural: `heatmap.noSpendDays` → "{n} spend-free days so far this month" (EN) /
+"{n} ngày không tiêu đồng nào trong tháng" (VI).
+
 ## 2026-06-08 — Dashboard "Money Calendar" (spending heatmap → full month calendar) (branch claude/blissful-einstein-CH02F)
 
 Per user request: fold everything for the month into one calendar — spending,
