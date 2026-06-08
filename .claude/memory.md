@@ -10,6 +10,39 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-06-08 — Annual report export: CSV + PDF (branch claude/blissful-einstein-CH02F)
+
+The Reports page (full-year analytics) had no export — CSV existed only on the
+Transactions page (current-month ledger, `lib/csv.ts`). Added a full-year export
+distinct from that ledger export.
+
+- `lib/report-export.ts` (pure, unit-tested):
+  - `reportToCsv(data)` — multi-section RFC-4180 CSV: Summary, Monthly Breakdown
+    (with per-month Saved + totals row), Spending by Category (with % share),
+    Top Merchants. Plain 2-decimal numbers (no currency symbol) for spreadsheets.
+  - `reportToHtml(data, labels)` — self-contained, print-ready HTML doc (brand
+    header w/ icon, KPI cards, tables; `@media print` page-break rules). HTML-
+    escapes user-controlled category/merchant names.
+  - Types: `ReportExportData`, `ReportLabels`.
+- `app/(app)/reports/page.tsx` — CSV + PDF buttons in the PageHeader action row
+  (next to the year selector + refresh; disabled when the selected year has no
+  data). CSV downloads via Blob with a UTF-8 BOM (Excel reads localized names).
+  PDF renders the HTML into an off-screen iframe and calls `print()` so the user
+  can "Save as PDF" — no PDF library, no navigation. Reuses existing `reports.*`
+  i18n labels; added `reports.annualReport/generatedOn/exportCsv/exportPdf/
+  exportCategory/exportAmount/exportShare/exportMerchant/exportVisits` and
+  `common.refresh` (en + vi).
+- `lib/__tests__/report-export.test.ts` — 6 tests (section presence, decimal
+  formatting, per-month saved + totals, category share %, HTML doc + escaping).
+
+Note while surveying the backlog: **net worth projection is already implemented**
+(`calcNetWorthProjection`, 6 months forward, dashed projected series in
+`NetWorthTrendChart` via the `projection` prop) — no work needed.
+
+Verification: `tsc` clean, `eslint` 0 errors, `vitest` 352/352 (was 346).
+
+---
+
 ## 2026-06-08 — PWA installability + brand icon redesign (branch claude/blissful-einstein-CH02F)
 
 **PWA (home-screen install, no push yet — push deferred until the recurring-

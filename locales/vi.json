@@ -29,6 +29,7 @@
   "common": {
     "save": "Lưu",
     "saving": "Đang lưu…",
+    "refresh": "Làm mới",
     "cancel": "Hủy",
     "delete": "Xóa",
     "undo": "Hoàn tác",
@@ -551,6 +552,15 @@
   "reports": {
     "title": "Báo cáo năm",
     "subtitle": "Tổng kết tài chính cả năm",
+    "annualReport": "Báo cáo năm",
+    "generatedOn": "Tạo ngày",
+    "exportCsv": "Xuất CSV",
+    "exportPdf": "Xuất PDF",
+    "exportCategory": "Danh mục",
+    "exportAmount": "Số tiền",
+    "exportShare": "% chi tiêu",
+    "exportMerchant": "Cửa hàng",
+    "exportVisits": "Lượt",
     "totalIncome": "Tổng thu nhập",
     "totalSpent": "Tổng chi tiêu",
     "netSaved": "Đã tiết kiệm ròng",

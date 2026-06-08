@@ -29,6 +29,7 @@
   "common": {
     "save": "Save",
     "saving": "Saving…",
+    "refresh": "Refresh",
     "cancel": "Cancel",
     "delete": "Delete",
     "undo": "Undo",
@@ -551,6 +552,15 @@
   "reports": {
     "title": "Annual Report",
     "subtitle": "Year-in-review for your finances",
+    "annualReport": "Annual Report",
+    "generatedOn": "Generated",
+    "exportCsv": "Export CSV",
+    "exportPdf": "Export PDF",
+    "exportCategory": "Category",
+    "exportAmount": "Amount",
+    "exportShare": "% of Spending",
+    "exportMerchant": "Merchant",
+    "exportVisits": "Visits",
     "totalIncome": "Total Income",
     "totalSpent": "Total Spent",
     "netSaved": "Net Saved",
