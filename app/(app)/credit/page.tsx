@@ -15,7 +15,7 @@ import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { formatCurrency } from '@/lib/utils';
 import { useToast } from '@/lib/toast';
 import {
-  buildCreditReport, CREDIT_UTIL_TARGET, CREDIT_UTIL_IDEAL,
+  buildCreditReport, CREDIT_UTIL_TARGET, CREDIT_UTIL_IDEAL, daysUntilStatement,
   type CreditUtilStatus, type CreditCardReport,
 } from '@/lib/calculations';
 import type { Account } from '@/types';
@@ -72,11 +72,11 @@ export default function CreditPage() {
   const report = useMemo(() => buildCreditReport(accounts), [accounts]);
   const hasCards = report.cards.length > 0;
 
-  // Persist a single card's credit limit (optimistic, reconcile on failure).
-  // Sends the full account; the API preserves the server-maintained
-  // openingBalance when we leave it as-is.
-  async function saveLimit(account: Account, limit: number) {
-    const updated: Account = { ...account, creditLimit: limit };
+  // Persist a single card's credit fields (limit and/or statement day) —
+  // optimistic, reconcile on failure. Sends the full account; the API preserves
+  // the server-maintained openingBalance when we leave it as-is.
+  async function saveCard(account: Account, patch: Partial<Pick<Account, 'creditLimit' | 'statementDay'>>) {
+    const updated: Account = { ...account, ...patch };
     setAccounts((prev) => prev.map((a) => (a.id === account.id ? updated : a)));
     try {
       const res = await fetch('/api/accounts', {
@@ -158,7 +158,7 @@ export default function CreditPage() {
           <div className="space-y-4">
             <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 px-1">{t('credit.yourCards')}</h2>
             {report.cards.map((c) => (
-              <CreditCardItem key={c.account.id} report={c} onSaveLimit={saveLimit} />
+              <CreditCardItem key={c.account.id} report={c} onSave={saveCard} />
             ))}
           </div>
 
@@ -249,21 +249,31 @@ function UtilBar({ util, barClass }: { util: number; barClass: string }) {
 // ── Single credit card row ────────────────────────────────────────────────────
 function CreditCardItem({
   report,
-  onSaveLimit,
+  onSave,
 }: {
   report: CreditCardReport;
-  onSaveLimit: (account: Account, limit: number) => void;
+  onSave: (account: Account, patch: Partial<Pick<Account, 'creditLimit' | 'statementDay'>>) => void;
 }) {
   const { t } = useTranslation();
   const { account, util, status, available, paydownToTarget, paydownToIdeal } = report;
   const [editing, setEditing] = useState(false);
   const [limitInput, setLimitInput] = useState(account.creditLimit ? String(account.creditLimit) : '');
+  const [stmtInput, setStmtInput] = useState(account.statementDay ? String(account.statementDay) : '');
   const style = status ? STATUS_STYLE[status] : null;
   const owed = Math.max(0, account.balance);
+  const stmtDays = daysUntilStatement(account.statementDay, new Date());
+  const stmtSoon = stmtDays !== null && stmtDays <= 7;
 
-  function submit() {
-    const n = parseNum(limitInput);
-    onSaveLimit(account, n);
+  function resetInputs() {
+    setLimitInput(account.creditLimit ? String(account.creditLimit) : '');
+    setStmtInput(account.statementDay ? String(account.statementDay) : '');
+  }
+  function parseStmt(s: string): number | undefined {
+    const n = parseInt(s, 10);
+    return Number.isFinite(n) && n >= 1 && n <= 31 ? n : undefined;
+  }
+  function submitFull() {
+    onSave(account, { creditLimit: parseNum(limitInput), statementDay: parseStmt(stmtInput) });
     setEditing(false);
   }
 
@@ -302,7 +312,7 @@ function CreditCardItem({
               onChange={(e) => setLimitInput(e.target.value.replace(/[^0-9.]/g, ''))}
               className="flex-1"
             />
-            <Button onClick={submit} disabled={!parseNum(limitInput)} className="shrink-0">{t('credit.save')}</Button>
+            <Button onClick={() => onSave(account, { creditLimit: parseNum(limitInput) })} disabled={!parseNum(limitInput)} className="shrink-0">{t('credit.save')}</Button>
           </div>
         </div>
       ) : (
@@ -318,36 +328,62 @@ function CreditCardItem({
             <UtilBar util={util} barClass={style!.bar} />
           </div>
 
-          {/* Available credit + edit limit */}
-          <div className="flex items-center justify-between gap-3 text-sm">
-            <span className="text-slate-500 dark:text-slate-400 font-medium">
-              {t('credit.availableLine', { amount: formatCurrency(available ?? 0) })}
-            </span>
-            {editing ? (
-              <div className="flex gap-2 items-center">
+          {/* Available credit + statement info + edit */}
+          {editing ? (
+            <div className="rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-4 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
                 <Input
+                  label={t('credit.creditLimit')}
                   type="text"
                   inputMode="decimal"
                   value={limitInput}
                   onChange={(e) => setLimitInput(e.target.value.replace(/[^0-9.]/g, ''))}
-                  className="h-9 w-28"
                 />
-                <Button size="sm" onClick={submit}>{t('credit.save')}</Button>
-                <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setLimitInput(account.creditLimit ? String(account.creditLimit) : ''); }}>{t('credit.cancel')}</Button>
+                <Input
+                  label={t('credit.statementDay')}
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="1–31"
+                  value={stmtInput}
+                  onChange={(e) => setStmtInput(e.target.value.replace(/[^0-9]/g, '').slice(0, 2))}
+                />
               </div>
-            ) : (
+              <p className="text-xs text-slate-400 dark:text-slate-500">{t('credit.statementDayHint')}</p>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={submitFull}>{t('credit.save')}</Button>
+                <Button size="sm" variant="ghost" onClick={() => { setEditing(false); resetInputs(); }}>{t('credit.cancel')}</Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                <span className="text-slate-500 dark:text-slate-400 font-medium">
+                  {t('credit.availableLine', { amount: formatCurrency(available ?? 0) })}
+                </span>
+                {stmtDays !== null && (
+                  <span className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-lg ${stmtSoon ? 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'}`}>
+                    <CalendarClock className="w-3 h-3" />
+                    {stmtDays === 0 ? t('credit.statementToday') : t('credit.statementCloses', { days: stmtDays })}
+                  </span>
+                )}
+              </div>
               <button
                 onClick={() => setEditing(true)}
-                className="inline-flex items-center gap-1.5 font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
+                className="inline-flex items-center gap-1.5 font-semibold text-indigo-600 dark:text-indigo-400 hover:underline shrink-0"
               >
                 <Pencil className="w-3.5 h-3.5" />{t('credit.editLimit')}
               </button>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Actionable paydown guidance */}
           <div className="rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-4 space-y-1.5">
-            {paydownToTarget > 0 ? (
+            {paydownToTarget > 0 && stmtSoon && stmtDays !== null ? (
+              <p className="text-sm font-semibold text-amber-700 dark:text-amber-300 flex items-center gap-2">
+                <CalendarClock className="w-4 h-4 shrink-0" />
+                {t('credit.payBeforeStmt', { amount: formatCurrency(paydownToTarget), card: account.name, days: stmtDays, pct: CREDIT_UTIL_TARGET })}
+              </p>
+            ) : paydownToTarget > 0 ? (
               <p className="text-sm font-semibold text-amber-700 dark:text-amber-300 flex items-center gap-2">
                 <Target className="w-4 h-4 shrink-0" />
                 {t('credit.payToTarget', { amount: formatCurrency(paydownToTarget), pct: CREDIT_UTIL_TARGET })}

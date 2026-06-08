@@ -318,6 +318,69 @@ export function calcHealthGrade(score: number): string {
   return 'F';
 }
 
+/**
+ * Credit Utilization factor (max 15 pts) — added as the 7th health-score factor.
+ * Utilization is a top real-world score driver, so it earns its own weight here.
+ * `null` (no card has a limit set / no revolving debt to manage) returns a
+ * neutral-good 12, matching the "no data" convention of the other factors —
+ * never penalizing a user who simply doesn't carry cards.
+ */
+export function calcCreditUtilizationScore(util: number | null): number {
+  if (util === null) return 12;
+  if (util <= 10)  return 15;
+  if (util <= 20)  return 13;
+  if (util <= 30)  return 11;
+  if (util <= 50)  return 7;
+  if (util <= 75)  return 4;
+  if (util <= 90)  return 2;
+  if (util <= 100) return 1;
+  return 0;
+}
+
+// 7-factor weights, summing to 100. Credit Utilization now shares the "amounts
+// owed" picture with Debt-to-Income (both trimmed from their old standalone
+// weights to make room without inflating the debt emphasis).
+export const HEALTH_WEIGHTS = {
+  savings: 22, emergency: 18, credit: 15, dti: 15, budget: 12, trend: 9, volatility: 9,
+} as const;
+
+export type HealthScoreBreakdown = {
+  savings: number; emergency: number; credit: number; dti: number; budget: number; trend: number; volatility: number;
+};
+
+/**
+ * Composes the final 0–100 health score from the six existing sub-scores (each
+ * passed in at its original max) plus credit utilization. The six are rescaled
+ * from their old maxes to the new HEALTH_WEIGHTS via their quality ratio, credit
+ * uses calcCreditUtilizationScore directly (its max already equals its weight).
+ * The breakdown values are integers that sum EXACTLY to `score`, so the card can
+ * show per-factor contributions that add up.
+ */
+export function composeHealthScore(parts: {
+  savingsScore: number;     // 0..25
+  emergencyScore: number;   // 0..20
+  budgetScore: number;      // 0..15
+  dtiScore: number;         // 0..20
+  trendScore: number;       // 0..10
+  volatilityScore: number;  // 0..10
+  creditUtil: number | null;
+}): { score: number; breakdown: HealthScoreBreakdown } {
+  const w = HEALTH_WEIGHTS;
+  const breakdown: HealthScoreBreakdown = {
+    savings: Math.round((parts.savingsScore / 25) * w.savings),
+    emergency: Math.round((parts.emergencyScore / 20) * w.emergency),
+    credit: calcCreditUtilizationScore(parts.creditUtil),
+    dti: Math.round((parts.dtiScore / 20) * w.dti),
+    budget: Math.round((parts.budgetScore / 15) * w.budget),
+    trend: Math.round((parts.trendScore / 10) * w.trend),
+    volatility: Math.round((parts.volatilityScore / 10) * w.volatility),
+  };
+  const score =
+    breakdown.savings + breakdown.emergency + breakdown.credit + breakdown.dti +
+    breakdown.budget + breakdown.trend + breakdown.volatility;
+  return { score, breakdown };
+}
+
 // ── Credit Utilization (Smart Credit Report) ──────────────────────────────────
 // Credit utilization = balance owed ÷ credit limit. It's the heart of the
 // "amounts owed" factor (~30% of a FICO score) and the single fastest lever a
@@ -441,6 +504,27 @@ export function buildCreditReport(accounts: Account[]): CreditReport {
 // "notice when over" signal surfaced on the Credit nav item).
 export function calcCreditAlerts(accounts: Account[]): number {
   return buildCreditReport(accounts).cardsOverTarget;
+}
+
+// Days until a card's next statement closing date (0 = closes today). Returns
+// null when no statement day is set. Bureaus report the STATEMENT balance, so
+// paying down before this date is what actually lowers reported utilization.
+// `statementDay` is a day-of-month (1–31), clamped to the month's length.
+export function daysUntilStatement(statementDay: number | undefined, today: Date): number | null {
+  if (!statementDay || statementDay < 1 || statementDay > 31) return null;
+  const y = today.getFullYear(), m = today.getMonth(), d = today.getDate();
+  const clampDay = (year: number, month: number) =>
+    Math.min(statementDay, new Date(year, month + 1, 0).getDate()); // last day of that month
+  let sy = y, sm = m;
+  let day = clampDay(sy, sm);
+  if (day < d) { // this month's close already passed → roll to next month
+    sm += 1;
+    if (sm > 11) { sm = 0; sy += 1; }
+    day = clampDay(sy, sm);
+  }
+  const stmt = new Date(sy, sm, day);
+  const todayMid = new Date(y, m, d);
+  return Math.round((stmt.getTime() - todayMid.getTime()) / 86400000);
 }
 
 // ── Transaction Balance Effects ───────────────────────────────────────────────

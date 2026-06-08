@@ -2,6 +2,45 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-08 — Credit deepening: health-score factor, statement dates, util trend, banner notice + dashboard redesign (branch claude/relaxed-albattani-ffio8g)
+
+Implemented all four follow-up ideas plus a dashboard reorganization.
+
+### #1 Credit utilization as a 7th Financial Health Score factor
+- **`lib/calculations.ts`**: `calcCreditUtilizationScore(util|null)` (max 15; null → neutral-good 12), `HEALTH_WEIGHTS` (savings 22 / emergency 18 / credit 15 / dti 15 / budget 12 / trend 9 / volatility 9 = 100), and `composeHealthScore(parts)` which rescales the six existing sub-scores (untouched, so their tests stand) to the new weights and returns a `breakdown` whose integers sum exactly to `score`.
+- **`app/(app)/dashboard/page.tsx`**: replaced the manual 6-factor sum with `composeHealthScore({...subScores, creditUtil})`; passes `creditUtil` + the new breakdown to `FinancialHealthScore`.
+- **`DashboardCharts.tsx`** `FinancialHealthScore`: `HealthScoreData` gains `creditUtil` + `breakdown.credit`; a new "Credit Use" factor row; all maxes now read from `HEALTH_WEIGHTS`.
+
+### #2 Statement-date awareness
+- **`types`/`lib/sheets.ts`**: `Account.statementDay` (1–31) persisted in **Accounts column K** (ranges widened J200→K200 everywhere; `rowToAccount` r[10]; upsert appends it).
+- **`lib/calculations.ts`**: `daysUntilStatement(statementDay, today)` — days to next close (clamps 31 to short months; null when unset).
+- **`/credit` page**: per-card editor now sets limit **and** statement day; shows a "Statement closes in Nd" chip and a statement-aware nudge ("statement closes in Nd — pay $X to report under 30%").
+- **Dashboard credit container**: same statement-aware nudge for the worst card.
+
+### #3 Utilization trend
+- Extended the monthly **NetWorthHistory** snapshot with a `creditUtil` column (E): header, `NET_WORTH_RANGE` A2:D→A2:E, `parseNetWorthRows` r[4] (legacy → null), `appendNetWorthSnapshot` writes it, dashboard snapshot passes `creditReport.overallUtil`. `NetWorthSnapshot.creditUtil?` added.
+- Dashboard builds `utilTrend` (last 6 monthly values + live current) → Sparkline in the credit container.
+
+### #4 Health-banner credit notice
+- **`DashboardCharts.tsx`** `HealthBanner`: new `creditAlerts` prop → an amber "{n} card(s) over 30%" pill beside the existing budget pill. Dashboard passes `creditReport.cardsOverTarget`.
+
+### Dashboard redesign (cleaner, summary-first)
+- Removed the **Month Income** and **Month Spending** KPI tiles (their numbers live in the calendar's month summary). KPI bento is now Net Worth hero (col-span-2, no more row-span-2) + Safe-to-Spend + Savings Rate.
+- Moved the **calendar (big-picture "This Month")** up directly under the KPI bento, paired with the spending pie ("when" + "what"). Removed the old lower pie+calendar row.
+- Replaced the small credit card with a **big-but-brief Credit Utilization container**: left = overall % + bar with 30% marker + utilization trend sparkline + one actionable nudge; right = top-3 per-card mini bars + "+N more on Manage". Renders only when a card has a limit.
+- Removed now-unused vars (incomeDelta/spendingDelta/income+spendingTrend/prevMonth income+spending/ArrowUpRight import).
+
+### Celebrations
+- (from prior commit) unchanged; still fires on crossing below 30%/10%.
+
+### i18n
+- `charts.creditUtil`/`charts.noCards`/`charts.creditOverPill`; `credit.payBeforeStmt`/`trendLabel`/`viewMoreCards`/`statementDay`/`statementDayHint`/`statementCloses`/`statementToday`/`statementSetPrompt` (en + vi).
+
+### Tests
+- `calcCreditUtilizationScore`, `composeHealthScore` (caps at 100, breakdown sums to score, weights sum to 100, null→12), `daysUntilStatement` (this-month / today / roll-over / short-month clamp); updated `parseNetWorthRows` tests for the creditUtil column. Suite **391 passing**.
+
+**Verification:** `npm run typecheck` clean; `npm test` 391/391; `npm run lint` 0 errors (27 pre-existing warnings); `npm run build` succeeds (29 routes). Visual check not run in-env (needs a Google session).
+
 ## 2026-06-08 — Surface credit utilization on the dashboard + celebrate paydowns (branch claude/relaxed-albattani-ffio8g)
 
 Follow-up to the Smart Credit Report below. Brought the credit signal onto the main dashboard and added a delightful milestone, both reusing the existing pure helpers (no new calc logic).

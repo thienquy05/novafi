@@ -5,8 +5,9 @@ import {
   ComposedChart, BarChart, Bar, Line, XAxis, YAxis, CartesianGrid,
   Area, ReferenceLine, Legend,
 } from 'recharts';
-import { AlertTriangle, TrendingUp, Sparkles, DollarSign, Target } from 'lucide-react';
+import { AlertTriangle, TrendingUp, Sparkles, DollarSign, Target, CreditCard } from 'lucide-react';
 import { formatCurrency, formatAxisCurrency } from '@/lib/utils';
+import { HEALTH_WEIGHTS } from '@/lib/calculations';
 import { animate, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from '@/lib/i18n/context';
 import { useIsDark } from '@/hooks/useIsDark';
@@ -72,10 +73,13 @@ export type HealthScoreData = {
   netWorthTrendPct: number | null;
   /** Spending coefficient of variation over the last 3 months. null = insufficient data. */
   spendingCv: number | null;
+  /** Overall credit utilization %, or null when no card has a limit set. */
+  creditUtil: number | null;
   /** Per-component breakdown so the card can show actual point values. */
   breakdown: {
     savings: number;
     emergency: number;
+    credit: number;
     budget: number;
     dti: number;
     trend: number;
@@ -155,12 +159,14 @@ export function HealthBanner({
   daysLeft,
   daysInMonth,
   overBudgetCount,
+  creditAlerts = 0,
 }: {
   monthIncome: number;
   monthSpending: number;
   daysLeft: number;
   daysInMonth: number;
   overBudgetCount: number;
+  creditAlerts?: number; // # of credit cards over the recommended 30% utilization
 }) {
   const { t } = useTranslation();
   const savingsRate = monthIncome > 0 ? Math.max(0, ((monthIncome - monthSpending) / monthIncome) * 100) : 0;
@@ -259,6 +265,12 @@ export function HealthBanner({
           {overBudgetCount > 0 && (
             <span className="text-xs font-bold px-2 py-0.5 rounded-lg bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300">
               {overBudgetCount} over budget
+            </span>
+          )}
+          {creditAlerts > 0 && (
+            <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-lg bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
+              <CreditCard className="w-3 h-3" />
+              {t('charts.creditOverPill', { n: creditAlerts })}
             </span>
           )}
         </div>
@@ -843,7 +855,7 @@ export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
   const { t } = useTranslation();
   const {
     score, savingsRate, emergencyFundMonths, overBudgetCount, budgetCount,
-    dti, netWorthTrendPct, spendingCv, breakdown,
+    dti, netWorthTrendPct, spendingCv, creditUtil, breakdown,
   } = data;
 
   type Grade = 'A' | 'B' | 'C' | 'D' | 'F';
@@ -868,17 +880,18 @@ export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
   const fmtCv = (c: number | null) => c === null ? 'n/a' : `±${(c * 100).toFixed(0)}%`;
 
   const components = [
-    { label: t('charts.savingsRate'),      detail: `${savingsRate.toFixed(0)}%`, score: breakdown.savings, max: 25 },
-    { label: t('charts.emergencyFund'),    detail: `${emergencyFundMonths.toFixed(1)} mo`, score: breakdown.emergency, max: 20 },
+    { label: t('charts.savingsRate'),      detail: `${savingsRate.toFixed(0)}%`, score: breakdown.savings, max: HEALTH_WEIGHTS.savings },
+    { label: t('charts.emergencyFund'),    detail: `${emergencyFundMonths.toFixed(1)} mo`, score: breakdown.emergency, max: HEALTH_WEIGHTS.emergency },
+    { label: t('charts.creditUtil'),       detail: creditUtil === null ? t('charts.noCards') : `${Math.round(creditUtil)}%`, score: breakdown.credit, max: HEALTH_WEIGHTS.credit },
     {
       label: t('charts.budgetControl'),
       detail: budgetCount === 0 ? 'No budgets' : overBudgetCount === 0 ? 'On track' : `${overBudgetCount} over`,
       score: breakdown.budget,
-      max: 15,
+      max: HEALTH_WEIGHTS.budget,
     },
-    { label: t('charts.debtToIncome'),     detail: fmtDti(dti),                 score: breakdown.dti,        max: 20 },
-    { label: t('charts.netWorthTrend'),    detail: fmtTrend(netWorthTrendPct),   score: breakdown.trend,      max: 10 },
-    { label: t('charts.spendingStability'), detail: fmtCv(spendingCv),           score: breakdown.volatility, max: 10 },
+    { label: t('charts.debtToIncome'),     detail: fmtDti(dti),                 score: breakdown.dti,        max: HEALTH_WEIGHTS.dti },
+    { label: t('charts.netWorthTrend'),    detail: fmtTrend(netWorthTrendPct),   score: breakdown.trend,      max: HEALTH_WEIGHTS.trend },
+    { label: t('charts.spendingStability'), detail: fmtCv(spendingCv),           score: breakdown.volatility, max: HEALTH_WEIGHTS.volatility },
   ];
 
   return (

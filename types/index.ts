@@ -90,6 +90,10 @@ export interface Account {
   // Report (utilization = balance ÷ creditLimit). Absent/0 = not set yet (we
   // never invent a denominator — utilization shows as "unknown" until set).
   creditLimit?: number;
+  // Credit cards only: statement closing day-of-month (1–31). Bureaus report the
+  // statement balance, so this drives "pay before your statement closes" nudges.
+  // Absent = not set.
+  statementDay?: number;
 }
 
 export interface Budget {
@@ -225,4 +229,7 @@ export interface NetWorthSnapshot {
   date: string;   // YYYY-MM-DD
   month: string;  // YYYY-MM (dedup key)
   netWorth: number;
+  // Overall credit utilization % captured the same month (Smart Credit Report
+  // trend). null/absent when no card had a limit set at snapshot time.
+  creditUtil?: number | null;
 }
