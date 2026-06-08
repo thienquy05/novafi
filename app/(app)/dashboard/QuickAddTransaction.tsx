@@ -10,6 +10,7 @@ import { generateId, today } from '@/lib/utils';
 import type { Account, Transaction } from '@/types';
 import { useCategories } from '@/hooks/useCategories';
 import { useTranslation } from '@/lib/i18n/context';
+import { Haptics } from '@/lib/haptics';
 
 const EMPTY_FORM = {
   date: today(),
@@ -84,6 +85,7 @@ export function QuickAddTransaction({ accounts: accountsProp, variant = 'header'
       headers: { 'Content-Type': 'application/json' },
     });
 
+    Haptics.success();
     handleClose();
     setSaving(false);
     router.refresh();
@@ -109,7 +111,7 @@ export function QuickAddTransaction({ accounts: accountsProp, variant = 'header'
         </button>
       ) : variant === 'fab' ? (
         <Button
-          onClick={() => setOpen(true)}
+          onClick={() => { Haptics.light(); setOpen(true); }}
           size="icon"
           className="h-14 w-14 rounded-full shadow-[0_8px_30px_rgb(79,70,229,0.3)] bg-indigo-600 hover:bg-indigo-700 text-white"
         >

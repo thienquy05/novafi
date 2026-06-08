@@ -1,16 +1,16 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   ComposedChart, BarChart, Bar, Line, XAxis, YAxis, CartesianGrid,
   Area, ReferenceLine, Legend,
 } from 'recharts';
-import { AlertTriangle, TrendingUp, TrendingDown, Sparkles, DollarSign, Target, Zap } from 'lucide-react';
-import type { SpendingPaceItem } from '@/lib/calculations';
+import { AlertTriangle, TrendingUp, Sparkles, DollarSign, Target } from 'lucide-react';
 import { formatCurrency, formatAxisCurrency } from '@/lib/utils';
-import { motion, useReducedMotion } from 'framer-motion';
+import { animate, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from '@/lib/i18n/context';
 import { useIsDark } from '@/hooks/useIsDark';
+import { NovaAvatar } from './NovaAvatar';
 
 /** Theme-aware colors for recharts SVG props (set via JS, not Tailwind). */
 const CHART = {
@@ -25,6 +25,19 @@ function useChartReady() {
   const [ready, setReady] = useState(false);
   useEffect(() => { setReady(true); }, []);
   return ready;
+}
+
+/** Shared Recharts series animation — a tuned ease-out glide that also re-runs
+ *  when the dataset changes (year/filter switches interpolate bar heights instead
+ *  of snapping). Disabled under prefers-reduced-motion. Spread onto a series:
+ *  `<Bar {...anim} />`. */
+function useChartAnim(duration = 800) {
+  const reduce = useReducedMotion();
+  return {
+    isAnimationActive: !reduce,
+    animationDuration: reduce ? 0 : duration,
+    animationEasing: 'ease-out' as const,
+  };
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -43,7 +56,7 @@ const DEFAULT_COLOR = '#6366f1';
 
 export type CategoryData = { name: string; value: number };
 export type MonthlyData = { month: string; income: number; expenses: number; net?: number };
-export type BudgetData = { category: string; budget: number; spent: number; prevMonthSpent?: number };
+export type BudgetData = { category: string; budget: number; spent: number; prevMonthSpent?: number; rolledOver?: number };
 export type GoalData = { id: string; name: string; icon: string; current: number; target: number; deadline: string };
 export type NetWorthPoint = { month: string; label: string; netWorth: number };
 export type HealthScoreData = {
@@ -138,14 +151,12 @@ export function SavingsRateGauge({ value, note }: { value: number; note?: string
 export function HealthBanner({
   monthIncome,
   monthSpending,
-  safeToSpend,
   daysLeft,
   daysInMonth,
   overBudgetCount,
 }: {
   monthIncome: number;
   monthSpending: number;
-  safeToSpend: number;
   daysLeft: number;
   daysInMonth: number;
   overBudgetCount: number;
@@ -166,6 +177,7 @@ export function HealthBanner({
       bg: 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-800/50',
       iconBg: 'bg-emerald-100 dark:bg-emerald-900/40',
       iconColor: 'text-emerald-600 dark:text-emerald-400',
+      barColor: 'bg-emerald-500',
       titleColor: 'text-emerald-800 dark:text-emerald-300',
       pillBg: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300',
       title: t('charts.greatShape'),
@@ -175,6 +187,7 @@ export function HealthBanner({
       bg: 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200 dark:border-indigo-800/50',
       iconBg: 'bg-indigo-100 dark:bg-indigo-900/40',
       iconColor: 'text-indigo-600 dark:text-indigo-400',
+      barColor: 'bg-indigo-500',
       titleColor: 'text-indigo-800 dark:text-indigo-300',
       pillBg: 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300',
       title: t('charts.lookingGood'),
@@ -184,6 +197,7 @@ export function HealthBanner({
       bg: 'bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800/50',
       iconBg: 'bg-amber-100 dark:bg-amber-900/40',
       iconColor: 'text-amber-600 dark:text-amber-400',
+      barColor: 'bg-amber-500',
       titleColor: 'text-amber-800 dark:text-amber-300',
       pillBg: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300',
       title: t('charts.watchSpending'),
@@ -193,6 +207,7 @@ export function HealthBanner({
       bg: 'bg-rose-50 dark:bg-rose-900/30 border-rose-200 dark:border-rose-800/50',
       iconBg: 'bg-rose-100 dark:bg-rose-900/40',
       iconColor: 'text-rose-600 dark:text-rose-400',
+      barColor: 'bg-rose-500',
       titleColor: 'text-rose-800 dark:text-rose-300',
       pillBg: 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300',
       title: t('charts.overBudget'),
@@ -202,6 +217,7 @@ export function HealthBanner({
       bg: 'bg-slate-50 dark:bg-slate-700/50 border-slate-200 dark:border-slate-700',
       iconBg: 'bg-slate-100 dark:bg-slate-700',
       iconColor: 'text-slate-400 dark:text-slate-500',
+      barColor: 'bg-slate-400',
       titleColor: 'text-slate-700 dark:text-slate-300',
       pillBg: 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400',
       title: t('charts.setUpIncome'),
@@ -210,7 +226,6 @@ export function HealthBanner({
   };
 
   const cfg = configs[status];
-  const { Icon } = cfg;
 
   // Flexible, situation-aware title instead of a single fixed "already over".
   const overByPct = monthIncome > 0 ? (monthSpending - monthIncome) / monthIncome : 0;
@@ -224,12 +239,6 @@ export function HealthBanner({
       : cfg.title;
 
   const cashFlow = monthIncome - monthSpending;
-  const subtitle =
-    monthIncome === 0
-      ? 'Record a paycheck to track your monthly cash flow'
-      : monthSpending > monthIncome
-      ? `${formatCurrency(monthSpending - monthIncome)} over income`
-      : `${formatCurrency(cashFlow)} net · ${formatCurrency(safeToSpend)} free after bills`;
 
   return (
     <motion.div
@@ -237,9 +246,7 @@ export function HealthBanner({
       animate={{ opacity: 1, y: 0 }}
       className={`flex items-center gap-4 px-5 py-4 rounded-3xl border ${cfg.bg}`}
     >
-      <div className={`p-2.5 rounded-2xl shrink-0 ${cfg.iconBg}`}>
-        <Icon className={`w-5 h-5 ${cfg.iconColor}`} />
-      </div>
+      <NovaAvatar status={status} size={56} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5 flex-wrap">
           <p className={`text-base font-extrabold ${cfg.titleColor}`}>{title}</p>
@@ -254,13 +261,21 @@ export function HealthBanner({
             </span>
           )}
         </div>
-        <p className="text-sm font-medium text-slate-600 dark:text-slate-300 truncate">{subtitle}</p>
+        {monthIncome === 0 ? (
+          <p className="text-sm font-medium text-slate-600 dark:text-slate-300">{t('charts.recordPaycheckHint')}</p>
+        ) : monthSpending > monthIncome ? (
+          <p className="text-sm font-medium text-slate-600 dark:text-slate-300">{t('charts.overIncome', { amount: formatCurrency(monthSpending - monthIncome) })}</p>
+        ) : (
+          <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
+            <span className="font-bold text-slate-900 dark:text-slate-100">{formatCurrency(cashFlow)}</span> {t('charts.netLabel')}
+          </p>
+        )}
       </div>
       <div className="text-right shrink-0">
         <p className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{daysLeft}d left</p>
         <div className="w-16 bg-slate-200 dark:bg-slate-600 rounded-full h-1.5 mt-1">
           <div
-            className={`h-1.5 rounded-full transition-all ${cfg.iconColor.replace('text-', 'bg-')}`}
+            className={`h-1.5 rounded-full transition-all ${cfg.barColor}`}
             style={{ width: `${Math.round(((daysInMonth - daysLeft) / daysInMonth) * 100)}%` }}
           />
         </div>
@@ -277,8 +292,8 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
   const cleanData = data.map(d => ({ ...d, name: d.name.replace(/^categories\./, '') }));
   const displayData = isEmpty ? [{ name: t('charts.noExpenseData'), value: 1 }] : cleanData;
   const ready = useChartReady();
-  const reduced = useReducedMotion();
   const c = useIsDark() ? CHART.dark : CHART.light;
+  const anim = useChartAnim(700);
   const categoryTotal = data.reduce((s, d) => s + d.value, 0);
   const tCategory = (name: string) => { const k = `categories.${name}`; const r = t(k); return r === k ? name : r; };
 
@@ -301,7 +316,7 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
               dataKey="value"
               stroke="none"
               cornerRadius={isEmpty ? 0 : 6}
-              isAnimationActive={!reduced}
+              {...anim}
             >
               {displayData.map((entry) => (
                 <Cell
@@ -365,8 +380,8 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
   const { t } = useTranslation();
   const isEmpty = data.every(d => d.income === 0 && d.expenses === 0);
   const ready = useChartReady();
-  const reduced = useReducedMotion();
   const c = useIsDark() ? CHART.dark : CHART.light;
+  const anim = useChartAnim(800);
   const hasNet = data.some((d) => d.net !== undefined);
 
   return (
@@ -390,8 +405,8 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
           />
           {!isEmpty && <Tooltip content={<BarTooltip />} cursor={{ fill: c.cursor }} />}
           {hasNet && <ReferenceLine y={0} stroke={c.grid} strokeDasharray="4 4" />}
-          <Bar dataKey="income" name={t('common.income')} fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={32} isAnimationActive={!reduced} />
-          <Bar dataKey="expenses" name={t('common.expenses')} fill="#f43f5e" radius={[6, 6, 0, 0]} maxBarSize={32} isAnimationActive={!reduced} />
+          <Bar dataKey="income" name={t('common.income')} fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={32} {...anim} />
+          <Bar dataKey="expenses" name={t('common.expenses')} fill="#f43f5e" radius={[6, 6, 0, 0]} maxBarSize={32} {...anim} animationBegin={anim.isAnimationActive ? 120 : 0} />
           {hasNet && (
             <Line
               type="monotone"
@@ -401,7 +416,7 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
               strokeWidth={2.5}
               dot={{ r: 3, fill: '#6366f1', strokeWidth: 0 }}
               activeDot={{ r: 5 }}
-              isAnimationActive={!reduced}
+              {...anim}
             />
           )}
         </ComposedChart>
@@ -430,14 +445,18 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM, totalSpend }:
   return (
     <div className="space-y-5">
       {data.map((b, i) => {
-        const pct = b.budget > 0 ? Math.min(100, (b.spent / b.budget) * 100) : 0;
-        const over = b.spent > b.budget;
-        const remaining = b.budget - b.spent;
+        // Usage includes any rolled-over deficit from last month; the cap itself
+        // stays fixed. Mirrors the Planning page so summaries agree.
+        const rolledOver = b.rolledOver ?? 0;
+        const usage = b.spent + rolledOver;
+        const pct = b.budget > 0 ? Math.min(100, (usage / b.budget) * 100) : 0;
+        const over = usage > b.budget;
+        const remaining = b.budget - usage;
 
-        // Projected spend: (spent / daysElapsed) * totalDays
+        // Projected spend: (spent / daysElapsed) * totalDays, plus carried deficit
         const totalDays = (daysLeft ?? 0) + (daysElapsed ?? 0);
         const projected = daysElapsed && daysElapsed > 0 && totalDays > 0
-          ? (b.spent / daysElapsed) * totalDays
+          ? (b.spent / daysElapsed) * totalDays + rolledOver
           : null;
         const willOvershoot = projected !== null && projected > b.budget && !over;
 
@@ -451,15 +470,20 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM, totalSpend }:
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{b.category.replace(/^categories\./, '')}</span>
-                {totalSpend && totalSpend > 0 && b.spent > 0 && (
+                {totalSpend != null && totalSpend > 0 && b.spent > 0 && (
                   <span className="text-xs font-bold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-700/50 px-1.5 py-0.5 rounded-md">
                     {((b.spent / totalSpend) * 100).toFixed(0)}%
+                  </span>
+                )}
+                {rolledOver > 0 && (
+                  <span className="text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 rounded-md">
+                    +{formatCurrency(rolledOver)} {t('planning.rolledOver')}
                   </span>
                 )}
               </div>
               <div className="text-right">
                 <span className={`text-sm font-extrabold ${over ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>
-                  {formatCurrency(b.spent)}
+                  {formatCurrency(usage)}
                 </span>
                 <span className="text-xs font-bold text-slate-400 dark:text-slate-500"> / {formatCurrency(b.budget)}</span>
               </div>
@@ -486,7 +510,9 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM, totalSpend }:
               <div className="flex items-center gap-2">
                 {showMoM && b.prevMonthSpent !== undefined && (
                   (() => {
-                    const diff = b.spent - b.prevMonthSpent;
+                    // Compare last month against this month's effective usage (spent +
+                    // rolled-over deficit), mirroring the Planning page so the two agree.
+                    const diff = usage - b.prevMonthSpent;
                     if (Math.abs(diff) < 0.5) return <span className="text-xs font-bold text-slate-400 dark:text-slate-500">{t('charts.sameAsLastMo')}</span>;
                     return (
                       <span className={`text-xs font-bold ${diff > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
@@ -586,8 +612,8 @@ function NetWorthTooltip({ active, payload, label }: { active?: boolean; payload
 export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]; projection?: { label: string; netWorth?: number; projected?: number }[] }) {
   const { t } = useTranslation();
   const ready = useChartReady();
-  const reduced = useReducedMotion();
   const c = useIsDark() ? CHART.dark : CHART.light;
+  const anim = useChartAnim(900);
 
   if (data.length < 2) {
     return (
@@ -674,7 +700,7 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
               dot={{ fill: stroke, strokeWidth: 0, r: 4 }}
               activeDot={{ r: 6, fill: stroke, strokeWidth: 0 }}
               connectNulls={false}
-              isAnimationActive={!reduced}
+              {...anim}
             />
             {projection && projection.length > 0 && (
               <Line
@@ -686,7 +712,7 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
                 dot={false}
                 activeDot={{ r: 4, fill: stroke, strokeWidth: 0 }}
                 connectNulls
-                isAnimationActive={!reduced}
+                {...anim}
               />
             )}
           </ComposedChart>
@@ -764,10 +790,52 @@ export function EmergencyFundWidget({
 
 // ── Financial Health Score ─────────────────────────────────────────────────────
 
+/**
+ * The composite-score gauge: a conic-gradient arc that sweeps from 0 to the score
+ * while the number counts up to match. An 'A' grade earns a soft emerald glow.
+ * Driven imperatively (refs + framer `animate`) so the per-frame updates don't
+ * re-render. Honors reduced-motion by painting the final state instantly.
+ */
+function HealthRing({
+  score, grade, ringColor, ringTrack, gradeColor,
+}: {
+  score: number; grade: string; ringColor: string; ringTrack: string; gradeColor: string;
+}) {
+  const reduce = useReducedMotion();
+  const ringRef = useRef<HTMLDivElement>(null);
+  const numRef = useRef<HTMLSpanElement>(null);
+  const isA = grade === 'A';
+
+  useEffect(() => {
+    const ring = ringRef.current, num = numRef.current;
+    if (!ring || !num) return;
+    const paint = (v: number) => {
+      ring.style.background = `conic-gradient(${ringColor} ${v * 3.6}deg, ${ringTrack} 0deg)`;
+      num.textContent = String(Math.round(v));
+    };
+    if (reduce) { paint(score); return; }
+    const controls = animate(0, score, { duration: 1.4, ease: 'easeOut', onUpdate: paint });
+    return () => controls.stop();
+  }, [score, ringColor, ringTrack, reduce]);
+
+  return (
+    <div className="text-center">
+      <div
+        ref={ringRef}
+        className="relative w-16 h-16 flex items-center justify-center rounded-full"
+        style={{ background: `conic-gradient(${ringColor} ${reduce ? score * 3.6 : 0}deg, ${ringTrack} 0deg)` }}
+      >
+        <div className="absolute inset-1.5 bg-white dark:bg-slate-800 rounded-full flex flex-col items-center justify-center">
+          <span className={`text-lg font-extrabold leading-none ${gradeColor} ${isA ? 'drop-shadow-[0_0_10px_rgba(16,185,129,0.55)]' : ''}`}>{grade}</span>
+          <span ref={numRef} className="text-[10px] font-bold text-slate-400 dark:text-slate-500">{reduce ? score : 0}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
   const { t } = useTranslation();
-  const ready = useChartReady();
-  const reduced = useReducedMotion();
   const {
     score, savingsRate, emergencyFundMonths, overBudgetCount, budgetCount,
     dti, netWorthTrendPct, spendingCv, breakdown,
@@ -815,28 +883,13 @@ export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
           <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('charts.financialHealth')}</p>
           <p className="text-slate-500 dark:text-slate-400 text-xs font-medium mt-0.5">{t('charts.healthScore')}</p>
         </div>
-        <div className="relative w-16 h-16" role="img" aria-label={`${t('charts.healthScore')}: ${score}/100 (${grade})`}>
-          <svg viewBox="0 0 64 64" className="w-16 h-16 -rotate-90">
-            <circle cx="32" cy="32" r="28" fill="none" stroke={ringTrack} strokeWidth="6" />
-            <motion.circle
-              cx="32"
-              cy="32"
-              r="28"
-              fill="none"
-              stroke={ringColor}
-              strokeWidth="6"
-              strokeLinecap="round"
-              strokeDasharray={2 * Math.PI * 28}
-              initial={{ strokeDashoffset: 2 * Math.PI * 28 }}
-              animate={{ strokeDashoffset: ready ? (2 * Math.PI * 28) * (1 - Math.max(0, Math.min(100, score)) / 100) : 2 * Math.PI * 28 }}
-              transition={{ duration: reduced ? 0 : 1.1, ease: 'easeOut' }}
-            />
-          </svg>
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className={`text-lg font-extrabold leading-none ${gradeColors[grade]}`}>{grade}</span>
-            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">{score}</span>
-          </div>
-        </div>
+        <HealthRing
+          score={score}
+          grade={grade}
+          ringColor={ringColor}
+          ringTrack={ringTrack}
+          gradeColor={gradeColors[grade]}
+        />
       </div>
       <div className="space-y-2.5">
         {components.map((c) => {
@@ -949,104 +1002,6 @@ export function GoalsSummary({ data }: { data: GoalData[] }) {
         <a href="/planning?tab=goals" className="text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-400 block text-center pt-2 pb-1 transition-colors">
           {t('charts.viewMoreGoals', { n: data.length - 3 })}
         </a>
-      )}
-    </div>
-  );
-}
-
-// ── Spending Pace Widget ──────────────────────────────────────────────────────
-
-export function SpendingPaceWidget({ data, daysLeft }: { data: SpendingPaceItem[]; daysLeft: number }) {
-  const { t } = useTranslation();
-  if (data.length === 0) return null;
-
-  const atRisk = data.filter((d) => d.status === 'atRisk').sort((a, b) => b.overshootAmt - a.overshootAmt);
-  const over = data.filter((d) => d.status === 'over');
-  const onTrack = data.filter((d) => d.status === 'onTrack');
-  const alerts = [...over, ...atRisk];
-
-  return (
-    <div className="space-y-3">
-      {/* Summary row */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {alerts.length === 0 ? (
-          <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/30 px-3 py-1.5 rounded-full border border-emerald-100 dark:border-emerald-800/50">
-            <Zap className="w-3 h-3" />{t('charts.allOnTrack')}
-          </span>
-        ) : (
-          <>
-            {over.length > 0 && (
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-900/30 px-3 py-1.5 rounded-full border border-rose-100 dark:border-rose-800/50">
-                <AlertTriangle className="w-3 h-3" />{over.length} {t('charts.overBudget')}
-              </span>
-            )}
-            {atRisk.length > 0 && (
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 px-3 py-1.5 rounded-full border border-amber-100 dark:border-amber-800/50">
-                <TrendingUp className="w-3 h-3" />{atRisk.length} {t('charts.atRisk')}
-              </span>
-            )}
-            {onTrack.length > 0 && (
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/50 px-3 py-1.5 rounded-full border border-slate-100 dark:border-slate-700/60">
-                <Zap className="w-3 h-3" />{onTrack.length} {t('charts.paceOnTrack')}
-              </span>
-            )}
-          </>
-        )}
-        <span className="text-xs font-medium text-slate-400 dark:text-slate-500 ml-auto">{daysLeft}d left</span>
-      </div>
-
-      {/* Alert list */}
-      {alerts.length > 0 && (
-        <div className="space-y-2">
-          {alerts.slice(0, 4).map((item) => {
-            const isOver = item.status === 'over';
-            const pct = item.budget > 0 ? Math.min(100, (item.spent / item.budget) * 100) : 0;
-            return (
-              <div key={item.category} className={`p-3 rounded-2xl border ${isOver ? 'bg-rose-50/60 dark:bg-rose-900/20 border-rose-100 dark:border-rose-800/50' : 'bg-amber-50/60 dark:bg-amber-900/20 border-amber-100 dark:border-amber-800/50'}`}>
-                <div className="flex items-center justify-between mb-1.5">
-                  <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{item.category}</p>
-                  <div className="text-right">
-                    <p className={`text-xs font-extrabold ${isOver ? 'text-rose-600 dark:text-rose-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                      {isOver
-                        ? `-${formatCurrency(item.spent - item.budget)} over`
-                        : `~+${formatCurrency(item.overshootAmt)} projected`}
-                    </p>
-                  </div>
-                </div>
-                <div className="w-full bg-white/80 dark:bg-slate-900/40 rounded-full h-1.5 overflow-hidden">
-                  <div
-                    className={`h-full rounded-full ${isOver ? 'bg-rose-500' : 'bg-amber-500'}`}
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-                <div className="flex items-center justify-between mt-1">
-                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                    {formatCurrency(item.spent)} / {formatCurrency(item.budget)}
-                  </p>
-                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                    {formatCurrency(item.pace)}/day
-                  </p>
-                </div>
-              </div>
-            );
-          })}
-          {alerts.length > 4 && (
-            <a href="/planning" className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-400 block text-center pt-1 transition-colors">
-              +{alerts.length - 4} more → Planning
-            </a>
-          )}
-        </div>
-      )}
-
-      {/* On-track list (compact) */}
-      {onTrack.length > 0 && alerts.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 pt-1">
-          {onTrack.map((item) => (
-            <span key={item.category} className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/50 px-2.5 py-1 rounded-full border border-slate-100 dark:border-slate-700/60">
-              <TrendingDown className="w-2.5 h-2.5 text-emerald-500 dark:text-emerald-400" />{item.category}
-            </span>
-          ))}
-        </div>
       )}
     </div>
   );

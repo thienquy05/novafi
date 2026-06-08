@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap, RefreshCw, AlertCircle, GripVertical } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { HelpHint } from '@/components/ui/HelpHint';
@@ -17,6 +18,7 @@ import { Reorder, useDragControls } from 'framer-motion';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useTranslation } from '@/lib/i18n/context';
+import { loadBatch } from '@/lib/client/api';
 
 const PERIOD_OPTIONS = [
   { value: 'monthly', label: 'Monthly' },
@@ -71,13 +73,11 @@ export default function PlanningPage() {
   const load = useCallback(async () => {
     setError(false);
     try {
-      const [bRes, gRes, tRes, aRes, sRes] = await Promise.all([
-        fetch('/api/budgets'), fetch('/api/goals'), fetch('/api/transactions'), fetch('/api/accounts'), fetch('/api/settings'),
-      ]);
-      if (!bRes.ok || !gRes.ok) throw new Error();
-      const [b, g, tx, a, s] = await Promise.all([bRes.json(), gRes.json(), tRes.json(), aRes.json(), sRes.json()]);
-      setBudgets(b); setGoals(g); setTransactions(tx); setAccounts(a);
-      setRolloverEnabled(s?.budgetRollover === true);
+      // One /api/batch round trip instead of five separate Sheets reads.
+      const { budgets, goals, transactions, accounts, settings } =
+        await loadBatch(['budgets', 'goals', 'transactions', 'accounts', 'settings']);
+      setBudgets(budgets); setGoals(goals); setTransactions(transactions); setAccounts(accounts);
+      setRolloverEnabled(settings?.budgetRollover === true);
     } catch {
       setError(true);
     } finally {
@@ -170,11 +170,13 @@ export default function PlanningPage() {
     if (!budgetForm.amount) return;
     setSaving(true);
     const sameCategory = budgets.find((b) => b.category === budgetForm.category && b.id !== editBudget?.id);
+    const base = editBudget ?? sameCategory;
     const budget: Budget = {
-      id: editBudget?.id ?? sameCategory?.id ?? generateId(),
+      id: base?.id ?? generateId(),
       category: budgetForm.category,
       amount: parseFloat(budgetForm.amount),
       period: budgetForm.period,
+      position: base?.position,
     };
     // Optimistic
     const isExisting = budgets.some((b) => b.id === budget.id);
@@ -296,14 +298,12 @@ export default function PlanningPage() {
   }
 
   // ─── Rollover helper ─────────────────────────────────────────────────────
-  // Last month's overspend that carries into this month's usage. Measured
-  // against `prevCap` — the cap that was actually active last month, frozen by
-  // the server at month rollover — so editing the cap today never fabricates a
-  // deficit. Only applies when the snapshot is for the immediately prior month.
+  // When the Budget Rollover setting is on, the cap stays FIXED and only last
+  // month's OVERSPEND carries into this month's usage (returns ≥ 0). An
+  // underspend carries nothing — a new month starts at 0 used.
   function rolledOverDeficit(budget: Budget): number {
     if (!rolloverEnabled) return 0;
-    if (budget.prevMonth !== prevMonthKey || budget.prevCap === undefined) return 0;
-    return calcRolloverDeficit(budget.prevCap, prevSpentForCategory(budget.category));
+    return calcRolloverDeficit(monthlyAmount(budget), prevSpentForCategory(budget.category));
   }
 
   // ─── Derived stats ───────────────────────────────────────────────────────
@@ -337,10 +337,13 @@ export default function PlanningPage() {
         </div>
       )}
       {/* Header */}
-      <div className="mb-4 md:mb-6">
-        <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{t('planning.title')}</h1>
-        <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mt-1">{t('planning.subtitle', { daysLeft })}</p>
-      </div>
+      <PageHeader
+        icon={Target}
+        tone="purple"
+        className="mb-4 md:mb-6"
+        title={t('planning.title')}
+        subtitle={t('planning.subtitle', { daysLeft })}
+      />
 
       {/* Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -420,14 +423,17 @@ export default function PlanningPage() {
             ) : (
               <Reorder.Group axis="y" values={budgets} onReorder={handleBudgetReorder} className="space-y-3 list-none">
                 {budgets.map((budget) => {
-                  const monthly = monthlyAmount(budget);            // fixed cap (no rollover added)
-                  const rolledOver = rolledOverDeficit(budget);     // ≥ 0, last month's real overspend
+                  const monthly = monthlyAmount(budget);            // fixed cap (rollover never changes it)
+                  const rolledOver = rolledOverDeficit(budget);     // ≥ 0, last month's overspend carried in
                   const spent = spentForCategory(budget.category);  // actual spend this month
                   const usage = calcEffectiveSpent(spent, rolledOver); // bar usage incl. rolled-over deficit
                   const prevSpent = prevSpentForCategory(budget.category);
                   const rollingAvg = rolling3AvgForCategory(budget.category);
                   const categoryPct = totalMonthSpend > 0 && spent > 0 ? (spent / totalMonthSpend) * 100 : 0;
-                  const momDiff = spent - prevSpent;
+                  // Compare last month against this month's effective usage — the
+                  // rolled-over deficit counts as current-month usage, so the
+                  // "vs last mo" figure reflects the bar the user actually sees.
+                  const momDiff = usage - prevSpent;
                   const pct = monthly > 0 ? Math.min(100, (usage / monthly) * 100) : 0;
                   const over = usage > monthly;
                   const remaining = monthly - usage;

@@ -1,8 +1,11 @@
 import { cn } from '@/lib/utils';
 
 export function Skeleton({ className }: { className?: string }) {
+  // `shimmer` carries its own base tint + sweeping highlight (see globals.css),
+  // so we drop the old `animate-pulse bg-*`. Every layout-exact skeleton below
+  // composes this primitive, so they all upgrade with no further edits.
   return (
-    <div className={cn('animate-pulse rounded-2xl bg-slate-100 dark:bg-slate-700/50', className)} />
+    <div className={cn('shimmer rounded-2xl', className)} />
   );
 }
 

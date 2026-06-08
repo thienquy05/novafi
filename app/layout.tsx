@@ -1,11 +1,21 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Inter, Plus_Jakarta_Sans } from 'next/font/google';
 import { cookies } from 'next/headers';
 import './globals.css';
 import { SessionProvider } from '@/components/SessionProvider';
 import type { Language } from '@/types';
 
 const inter = Inter({ subsets: ['latin'], display: 'swap' });
+
+// Display face for hero numbers & headings — geometric, friendly, modern.
+// Exposed as a CSS variable so the `.font-display` utility can opt elements in
+// without changing the default body font (Inter).
+const display = Plus_Jakarta_Sans({
+  subsets: ['latin'],
+  display: 'swap',
+  weight: ['600', '700', '800'],
+  variable: '--font-display',
+});
 
 export const metadata: Metadata = {
   title: 'NovaFi — Personal Finance',
@@ -38,7 +48,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           }}
         />
       </head>
-      <body className={inter.className} suppressHydrationWarning>
+      <body className={`${inter.className} ${display.variable}`} suppressHydrationWarning>
         <SessionProvider initialLang={lang}>{children}</SessionProvider>
       </body>
     </html>

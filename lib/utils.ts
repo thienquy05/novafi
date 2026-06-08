@@ -19,8 +19,12 @@ export function formatCurrency(amount: number, showSign = false): string {
 export function formatCompact(amount: number): string {
   const abs = Math.abs(amount);
   const sign = amount < 0 ? '-' : '';
-  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(1)}K`;
+  // Collapse large values to K/M so they fit their container, keeping up to 2
+  // decimals. Trailing zeros are trimmed ($1.20K → $1.2K, $5.00M → $5M) so the
+  // label stays compact while preserving precision when it matters.
+  const trim = (n: number) => parseFloat(n.toFixed(2)).toString();
+  if (abs >= 1_000_000) return `${sign}$${trim(abs / 1_000_000)}M`;
+  if (abs >= 1_000) return `${sign}$${trim(abs / 1_000)}K`;
   return formatCurrency(amount);
 }
 
@@ -36,10 +40,6 @@ export function formatAxisCurrency(value: number): string {
   if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
   if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(1).replace(/\.0$/, '')}k`;
   return `${sign}$${Math.round(abs)}`;
-}
-
-export function formatPercent(value: number, decimals = 2): string {
-  return `${value.toFixed(decimals)}%`;
 }
 
 export function formatDate(dateStr: string): string {

@@ -90,14 +90,13 @@ export interface Budget {
   amount: number;
   period: 'monthly' | 'weekly' | 'yearly';
   position?: number;
-  // Month-cap snapshot used for accurate rollover. `activeMonth` (YYYY-MM) is the
-  // month the current `amount` has been the active cap for. When a new month
-  // begins we freeze the just-ended month into `prevMonth`/`prevCap`, so last
-  // month's overspend is always measured against last month's ACTUAL cap — not a
-  // cap the user may have edited since.
-  activeMonth?: string;
-  prevMonth?: string;
-  prevCap?: number;
+}
+
+// One other person on a shared bill and the share they owe you. "Me" is never a
+// participant row — my share is always the remainder (amount − sum of theirs).
+export interface BillSplitParticipant {
+  contactId: string;
+  amount: number;
 }
 
 export interface Bill {
@@ -109,8 +108,13 @@ export interface Bill {
   account: string;
   category: string;
   isActive: boolean;
+  // Legacy single-contact split (read for back-compat; superseded by
+  // splitParticipants when that is present).
   splitContactId?: string; // when set, this bill is shared with a contact
   splitAmount?: number;    // the other person's share of `amount` (the part they owe you); your share = amount - splitAmount
+  // Multi-person split: each entry is one other person's share they owe you.
+  // Your share is the remainder (amount − sum). Empty/absent = unsplit.
+  splitParticipants?: BillSplitParticipant[];
 }
 
 // A person you share bills with. Deliberately minimal & reusable across bills.
@@ -120,22 +124,30 @@ export interface Contact {
   createdAt: string;
 }
 
-// One "owed to you" record, created each time a split bill is paid. Purely
-// informational: your expense already counts only your share, so this just
-// tracks the other person's share and whether they've settled up — marking it
-// settled creates no transaction.
+// One "owed to you" record, created each time a split bill is paid. The other
+// person's share is treated like a Loan receivable: when the bill is paid you
+// front their share out of the assigned account as a `transfer` (so the account
+// reflects the FULL amount you really paid, while your expense counts only your
+// share). When they pay you back, marking it settled writes a `transfer` back
+// into the account (cash in, not income). Both cash movements are tracked here
+// so deleting the record reverses the balances atomically.
 export interface Split {
   id: string;
   billId: string;
   billName: string;    // denormalized for display without a bill lookup
   contactId: string;
   contactName: string; // denormalized for display
-  amount: number;      // the other person's share they owe you
+  amount: number;      // the other person's share they owe you (the original total)
   category: string;    // the bill's category at payment time (captured for context)
-  account: string;     // account the bill was paid from (captured for context)
+  account: string;     // account the bill was paid from; where fronted cash leaves/returns
   date: string;        // YYYY-MM-DD the bill was paid
-  settled: boolean;    // they've paid you their share
-  settledDate: string; // YYYY-MM-DD they settled up ('' until settled)
+  settled: boolean;    // fully paid back (repaidAmount >= amount)
+  settledDate: string; // YYYY-MM-DD they fully settled up ('' until settled)
+  repaidAmount: number;     // cumulative amount paid back so far (partial paybacks accumulate, like loans)
+  repaymentTxIds: string[]; // ids of the cash-in `transfer`s for each payback
+  frontedTxId?: string; // id of the `transfer` that fronted their share out of `account` ('' = note only)
+  settleTxId?: string;  // legacy: id of a single full-settle `transfer` (older rows; superseded by repaymentTxIds)
+  myShareTxId?: string; // id of YOUR own `expense` row for this split group, denormalized onto every member ('' = you weren't included). Lets group-edit find & reconcile your personal share.
 }
 
 export interface Goal {
@@ -159,6 +171,7 @@ export interface Loan {
   contactId: string;
   contactName: string;       // denormalized for display
   account: string;           // account the cash moved from/into ('' = note only, no cash tx)
+  category: string;          // descriptive bucket for history/filtering ('' = uncategorized); stays out of spending
   principal: number;         // original amount
   repaidAmount: number;      // cumulative amount paid back so far
   date: string;              // YYYY-MM-DD the loan was created
@@ -167,6 +180,7 @@ export interface Loan {
   settledDate: string;       // YYYY-MM-DD fully repaid ('' until settled)
   principalTxId: string;     // id of the cash transfer for the principal ('' if note only)
   repaymentTxIds: string[];  // ids of the cash transfers for each payback
+  groupId?: string;          // shared id linking per-person loans created together (multi-person); absent = standalone
 }
 
 export const EXPENSE_CATEGORIES = [

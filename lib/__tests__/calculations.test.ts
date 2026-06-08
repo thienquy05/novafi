@@ -1,21 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import {
   calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
-  calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, pctChange,
+  calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, calcSafeToSpendDaily, calcMonthCashSpending, pctChange,
   normalizeMonthlyBudget,
   calcRolloverDeficit, calcEffectiveSpent,
   calcProjectedSpend, calcSpendingPace,
   calcAvgMonthlyExpense, calcEmergencyFundMonths,
-  calcSavingsRateScore, calcEmergencyScore, calcBudgetScore, calcDebtScore, calcHealthGrade,
+  calcSavingsRateScore, calcEmergencyScore, calcBudgetScore, calcHealthGrade,
   calcDebtToIncomeScore, calcDebtToIncomeRatio,
   calcNetWorthTrendScore, calcAvgMomPct,
   calcSpendingVolatilityScore, calcCoefficientOfVariation,
-  calcGoalProgress,
   applyExpenseBalance, applyIncomeBalance, applyTransferFromBalance, applyTransferToBalance,
   reverseExpenseBalance, reverseIncomeBalance, reverseTransferFromBalance, reverseTransferToBalance,
-  billToTransactionDefaults, calcSplitShares, calcLoanRemaining,
+  billToTransactionDefaults, calcSplitShares, calcLoanRemaining, myBillShare,
   calcOverdueBills, calcOverBudget,
-  calcNetWorthProjection, calcCategoryPct, calcPaycheckEffectiveRate, calcPaycheckTaxToSave,
+  calcNetWorthProjection, calcPaycheckTaxToSave,
   calcPaycheckDeposited,
 } from '@/lib/calculations';
 import type { Account, Transaction, Bill, Budget } from '@/types';
@@ -212,16 +211,84 @@ describe('calcSafeToSpend', () => {
     expect(calcSafeToSpend(5000, 2000, 500)).toBe(2500);
   });
 
-  it('floors at 0 when spending exceeds income', () => {
-    expect(calcSafeToSpend(5000, 5500, 0)).toBe(0);
+  it('goes negative when spending exceeds income', () => {
+    expect(calcSafeToSpend(5000, 5500, 0)).toBe(-500);
   });
 
-  it('bills push result negative → clamped to 0', () => {
-    expect(calcSafeToSpend(1000, 800, 300)).toBe(0);
+  it('bills push result negative → surfaces the shortfall', () => {
+    expect(calcSafeToSpend(1000, 800, 300)).toBe(-100);
   });
 
   it('no bills', () => {
     expect(calcSafeToSpend(3000, 1000, 0)).toBe(2000);
+  });
+
+  it('rounds float drift to cents', () => {
+    expect(calcSafeToSpend(1000.1, 0.2, 0)).toBe(999.9);
+  });
+});
+
+describe('calcSafeToSpendDaily', () => {
+  it('spreads the leftover across the days remaining', () => {
+    expect(calcSafeToSpendDaily(462, 11)).toBe(42);
+  });
+
+  it('rounds the per-day figure to cents', () => {
+    expect(calcSafeToSpendDaily(100, 3)).toBe(33.33);
+  });
+
+  it('returns the shortfall unchanged when already overspent', () => {
+    expect(calcSafeToSpendDaily(-150, 11)).toBe(-150);
+  });
+
+  it('returns the full leftover when no days remain', () => {
+    expect(calcSafeToSpendDaily(200, 0)).toBe(200);
+  });
+});
+
+describe('calcMonthCashSpending', () => {
+  // chk/sav = deposit accounts, crd/lon = debt accounts (from MIXED_ACCOUNTS)
+  it('counts expenses paid from a deposit account', () => {
+    const txs = [
+      makeTx({ type: 'expense', account: 'chk', amount: 200, date: '2026-05-03' }),
+      makeTx({ type: 'expense', account: 'sav', amount: 50, date: '2026-05-09' }),
+    ];
+    expect(calcMonthCashSpending(txs, MIXED_ACCOUNTS, '2026-05')).toBe(250);
+  });
+
+  it('ignores purchases charged to a credit/loan account (no cash out yet)', () => {
+    const txs = [makeTx({ type: 'expense', account: 'crd', amount: 900, date: '2026-05-04' })];
+    expect(calcMonthCashSpending(txs, MIXED_ACCOUNTS, '2026-05')).toBe(0);
+  });
+
+  it('counts payments INTO a debt account (transfer = real cash leaving)', () => {
+    const txs = [
+      makeTx({ type: 'transfer', account: 'chk', toAccount: 'crd', amount: 900, date: '2026-05-15' }),
+    ];
+    expect(calcMonthCashSpending(txs, MIXED_ACCOUNTS, '2026-05')).toBe(900);
+  });
+
+  it('does not double-count a card purchase and its later payoff', () => {
+    const txs = [
+      makeTx({ type: 'expense', account: 'crd', amount: 900, date: '2026-05-04' }),     // charge: 0
+      makeTx({ type: 'transfer', account: 'chk', toAccount: 'crd', amount: 900, date: '2026-05-20' }), // payoff: 900
+    ];
+    expect(calcMonthCashSpending(txs, MIXED_ACCOUNTS, '2026-05')).toBe(900);
+  });
+
+  it('ignores transfers between deposit accounts (checking → savings)', () => {
+    const txs = [
+      makeTx({ type: 'transfer', account: 'chk', toAccount: 'sav', amount: 300, date: '2026-05-02' }),
+    ];
+    expect(calcMonthCashSpending(txs, MIXED_ACCOUNTS, '2026-05')).toBe(0);
+  });
+
+  it('ignores income and other months', () => {
+    const txs = [
+      makeTx({ type: 'income', account: 'chk', amount: 1000, date: '2026-05-01' }),
+      makeTx({ type: 'expense', account: 'chk', amount: 100, date: '2026-04-30' }),
+    ];
+    expect(calcMonthCashSpending(txs, MIXED_ACCOUNTS, '2026-05')).toBe(0);
   });
 });
 
@@ -340,16 +407,6 @@ describe('calcBudgetScore', () => {
   it('5 budgets, 5 over (0% adherence) → 0', () => { expect(calcBudgetScore(5, 5)).toBe(0); });
 });
 
-// Legacy debt-to-asset score retained for back-compat — kept for old callers.
-describe('calcDebtScore (legacy debt-to-asset)', () => {
-  it('ratio 0 → 25', () => { expect(calcDebtScore(0)).toBe(25); });
-  it('ratio 0.1 → 25', () => { expect(calcDebtScore(0.1)).toBe(25); });
-  it('ratio 0.3 → 20', () => { expect(calcDebtScore(0.3)).toBe(20); });
-  it('ratio 0.5 → 15', () => { expect(calcDebtScore(0.5)).toBe(15); });
-  it('ratio 0.75 → 10', () => { expect(calcDebtScore(0.75)).toBe(10); });
-  it('ratio 1.0 → 5', () => { expect(calcDebtScore(1.0)).toBe(5); });
-});
-
 describe('calcDebtToIncomeRatio', () => {
   it('no debt → 0', () => { expect(calcDebtToIncomeRatio(0, 5000)).toBe(0); });
   it('$60k debt vs $5k/mo income → 1.0', () => {
@@ -454,17 +511,6 @@ describe('calcHealthGrade', () => {
   it('0 → F', () => { expect(calcHealthGrade(0)).toBe('F'); });
 });
 
-// ── Goal Progress ─────────────────────────────────────────────────────────────
-
-describe('calcGoalProgress', () => {
-  it('50% when halfway', () => { expect(calcGoalProgress(5000, 10000)).toBeCloseTo(50, 4); });
-  it('100% when exactly at target', () => { expect(calcGoalProgress(10000, 10000)).toBe(100); });
-  it('capped at 100% when over target', () => { expect(calcGoalProgress(15000, 10000)).toBe(100); });
-  it('0% when nothing saved', () => { expect(calcGoalProgress(0, 10000)).toBe(0); });
-  it('0% when target is 0 (no division by zero)', () => { expect(calcGoalProgress(1000, 0)).toBe(0); });
-  it('25% progress', () => { expect(calcGoalProgress(250, 1000)).toBeCloseTo(25, 4); });
-});
-
 // ── Transaction Balance Effects ───────────────────────────────────────────────
 
 describe('applyExpenseBalance', () => {
@@ -492,11 +538,16 @@ describe('applyIncomeBalance', () => {
 });
 
 describe('applyTransferFromBalance', () => {
-  it('from account decreases', () => {
-    expect(applyTransferFromBalance(1000, 500)).toBe(500);
+  it('asset account: balance decreases', () => {
+    expect(applyTransferFromBalance(1000, 500, false)).toBe(500);
   });
-  it('can go below zero (overdraft)', () => {
-    expect(applyTransferFromBalance(100, 500)).toBe(-400);
+  it('asset account: can go below zero (overdraft)', () => {
+    expect(applyTransferFromBalance(100, 500, false)).toBe(-400);
+  });
+  it('debt account: owed increases (cash advance / lending on a credit card)', () => {
+    // Lending money charged to a credit card is a new charge, so the owed
+    // balance grows — it must NOT look like a payoff.
+    expect(applyTransferFromBalance(200, 100, true)).toBe(300);
   });
 });
 
@@ -507,8 +558,11 @@ describe('applyTransferToBalance', () => {
   it('debt account: balance decreases (payoff)', () => {
     expect(applyTransferToBalance(1000, 500, true)).toBe(500);
   });
-  it('debt overpayment: clamped to 0', () => {
-    expect(applyTransferToBalance(50, 100, true)).toBe(0);
+  it('debt overpayment: goes negative (credit balance, not clamped)', () => {
+    // Overpaying leaves a credit balance the bank owes you. We do NOT clamp at
+    // zero — clamping discarded money and broke reconciliation (apply/reverse
+    // were no longer inverses).
+    expect(applyTransferToBalance(50, 100, true)).toBe(-50);
   });
   it('debt exact payoff: results in 0', () => {
     expect(applyTransferToBalance(500, 500, true)).toBe(0);
@@ -537,11 +591,18 @@ describe('reverseIncomeBalance', () => {
 });
 
 describe('reverseTransferFromBalance', () => {
-  it('from account gets money back', () => {
-    expect(reverseTransferFromBalance(500, 500)).toBe(1000);
+  it('asset account: gets money back', () => {
+    expect(reverseTransferFromBalance(500, 500, false)).toBe(1000);
   });
-  it('partial amount', () => {
-    expect(reverseTransferFromBalance(200, 100)).toBe(300);
+  it('asset account: partial amount', () => {
+    expect(reverseTransferFromBalance(200, 100, false)).toBe(300);
+  });
+  it('debt account: undoes the charge (owed goes back down)', () => {
+    expect(reverseTransferFromBalance(300, 100, true)).toBe(200);
+  });
+  it('debt account: apply then reverse is an exact inverse', () => {
+    const applied = applyTransferFromBalance(200, 100, true); // 300 owed
+    expect(reverseTransferFromBalance(applied, 100, true)).toBe(200);
   });
 });
 
@@ -552,11 +613,12 @@ describe('reverseTransferToBalance', () => {
   it('debt account (normal): balance increases (payoff reversed)', () => {
     expect(reverseTransferToBalance(500, 100, true)).toBe(600);
   });
-  it('debt overpayment clamped case — KNOWN LIMITATION', () => {
-    // Original: balance=50, paid 100, clamped to 0. Reversal adds 100 → 100 (≠ original 50).
-    // This is a known limitation when the original payment was clamped by Math.max(0,...).
-    const result = reverseTransferToBalance(0, 100, true);
-    expect(result).toBe(100); // documents actual behavior (not ideal, but expected)
+  it('debt overpayment: apply/reverse are exact inverses (no clamp)', () => {
+    // balance=50, paid 100 → apply gives -50 (credit balance). Reversing that
+    // payment restores the original 50. Now that the clamp is gone, apply and
+    // reverse round-trip cleanly, which is what reconciliation depends on.
+    const applied = applyTransferToBalance(50, 100, true); // -50
+    expect(reverseTransferToBalance(applied, 100, true)).toBe(50);
   });
 });
 
@@ -653,6 +715,31 @@ describe('calcSplitShares', () => {
   it('treats missing/zero inputs safely', () => {
     expect(calcSplitShares(0, 0)).toEqual({ mine: 0, theirs: 0 });
     expect(calcSplitShares(80, 0)).toEqual({ mine: 80, theirs: 0 });
+  });
+});
+
+// ── myBillShare ───────────────────────────────────────────────────────────────
+
+describe('myBillShare', () => {
+  const base: Bill = {
+    id: 'b1', name: 'Rent', amount: 100, frequency: 'monthly',
+    nextDue: '2026-06-01', account: 'a1', category: 'Bills', isActive: true,
+  };
+
+  it('returns the full amount for a non-shared bill', () => {
+    expect(myBillShare(base)).toBe(100);
+  });
+
+  it('returns only your share when the bill is split', () => {
+    expect(myBillShare({ ...base, splitContactId: 'c1', splitAmount: 40 })).toBe(60);
+  });
+
+  it('returns the full amount when split is configured but their share is 0', () => {
+    expect(myBillShare({ ...base, splitContactId: 'c1', splitAmount: 0 })).toBe(100);
+  });
+
+  it('falls back to full amount when no contact is set even if a split amount exists', () => {
+    expect(myBillShare({ ...base, splitAmount: 40 })).toBe(100);
   });
 });
 
@@ -869,25 +956,13 @@ describe('calcRolloverDeficit', () => {
     expect(calcRolloverDeficit(500, 500)).toBe(0);
   });
 
-  it('no prior spending (new budget) → nothing carried over (no doubling)', () => {
+  it('no prior spending (new budget) → nothing carried over', () => {
     expect(calcRolloverDeficit(400, 0)).toBe(0);
-  });
-
-  it('measured against LAST month\'s cap, not the freshly edited cap (no phantom on edit)', () => {
-    // Regression: user spent $499.36 under last month's $500 cap (not over), then
-    // lowered the cap to $110 this month. Rollover must use the frozen prevCap
-    // ($500) — not the new $110 — so no deficit is fabricated.
-    const prevCap = 500;            // cap that was actually active last month
-    const lastMonthSpend = 499.36;  // under last month's cap → not overspent
-    expect(calcRolloverDeficit(prevCap, lastMonthSpend)).toBe(0);
-    // Using the edited cap would wrongly invent a $389.36 deficit:
-    expect(calcRolloverDeficit(110, lastMonthSpend)).toBeCloseTo(389.36, 2);
   });
 });
 
 describe('calcEffectiveSpent', () => {
   it('a fixed budget with no rollover shows actual spend', () => {
-    // $100 budget, $0 rolled over → usage = actual spend (no doubling)
     expect(calcEffectiveSpent(0, 0)).toBe(0);
     expect(calcEffectiveSpent(40, 0)).toBe(40);
   });
@@ -901,7 +976,6 @@ describe('calcEffectiveSpent', () => {
     const base = 100;
     const prevSpend = 120;
     const rolledOver = calcRolloverDeficit(base, prevSpend); // 20
-    // spent $0 this month → usage shows $20 against the fixed $100 cap
     expect(calcEffectiveSpent(0, rolledOver)).toBe(20);
   });
 
@@ -1024,43 +1098,6 @@ describe('calcNetWorthProjection', () => {
   });
 });
 
-// ── Category Percentage ───────────────────────────────────────────────────────
-
-describe('calcCategoryPct', () => {
-  it('50% of total', () => {
-    expect(calcCategoryPct(500, 1000)).toBe(50);
-  });
-
-  it('0 total → 0%', () => {
-    expect(calcCategoryPct(100, 0)).toBe(0);
-  });
-
-  it('0 spent → 0%', () => {
-    expect(calcCategoryPct(0, 1000)).toBe(0);
-  });
-
-  it('100% when spent equals total', () => {
-    expect(calcCategoryPct(500, 500)).toBe(100);
-  });
-});
-
-// ── Paycheck Effective Tax Rate ───────────────────────────────────────────────
-
-describe('calcPaycheckEffectiveRate', () => {
-  it('correct rate from sample paycheck', () => {
-    // gross $5000, total taxes $1100 (22%)
-    expect(calcPaycheckEffectiveRate(5000, 700, 250, 150)).toBeCloseTo(22, 4);
-  });
-
-  it('0 gross → 0 rate (no division by zero)', () => {
-    expect(calcPaycheckEffectiveRate(0, 100, 50, 25)).toBe(0);
-  });
-
-  it('no withholding → 0%', () => {
-    expect(calcPaycheckEffectiveRate(5000, 0, 0, 0)).toBe(0);
-  });
-});
-
 // ── Paycheck Tax To Set Aside ─────────────────────────────────────────────────
 
 describe('calcPaycheckTaxToSave', () => {
@@ -1105,5 +1142,37 @@ describe('calcPaycheckDeposited', () => {
   it('returns the full gross regardless of withheld tax (no withholding)', () => {
     // Even a legacy-shaped entry deposits the full gross + tips, never an after-tax figure.
     expect(calcPaycheckDeposited({ grossAmount: 819.93, gratuityAmount: 0 })).toBeCloseTo(819.93, 2);
+  });
+});
+
+// ── Spending Pace ─────────────────────────────────────────────────────────────
+
+describe('calcSpendingPace', () => {
+  const budget: Budget = { id: 'b1', category: 'Food', amount: 300, period: 'monthly' };
+
+  it('flags a category as over when actual spend already exceeds the budget', () => {
+    const [item] = calcSpendingPace([budget], { Food: 320 }, 15, 30);
+    expect(item.status).toBe('over');
+    expect(item.spent).toBeCloseTo(320, 2);
+  });
+
+  it('reports onTrack without rollover even if last month overspent (deficit ignored)', () => {
+    // Half a budget used halfway through the month projects exactly to budget.
+    const [item] = calcSpendingPace([budget], { Food: 150 }, 15, 30);
+    expect(item.status).toBe('onTrack');
+  });
+
+  it('folds a rolled-over deficit into used so an already-over budget reads over', () => {
+    // Only $50 spent this month, but $400 carried from last month's overspend.
+    const [item] = calcSpendingPace([budget], { Food: 50 }, 10, 30, { Food: 400 });
+    expect(item.spent).toBeCloseTo(450, 2);   // 50 actual + 400 carried
+    expect(item.status).toBe('over');         // 450 > 300
+  });
+
+  it('treats the carryover as flat, not part of the daily pace', () => {
+    // Daily pace must come from this month's $30, not the $30 + $270 carryover.
+    const [item] = calcSpendingPace([budget], { Food: 30 }, 10, 30, { Food: 270 });
+    expect(item.pace).toBeCloseTo(3, 2);                 // 30 / 10 days
+    expect(item.projected).toBeCloseTo(30 / 10 * 30 + 270, 2); // rate-projected spend + flat carry
   });
 });

@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Plus, Trash2, CreditCard, Landmark, PiggyBank, TrendingUp, Pencil, CheckCircle2, RefreshCw, AlertCircle } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -80,6 +81,17 @@ export default function AccountsPage() {
     loan: t('accounts.typeLoan'),
   };
 
+  // Section headers use a localized plural label rather than appending a literal
+  // "s" — which produced "Checkings"/"Savingss" in English and a stray "s" in
+  // languages that don't pluralize (e.g. Vietnamese).
+  const ACCOUNT_TYPE_GROUP_LABELS: Record<Account['type'], string> = {
+    checking: t('accounts.groupChecking'),
+    savings: t('accounts.groupSavings'),
+    credit: t('accounts.groupCredit'),
+    investment: t('accounts.groupInvestment'),
+    loan: t('accounts.groupLoan'),
+  };
+
   const load = useCallback(async () => {
     try {
       const res = await fetch('/api/accounts');
@@ -137,10 +149,11 @@ export default function AccountsPage() {
       });
       if (!res.ok) throw new Error();
       toast(editTarget ? t('accounts.toastUpdated') : t('accounts.toastAdded'), 'success');
-      await load();
+      // The optimistic update already reflects every displayed field (the only
+      // server-maintained field, openingBalance, isn't shown) — so no reload needed.
     } catch {
       toast(t('accounts.toastFailedSave'), 'error');
-      await load();
+      await load(); // reconcile from server truth after a failed write
     } finally {
       setSaving(false);
     }
@@ -152,7 +165,17 @@ export default function AccountsPage() {
     setAccounts((a) => a.filter((acc) => acc.id !== id));
     try {
       const res = await fetch('/api/accounts', { method: 'DELETE', body: JSON.stringify({ id }), headers: { 'Content-Type': 'application/json' } });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        // Blocked because transactions still reference this account — restore the
+        // row and tell the user how many must be moved/deleted first.
+        if (res.status === 409) {
+          const { count } = await res.json().catch(() => ({ count: 0 }));
+          setAccounts(prev);
+          toast(t('accounts.toastHasTransactions', { count }), 'error');
+          return;
+        }
+        throw new Error();
+      }
       toast(t('accounts.toastDeleted'), 'success');
     } catch {
       setAccounts(prev);
@@ -192,15 +215,17 @@ export default function AccountsPage() {
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{t('accounts.title')}</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-base font-medium mt-1">{t('accounts.subtitle')}</p>
-        </div>
-        <Button onClick={openAdd} className="w-full md:w-auto shadow-sm hover:shadow-md">
-          <Plus className="w-5 h-5" />{t('accounts.addAccount')}
-        </Button>
-      </div>
+      <PageHeader
+        icon={Landmark}
+        tone="indigo"
+        title={t('accounts.title')}
+        subtitle={t('accounts.subtitle')}
+        action={
+          <Button onClick={openAdd} className="w-full md:w-auto shadow-sm hover:shadow-md">
+            <Plus className="w-5 h-5" />{t('accounts.addAccount')}
+          </Button>
+        }
+      />
 
       {/* Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -245,12 +270,12 @@ export default function AccountsPage() {
             .map(([type, list]) => {
               const config = ACCOUNT_TYPE_CONFIG[type];
               const Icon = config.icon;
-              const label = ACCOUNT_TYPE_LABELS[type];
+              const label = ACCOUNT_TYPE_GROUP_LABELS[type];
               return (
                 <div key={type} className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700/60 p-4 sm:p-6 shadow-sm">
                   <div className="flex items-center gap-3 mb-4 px-2">
                     <div className={`p-2 rounded-xl ${config.bgClass}`}><Icon className={`w-5 h-5 ${config.colorClass}`} /></div>
-                    <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">{label}s</h2>
+                    <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">{label}</h2>
                   </div>
                   <div className="space-y-3">
                     {list.map((account) => (

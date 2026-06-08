@@ -1,25 +1,16 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
-import { getAccounts, upsertAccount, deleteAccount } from '@/lib/sheets';
-import { getCache, setCache, invalidateCache, CACHE_TTL } from '@/lib/cache';
+import { NextResponse } from 'next/server';
+import { getAccounts, upsertAccount, deleteAccount, getTransactions } from '@/lib/sheets';
+import { invalidateMany, CACHE_TTL, ACCOUNT_CACHES } from '@/lib/cache';
+import { cachedGet, withSession } from '@/lib/apiRoute';
 import type { Account } from '@/types';
 
-export async function GET() {
-  const session = await auth();
-  if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+export const GET = cachedGet({
+  resource: 'accounts',
+  ttl: CACHE_TTL.SHORT,
+  fetch: ({ accessToken, spreadsheetId }) => getAccounts(accessToken, spreadsheetId),
+});
 
-  const key = `accounts:${session.spreadsheetId}`;
-  const cached = getCache<Account[]>(key);
-  if (cached) return NextResponse.json(cached);
-
-  const accounts = await getAccounts(session.accessToken, session.spreadsheetId);
-  setCache(key, accounts, CACHE_TTL.SHORT);
-  return NextResponse.json(accounts);
-}
-
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+export const POST = withSession(async ({ accessToken, spreadsheetId, req }) => {
   const body: Account = await req.json();
 
   // Keep openingBalance self-maintaining regardless of what the client sends:
@@ -28,23 +19,32 @@ export async function POST(req: NextRequest) {
   //   reconciliation basis isn't wiped by an edit that omits the field.
   let account = body;
   if (body.openingBalance == null) {
-    const existing = (await getAccounts(session.accessToken, session.spreadsheetId))
-      .find((a) => a.id === body.id);
+    const existing = (await getAccounts(accessToken, spreadsheetId)).find((a) => a.id === body.id);
     account = { ...body, openingBalance: existing?.openingBalance ?? body.balance };
   }
 
-  await upsertAccount(session.accessToken, session.spreadsheetId, account);
-  invalidateCache(`accounts:${session.spreadsheetId}`);
-  invalidateCache(`dashboard:${session.spreadsheetId}`);
+  await upsertAccount(accessToken, spreadsheetId, account);
+  invalidateMany(spreadsheetId, ACCOUNT_CACHES);
   return NextResponse.json({ ok: true });
-}
+});
 
-export async function DELETE(req: NextRequest) {
-  const session = await auth();
-  if (!session?.accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+export const DELETE = withSession(async ({ accessToken, spreadsheetId, req }) => {
   const { id } = await req.json();
-  await deleteAccount(session.accessToken, session.spreadsheetId, id);
-  invalidateCache(`accounts:${session.spreadsheetId}`);
-  invalidateCache(`dashboard:${session.spreadsheetId}`);
+
+  // Block deletion while the account still has transactions referencing it
+  // (as source `account` or transfer `toAccount`). Removing it anyway would
+  // leave orphan ledger rows pointing at a non-existent account. The user must
+  // reassign or delete those transactions (and any linked paycheck/loan) first.
+  const transactions = await getTransactions(accessToken, spreadsheetId);
+  const linkedCount = transactions.filter((t) => t.account === id || t.toAccount === id).length;
+  if (linkedCount > 0) {
+    return NextResponse.json(
+      { error: 'account_has_transactions', count: linkedCount },
+      { status: 409 },
+    );
+  }
+
+  await deleteAccount(accessToken, spreadsheetId, id);
+  invalidateMany(spreadsheetId, ACCOUNT_CACHES);
   return NextResponse.json({ ok: true });
-}
+});

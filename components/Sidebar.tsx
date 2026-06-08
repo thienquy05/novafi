@@ -125,6 +125,7 @@ export function Sidebar() {
   const path = usePathname();
   const badges = useBadges();
   const { t } = useTranslation();
+  const [hovered, setHovered] = useState<string | null>(null);
 
   const renderLink = ({ href, labelKey, icon: Icon, badgeKey }: NavItem) => {
     const active = path === href || path.startsWith(href + '/');
@@ -133,13 +134,24 @@ export function Sidebar() {
       <Link
         key={href}
         href={href}
+        onMouseEnter={() => setHovered(href)}
         className={cn(
           'relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors duration-150 group overflow-hidden tap-highlight-none select-none',
           active
             ? 'text-indigo-600 dark:text-indigo-400'
-            : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800'
+            : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
         )}
       >
+        {/* Gliding hover pill — floats to whichever non-active item the pointer
+            is over, sitting under the active indigo pill. */}
+        {hovered === href && !active && (
+          <motion.div
+            layoutId="sidebar-hover"
+            className="absolute inset-0 bg-slate-100 dark:bg-slate-800/70 rounded-xl"
+            initial={false}
+            transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
+          />
+        )}
         {active && (
           <motion.div
             layoutId="sidebar-active"
@@ -177,7 +189,7 @@ export function Sidebar() {
       </div>
 
       {/* Grouped nav — scrolls only if the viewport is too short to fit everything */}
-      <nav className="flex flex-col flex-1 overflow-y-auto hide-scrollbar -mx-1 px-1">
+      <nav className="flex flex-col flex-1 overflow-y-auto hide-scrollbar -mx-1 px-1" onMouseLeave={() => setHovered(null)}>
         {NAV_GROUPS.map((group) => (
           <div key={group.labelKey} className="mb-2">
             <p className="px-3 pt-2 pb-1 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">{t(group.labelKey)}</p>
@@ -204,20 +216,12 @@ export function Sidebar() {
 }
 
 export function MobileHeader() {
-  const { t } = useTranslation();
   return (
     <header className="md:hidden flex items-center justify-between px-4 py-4 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-slate-200 dark:border-slate-700/50 sticky top-0 z-40">
       <div className="flex items-center gap-3">
         <LogoMark className="w-9 h-9 rounded-xl shadow-md" />
         <p className="text-slate-900 dark:text-white font-bold text-xl tracking-tight leading-none">Nova<span className="text-gradient">Fi</span></p>
       </div>
-      <button
-        onClick={() => signOut({ callbackUrl: '/' })}
-        className="p-2.5 text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 bg-slate-50 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-full transition-colors duration-150 tap-highlight-none"
-        aria-label={t('nav.signOut')}
-      >
-        <LogOut className="w-5 h-5" />
-      </button>
     </header>
   );
 }
@@ -485,20 +489,13 @@ export function MobileNav() {
               })}
             </div>
 
-            <div className="mt-4 flex gap-2">
+            <div className="mt-4">
               <button
                 onClick={() => { setSheetOpen(false); setCustomizeOpen(true); }}
-                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors duration-150 border border-slate-100 dark:border-slate-700 tap-highlight-none select-none"
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors duration-150 border border-slate-100 dark:border-slate-700 tap-highlight-none select-none"
               >
                 <Sliders className="w-4 h-4" />
                 {t('nav.customize')}
-              </button>
-              <button
-                onClick={() => signOut({ callbackUrl: '/' })}
-                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors duration-150 border border-slate-100 dark:border-slate-700 tap-highlight-none select-none"
-              >
-                <LogOut className="w-4 h-4" />
-                {t('nav.signOut')}
               </button>
             </div>
           </motion.div>

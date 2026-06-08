@@ -1,19 +1,22 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { RefreshCw, AlertCircle, BarChart3, TrendingUp, TrendingDown, DollarSign, Calendar } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { FitText } from '@/components/ui/FitText';
-import { formatCurrency, formatAxisCurrency } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
 import type { Transaction, Budget } from '@/types';
-import { calcSpendingPace } from '@/lib/calculations';
-import { SpendingPaceWidget } from '../dashboard/DashboardCharts';
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from 'recharts';
+import { calcSpendingPace, calcRolloverDeficit, normalizeMonthlyBudget } from '@/lib/calculations';
+import { SpendingPaceWidget } from '../dashboard/SpendingPaceWidget';
 import { useTranslation } from '@/lib/i18n/context';
-import { useIsDark } from '@/hooks/useIsDark';
 import { motion, useReducedMotion } from 'framer-motion';
+import { loadBatch } from '@/lib/client/api';
+import { dynamicChart } from '@/lib/dynamicChart';
+
+// Recharts loads lazily so it stays out of the reports route's first-load JS.
+const MonthlyComparisonChart = dynamicChart(() => import('./MonthlyComparisonChart'));
+const TopMerchantsChart = dynamicChart(() => import('./TopMerchantsChart'));
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -24,33 +27,25 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 const DEFAULT_COLOR = '#6366f1';
 
-function useChartReady() {
-  const [ready, setReady] = useState(false);
-  useEffect(() => { setReady(true); }, []);
-  return ready;
-}
-
 export default function ReportsPage() {
   const { t } = useTranslation();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [budgetRollover, setBudgetRollover] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  const ready = useChartReady();
   const reduced = useReducedMotion();
-  const c = useIsDark()
-    ? { grid: '#334155', axis: '#94a3b8', cursor: 'rgba(148, 163, 184, 0.08)', tip: { background: '#1e293b', color: '#f1f5f9', border: '1px solid #334155' } }
-    : { grid: '#e2e8f0', axis: '#64748b', cursor: '#f8fafc', tip: { background: '#ffffff', color: '#0f172a', border: '1px solid #e2e8f0' } };
 
   const load = useCallback(async () => {
     setError(false);
     setLoading(true);
     try {
-      const [txRes, bRes] = await Promise.all([fetch('/api/transactions'), fetch('/api/budgets')]);
-      if (!txRes.ok) throw new Error();
-      setTransactions(await txRes.json());
-      setBudgets(bRes.ok ? await bRes.json() : []);
+      // One /api/batch round trip instead of three separate Sheets reads.
+      const { transactions, budgets, settings } = await loadBatch(['transactions', 'budgets', 'settings']);
+      setTransactions(transactions);
+      setBudgets(budgets);
+      setBudgetRollover(settings?.budgetRollover === true);
     } catch {
       setError(true);
     } finally {
@@ -124,44 +119,61 @@ export default function ReportsPage() {
   const { spendingPace, paceDaysLeft } = useMemo(() => {
     const now = new Date();
     const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevMonthKey = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
     const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     const daysElapsed = now.getDate();
     const categorySpend: Record<string, number> = {};
+    const prevCategorySpend: Record<string, number> = {};
     for (const tx of transactions) {
-      if (tx.type === 'expense' && tx.date.startsWith(monthKey)) {
+      if (tx.type !== 'expense') continue;
+      if (tx.date.startsWith(monthKey)) {
         categorySpend[tx.category] = (categorySpend[tx.category] ?? 0) + tx.amount;
+      } else if (tx.date.startsWith(prevMonthKey)) {
+        prevCategorySpend[tx.category] = (prevCategorySpend[tx.category] ?? 0) + tx.amount;
+      }
+    }
+    // When rollover is on, carry last month's overspend per category into the
+    // pace so an already-over rolled-over budget no longer reads "on track".
+    const rolloverDeficit: Record<string, number> = {};
+    if (budgetRollover) {
+      for (const b of budgets) {
+        const monthly = normalizeMonthlyBudget(b.amount, b.period);
+        rolloverDeficit[b.category] = calcRolloverDeficit(monthly, prevCategorySpend[b.category] ?? 0);
       }
     }
     return {
-      spendingPace: calcSpendingPace(budgets, categorySpend, daysElapsed, daysInMonth),
+      spendingPace: calcSpendingPace(budgets, categorySpend, daysElapsed, daysInMonth, rolloverDeficit),
       paceDaysLeft: daysInMonth - daysElapsed,
     };
-  }, [transactions, budgets]);
+  }, [transactions, budgets, budgetRollover]);
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{t('reports.title')}</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mt-1">{t('reports.subtitle')}</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden">
-            {years.map((y) => (
-              <button
-                key={y}
-                onClick={() => setSelectedYear(y)}
-                className={`px-4 py-2.5 text-sm font-bold transition-all duration-200 ${selectedYear === y ? 'bg-indigo-600 text-white' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'}`}
-              >
-                {y}
-              </button>
-            ))}
+      <PageHeader
+        icon={BarChart3}
+        tone="indigo"
+        title={t('reports.title')}
+        subtitle={t('reports.subtitle')}
+        action={
+          <div className="flex items-center gap-3">
+            <div className="flex bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden">
+              {years.map((y) => (
+                <button
+                  key={y}
+                  onClick={() => setSelectedYear(y)}
+                  className={`px-4 py-2.5 text-sm font-bold transition-all duration-200 ${selectedYear === y ? 'bg-indigo-600 text-white' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'}`}
+                >
+                  {y}
+                </button>
+              ))}
+            </div>
+            <Button variant="secondary" onClick={load} className="shadow-sm">
+              <RefreshCw className="w-4 h-4" />
+            </Button>
           </div>
-          <Button variant="secondary" onClick={load} className="shadow-sm">
-            <RefreshCw className="w-4 h-4" />
-          </Button>
-        </div>
-      </div>
+        }
+      />
 
       {loading ? (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -257,18 +269,7 @@ export default function ReportsPage() {
               <CardTitle>{t('reports.monthlyCashFlow', { year: selectedYear })}</CardTitle>
             </CardHeader>
             <figure className="h-64 w-full mt-4" role="img" aria-label={t('reports.monthlyCashFlow', { year: selectedYear })}>
-              {!ready ? <div className="w-full h-full rounded-2xl bg-slate-100 dark:bg-slate-700 animate-pulse" /> : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={monthlyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} barGap={4}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={c.grid} vertical={false} />
-                    <XAxis dataKey="month" tick={{ fill: c.axis, fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} dy={10} />
-                    <YAxis tick={{ fill: c.axis, fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} tickFormatter={formatAxisCurrency} width={52} />
-                    <Tooltip formatter={(v) => formatCurrency(Number(v))} cursor={{ fill: c.cursor }} contentStyle={{ ...c.tip, borderRadius: 16, fontSize: 13, fontWeight: 700 }} itemStyle={{ color: c.tip.color }} labelStyle={{ color: c.tip.color }} />
-                    <Bar dataKey="income" name="Income" fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={28} isAnimationActive={!reduced} />
-                    <Bar dataKey="expenses" name="Expenses" fill="#f43f5e" radius={[6, 6, 0, 0]} maxBarSize={28} isAnimationActive={!reduced} />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
+              <MonthlyComparisonChart data={monthlyData} />
             </figure>
           </Card>
 
@@ -321,41 +322,7 @@ export default function ReportsPage() {
                   role="img"
                   aria-label={t('reports.topMerchants')}
                 >
-                  {!ready ? <div className="w-full h-full rounded-2xl bg-slate-100 dark:bg-slate-700 animate-pulse" /> : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={topMerchants} layout="vertical" margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={c.grid} horizontal={false} />
-                        <XAxis type="number" tickFormatter={formatAxisCurrency} tick={{ fill: c.axis, fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} />
-                        <YAxis
-                          type="category"
-                          dataKey="name"
-                          width={96}
-                          tick={{ fill: c.axis, fontSize: 11, fontWeight: 700 }}
-                          axisLine={false}
-                          tickLine={false}
-                          tickFormatter={(s: string) => {
-                            const cap = s.charAt(0).toUpperCase() + s.slice(1);
-                            return cap.length > 14 ? `${cap.slice(0, 13)}…` : cap;
-                          }}
-                        />
-                        <Tooltip
-                          cursor={{ fill: c.cursor }}
-                          content={({ active, payload }) => {
-                            if (!active || !payload?.length) return null;
-                            const d = payload[0].payload as { name: string; total: number; count: number };
-                            return (
-                              <div className="rounded-2xl px-4 py-3 shadow-xl" style={{ ...c.tip }}>
-                                <p className="text-sm font-bold capitalize" style={{ color: c.tip.color }}>{d.name}</p>
-                                <p className="text-base font-extrabold" style={{ color: c.tip.color }}>{formatCurrency(d.total)}</p>
-                                <p className="text-xs font-medium" style={{ color: c.axis }}>{d.count} {t('reports.transactions')}</p>
-                              </div>
-                            );
-                          }}
-                        />
-                        <Bar dataKey="total" fill="#6366f1" radius={[0, 5, 5, 0]} maxBarSize={22} isAnimationActive={!reduced} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  )}
+                  <TopMerchantsChart data={topMerchants} />
                 </figure>
               )}
             </Card>

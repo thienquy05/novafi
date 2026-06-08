@@ -2,7 +2,7 @@
 import {
   Utensils, ShoppingCart, Tv, Receipt, ShoppingBag, Car, Heart,
   ArrowLeftRight, MoreHorizontal, DollarSign, Briefcase, TrendingUp,
-  Plus, ArrowUpRight, ArrowDownRight, type LucideIcon,
+  Plus, ArrowUpRight, ArrowDownRight, HandCoins, Users, type LucideIcon,
 } from 'lucide-react';
 
 type IconConfig = { Icon: LucideIcon; color: string; bg: string; border: string };
@@ -16,6 +16,8 @@ export const CATEGORY_ICONS: Record<string, IconConfig> = {
   Transportation: { Icon: Car, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-900/30', border: 'border-indigo-100 dark:border-indigo-800/50' },
   Health: { Icon: Heart, color: 'text-pink-600 dark:text-pink-400', bg: 'bg-pink-50 dark:bg-pink-900/30', border: 'border-pink-100 dark:border-pink-800/50' },
   Transfer: { Icon: ArrowLeftRight, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/30', border: 'border-blue-100 dark:border-blue-800/50' },
+  Loan: { Icon: HandCoins, color: 'text-violet-600 dark:text-violet-400', bg: 'bg-violet-50 dark:bg-violet-900/30', border: 'border-violet-100 dark:border-violet-800/50' },
+  Split: { Icon: Users, color: 'text-teal-600 dark:text-teal-400', bg: 'bg-teal-50 dark:bg-teal-900/30', border: 'border-teal-100 dark:border-teal-800/50' },
   Other: { Icon: MoreHorizontal, color: 'text-slate-500 dark:text-slate-400', bg: 'bg-slate-100 dark:bg-slate-700', border: 'border-slate-200 dark:border-slate-600' },
   Paycheck: { Icon: DollarSign, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/30', border: 'border-emerald-100 dark:border-emerald-800/50' },
   Freelance: { Icon: Briefcase, color: 'text-teal-600 dark:text-teal-400', bg: 'bg-teal-50 dark:bg-teal-900/30', border: 'border-teal-100 dark:border-teal-800/50' },

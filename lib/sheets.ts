@@ -85,11 +85,13 @@ const CONTACTS_HEADER = ['id', 'name', 'created_at'];
 const SPLITS_HEADER = [
   'id', 'bill_id', 'bill_name', 'contact_id', 'contact_name', 'amount',
   'category', 'account', 'date', 'settled', 'settled_date',
+  'fronted_tx_id', 'settle_tx_id', 'repaid_amount', 'repayment_tx_ids',
+  'my_share_tx_id',
 ];
 const LOANS_HEADER = [
   'id', 'direction', 'contact_id', 'contact_name', 'account', 'principal',
   'repaid_amount', 'date', 'note', 'settled', 'settled_date',
-  'principal_tx_id', 'repayment_tx_ids',
+  'principal_tx_id', 'repayment_tx_ids', 'category', 'group_id',
 ];
 
 // A `values.get` against a tab that doesn't exist fails with HTTP 400 ("Unable
@@ -105,16 +107,16 @@ function isMissingTabError(err: unknown): boolean {
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 
-export async function getSettings(
-  accessToken: string,
-  spreadsheetId: string
-): Promise<TaxSettings> {
-  const sheets = getSheetsClient(accessToken);
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: 'Settings!A2:B100',
-  });
-  const rows = res.data.values ?? [];
+// Range that holds the Settings key/value pairs. Exported so the dashboard's
+// combined batchGet can request the same range and reuse parseSettingsRows.
+export const SETTINGS_RANGE = 'Settings!A2:B100';
+
+/**
+ * Pure row→TaxSettings parser. Extracted from getSettings so the combined
+ * dashboard batchGet (one round trip for all dashboard data) can reuse the exact
+ * same parsing instead of duplicating the field mapping / defaults.
+ */
+export function parseSettingsRows(rows: string[][]): TaxSettings {
   const map: Record<string, string> = {};
   for (const [k, v] of rows) map[k] = v;
 
@@ -142,6 +144,18 @@ export async function getSettings(
     hiddenIncomeCategories: get('hidden_income_categories', '').split('|').filter(Boolean),
     language: (get('language', 'en') as Language),
   };
+}
+
+export async function getSettings(
+  accessToken: string,
+  spreadsheetId: string
+): Promise<TaxSettings> {
+  const sheets = getSheetsClient(accessToken);
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: SETTINGS_RANGE,
+  });
+  return parseSettingsRows((res.data.values ?? []) as string[][]);
 }
 
 export async function saveSettings(
@@ -321,6 +335,40 @@ export async function updateTransaction(
   });
 }
 
+// Retags the category cell (column F) of specific transactions in place. Used by
+// the loan/split category backfill so existing transfers pick up their new
+// 'Loan'/'Split' identity WITHOUT delete+append (which would reorder rows). Only
+// rows whose id is found are written; returns how many cells were updated.
+export async function setTransactionCategories(
+  accessToken: string,
+  spreadsheetId: string,
+  updates: { id: string; category: string }[]
+): Promise<number> {
+  if (updates.length === 0) return 0;
+  const sheets = getSheetsClient(accessToken);
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: 'Transactions!A2:A',
+  });
+  const rowById = new Map<string, number>();
+  (res.data.values ?? []).forEach((r, i) => {
+    const id = r[0] as string;
+    if (id && !rowById.has(id)) rowById.set(id, i + 2); // data starts at sheet row 2
+  });
+  const data = updates
+    .map((u) => {
+      const row = rowById.get(u.id);
+      return row ? { range: `Transactions!F${row}`, values: [[u.category]] } : null;
+    })
+    .filter((x): x is { range: string; values: string[][] } => x !== null);
+  if (data.length === 0) return 0;
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: { valueInputOption: 'RAW', data },
+  });
+  return data.length;
+}
+
 // ── Accounts ──────────────────────────────────────────────────────────────────
 
 export async function getAccounts(
@@ -335,7 +383,11 @@ export async function getAccounts(
     // coming back as "$100.00" → NaN.
     valueRenderOption: 'UNFORMATTED_VALUE',
   });
-  return (res.data.values ?? []).map((r) => ({
+  return (res.data.values ?? []).map(rowToAccount);
+}
+
+function rowToAccount(r: string[]): Account {
+  return {
     id: String(r[0] ?? ''),
     name: String(r[1] ?? ''),
     type: (r[2] ?? 'checking') as Account['type'],
@@ -344,10 +396,10 @@ export async function getAccounts(
     last4: String(r[5] ?? ''),
     color: String(r[6] ?? '#6366f1'),
     createdAt: String(r[7] ?? ''),
-    // Column I is optional: legacy rows have no opening balance until backfilled
-    // by the reconcile endpoint. Empty/blank → undefined (not 0).
+    // Column I is optional: the starting balance captured when the account was
+    // created. Empty/blank → undefined (not 0).
     openingBalance: r[8] === undefined || r[8] === '' ? undefined : Number(r[8]),
-  }));
+  };
 }
 
 export async function upsertAccount(
@@ -366,6 +418,26 @@ export async function upsertAccount(
       values: [[account.id, account.name, account.type, account.institution, account.balance, account.last4, account.color, account.createdAt, account.openingBalance ?? '']],
     },
   });
+}
+
+/**
+ * Persist only the accounts whose balance actually changed. `applyTransactionToBalances`
+ * (lib/calculations) returns the SAME object reference for untouched accounts, so an
+ * identity check decides what to write — avoiding needless Sheets writes. Shared by the
+ * transactions / paychecks / loans / splits routes, which previously each hand-rolled
+ * this identical loop.
+ */
+export async function persistChangedAccounts(
+  accessToken: string,
+  spreadsheetId: string,
+  before: Account[],
+  after: Account[],
+): Promise<void> {
+  for (let i = 0; i < after.length; i++) {
+    if (after[i] !== before[i]) {
+      await upsertAccount(accessToken, spreadsheetId, after[i]);
+    }
+  }
 }
 
 export async function deleteAccount(
@@ -387,19 +459,24 @@ export async function getGoals(
     spreadsheetId,
     range: 'Goals!A2:H200',
   });
-  const rows = res.data.values ?? [];
-  return rows
-    .map((r, i) => ({
-      id: r[0] ?? '',
-      name: r[1] ?? '',
-      targetAmount: Number(r[2] ?? 0),
-      currentAmount: Number(r[3] ?? 0),
-      deadline: r[4] ?? '',
-      icon: r[5] ?? '🎯',
-      linkedAccountId: r[6] ?? '',
-      position: r[7] !== undefined && r[7] !== '' ? Number(r[7]) : i,
-    }))
-    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  return parseGoals(res.data.values ?? []);
+}
+
+function rowToGoal(r: string[], i: number): Goal {
+  return {
+    id: r[0] ?? '',
+    name: r[1] ?? '',
+    targetAmount: Number(r[2] ?? 0),
+    currentAmount: Number(r[3] ?? 0),
+    deadline: r[4] ?? '',
+    icon: r[5] ?? '🎯',
+    linkedAccountId: r[6] ?? '',
+    position: r[7] !== undefined && r[7] !== '' ? Number(r[7]) : i,
+  };
+}
+
+function parseGoals(rows: string[][]): Goal[] {
+  return rows.map(rowToGoal).sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 }
 
 export async function upsertGoal(
@@ -468,13 +545,14 @@ export async function getBills(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Bills!A2:J200',
+    range: 'Bills!A2:K200',
   });
   return (res.data.values ?? []).map(rowToBill);
 }
 
-// Shared Bill row parser. Columns I/J (split) are absent on legacy rows → the
-// bill is simply treated as unsplit.
+// Shared Bill row parser. Columns I/J (legacy single split) and K (multi-person
+// split participants, JSON) are absent on older rows → the bill is treated as
+// unsplit or single-split respectively.
 function rowToBill(r: string[]): Bill {
   const splitContactId = r[8] ?? '';
   return {
@@ -488,7 +566,24 @@ function rowToBill(r: string[]): Bill {
     isActive: r[7] === 'true',
     splitContactId,
     splitAmount: splitContactId && r[9] !== undefined && r[9] !== '' ? Number(r[9]) : undefined,
+    splitParticipants: parseBillParticipants(r[10]),
   };
+}
+
+// Column K stores the multi-person split as a JSON array of {contactId, amount}.
+// Tolerant of blank/legacy/corrupt cells (→ undefined, i.e. fall back to legacy).
+function parseBillParticipants(cell: string | undefined): Bill['splitParticipants'] {
+  if (!cell) return undefined;
+  try {
+    const parsed = JSON.parse(cell);
+    if (!Array.isArray(parsed)) return undefined;
+    const rows = parsed
+      .map((p) => ({ contactId: String(p?.contactId ?? ''), amount: Number(p?.amount ?? 0) }))
+      .filter((p) => p.contactId && p.amount > 0);
+    return rows.length > 0 ? rows : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function upsertBill(
@@ -496,8 +591,11 @@ export async function upsertBill(
   spreadsheetId: string,
   bill: Bill
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Bills', bill.id, 'J');
+  await deleteRowById(accessToken, spreadsheetId, 'Bills', bill.id, 'K');
   const sheets = getSheetsClient(accessToken);
+  const participants = bill.splitParticipants && bill.splitParticipants.length > 0
+    ? JSON.stringify(bill.splitParticipants)
+    : '';
   await sheets.spreadsheets.values.append({
     spreadsheetId,
     range: 'Bills!A1',
@@ -507,26 +605,13 @@ export async function upsertBill(
       values: [[
         bill.id, bill.name, bill.amount, bill.frequency, bill.nextDue,
         bill.account, bill.category, String(bill.isActive),
-        bill.splitContactId ?? '', bill.splitAmount ?? '',
+        bill.splitContactId ?? '', bill.splitAmount ?? '', participants,
       ]],
     },
   });
 }
 
 // ── Budgets ───────────────────────────────────────────────────────────────────
-
-// Current calendar month as a YYYY-MM key (matches the format the client uses).
-export function monthKey(date: Date = new Date()): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-}
-
-// Monthly-equivalent of a budget cap (mirrors the client's monthlyAmount) so a
-// frozen `prevCap` is directly comparable to a month's spend.
-function monthlyEquivalent(amount: number, period: Budget['period']): number {
-  if (period === 'weekly') return amount * 4.33;
-  if (period === 'yearly') return amount / 12;
-  return amount;
-}
 
 export async function getBudgets(
   accessToken: string,
@@ -535,21 +620,23 @@ export async function getBudgets(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Budgets!A2:H200',
+    range: 'Budgets!A2:E200',
   });
-  const rows = res.data.values ?? [];
-  return rows
-    .map((r, i) => ({
-      id: r[0] ?? '',
-      category: r[1] ?? '',
-      amount: Number(r[2] ?? 0),
-      period: (r[3] ?? 'monthly') as Budget['period'],
-      position: r[4] !== undefined && r[4] !== '' ? Number(r[4]) : i,
-      activeMonth: r[5] ? String(r[5]) : undefined,
-      prevMonth: r[6] ? String(r[6]) : undefined,
-      prevCap: r[7] !== undefined && r[7] !== '' ? Number(r[7]) : undefined,
-    }))
-    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  return parseBudgets(res.data.values ?? []);
+}
+
+function rowToBudget(r: string[], i: number): Budget {
+  return {
+    id: r[0] ?? '',
+    category: r[1] ?? '',
+    amount: Number(r[2] ?? 0),
+    period: (r[3] ?? 'monthly') as Budget['period'],
+    position: r[4] !== undefined && r[4] !== '' ? Number(r[4]) : i,
+  };
+}
+
+function parseBudgets(rows: string[][]): Budget[] {
+  return rows.map(rowToBudget).sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 }
 
 export async function upsertBudget(
@@ -558,16 +645,9 @@ export async function upsertBudget(
   budget: Budget
 ): Promise<void> {
   const existing = await getBudgets(accessToken, spreadsheetId);
-  const prev = existing.find((b) => b.id === budget.id);
   const maxPos = existing.reduce((m, b) => b.id !== budget.id ? Math.max(m, b.position ?? 0) : m, -1);
   const position = budget.position ?? maxPos + 1;
-  // Preserve the month-cap snapshot across edits. A brand-new budget starts
-  // active in the current month and carries nothing until it has lived through
-  // a full month, so editing today never fabricates a prior overspend.
-  const activeMonth = budget.activeMonth ?? prev?.activeMonth ?? monthKey();
-  const prevMonth = budget.prevMonth ?? prev?.prevMonth ?? '';
-  const prevCap = budget.prevCap ?? prev?.prevCap;
-  await deleteRowById(accessToken, spreadsheetId, 'Budgets', budget.id, 'H');
+  await deleteRowById(accessToken, spreadsheetId, 'Budgets', budget.id, 'E');
   const sheets = getSheetsClient(accessToken);
   await sheets.spreadsheets.values.append({
     spreadsheetId,
@@ -575,54 +655,9 @@ export async function upsertBudget(
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
-      values: [[budget.id, budget.category, budget.amount, budget.period, position, activeMonth, prevMonth, prevCap ?? '']],
+      values: [[budget.id, budget.category, budget.amount, budget.period, position]],
     },
   });
-}
-
-// Closes out any budget whose `activeMonth` predates the current month: freezes
-// the cap that was active during the just-ended month into `prevMonth`/`prevCap`
-// (in place, no row reordering), so rollover compares last month's spend to last
-// month's real cap. Legacy budgets with no prior snapshot carry nothing the
-// first time — we can't know a past cap, so we avoid a phantom deficit.
-export async function reconcileBudgetMonths(
-  accessToken: string,
-  spreadsheetId: string,
-  budgets: Budget[],
-  currentMonth: string = monthKey()
-): Promise<Budget[]> {
-  const stale = budgets.some((b) => b.activeMonth !== currentMonth);
-  if (!stale) return budgets;
-
-  const sheets = getSheetsClient(accessToken);
-  const idRes = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: 'Budgets!A2:A200',
-  });
-  const ids = (idRes.data.values ?? []).map((r) => r[0]);
-
-  const data: { range: string; values: (string | number)[][] }[] = [];
-  const updated = budgets.map((b) => {
-    if (b.activeMonth === currentMonth) return b;
-    const prevMonth = b.activeMonth;                          // the month just ended (undefined for legacy)
-    const prevCap = b.activeMonth !== undefined ? monthlyEquivalent(b.amount, b.period) : undefined;
-    const rowIdx = ids.indexOf(b.id);
-    if (rowIdx !== -1) {
-      data.push({
-        range: `Budgets!F${rowIdx + 2}:H${rowIdx + 2}`,
-        values: [[currentMonth, prevMonth ?? '', prevCap ?? '']],
-      });
-    }
-    return { ...b, activeMonth: currentMonth, prevMonth, prevCap };
-  });
-
-  if (data.length > 0) {
-    await sheets.spreadsheets.values.batchUpdate({
-      spreadsheetId,
-      requestBody: { valueInputOption: 'RAW', data },
-    });
-  }
-  return updated;
 }
 
 export async function reorderBudgets(
@@ -730,7 +765,7 @@ export async function getSplits(
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'Splits!A2:K1000',
+      range: 'Splits!A2:P1000',
     });
     return (res.data.values ?? []).map((r) => ({
       id: r[0] ?? '',
@@ -744,6 +779,11 @@ export async function getSplits(
       date: r[8] ?? '',
       settled: r[9] === 'true',
       settledDate: r[10] ?? '',
+      frontedTxId: r[11] ?? '',
+      settleTxId: r[12] ?? '',
+      repaidAmount: Number(r[13] ?? 0),
+      repaymentTxIds: String(r[14] ?? '').split('|').filter(Boolean),
+      myShareTxId: r[15] ?? '',
     }));
   } catch (err) {
     if (!isMissingTabError(err)) throw err;
@@ -759,7 +799,7 @@ export async function upsertSplit(
 ): Promise<void> {
   const sheets = getSheetsClient(accessToken);
   await ensureSheet(sheets, spreadsheetId, 'Splits', SPLITS_HEADER);
-  await deleteRowById(accessToken, spreadsheetId, 'Splits', split.id, 'K');
+  await deleteRowById(accessToken, spreadsheetId, 'Splits', split.id, 'O');
   await sheets.spreadsheets.values.append({
     spreadsheetId,
     range: 'Splits!A1',
@@ -770,6 +810,9 @@ export async function upsertSplit(
         split.id, split.billId, split.billName, split.contactId, split.contactName,
         split.amount, split.category, split.account, split.date,
         String(split.settled), split.settledDate,
+        split.frontedTxId ?? '', split.settleTxId ?? '',
+        split.repaidAmount ?? 0, (split.repaymentTxIds ?? []).join('|'),
+        split.myShareTxId ?? '',
       ]],
     },
   });
@@ -780,7 +823,7 @@ export async function deleteSplit(
   spreadsheetId: string,
   id: string
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Splits', id, 'K');
+  await deleteRowById(accessToken, spreadsheetId, 'Splits', id, 'O');
 }
 
 // ── Loans (personal lend/borrow IOUs) ──────────────────────────────────────────
@@ -793,7 +836,7 @@ export async function getLoans(
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'Loans!A2:M1000',
+      range: 'Loans!A2:O1000',
     });
     return (res.data.values ?? []).map((r) => ({
       id: r[0] ?? '',
@@ -809,6 +852,8 @@ export async function getLoans(
       settledDate: r[10] ?? '',
       principalTxId: r[11] ?? '',
       repaymentTxIds: String(r[12] ?? '').split('|').filter(Boolean),
+      category: r[13] ?? '', // legacy rows (col absent) → uncategorized
+      groupId: r[14] || undefined, // shared id for multi-person loans; '' → standalone
     }));
   } catch (err) {
     if (!isMissingTabError(err)) throw err;
@@ -835,7 +880,7 @@ export async function upsertLoan(
         loan.id, loan.direction, loan.contactId, loan.contactName, loan.account,
         loan.principal, loan.repaidAmount, loan.date, loan.note,
         String(loan.settled), loan.settledDate, loan.principalTxId,
-        (loan.repaymentTxIds ?? []).join('|'),
+        (loan.repaymentTxIds ?? []).join('|'), loan.category ?? '', loan.groupId ?? '',
       ]],
     },
   });
@@ -874,6 +919,20 @@ async function ensureNetWorthHistorySheet(
   });
 }
 
+// Range that holds the net-worth snapshots. Exported so the dashboard's combined
+// batchGet can request the same range and reuse parseNetWorthRows.
+export const NET_WORTH_RANGE = 'NetWorthHistory!A2:D';
+
+/** Pure row→NetWorthSnapshot parser, shared by getNetWorthHistory and the dashboard batch. */
+export function parseNetWorthRows(rows: string[][]): NetWorthSnapshot[] {
+  return rows.map((r) => ({
+    id: r[0] ?? '',
+    date: r[1] ?? '',
+    month: r[2] ?? '',
+    netWorth: Number(r[3] ?? 0),
+  }));
+}
+
 export async function getNetWorthHistory(
   accessToken: string,
   spreadsheetId: string
@@ -882,14 +941,9 @@ export async function getNetWorthHistory(
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'NetWorthHistory!A2:D',
+      range: NET_WORTH_RANGE,
     });
-    return (res.data.values ?? []).map((r) => ({
-      id: r[0] ?? '',
-      date: r[1] ?? '',
-      month: r[2] ?? '',
-      netWorth: Number(r[3] ?? 0),
-    }));
+    return parseNetWorthRows((res.data.values ?? []) as string[][]);
   } catch {
     await ensureNetWorthHistorySheet(accessToken, spreadsheetId);
     return [];
@@ -951,7 +1005,7 @@ export async function batchGetBadgesData(
 ): Promise<{ bills: Bill[]; budgets: Budget[]; transactions: Transaction[] }> {
   const sheets = getSheetsClient(accessToken);
   const ranges = [
-    'Bills!A2:J200',
+    'Bills!A2:K200',
     'Budgets!A2:D200',
     'Transactions!A2:I',
   ];
@@ -984,40 +1038,22 @@ export async function batchGetBadgesData(
   return { bills, budgets, transactions };
 }
 
-/**
- * Fetches all 6 main data sheets in a single batchGet API call.
- * Used by the dashboard instead of 6 separate requests.
- * NetWorthHistory is fetched separately because it may not exist yet.
- */
-export async function batchGetDashboardData(
-  accessToken: string,
-  spreadsheetId: string
-): Promise<{
+export type DashboardData = {
   paychecks: PaycheckEntry[];
   transactions: Transaction[];
   accounts: Account[];
   bills: Bill[];
   budgets: Budget[];
   goals: Goal[];
-}> {
-  const sheets = getSheetsClient(accessToken);
-  const ranges = [
-    'Paychecks!A2:L',
-    'Transactions!A2:I',
-    'Accounts!A2:I200',
-    'Bills!A2:J200',
-    'Budgets!A2:D200',
-    'Goals!A2:G200',
-  ];
-  const res = await sheets.spreadsheets.values.batchGet({
-    spreadsheetId,
-    ranges,
-    // Numeric cells must come back as numbers — currency-formatted cells
-    // would otherwise return "$100.00" strings that Number() turns into NaN.
-    valueRenderOption: 'UNFORMATTED_VALUE',
-  });
-  const vr = res.data.valueRanges ?? [];
+  settings: TaxSettings;
+  netWorthHistory: NetWorthSnapshot[];
+};
 
+// Parses the 7 always-present dashboard ranges (everything except NetWorthHistory)
+// from a batchGet response. Shared by the fast path and the legacy fallback below.
+function parseDashboardCore(
+  vr: { values?: unknown[][] | null }[],
+): Omit<DashboardData, 'netWorthHistory'> {
   const paychecks: PaycheckEntry[] = (vr[0]?.values ?? []).map((r) => ({
     id: r[0] ?? '',
     date: r[1] ?? '',
@@ -1031,7 +1067,7 @@ export async function batchGetDashboardData(
     notes: r[9] ?? '',
     gratuityAmount: Number(r[10] ?? 0),
     ficaWithheld: Number(r[11] ?? 0),
-  }));
+  })) as PaycheckEntry[];
   const transactions: Transaction[] = (vr[1]?.values ?? []).map((r) => ({
     id: r[0] ?? '',
     date: r[1] ?? '',
@@ -1042,7 +1078,7 @@ export async function batchGetDashboardData(
     account: r[6] ?? '',
     toAccount: r[7] ?? '',
     createdAt: r[8] ?? '',
-  }));
+  })) as Transaction[];
   const accounts: Account[] = (vr[2]?.values ?? []).map((r) => ({
     id: String(r[0] ?? ''),
     name: String(r[1] ?? ''),
@@ -1053,14 +1089,14 @@ export async function batchGetDashboardData(
     color: String(r[6] ?? '#6366f1'),
     createdAt: String(r[7] ?? ''),
     openingBalance: r[8] === undefined || r[8] === '' ? undefined : Number(r[8]),
-  }));
-  const bills: Bill[] = (vr[3]?.values ?? []).map(rowToBill);
+  })) as Account[];
+  const bills: Bill[] = (vr[3]?.values ?? []).map((r) => rowToBill(r as string[]));
   const budgets: Budget[] = (vr[4]?.values ?? []).map((r) => ({
     id: r[0] ?? '',
     category: r[1] ?? '',
     amount: Number(r[2] ?? 0),
     period: (r[3] ?? 'monthly') as Budget['period'],
-  }));
+  })) as Budget[];
   const goals: Goal[] = (vr[5]?.values ?? []).map((r) => ({
     id: r[0] ?? '',
     name: r[1] ?? '',
@@ -1069,9 +1105,158 @@ export async function batchGetDashboardData(
     deadline: r[4] ?? '',
     icon: r[5] ?? '🎯',
     linkedAccountId: r[6] ?? '',
-  }));
+  })) as Goal[];
+  const settings = parseSettingsRows((vr[6]?.values ?? []) as string[][]);
 
-  return { paychecks, transactions, accounts, bills, budgets, goals };
+  return { paychecks, transactions, accounts, bills, budgets, goals, settings };
+}
+
+/**
+ * Fetches everything the dashboard needs in a single batchGet — the 6 main data
+ * sheets PLUS Settings and NetWorthHistory — collapsing what used to be three
+ * parallel Sheets round trips (dashboard batch + getSettings + getNetWorthHistory)
+ * into one. Settings always exists, so it's safe to include. NetWorthHistory may
+ * be absent on a legacy spreadsheet (which would 400 the whole batch), so on
+ * failure we fall back to the 7 always-present ranges plus the auto-creating
+ * getNetWorthHistory getter — the original two-call behavior.
+ */
+const DASHBOARD_CORE_RANGES = [
+  'Paychecks!A2:L',
+  'Transactions!A2:I',
+  'Accounts!A2:I200',
+  'Bills!A2:K200',
+  'Budgets!A2:D200',
+  'Goals!A2:G200',
+  SETTINGS_RANGE,
+];
+
+export async function batchGetDashboardData(
+  accessToken: string,
+  spreadsheetId: string
+): Promise<DashboardData> {
+  const sheets = getSheetsClient(accessToken);
+  // Numeric cells must come back as numbers — currency-formatted cells would
+  // otherwise return "$100.00" strings that Number() turns into NaN.
+  const opts = { valueRenderOption: 'UNFORMATTED_VALUE' as const };
+
+  try {
+    const res = await sheets.spreadsheets.values.batchGet({
+      spreadsheetId,
+      ranges: [...DASHBOARD_CORE_RANGES, NET_WORTH_RANGE],
+      ...opts,
+    });
+    const vr = res.data.valueRanges ?? [];
+    return {
+      ...parseDashboardCore(vr),
+      netWorthHistory: parseNetWorthRows((vr[7]?.values ?? []) as string[][]),
+    };
+  } catch {
+    // Legacy sheet without the NetWorthHistory tab → fetch the safe ranges plus
+    // the snapshot history (which auto-creates the tab) separately.
+    const [res, netWorthHistory] = await Promise.all([
+      sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges: DASHBOARD_CORE_RANGES, ...opts }),
+      getNetWorthHistory(accessToken, spreadsheetId),
+    ]);
+    return { ...parseDashboardCore(res.data.valueRanges ?? []), netWorthHistory };
+  }
+}
+
+/**
+ * Generic multi-sheet batch read used by the /api/batch endpoint so a page can
+ * pull everything it needs in one round trip (and one Sheets quota hit) instead
+ * of N parallel requests — same idea as batchGetDashboardData, but driven by the
+ * caller's requested keys.
+ *
+ * The always-present sheets are fetched in a single spreadsheets.values.batchGet.
+ * Contacts/Splits are NOT batched: their tabs may not exist on older spreadsheets
+ * and a missing range fails the whole batchGet — so they go through their own
+ * getters, which auto-create the tab on first use. All reads run concurrently.
+ */
+export type BatchKey = keyof BatchResult;
+
+type BatchResult = {
+  accounts: Account[];
+  transactions: Transaction[];
+  bills: Bill[];
+  paychecks: PaycheckEntry[];
+  budgets: Budget[];
+  goals: Goal[];
+  contacts: Contact[];
+  splits: Split[];
+  loans: Loan[];
+  settings: TaxSettings;
+};
+
+// Keys fetched via their own getter (auto-create a missing tab, or non-array
+// shape) rather than the shared batchGet of always-present array sheets.
+type NonBatchableKey = 'contacts' | 'splits' | 'loans' | 'settings';
+
+// Sheets that always exist and carry no auto-create fallback — safe to batchGet.
+const BATCHABLE_SHEETS: Record<
+  Exclude<BatchKey, NonBatchableKey>,
+  { range: string; parse: (rows: string[][]) => unknown[] }
+> = {
+  accounts:     { range: 'Accounts!A2:I200',  parse: (rows) => rows.map(rowToAccount) },
+  transactions: { range: 'Transactions!A2:I', parse: (rows) => rows.map(rowToTransaction) },
+  bills:        { range: 'Bills!A2:K200',     parse: (rows) => rows.map(rowToBill) },
+  paychecks:    { range: 'Paychecks!A2:L',    parse: (rows) => rows.map(rowToPaycheck) },
+  budgets:      { range: 'Budgets!A2:E200',   parse: parseBudgets },
+  goals:        { range: 'Goals!A2:H200',     parse: parseGoals },
+};
+
+export const BATCH_KEYS = [
+  ...Object.keys(BATCHABLE_SHEETS),
+  'contacts',
+  'splits',
+  'loans',
+  'settings',
+] as BatchKey[];
+
+export async function batchGetSheets(
+  accessToken: string,
+  spreadsheetId: string,
+  keys: BatchKey[]
+): Promise<Partial<BatchResult>> {
+  const out: Partial<BatchResult> = {};
+  const assign = out as Record<BatchKey, unknown>;
+
+  const batched = keys.filter(
+    (k): k is Exclude<BatchKey, NonBatchableKey> => k in BATCHABLE_SHEETS
+  );
+
+  const tasks: Promise<void>[] = [];
+
+  if (batched.length > 0) {
+    tasks.push((async () => {
+      const sheets = getSheetsClient(accessToken);
+      const res = await sheets.spreadsheets.values.batchGet({
+        spreadsheetId,
+        ranges: batched.map((k) => BATCHABLE_SHEETS[k].range),
+        // Numeric cells must come back as numbers, not "$100.00" strings → NaN.
+        valueRenderOption: 'UNFORMATTED_VALUE',
+      });
+      const vr = res.data.valueRanges ?? [];
+      batched.forEach((k, i) => {
+        assign[k] = BATCHABLE_SHEETS[k].parse((vr[i]?.values ?? []) as string[][]);
+      });
+    })());
+  }
+
+  if (keys.includes('contacts')) {
+    tasks.push(getContacts(accessToken, spreadsheetId).then((c) => { assign.contacts = c; }));
+  }
+  if (keys.includes('splits')) {
+    tasks.push(getSplits(accessToken, spreadsheetId).then((s) => { assign.splits = s; }));
+  }
+  if (keys.includes('loans')) {
+    tasks.push(getLoans(accessToken, spreadsheetId).then((l) => { assign.loans = l; }));
+  }
+  if (keys.includes('settings')) {
+    tasks.push(getSettings(accessToken, spreadsheetId).then((s) => { assign.settings = s; }));
+  }
+
+  await Promise.all(tasks);
+  return out;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

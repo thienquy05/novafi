@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Plus, Calendar, CheckCircle2, Circle, AlarmClock, Pencil, RefreshCw, AlertCircle, Banknote, Repeat, Users, UserPlus, HandCoins, Check, Trash2 } from 'lucide-react';
+import { Plus, Calendar, CheckCircle2, Circle, AlarmClock, Pencil, RefreshCw, AlertCircle, Banknote, Repeat, Users, UserPlus, HandCoins, Check, Trash2, ChevronDown } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -9,9 +10,11 @@ import { Modal } from '@/components/ui/Modal';
 import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { BillsSkeleton } from '@/components/ui/Skeleton';
 import { FitText } from '@/components/ui/FitText';
+import { Collapsible } from '@/components/ui/Collapsible';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
-import { billToTransactionDefaults, calcSplitShares, calcPaycheckDeposited } from '@/lib/calculations';
-import type { Bill, Account, PaycheckEntry, Transaction, Contact, Split } from '@/types';
+import { billToTransactionDefaults, calcPaycheckDeposited, myBillShare, billParticipants, billOthersShare } from '@/lib/calculations';
+import { buildSplitTx, groupSplits, isOneOffSplit, resolveSplit, splitRemaining } from '@/lib/splits';
+import type { Bill, Account, PaycheckEntry, Transaction, Contact, Split, BillSplitParticipant } from '@/types';
 import { useCategories } from '@/hooks/useCategories';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
@@ -105,15 +108,6 @@ function parseLocalDate(dateStr: string): Date {
   return new Date(y, m - 1, d);
 }
 
-// The portion of a bill that actually leaves YOUR account. For a shared bill
-// that's just your share (the rest is the other person's), so monthly totals
-// and the cashflow forecast reflect what you really pay, not the full bill.
-function myBillShare(bill: Bill): number {
-  return bill.splitContactId && bill.splitAmount
-    ? calcSplitShares(bill.amount, bill.splitAmount).mine
-    : bill.amount;
-}
-
 function nextDueAfter(currentDue: string, frequency: Bill['frequency']): string {
   const d = parseLocalDate(currentDue);
   switch (frequency) {
@@ -129,11 +123,22 @@ function nextDueAfter(currentDue: string, frequency: Bill['frequency']): string 
 const EMPTY_FORM = {
   name: '', amount: '', frequency: 'monthly' as Bill['frequency'],
   nextDue: today(), account: '', category: 'Bills', isActive: true,
-  splitEnabled: false, splitContactId: '', splitAmount: '',
+  splitEnabled: false,
 };
 
 // Sentinel option value that opens the inline "add new contact" input.
 const NEW_CONTACT = '__new__';
+
+// One editable split row in the bill form. Mirrors the Transactions page split
+// model: a contact + their share (blank = auto-divide the remainder). "Me" is
+// never a row — your share is whatever's left.
+type SplitParticipant = { key: string; contactId: string; amount: string; newName: string };
+function emptyParticipant(): SplitParticipant {
+  return { key: generateId(), contactId: '', amount: '', newName: '' };
+}
+function roundCents(n: number): number {
+  return Math.round(n * 100) / 100;
+}
 
 // ── Recurring template helpers (mirrors transactions page localStorage format) ─
 type BillTemplate = { id: string; description: string; amount: number; type: Transaction['type']; category: string; account: string };
@@ -349,7 +354,12 @@ export default function BillsPage() {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [newContactName, setNewContactName] = useState('');
+  // Split participants for the bill being added/edited (separate state so
+  // EMPTY_FORM stays a shared immutable constant — no aliased array).
+  const [billParticipantRows, setBillParticipantRows] = useState<SplitParticipant[]>([emptyParticipant()]);
+  // Your own typed share, used only when the bill total is left blank (so the
+  // total is inferred by summing everyone's parts — see resolveSplit).
+  const [billMyShare, setBillMyShare] = useState('');
   const [addingContact, setAddingContact] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -357,7 +367,14 @@ export default function BillsPage() {
   const [payBill, setPayBill] = useState<Bill | null>(null);
   const [payForm, setPayForm] = useState({ description: '', date: today(), amount: '', account: '', category: '' });
   const [paying, setPaying] = useState(false);
-  const [settlingSplitId, setSettlingSplitId] = useState<string | null>(null);
+  // Loan-style "record payment" for an "owed to you" split — paybackFor is the
+  // split id whose inline form is open; paybackForm holds the entered amount and
+  // the account the cash returns into.
+  const [paybackFor, setPaybackFor] = useState<string | null>(null);
+  const [paybackForm, setPaybackForm] = useState({ amount: '', account: '' });
+  const [recordingPayback, setRecordingPayback] = useState(false);
+  const [sharingOpen, setSharingOpen] = useState(false);
+  const [showSharingHistory, setShowSharingHistory] = useState(false);
   const toast = useToast();
   const { expenseCategories } = useCategories();
 
@@ -372,24 +389,17 @@ export default function BillsPage() {
   const load = useCallback(async () => {
     setError(false);
     try {
-      const [bRes, aRes, pRes, txRes, cRes, sRes] = await Promise.all([
-        fetch('/api/bills'), fetch('/api/accounts'), fetch('/api/paychecks'),
-        fetch('/api/transactions'), fetch('/api/contacts'), fetch('/api/splits'),
-      ]);
-      if (!bRes.ok) throw new Error();
-      const [b, a, p, tx, c, s] = await Promise.all([
-        bRes.json(), aRes.json(),
-        pRes.ok ? pRes.json() : Promise.resolve([]),
-        txRes.ok ? txRes.json() : Promise.resolve([]),
-        cRes.ok ? cRes.json() : Promise.resolve([]),
-        sRes.ok ? sRes.json() : Promise.resolve([]),
-      ]);
+      // One round trip instead of six — see /api/batch.
+      const res = await fetch('/api/batch?keys=bills,accounts,paychecks,transactions,contacts,splits');
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      const b: Bill[] = data.bills ?? [];
       setBills([...b].sort((x: Bill, y: Bill) => x.nextDue.localeCompare(y.nextDue)));
-      setAccounts(a);
-      setPaychecks(p);
-      setTransactions(tx);
-      setContacts(c);
-      setSplits(s);
+      setAccounts(data.accounts ?? []);
+      setPaychecks(data.paychecks ?? []);
+      setTransactions(data.transactions ?? []);
+      setContacts(data.contacts ?? []);
+      setSplits(data.splits ?? []);
     } catch {
       setError(true);
     } finally {
@@ -400,24 +410,37 @@ export default function BillsPage() {
   useEffect(() => { load(); }, [load]);
   const { pullY, refreshing } = usePullToRefresh(load);
 
-  function openAdd() { setEditingId(null); setForm(EMPTY_FORM); setNewContactName(''); setOpen(true); }
+  function resetSplitMode() { setBillMyShare(''); }
+  function openAdd() { setEditingId(null); setForm(EMPTY_FORM); setBillParticipantRows([emptyParticipant()]); resetSplitMode(); setOpen(true); }
   function openEdit(bill: Bill) {
     setEditingId(bill.id);
-    setNewContactName('');
+    const parts = billParticipants(bill); // normalizes legacy single-split → rows
     setForm({
       name: bill.name, amount: String(bill.amount), frequency: bill.frequency,
       nextDue: bill.nextDue, account: bill.account ?? '', category: bill.category, isActive: bill.isActive,
-      splitEnabled: !!bill.splitContactId,
-      splitContactId: bill.splitContactId ?? '',
-      splitAmount: bill.splitAmount != null ? String(bill.splitAmount) : '',
+      splitEnabled: parts.length > 0,
     });
+    setBillParticipantRows(parts.length > 0
+      ? parts.map((p) => ({ key: generateId(), contactId: p.contactId, amount: String(p.amount), newName: '' }))
+      : [emptyParticipant()]);
+    resetSplitMode(); // participants carry explicit amounts; the stored total drives the split
     setOpen(true);
   }
-  function closeModal() { setOpen(false); setEditingId(null); setForm(EMPTY_FORM); setNewContactName(''); }
+  function closeModal() { setOpen(false); setEditingId(null); setForm(EMPTY_FORM); setBillParticipantRows([emptyParticipant()]); resetSplitMode(); }
 
-  // Creates a reusable contact inline (from the split picker) and selects it.
-  async function handleAddContact() {
-    const name = newContactName.trim();
+  // ── Bill split participants ──
+  function updateBillParticipant(key: string, patch: Partial<SplitParticipant>) {
+    setBillParticipantRows((prev) => prev.map((p) => p.key === key ? { ...p, ...patch } : p));
+  }
+  function addBillParticipantRow() { setBillParticipantRows((prev) => [...prev, emptyParticipant()]); }
+  function removeBillParticipantRow(key: string) {
+    setBillParticipantRows((prev) => prev.length > 1 ? prev.filter((p) => p.key !== key) : prev);
+  }
+  function billSplitEqually() { setBillParticipantRows((prev) => prev.map((p) => ({ ...p, amount: '' }))); }
+
+  // Creates a reusable contact inline for one split row and selects it there.
+  async function handleAddParticipantContact(row: SplitParticipant) {
+    const name = row.newName.trim();
     if (!name) return;
     setAddingContact(true);
     const contact: Contact = { id: generateId(), name, createdAt: new Date().toISOString() };
@@ -425,8 +448,7 @@ export default function BillsPage() {
       const res = await fetch('/api/contacts', { method: 'POST', body: JSON.stringify(contact), headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error();
       setContacts((prev) => [...prev, contact].sort((a, b) => a.name.localeCompare(b.name)));
-      setForm((f) => ({ ...f, splitContactId: contact.id }));
-      setNewContactName('');
+      updateBillParticipant(row.key, { contactId: contact.id, newName: '' });
       toast(t('bills.toastContactAdded'), 'success');
     } catch {
       toast(t('bills.toastFailedContact'), 'error');
@@ -436,20 +458,35 @@ export default function BillsPage() {
   }
 
   async function handleSave() {
-    if (!form.name || !form.amount) return;
+    if (!form.name) return;
+    // Resolve each named row's share. Rows without a real contact are dropped.
+    const namedRows = form.splitEnabled
+      ? billParticipantRows.filter((p) => !!contacts.find((c) => c.id === p.contactId))
+      : [];
+    const amounts = namedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0)));
+    const totalInput = form.amount.trim() === '' ? null : (parseFloat(form.amount) || 0);
+    // Total filled → divide it across people; total blank → sum the parts (your
+    // own typed share included). You always take part in a bill (includeMe true).
+    const { shares, over, total } = resolveSplit(totalInput, amounts, true, parseFloat(billMyShare) || 0);
+    if (over) { toast(t('bills.splitExpenseOverTotal'), 'error'); return; }
+    const splitParticipants: BillSplitParticipant[] = namedRows
+      .map((p, i) => ({ contactId: p.contactId, amount: roundCents(shares[i]) }))
+      .filter((p) => p.amount > 0);
+    if (total <= 0) return;
     setSaving(true);
-    const splitOn = form.splitEnabled && !!form.splitContactId && form.splitContactId !== NEW_CONTACT && parseFloat(form.splitAmount) > 0;
     const bill: Bill = {
       id: editingId ?? generateId(),
       name: form.name,
-      amount: parseFloat(form.amount),
+      amount: total,
       frequency: form.frequency,
       nextDue: form.nextDue,
       account: form.account,
       category: form.category,
       isActive: editingId ? form.isActive : true,
-      splitContactId: splitOn ? form.splitContactId : '',
-      splitAmount: splitOn ? parseFloat(form.splitAmount) : undefined,
+      // New bills use the participants model exclusively; clear legacy fields.
+      splitContactId: '',
+      splitAmount: undefined,
+      splitParticipants: splitParticipants.length > 0 ? splitParticipants : undefined,
     };
     // Optimistic update
     if (editingId) {
@@ -472,11 +509,9 @@ export default function BillsPage() {
 
   function openPayModal(bill: Bill) {
     const defaults = billToTransactionDefaults(bill, today());
-    // For a shared bill, log only YOUR share as the expense — the other person
-    // covers their part separately (tracked under "Owed to You", no transaction).
-    const myAmount = bill.splitContactId && bill.splitAmount
-      ? calcSplitShares(bill.amount, bill.splitAmount).mine
-      : defaults.amount;
+    // For a shared bill, log only YOUR share as the expense — the other people
+    // cover their parts separately (tracked under "Owed to You", no expense).
+    const myAmount = billParticipants(bill).length > 0 ? myBillShare(bill) : defaults.amount;
     setPayBill(bill);
     setPayForm({ description: defaults.description, date: defaults.date, amount: String(myAmount), account: defaults.account, category: defaults.category });
   }
@@ -502,40 +537,64 @@ export default function BillsPage() {
       account: payForm.account,
       createdAt: new Date().toISOString(),
     };
-    // The expense above already counts only your share. For a shared bill we
-    // also open an informational "owed to you" record for the other person's
-    // share — marked settled later via the checkbox (no transaction).
-    const splitShare = payBill.splitContactId && payBill.splitAmount ? payBill.splitAmount : 0;
-    const splitContact = contacts.find((c) => c.id === payBill.splitContactId);
-    const newSplit: Split | null = splitShare > 0 && splitContact ? {
-      id: generateId(),
-      billId: payBill.id,
-      billName: payBill.name,
-      contactId: splitContact.id,
-      contactName: splitContact.name,
-      amount: splitShare,
-      category: payForm.category,
-      account: payForm.account,
-      date: payForm.date,
-      settled: false,
-      settledDate: '',
-    } : null;
+    // The expense above counts only YOUR share. For a shared bill we also front
+    // EACH other person's share out of the same account as a `transfer` (so the
+    // balance reflects the full amount you really paid) and open an "owed to
+    // you" receivable per person. When an account is selected the transfer is
+    // bundled with the split so the balance moves atomically; with no account it
+    // stays a note-only receivable. All splits share the payBill.id + date so
+    // they collapse into one group (see groupSplits).
+    const newSplits: { split: Split; tx: Transaction | null }[] = [];
+    for (const part of billParticipants(payBill)) {
+      const contact = contacts.find((c) => c.id === part.contactId);
+      if (!contact || part.amount <= 0) continue;
+      const frontedTx = payForm.account
+        ? buildSplitTx('cashOut', part.amount, payForm.account, t('bills.txFronted', { name: contact.name, bill: payBill.name }), payForm.date)
+        : null;
+      newSplits.push({
+        split: {
+          id: generateId(),
+          billId: payBill.id,
+          billName: payBill.name,
+          contactId: contact.id,
+          contactName: contact.name,
+          amount: part.amount,
+          category: payForm.category,
+          account: payForm.account,
+          date: payForm.date,
+          settled: false,
+          settledDate: '',
+          repaidAmount: 0,
+          repaymentTxIds: [],
+          frontedTxId: frontedTx?.id ?? '',
+          settleTxId: '',
+        },
+        tx: frontedTx,
+      });
+    }
     try {
-      // Confirm the expense wrote before creating the split record, otherwise a
-      // failed transaction would leave an orphaned "owed to you" entry.
+      // Confirm the expense wrote before creating the split records, otherwise a
+      // failed transaction would leave orphaned "owed to you" entries.
       const txPromise = fetch('/api/transactions', { method: 'POST', body: JSON.stringify(tx), headers: { 'Content-Type': 'application/json' } });
       const advancePromise = advanceBillDue(payBill);
       const txRes = await txPromise;
       await advancePromise;
       if (!txRes.ok) throw new Error();
-      if (newSplit) {
-        const sRes = await fetch('/api/splits', { method: 'POST', body: JSON.stringify(newSplit), headers: { 'Content-Type': 'application/json' } });
+      // Sequential — each fronted transfer mutates the same account balance
+      // server-side, so parallel writes would race.
+      for (const { split, tx: frontedTx } of newSplits) {
+        const sRes = await fetch('/api/splits', {
+          method: 'POST',
+          body: JSON.stringify(frontedTx ? { split, tx: frontedTx } : split),
+          headers: { 'Content-Type': 'application/json' },
+        });
         if (!sRes.ok) throw new Error();
       }
       upsertTemplate({ id: generateId(), description: tx.description, amount: tx.amount, type: 'expense', category: tx.category, account: tx.account });
-      if (newSplit) {
-        setSplits((prev) => [newSplit, ...prev]);
-        toast(t('bills.toastSplitPaid', { name: newSplit.contactName, amount: formatCurrency(newSplit.amount) }), 'success');
+      if (newSplits.length > 0) {
+        setSplits((prev) => [...newSplits.map((s) => s.split), ...prev]);
+        const totalOwedNow = newSplits.reduce((s, x) => s + x.split.amount, 0);
+        toast(t('bills.toastSplitPaid', { name: newSplits.length === 1 ? newSplits[0].split.contactName : t('bills.peopleCount', { n: newSplits.length }), amount: formatCurrency(totalOwedNow) }), 'success');
       } else {
         toast(`${payBill.name} paid & transaction recorded`, 'success');
       }
@@ -559,28 +618,116 @@ export default function BillsPage() {
     closePayModal();
   }
 
-  // Tick/untick "they transferred the money" for one shared-bill payment. This
-  // is purely an informational status — your expense already counts only your
-  // share, so settling their part creates no transaction.
-  async function handleSplitToggle(split: Split) {
-    setSettlingSplitId(split.id);
-    const updated: Split = split.settled
-      ? { ...split, settled: false, settledDate: '' }
-      : { ...split, settled: true, settledDate: today() };
-    setSplits((prev) => prev.map((s) => s.id === split.id ? updated : s));
+  // Open / close the inline "record payment" form for one "owed to you" split,
+  // mirroring the loan payback form. Opening pre-fills the amount with what's
+  // still owed and the account with the one the share was fronted from.
+  function openSplitPayback(split: Split) {
+    if (paybackFor === split.id) { setPaybackFor(null); return; }
+    setPaybackFor(split.id);
+    setPaybackForm({ amount: String(splitRemaining(split)), account: split.account });
+  }
+
+  // Record a (possibly partial) payback for a shared-bill split — the same model
+  // as a loan payback. The entered amount accumulates in `repaidAmount`; once it
+  // covers the full share the split is marked settled. When an account is chosen
+  // the share is returned INTO it as a cash-in `transfer` (bundled with the split
+  // so the balance and the receivable move together). A note-only split (no
+  // account) just advances repaidAmount. Your own expense is never touched here.
+  async function handleRecordSplitPayback(split: Split) {
+    const remaining = splitRemaining(split);
+    const entered = parseFloat(paybackForm.amount) || 0;
+    const applied = roundCents(Math.min(entered, remaining));
+    if (applied <= 0) return;
+    setRecordingPayback(true);
+    const account = paybackForm.account;
+    const tx: Transaction | null = account
+      ? buildSplitTx('cashIn', applied, account, t('bills.txSettled', { name: split.contactName, bill: split.billName }), today())
+      : null;
+    const newRepaid = roundCents(split.repaidAmount + applied);
+    const fullyPaid = newRepaid >= roundCents(split.amount) - 0.005;
+    const updated: Split = {
+      ...split,
+      repaidAmount: newRepaid,
+      settled: fullyPaid,
+      settledDate: fullyPaid ? today() : '',
+      repaymentTxIds: tx ? [...split.repaymentTxIds, tx.id] : split.repaymentTxIds,
+    };
+    const prev = splits;
+    setSplits((list) => list.map((s) => s.id === split.id ? updated : s));
     try {
-      const res = await fetch('/api/splits', { method: 'POST', body: JSON.stringify(updated), headers: { 'Content-Type': 'application/json' } });
+      const res = await fetch('/api/splits', { method: 'POST', body: JSON.stringify(tx ? { split: updated, tx } : updated), headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error();
-      toast(updated.settled ? t('bills.toastSplitSettled', { name: split.contactName }) : t('bills.toastSplitUnsettled', { name: split.contactName }), updated.settled ? 'success' : 'info');
+      toast(fullyPaid ? t('bills.toastSplitSettled', { name: split.contactName }) : t('bills.toastSplitPartial', { name: split.contactName, amount: formatCurrency(splitRemaining(updated)) }), 'success');
+      setPaybackFor(null);
+      setPaybackForm({ amount: '', account: '' });
     } catch {
-      setSplits((prev) => prev.map((s) => s.id === split.id ? split : s));
+      setSplits(prev);
       toast(t('bills.toastFailedSplit'), 'error');
     } finally {
-      setSettlingSplitId(null);
+      setRecordingPayback(false);
     }
   }
 
-  // Removes an "owed to you" record (informational only — no transactions involved).
+  // One pending "owed to you" person: the loan-style card showing what's still
+  // owed, a progress bar once partially paid, a "Record payment" button, and the
+  // inline payback form it toggles open. `showBill` adds the bill name (used for
+  // standalone single-person rows; group cards already show it in the header).
+  function renderPendingSplitRow(split: Split, showBill: boolean) {
+    const expanded = paybackFor === split.id;
+    const remaining = splitRemaining(split);
+    const partial = (split.repaidAmount || 0) > 0;
+    const pct = split.amount > 0 ? Math.min(100, (split.repaidAmount / split.amount) * 100) : 0;
+    return (
+      <div key={split.id} className="px-4 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
+              {split.contactName}{showBill && <> <span className="text-slate-400 dark:text-slate-500 font-medium">·</span> {split.billName}</>}
+            </p>
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('bills.owedSince', { date: formatDate(split.date) })}</p>
+          </div>
+          <div className="text-right shrink-0">
+            <p className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">{formatCurrency(remaining)}</p>
+            {partial && <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">{t('bills.splitPaidOf', { paid: formatCurrency(split.repaidAmount), total: formatCurrency(split.amount) })}</p>}
+          </div>
+        </div>
+        {partial && (
+          <div className="mt-2.5 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
+          </div>
+        )}
+        <div className="flex items-center gap-2 mt-3">
+          <Button size="sm" variant="secondary" className="h-9" onClick={() => openSplitPayback(split)}>
+            <HandCoins className="w-4 h-4" />{t('bills.recordSplitPayment')}
+          </Button>
+          <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors ml-auto">
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+        <Collapsible open={expanded}>
+          <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Input label={t('loans.paybackAmount')} type="number" min="0" step="0.01" value={paybackForm.amount} onChange={(e) => setPaybackForm((f) => ({ ...f, amount: e.target.value }))} />
+              <Select
+                label={t('loans.intoAccount')}
+                value={paybackForm.account}
+                options={[{ value: '', label: t('loans.noAccount') }, ...accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))]}
+                onChange={(e) => setPaybackForm((f) => ({ ...f, account: e.target.value }))}
+              />
+            </div>
+            <div className="flex gap-3">
+              <Button variant="secondary" className="flex-1 h-10" onClick={() => setPaybackFor(null)}>{t('common.cancel')}</Button>
+              <Button className="flex-1 h-10" onClick={() => handleRecordSplitPayback(split)} disabled={recordingPayback || !paybackForm.amount}>{recordingPayback ? t('common.saving') : t('loans.confirmPayback')}</Button>
+            </div>
+          </div>
+        </Collapsible>
+      </div>
+    );
+  }
+
+  // Removes an "owed to you" record. The splits API reverses and deletes every
+  // cash transfer the split created (the fronted share + each payback) so any
+  // linked account returns to exactly where it was — mirrors loan deletion.
   async function handleDeleteSplit(split: Split) {
     if (!confirm(t('bills.confirmDeleteSplit'))) return;
     const prev = splits;
@@ -633,18 +780,38 @@ export default function BillsPage() {
 
   const contactName = useCallback((id: string) => contacts.find((c) => c.id === id)?.name ?? '', [contacts]);
 
-  // "Owed to you" derived views.
-  const pendingSplits = useMemo(() => splits.filter((s) => !s.settled).sort((a, b) => b.date.localeCompare(a.date)), [splits]);
-  const settledSplits = useMemo(() => splits.filter((s) => s.settled).sort((a, b) => (b.settledDate || '').localeCompare(a.settledDate || '')), [splits]);
-  const totalOwed = useMemo(() => pendingSplits.reduce((s, x) => s + x.amount, 0), [pendingSplits]);
+  // "Owed to you" derived views. Only recurring shared-bill splits live here;
+  // one-time expense splits are tracked on the Transactions page (see lib/splits
+  // isOneOffSplit), so they're filtered out.
+  const billSplits = useMemo(() => splits.filter((s) => !isOneOffSplit(s)), [splits]);
+  const pendingSplits = useMemo(() => billSplits.filter((s) => !s.settled).sort((a, b) => b.date.localeCompare(a.date)), [billSplits]);
+  const settledSplits = useMemo(() => billSplits.filter((s) => s.settled).sort((a, b) => (b.settledDate || '').localeCompare(a.settledDate || '')), [billSplits]);
+  const totalOwed = useMemo(() => pendingSplits.reduce((s, x) => s + splitRemaining(x), 0), [pendingSplits]);
   const owedByContact = useMemo(() => {
     const map = new Map<string, number>();
     for (const s of pendingSplits) map.set(s.contactName, (map.get(s.contactName) ?? 0) + s.amount);
     return [...map.entries()].sort((a, b) => b[1] - a[1]);
   }, [pendingSplits]);
+  // Grouped views for the tracker modal — one card per shared bill/expense.
+  const pendingGroups = useMemo(() => groupSplits(pendingSplits), [pendingSplits]);
+  const settledGroups = useMemo(() => groupSplits(settledSplits), [settledSplits]);
 
-  // Live preview of the share breakdown inside the bill modal.
-  const formShares = calcSplitShares(parseFloat(form.amount) || 0, parseFloat(form.splitAmount) || 0);
+  // Live preview of the split breakdown inside the bill modal. Only rows with a
+  // real contact count. When the bill total is filled it's divided across people
+  // (blank rows auto-divide the remainder, you join that pool); when it's left
+  // blank the total is inferred by summing each typed share plus your own.
+  // `billShareByKey` feeds each row's placeholder.
+  const billTotalInput = form.amount.trim() === '' ? null : (parseFloat(form.amount) || 0);
+  const billHasTotal = (billTotalInput ?? 0) > 0;
+  const billNamedRows = form.splitEnabled ? billParticipantRows.filter((p) => !!contacts.find((c) => c.id === p.contactId)) : [];
+  const billAmounts = billNamedRows.map((p) => (p.amount.trim() === '' ? null : (parseFloat(p.amount) || 0)));
+  const billComputed = resolveSplit(billTotalInput, billAmounts, true, parseFloat(billMyShare) || 0);
+  const billShareByKey = new Map(billNamedRows.map((p, i) => [p.key, billComputed.shares[i]]));
+  const billOthersTotal = roundCents(billComputed.shares.reduce((s, v) => s + v, 0));
+  const billMyShareNum = billComputed.myShare;
+  const billTotal = billComputed.total;
+  const billIsGroup = billNamedRows.length > 1;
+  const billOver = billComputed.over;
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
@@ -657,13 +824,15 @@ export default function BillsPage() {
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{t('bills.title')}</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mt-1">{t('bills.subtitle')}</p>
-        </div>
-        <Button onClick={openAdd} className="w-full md:w-auto shadow-sm"><Plus className="w-5 h-5" />{t('bills.addBill')}</Button>
-      </div>
+      <PageHeader
+        icon={Calendar}
+        tone="amber"
+        title={t('bills.title')}
+        subtitle={t('bills.subtitle')}
+        action={
+          <Button onClick={openAdd} className="w-full md:w-auto shadow-sm"><Plus className="w-5 h-5" />{t('bills.addBill')}</Button>
+        }
+      />
 
       <div className="grid grid-cols-3 gap-3">
         <Card className="p-4 sm:p-5 min-w-0">
@@ -718,65 +887,25 @@ export default function BillsPage() {
           {/* Horizontal Timeline */}
           <BillsTimeline bills={activeBills} nowMs={nowMs} />
 
-          {/* Owed to You — shared bills others still owe you */}
-          {splits.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between px-1">
-                <h2 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                  <HandCoins className="w-3.5 h-3.5" /> {t('bills.owedToYou')}
-                </h2>
-                {totalOwed > 0 && (
-                  <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-2.5 py-1 rounded-lg">{formatCurrency(totalOwed)}</span>
+          {/* Owed to You — tap to open the shared-payments tracker */}
+          {billSplits.length > 0 && (
+            <button onClick={() => setSharingOpen(true)} className="w-full flex items-center justify-between p-4 rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 transition-colors text-left shadow-sm">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800/50 flex items-center justify-center shrink-0">
+                  <HandCoins className="w-5 h-5 text-emerald-500 dark:text-emerald-400" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('bills.owedToYou')}</p>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('bills.sharedOpenCount', { n: pendingSplits.length })}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                {totalOwed > 0 && <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(totalOwed)}</span>}
+                {pendingSplits.length > 0 && (
+                  <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-indigo-600 text-white text-[11px] font-bold">{pendingSplits.length}</span>
                 )}
               </div>
-
-              {owedByContact.length > 0 && (
-                <div className="flex flex-wrap gap-2 px-1">
-                  {owedByContact.map(([name, amt]) => (
-                    <span key={name} className="text-xs font-medium bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-800/50 rounded-lg px-2.5 py-1 flex items-center gap-1.5">
-                      <Users className="w-3 h-3" /> {name} · {formatCurrency(amt)}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              <div className="space-y-2.5">
-                {[...pendingSplits, ...settledSplits].map((split) => {
-                  const busy = settlingSplitId === split.id;
-                  return (
-                    <div key={split.id} className={`flex items-center justify-between p-4 rounded-2xl bg-white dark:bg-slate-800 border transition-colors ${split.settled ? 'border-slate-100 dark:border-slate-700/60 opacity-70' : 'border-emerald-100 dark:border-emerald-800/40'}`}>
-                      <div className="flex items-center gap-3 min-w-0">
-                        <button
-                          type="button"
-                          onClick={() => handleSplitToggle(split)}
-                          disabled={busy}
-                          title={split.settled ? t('bills.transferred') : t('bills.markTransferred')}
-                          className={`w-6 h-6 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors disabled:opacity-50 ${split.settled ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 dark:border-slate-600 hover:border-emerald-400'}`}
-                        >
-                          {split.settled && <Check className="w-4 h-4" />}
-                        </button>
-                        <div className="min-w-0">
-                          <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
-                            {split.contactName} <span className="text-slate-400 dark:text-slate-500 font-medium">·</span> {split.billName}
-                          </p>
-                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
-                            {split.settled
-                              ? t('bills.transferredOn', { date: formatDate(split.settledDate || split.date) })
-                              : t('bills.owedSince', { date: formatDate(split.date) })}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3 shrink-0">
-                        <span className={`text-sm font-extrabold ${split.settled ? 'text-slate-400 dark:text-slate-500 line-through' : 'text-emerald-600 dark:text-emerald-400'}`}>{formatCurrency(split.amount)}</span>
-                        <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            </button>
           )}
 
           {activeBills.length > 0 && (
@@ -786,14 +915,17 @@ export default function BillsPage() {
                 {activeBills.map((bill) => {
                   const daysUntil = Math.ceil((parseLocalDate(bill.nextDue).getTime() - todayMidnight.getTime()) / 86400000);
                   const isOverdue = daysUntil < 0;
-                  const isDueSoon = daysUntil >= 0 && daysUntil <= 7;
+                  // Red when overdue or due within 3 days; yellow when due in 4–7
+                  // days; normal beyond that.
+                  const isUrgent = daysUntil <= 3;
+                  const isDueSoon = daysUntil > 3 && daysUntil <= 7;
                   const accountName = accounts.find((a) => a.id === bill.account)?.name ?? bill.account;
                   return (
                     <SwipeToDelete key={bill.id} onDelete={() => handleDelete(bill.id)}>
-                      <div className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-5 rounded-3xl bg-white dark:bg-slate-800 border transition-all duration-200 gap-3 sm:gap-0 ${isOverdue ? 'border-rose-200 dark:border-rose-800/50 bg-rose-50/30' : isDueSoon ? 'border-amber-200 dark:border-amber-800/50 bg-amber-50/30' : 'border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 hover:shadow-sm'}`}>
+                      <div className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-5 rounded-3xl bg-white dark:bg-slate-800 border transition-all duration-200 gap-3 sm:gap-0 ${isUrgent ? 'border-rose-200 dark:border-rose-800/50 bg-rose-50/30' : isDueSoon ? 'border-amber-200 dark:border-amber-800/50 bg-amber-50/30' : 'border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 hover:shadow-sm'}`}>
                         <div className="flex items-center gap-4">
-                          <div className={`flex items-center justify-center w-12 h-12 rounded-2xl shrink-0 border ${isOverdue ? 'bg-rose-100 dark:bg-rose-900/40 border-rose-200 dark:border-rose-800/50' : isDueSoon ? 'bg-amber-100 dark:bg-amber-900/40 border-amber-200 dark:border-amber-800/50' : 'bg-slate-100 dark:bg-slate-700 border-slate-200 dark:border-slate-700'}`}>
-                            <AlarmClock className={`w-5 h-5 ${isOverdue ? 'text-rose-600 dark:text-rose-400' : isDueSoon ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'}`} />
+                          <div className={`flex items-center justify-center w-12 h-12 rounded-2xl shrink-0 border ${isUrgent ? 'bg-rose-100 dark:bg-rose-900/40 border-rose-200 dark:border-rose-800/50 pulse-glow' : isDueSoon ? 'bg-amber-100 dark:bg-amber-900/40 border-amber-200 dark:border-amber-800/50' : 'bg-slate-100 dark:bg-slate-700 border-slate-200 dark:border-slate-700'}`}>
+                            <AlarmClock className={`w-5 h-5 ${isUrgent ? 'text-rose-600 dark:text-rose-400' : isDueSoon ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'}`} />
                           </div>
                           <div>
                             <p className="text-base font-bold text-slate-900 dark:text-slate-100">{bill.name}</p>
@@ -801,16 +933,22 @@ export default function BillsPage() {
                               {FREQUENCY_LABELS[bill.frequency]}{accountName ? ` · ${accountName}` : ''}{' · '}
                               {isOverdue ? <span className="text-rose-600 dark:text-rose-400 font-bold">{t('common.overdue')} {Math.abs(daysUntil)}d</span> : daysUntil === 0 ? <span className="text-amber-600 dark:text-amber-400 font-bold">Due today</span> : <span>{daysUntil}d ({formatDate(bill.nextDue)})</span>}
                             </p>
-                            {bill.splitContactId && bill.splitAmount ? (
-                              <span className="inline-flex items-center gap-1 mt-1.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800/50 rounded-lg px-2 py-0.5">
-                                <Users className="w-3 h-3" />
-                                {t('bills.splitBadge', { name: contactName(bill.splitContactId), your: formatCurrency(calcSplitShares(bill.amount, bill.splitAmount).mine), their: formatCurrency(bill.splitAmount) })}
-                              </span>
-                            ) : null}
+                            {(() => {
+                              const parts = billParticipants(bill);
+                              if (parts.length === 0) return null;
+                              const label = parts.length === 1
+                                ? t('bills.splitBadge', { name: contactName(parts[0].contactId), your: formatCurrency(myBillShare(bill)), their: formatCurrency(parts[0].amount) })
+                                : t('bills.splitBadgeGroup', { n: parts.length, your: formatCurrency(myBillShare(bill)), their: formatCurrency(billOthersShare(bill)) });
+                              return (
+                                <span className="inline-flex items-center gap-1 mt-1.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800/50 rounded-lg px-2 py-0.5">
+                                  <Users className="w-3 h-3" />{label}
+                                </span>
+                              );
+                            })()}
                           </div>
                         </div>
                         <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto pl-16 sm:pl-0 gap-3 sm:gap-5">
-                          <span className={`text-base font-extrabold ${isOverdue ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>{formatCurrency(bill.amount)}</span>
+                          <span className={`text-base font-extrabold ${isUrgent ? 'text-rose-600 dark:text-rose-400' : isDueSoon ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-slate-100'}`}>{formatCurrency(bill.amount)}</span>
                           <div className="flex gap-1.5">
                             <button title="Edit" onClick={(e) => { e.stopPropagation(); openEdit(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
                             <button title="Mark paid" onClick={(e) => { e.stopPropagation(); openPayModal(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-xl transition-colors"><CheckCircle2 className="w-4 h-4" /></button>
@@ -860,10 +998,14 @@ export default function BillsPage() {
           {accounts.length > 0 && (
             <Select label={t('bills.payFromAccount')} value={payForm.account} options={[{ value: '', label: t('common.selectPlaceholder') }, ...accounts.map((a) => ({ value: a.id, label: a.name }))]} onChange={(e) => setPayForm((f) => ({ ...f, account: e.target.value }))} />
           )}
-          {payBill?.splitContactId && payBill.splitAmount ? (
+          {payBill && billParticipants(payBill).length > 0 ? (
             <div className="flex items-start gap-2.5 px-3.5 py-3 rounded-2xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800/50">
               <HandCoins className="w-4 h-4 text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" />
-              <p className="text-xs text-emerald-700 dark:text-emerald-300 font-medium">{t('bills.splitPayNote', { name: contactName(payBill.splitContactId), amount: formatCurrency(payBill.splitAmount) })}</p>
+              <p className="text-xs text-emerald-700 dark:text-emerald-300 font-medium">{
+                billParticipants(payBill).length === 1
+                  ? t('bills.splitPayNote', { name: contactName(billParticipants(payBill)[0].contactId), amount: formatCurrency(billParticipants(payBill)[0].amount) })
+                  : t('bills.splitPayNoteGroup', { n: billParticipants(payBill).length, amount: formatCurrency(billOthersShare(payBill)) })
+              }</p>
             </div>
           ) : null}
           <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">This will record an expense transaction and save a recurring template for quick re-use.</p>
@@ -882,7 +1024,13 @@ export default function BillsPage() {
         <div className="space-y-5 pb-4">
           <Input label={t('bills.billName')} placeholder="e.g. Netflix, Rent, Car Insurance" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Input label={t('common.amountUsd')} type="number" min="0" step="0.01" placeholder="0.00" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} />
+            <Input
+              label={form.splitEnabled && !billHasTotal && billTotal > 0 ? t('bills.totalAmountAuto') : t('common.amountUsd')}
+              type="number" min="0" step="0.01"
+              placeholder={form.splitEnabled && !billHasTotal && billTotal > 0 ? billTotal.toFixed(2) : '0.00'}
+              value={form.amount}
+              onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
+            />
             <Select label={t('common.frequency')} value={form.frequency} options={Object.entries(FREQUENCY_LABELS).map(([value, label]) => ({ value, label }))} onChange={(e) => setForm((f) => ({ ...f, frequency: e.target.value as Bill['frequency'] }))} />
           </div>
           <Input label={t('bills.nextDueDate')} type="date" value={form.nextDue} onChange={(e) => setForm((f) => ({ ...f, nextDue: e.target.value }))} />
@@ -904,30 +1052,64 @@ export default function BillsPage() {
             </label>
             {form.splitEnabled && (
               <div className="space-y-3 pt-1">
-                <Select
-                  label={t('bills.splitWith')}
-                  value={form.splitContactId}
-                  options={[
-                    { value: '', label: t('bills.selectContact') },
-                    ...contacts.map((c) => ({ value: c.id, label: c.name })),
-                    { value: NEW_CONTACT, label: t('bills.addNewContact') },
-                  ]}
-                  onChange={(e) => setForm((f) => ({ ...f, splitContactId: e.target.value }))}
-                />
-                {form.splitContactId === NEW_CONTACT && (
-                  <div className="flex gap-2 items-end">
-                    <div className="flex-1"><Input label={t('bills.newContactName')} placeholder="e.g. Alex" value={newContactName} onChange={(e) => setNewContactName(e.target.value)} /></div>
-                    <Button type="button" variant="secondary" className="shrink-0" onClick={handleAddContact} disabled={addingContact || !newContactName.trim()}><UserPlus className="w-4 h-4" />{t('bills.addContact')}</Button>
-                  </div>
+                {billParticipantRows.map((row) => {
+                  const isNew = row.contactId === NEW_CONTACT;
+                  const blank = row.amount.trim() === '';
+                  const autoShare = billShareByKey.get(row.key);
+                  return (
+                    <div key={row.key} className="space-y-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 p-2.5">
+                      <div className="flex gap-2 items-end">
+                        <div className="flex-1">
+                          <Select
+                            label={t('bills.splitWith')}
+                            value={row.contactId}
+                            options={[
+                              { value: '', label: t('bills.selectContact') },
+                              ...contacts.map((c) => ({ value: c.id, label: c.name })),
+                              { value: NEW_CONTACT, label: t('bills.addNewContact') },
+                            ]}
+                            onChange={(e) => updateBillParticipant(row.key, { contactId: e.target.value })}
+                          />
+                        </div>
+                        {billParticipantRows.length > 1 && (
+                          <Button type="button" variant="secondary" className="shrink-0 px-2.5" onClick={() => removeBillParticipantRow(row.key)} title={t('common.delete')}><Trash2 className="w-4 h-4" /></Button>
+                        )}
+                      </div>
+                      {isNew && (
+                        <div className="flex gap-2 items-end">
+                          <div className="flex-1"><Input label={t('bills.newContactName')} placeholder="e.g. Alex" value={row.newName} onChange={(e) => updateBillParticipant(row.key, { newName: e.target.value })} /></div>
+                          <Button type="button" variant="secondary" className="shrink-0" onClick={() => handleAddParticipantContact(row)} disabled={addingContact || !row.newName.trim()}><UserPlus className="w-4 h-4" />{t('bills.addContact')}</Button>
+                        </div>
+                      )}
+                      {!isNew && row.contactId && (
+                        <Input
+                          label={billHasTotal && blank && autoShare != null ? t('bills.shareAuto') : t('bills.theirShare')}
+                          type="number" min="0" step="0.01"
+                          placeholder={billHasTotal && autoShare != null ? autoShare.toFixed(2) : '0.00'}
+                          value={row.amount}
+                          onChange={(e) => updateBillParticipant(row.key, { amount: e.target.value })}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+                <div className="flex gap-2">
+                  <Button type="button" variant="secondary" className="flex-1" onClick={addBillParticipantRow}><UserPlus className="w-4 h-4" />{t('loans.addPerson')}</Button>
+                  {billIsGroup && billHasTotal && (
+                    <Button type="button" variant="secondary" className="flex-1" onClick={billSplitEqually}>{t('bills.splitEqually')}</Button>
+                  )}
+                </div>
+                {!billHasTotal && (
+                  <Input label={t('bills.yourShareInput')} type="number" min="0" step="0.01" placeholder="0.00" value={billMyShare} onChange={(e) => setBillMyShare(e.target.value)} />
                 )}
-                <Input label={t('bills.theirShare')} type="number" min="0" step="0.01" placeholder="0.00" value={form.splitAmount} onChange={(e) => setForm((f) => ({ ...f, splitAmount: e.target.value }))} />
-                {parseFloat(form.amount) > 0 && (
+                {billTotal > 0 && billNamedRows.length > 0 && (
                   <div className="flex justify-between text-xs font-bold px-1">
-                    <span className="text-slate-500 dark:text-slate-400">{t('bills.yourShare')}: <span className="text-slate-900 dark:text-slate-100">{formatCurrency(formShares.mine)}</span></span>
-                    <span className="text-slate-500 dark:text-slate-400">{t('bills.theirShareShort')}: <span className="text-emerald-600 dark:text-emerald-400">{formatCurrency(formShares.theirs)}</span></span>
+                    <span className="text-slate-500 dark:text-slate-400">{t('bills.yourShare')}: <span className="text-slate-900 dark:text-slate-100">{formatCurrency(billMyShareNum)}</span></span>
+                    <span className="text-slate-500 dark:text-slate-400">{t('bills.theirShareShort')}: <span className="text-emerald-600 dark:text-emerald-400">{formatCurrency(billOthersTotal)}</span></span>
                   </div>
                 )}
-                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{t('bills.splitHelp')}</p>
+                {billOver && <p className="text-xs font-bold text-rose-500 dark:text-rose-400 px-1">{t('bills.splitExpenseOverTotal')}</p>}
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{t('bills.splitSmartHint')}</p>
               </div>
             )}
           </div>
@@ -935,8 +1117,142 @@ export default function BillsPage() {
         <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={closeModal}>{t('common.cancel')}</Button>
-            <Button className="flex-1 shadow-sm" onClick={handleSave} disabled={saving || !form.name || !form.amount}>{saving ? t('common.saving') : editingId ? t('bills.saveChanges') : t('bills.addBillBtn')}</Button>
+            <Button className="flex-1 shadow-sm" onClick={handleSave} disabled={saving || !form.name || billTotal <= 0 || billOver}>{saving ? t('common.saving') : editingId ? t('bills.saveChanges') : t('bills.addBillBtn')}</Button>
           </div>
+        </div>
+      </Modal>
+
+      {/* ── Shared payments tracker modal ── */}
+      <Modal open={sharingOpen} onClose={() => { setSharingOpen(false); setShowSharingHistory(false); }} title={t('bills.sharedTitle')}>
+        <div className="space-y-4 pb-4">
+          {/* Total owed */}
+          {totalOwed > 0 && (
+            <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800/50">
+              <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider">{t('bills.owedToYou')}</p>
+              <p className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">{formatCurrency(totalOwed)}</p>
+            </div>
+          )}
+
+          {/* Per-person breakdown */}
+          {owedByContact.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {owedByContact.map(([name, amt]) => (
+                <span key={name} className="text-xs font-medium bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-800/50 rounded-lg px-2.5 py-1 flex items-center gap-1.5">
+                  <Users className="w-3 h-3" /> {name} · {formatCurrency(amt)}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Pending (unchecked) shares — grouped by bill/expense; multi-person
+              events collapse into one card with a per-person breakdown. */}
+          {pendingSplits.length === 0 ? (
+            <p className="text-center text-sm text-slate-500 dark:text-slate-400 font-medium py-6">{t('bills.sharedEmpty')}</p>
+          ) : (
+            <div className="space-y-2.5">
+              {pendingGroups.map((group) => {
+                // Single-person split → standalone card (record-payment form inline).
+                if (group.splits.length === 1) {
+                  return (
+                    <div key={group.key} className="rounded-2xl bg-white dark:bg-slate-800 border border-emerald-100 dark:border-emerald-800/40 overflow-hidden">
+                      {renderPendingSplitRow(group.splits[0], true)}
+                    </div>
+                  );
+                }
+                // Multi-person event → grouped card with the running remaining total.
+                const groupRemaining = group.splits.reduce((s, x) => s + splitRemaining(x), 0);
+                return (
+                  <div key={group.key} className="rounded-2xl bg-white dark:bg-slate-800 border border-emerald-100 dark:border-emerald-800/40 overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 bg-emerald-50/60 dark:bg-emerald-900/20 border-b border-emerald-100 dark:border-emerald-800/40">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <Users className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{group.billName}</p>
+                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('bills.groupOwedSince', { n: group.splits.length, date: formatDate(group.date) })}</p>
+                        </div>
+                      </div>
+                      <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400 shrink-0 ml-2">{formatCurrency(groupRemaining)}</span>
+                    </div>
+                    <div className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                      {group.splits.map((split) => renderPendingSplitRow(split, false))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* History (settled) — hidden by default, expandable, last 10 groups,
+              grouped the same way as pending. */}
+          {settledSplits.length > 0 && (
+            <div className="pt-1">
+              <button
+                onClick={() => setShowSharingHistory((v) => !v)}
+                className="w-full flex items-center justify-between px-1 py-2 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+              >
+                <span>{t('bills.sharedHistory', { n: settledSplits.length })}</span>
+                <ChevronDown className={`w-4 h-4 transition-transform ${showSharingHistory ? 'rotate-180' : ''}`} />
+              </button>
+              <Collapsible open={showSharingHistory}>
+                <div className="space-y-2 pt-1">
+                  {settledGroups.slice(0, 10).map((group) => {
+                    // Single-person settled split → flat row (unchanged look).
+                    if (group.splits.length === 1) {
+                      const split = group.splits[0];
+                      return (
+                        <div key={group.key} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 opacity-75">
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{split.contactName} · {split.billName}</p>
+                            <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{t('bills.transferredOn', { date: formatDate(split.settledDate || split.date) })}</p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through">{formatCurrency(split.amount)}</span>
+                            <span title={t('bills.transferred')} className="w-6 h-6 rounded-md bg-emerald-500 text-white flex items-center justify-center shrink-0">
+                              <Check className="w-4 h-4" />
+                            </span>
+                            <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    }
+                    // Multi-person settled event → grouped card.
+                    return (
+                      <div key={group.key} className="rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 overflow-hidden opacity-90">
+                        <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-slate-100 dark:border-slate-700/60">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <Users className="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{group.billName}</p>
+                              <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{t('bills.groupTransferredOn', { n: group.splits.length, date: formatDate(group.settledDate || group.date) })}</p>
+                            </div>
+                          </div>
+                          <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through shrink-0 ml-2">{formatCurrency(group.total)}</span>
+                        </div>
+                        <div className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                          {group.splits.map((split) => (
+                            <div key={split.id} className="flex items-center justify-between px-3.5 py-2">
+                              <p className="text-sm font-semibold text-slate-600 dark:text-slate-400 truncate min-w-0">{split.contactName}</p>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through">{formatCurrency(split.amount)}</span>
+                                <span title={t('bills.transferred')} className="w-5 h-5 rounded-md bg-emerald-500 text-white flex items-center justify-center shrink-0">
+                                  <Check className="w-3.5 h-3.5" />
+                                </span>
+                                <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Collapsible>
+            </div>
+          )}
         </div>
       </Modal>
     </div>

@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, Trash2, DollarSign } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -11,6 +12,7 @@ import { calcPaycheckTax } from '@/lib/tax';
 import { calcPaycheckTaxToSave, calcPaycheckDeposited } from '@/lib/calculations';
 import type { PaycheckEntry, TaxSettings, Account } from '@/types';
 import { useTranslation } from '@/lib/i18n/context';
+import { loadBatch } from '@/lib/client/api';
 
 const EMPTY_FORM = {
   date: today(),
@@ -34,12 +36,8 @@ export default function PaychecksPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [pcRes, stRes, accRes] = await Promise.all([
-      fetch('/api/paychecks'),
-      fetch('/api/settings'),
-      fetch('/api/accounts'),
-    ]);
-    const [pc, st, accs] = await Promise.all([pcRes.json(), stRes.json(), accRes.json()]);
+    // One /api/batch round trip instead of three separate Sheets reads.
+    const { paychecks: pc, settings: st, accounts: accs } = await loadBatch(['paychecks', 'settings', 'accounts']);
     const sorted = [...pc].sort((a: PaycheckEntry, b: PaycheckEntry) => b.date.localeCompare(a.date));
     setPaychecks(sorted);
     setSettings(st);
@@ -101,11 +99,13 @@ export default function PaychecksPage() {
 
     // Auto-create an income transaction: the full amount received (wages + tips)
     // is deposited as real money. Taxes are tracked separately, not withheld.
+    // The deposit transaction shares the paycheck's id so the paycheck "owns" it:
+    // deleting the paycheck reverses this exact transaction (see DELETE in the API).
     if (form.checkingAccountId) {
       await fetch('/api/transactions', {
         method: 'POST',
         body: JSON.stringify({
-          id: generateId(),
+          id: entry.id,
           date: form.date,
           description: 'Paycheck',
           amount: preview.grossPaycheck + gratuity,
@@ -139,13 +139,15 @@ export default function PaychecksPage() {
     () => paychecks.filter((p) => new Date(p.date).getFullYear() === currentYear),
     [paychecks, currentYear],
   );
-  const { ytdIncome, ytdTax } = useMemo(() => {
-    let income = 0, tax = 0;
+  const { ytdIncome, ytdTax, ytdWages, ytdTips } = useMemo(() => {
+    let income = 0, tax = 0, wages = 0, tips = 0;
     for (const p of ytdPaychecks) {
       income += calcPaycheckDeposited(p);
       tax += calcPaycheckTaxToSave(p);
+      wages += p.grossAmount;
+      tips += p.gratuityAmount ?? 0;
     }
-    return { ytdIncome: income, ytdTax: tax };
+    return { ytdIncome: income, ytdTax: tax, ytdWages: wages, ytdTips: tips };
   }, [ytdPaychecks]);
 
   const accountMap = useMemo(() => {
@@ -158,22 +160,26 @@ export default function PaychecksPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6 sm:space-y-8 pb-24 md:pb-8">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{t('paychecks.title')}</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-base font-medium mt-1">{t('paychecks.subtitle')}</p>
-        </div>
-        <Button onClick={() => setOpen(true)} className="w-full md:w-auto shadow-sm hover:shadow-md">
-          <Plus className="w-5 h-5" />
-          {t('paychecks.logPaycheck')}
-        </Button>
-      </div>
+      <PageHeader
+        icon={DollarSign}
+        tone="emerald"
+        title={t('paychecks.title')}
+        subtitle={t('paychecks.subtitle')}
+        action={
+          <Button onClick={() => setOpen(true)} className="w-full md:w-auto shadow-sm hover:shadow-md">
+            <Plus className="w-5 h-5" />
+            {t('paychecks.logPaycheck')}
+          </Button>
+        }
+      />
 
       {/* YTD Summary */}
       <div className="grid grid-cols-2 gap-4">
         {[
           { label: t('paychecks.ytdIncome'), value: ytdIncome, color: 'text-emerald-600 dark:text-emerald-400' },
           { label: t('paychecks.ytdTax'), value: ytdTax, color: 'text-rose-600 dark:text-rose-400' },
+          { label: t('paychecks.ytdTaxableWages'), value: ytdWages, color: 'text-slate-900 dark:text-slate-100' },
+          { label: t('paychecks.ytdTips'), value: ytdTips, color: 'text-blue-600 dark:text-blue-400' },
         ].map(({ label, value, color }) => (
           <Card key={label}>
             <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{label}</p>

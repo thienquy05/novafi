@@ -18,11 +18,16 @@ export function useToast(): ToastFn {
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastEntry[]>([]);
 
-  // Toasts with an action (e.g. Undo) stay up longer so there's time to act.
+  const remove = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  // Auto-dismiss is driven by Radix's per-toast `duration` below (which also
+  // pauses on hover/focus); removal from state happens in `onOpenChange` so the
+  // close button, swipe, and timeout all funnel through one path.
   const toast = useCallback<ToastFn>((message, type = 'success', action) => {
     const id = Math.random().toString(36).slice(2);
     setToasts((prev) => [...prev, { id, message, type, action }]);
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), action ? 6000 : 3500);
   }, []);
 
   return (
@@ -32,7 +37,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         {toasts.map((t) => (
           <Toast.Root
             key={t.id}
-            open
+            // Toasts with an action (e.g. Undo) stay up longer so there's time to act.
+            duration={t.action ? 6000 : 3500}
+            onOpenChange={(open) => { if (!open) remove(t.id); }}
             className={cn(
               'flex items-center gap-3 px-4 py-3 rounded-2xl shadow-xl border text-sm font-semibold',
               'data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom-5 data-[state=open]:fade-in-0',

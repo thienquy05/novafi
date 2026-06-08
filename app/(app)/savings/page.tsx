@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ArrowDownLeft, ArrowUpRight, ArrowRightLeft, PiggyBank, Target, Pencil, CheckCircle2, Trash2 } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -48,6 +49,9 @@ const EMPTY_FORM: ActionForm = {
   date: today(),
 };
 
+// Initial number of savings transactions shown; "Show more" reveals another batch.
+const SAVINGS_PAGE_SIZE = 25;
+
 export default function SavingsPage() {
   const { t } = useTranslation();
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -62,20 +66,25 @@ export default function SavingsPage() {
   const [editForm, setEditForm] = useState<EditForm>(EMPTY_EDIT_FORM);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(SAVINGS_PAGE_SIZE);
+
+  // Switching the account filter resets the visible window back to one page.
+  function selectAccount(id: string) {
+    setSelectedAccount(id);
+    setVisibleCount(SAVINGS_PAGE_SIZE);
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [accRes, txRes, goalRes] = await Promise.all([
-      fetch('/api/accounts'),
-      fetch('/api/transactions'),
-      fetch('/api/goals'),
-    ]);
-    const [accs, txs, gls] = await Promise.all([accRes.json(), txRes.json(), goalRes.json()]);
+    // One round trip instead of three — see /api/batch.
+    const res = await fetch('/api/batch?keys=accounts,transactions,goals');
+    const data = await res.json();
+    const accs: Account[] = data.accounts ?? [];
     const savingsAccs: Account[] = accs.filter((a: Account) => a.type === 'savings');
     setAllAccounts(accs);
     setAccounts(savingsAccs);
-    setTransactions(txs);
-    setGoals(gls);
+    setTransactions(data.transactions ?? []);
+    setGoals(data.goals ?? []);
     setLoading(false);
   }, []);
 
@@ -96,6 +105,8 @@ export default function SavingsPage() {
       return tx.account === selectedAccount || tx.toAccount === selectedAccount;
     })
     .sort((a, b) => b.date.localeCompare(a.date));
+
+  const visibleTx = savingsTx.slice(0, visibleCount);
 
   const totalSaved = accounts.reduce((s, a) => s + a.balance, 0);
 
@@ -175,24 +186,26 @@ export default function SavingsPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6 sm:space-y-8 pb-24 md:pb-8">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{t('savings.title')}</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-base font-medium mt-1">{t('savings.subtitle')}</p>
-        </div>
-        {accounts.length > 0 && (
-          <div className="flex gap-2 w-full md:w-auto">
-            <Button variant="secondary" onClick={() => openAction('withdraw')} className="flex-1 md:flex-none shadow-sm">
-              <ArrowUpRight className="w-5 h-5" />
-              {t('savings.withdraw')}
-            </Button>
-            <Button onClick={() => openAction('deposit')} className="flex-1 md:flex-none shadow-sm">
-              <ArrowDownLeft className="w-5 h-5" />
-              {t('savings.deposit')}
-            </Button>
-          </div>
-        )}
-      </div>
+      <PageHeader
+        icon={PiggyBank}
+        tone="purple"
+        title={t('savings.title')}
+        subtitle={t('savings.subtitle')}
+        action={
+          accounts.length > 0 ? (
+            <>
+              <Button variant="secondary" onClick={() => openAction('withdraw')} className="flex-1 md:flex-none shadow-sm">
+                <ArrowUpRight className="w-5 h-5" />
+                {t('savings.withdraw')}
+              </Button>
+              <Button onClick={() => openAction('deposit')} className="flex-1 md:flex-none shadow-sm">
+                <ArrowDownLeft className="w-5 h-5" />
+                {t('savings.deposit')}
+              </Button>
+            </>
+          ) : undefined
+        }
+      />
 
       {accounts.length === 0 ? (
         <Card className="text-center py-16 bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700/60">
@@ -288,7 +301,7 @@ export default function SavingsPage() {
           {accounts.length > 1 && (
             <div className="flex gap-2 overflow-x-auto pb-2 hide-scrollbar">
               <button
-                onClick={() => setSelectedAccount('all')}
+                onClick={() => selectAccount('all')}
                 className={`px-5 h-10 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap shadow-sm ${
                   selectedAccount === 'all'
                     ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
@@ -300,7 +313,7 @@ export default function SavingsPage() {
               {accounts.map((a) => (
                 <button
                   key={a.id}
-                  onClick={() => setSelectedAccount(a.id)}
+                  onClick={() => selectAccount(a.id)}
                   className={`px-5 h-10 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap shadow-sm ${
                     selectedAccount === a.id
                       ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
@@ -321,8 +334,9 @@ export default function SavingsPage() {
                 <p className="text-slate-500 dark:text-slate-400 font-bold">{t('savings.noTransactionsYet')}</p>
               </Card>
             ) : (
+              <>
               <div className="space-y-3">
-                {savingsTx.map((tx) => {
+                {visibleTx.map((tx) => {
                   const fromName = accountMap[tx.account] ?? tx.account;
                   const toName = tx.toAccount ? accountMap[tx.toAccount] : null;
                   const isTransfer = tx.type === 'transfer';
@@ -360,6 +374,14 @@ export default function SavingsPage() {
                   );
                 })}
               </div>
+              {savingsTx.length > visibleCount && (
+                <div className="flex justify-center pt-2">
+                  <Button variant="secondary" onClick={() => setVisibleCount((c) => c + SAVINGS_PAGE_SIZE)}>
+                    {t('transactions.showMore', { count: savingsTx.length - visibleTx.length })}
+                  </Button>
+                </div>
+              )}
+              </>
             )}
           </div>
         </>
