@@ -549,8 +549,12 @@ export function BudgetVsActualChart({ data }: { data: BudgetData[] }) {
 
   if (data.length < 2) return null;
 
+  // Plot effective spent (this-month spend + any rolled-over deficit), matching
+  // the BudgetBars detail cards and the Planning page — otherwise a category
+  // whose whole usage is carried over from last month (this-month spend = 0,
+  // e.g. Shopping) would render a 0-length "Spent" bar despite being over budget.
   const chartData = data
-    .map((b) => ({ category: b.category.replace(/^categories\./, ''), budget: b.budget, spent: b.spent }))
+    .map((b) => ({ category: b.category.replace(/^categories\./, ''), budget: b.budget, spent: b.spent + (b.rolledOver ?? 0) }))
     .sort((a, b) => b.spent - a.spent);
   const height = Math.max(140, chartData.length * 52);
 

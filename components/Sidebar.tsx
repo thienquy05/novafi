@@ -24,6 +24,7 @@ import { signOut } from 'next-auth/react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LogoMark } from './LogoMark';
+import { ThemeToggle } from './ui/ThemeToggle';
 import { QuickAddTransaction } from '@/app/(app)/dashboard/QuickAddTransaction';
 import { useTranslation } from '@/lib/i18n/context';
 
@@ -177,10 +178,11 @@ export function Sidebar() {
           <div className="absolute inset-0 bg-indigo-500 rounded-xl blur opacity-30" />
           <LogoMark className="relative w-10 h-10 rounded-xl shadow-lg" />
         </div>
-        <div>
+        <div className="min-w-0">
           <p className="text-slate-900 dark:text-white font-bold text-lg tracking-tight leading-none">Nova<span className="text-gradient">Fi</span></p>
           <p className="text-slate-500 dark:text-slate-400 text-xs font-medium mt-1">{t('nav.wealthManagement')}</p>
         </div>
+        <ThemeToggle className="ml-auto shrink-0 w-9 h-9" />
       </div>
 
       {/* Primary action */}
@@ -222,6 +224,7 @@ export function MobileHeader() {
         <LogoMark className="w-9 h-9 rounded-xl shadow-md" />
         <p className="text-slate-900 dark:text-white font-bold text-xl tracking-tight leading-none">Nova<span className="text-gradient">Fi</span></p>
       </div>
+      <ThemeToggle className="shrink-0 w-9 h-9" />
     </header>
   );
 }

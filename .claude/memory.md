@@ -10,6 +10,43 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-06-08 — Dark-mode toggle relocated to NovaFi header + budget-bar rollover fix (branch claude/intelligent-dirac-t0g3xm)
+
+Two user-reported items from the enhancement batch (split + flexible-bill items
+handled separately/discussed).
+
+**1. Dark-mode toggle now lives on the NovaFi brand header (was per-page).**
+- `components/Sidebar.tsx` — imported `ThemeToggle`; added it to the desktop
+  sidebar logo row (`ml-auto`, `w-9 h-9`, after the "NovaFi / Wealth management"
+  block) and to `MobileHeader` (right edge of the sticky top bar next to the
+  NovaFi logo). So the toggle is anchored to the brand header on both layouts.
+- `components/ui/PageHeader.tsx` — removed both `ThemeToggle` instances (mobile
+  title-row + desktop control cluster) and the import. The right-hand control
+  wrapper now renders **only when `action` is provided** (`{action && (<div …>)}`),
+  dropping the prior `action ? … : 'hidden md:flex'` branch that only existed to
+  host the toggle. Pages without an action no longer emit an empty cluster.
+- `app/(app)/settings/page.tsx` — removed the **legacy** dark-mode `ToggleRow`
+  (Dashboard Preferences card) plus its now-dead `darkMode` state, the
+  `localStorage` init `useEffect`, and `toggleDarkMode()`. The header toggle and
+  the (removed) Settings toggle always shared the same source of truth
+  (`.dark` class + `nf_theme`), so nothing else changes. `settings.darkMode` /
+  `settings.darkModeDesc` locale keys are now unused but left in place (inert).
+
+**2. Budget-vs-Actual bar chart showed 0 "Spent" for rollover-only categories.**
+- Repro: Shopping was over budget purely from last month's carried-over overspend
+  (this-month actual spend = $0, rolledOver = full usage). The
+  `BudgetVsActualChart` (`app/(app)/dashboard/DashboardCharts.tsx`) plotted raw
+  `b.spent`, so its "Spent" bar was 0-length even though the BudgetBars detail
+  cards + Planning page (which use `usage = spent + rolledOver`) correctly showed
+  it over budget.
+- Fix: chartData `spent` is now `b.spent + (b.rolledOver ?? 0)` (effective spent),
+  matching BudgetBars/Planning. The over-budget Cell color (`d.spent > d.budget →
+  rose`) and the sort now key off effective spent too, so the bar and color agree.
+
+Verification: `tsc` clean, `eslint` 0 errors (26 pre-existing warnings), 352/352 tests.
+
+---
+
 ## 2026-06-08 — NEXT SESSION: Transaction split (category split) — agreed design
 
 Deferred to next session by user decision (this session already shipped 5
