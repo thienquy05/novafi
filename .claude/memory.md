@@ -10,6 +10,35 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-06-08 — NEXT SESSION: Transaction split (category split) — agreed design
+
+Deferred to next session by user decision (this session already shipped 5
+features). **Agreed storage approach: separate rows + group ID** (NOT a single
+row with a JSON splits column).
+
+Plan when picked up:
+- Schema: add a new `splitGroupId` column (J) to the `Transactions` sheet. Each
+  split is a normal transaction row (its own category + amount) sharing the same
+  `splitGroupId`. Update `lib/sheets.ts` ranges `A2:I` → `A2:J`,
+  `rowToTransaction`, `addTransaction`, `updateTransaction`, and the delete
+  column bound (`I` → `J`). Add `splitGroupId?: string` to `types/index.ts`
+  `Transaction`.
+- Why this approach: every existing category/total aggregation (dashboard pie,
+  budgets, reports, health score, account balance, Money Calendar) keeps working
+  unchanged because each split is just a normal transaction. Lowest regression
+  risk.
+- UI: a "Split" mode in the add-transaction flow (transactions page; consider
+  QuickAddTransaction too) — enter N category+amount lines that must sum to the
+  receipt total; write all rows atomically (one append with multiple values).
+  Ledger groups rows by `splitGroupId` into one expandable entry; edit/delete
+  operate on the whole group. Keep account-balance reconciliation correct
+  (sum of splits = receipt total, already naturally handled).
+- Tests: split-sum validation, grouped display, group delete restores balance.
+- Watch out: existing rows have no column J (treat missing as ''); the existing
+  *people* "Split Expense"/`Split` category feature is unrelated — don't conflate.
+
+---
+
 ## 2026-06-08 — Dashboard "Money Calendar" (spending heatmap → full month calendar) (branch claude/blissful-einstein-CH02F)
 
 Per user request: fold everything for the month into one calendar — spending,
