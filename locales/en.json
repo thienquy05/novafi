@@ -135,6 +135,7 @@
     "safeToSpendOver": "over for the month",
     "savings": "Savings",
     "emergency": "Emergency",
+    "creditUtil": "Credit Utilization",
     "loansExcl": "Loans excl. · see Liabilities",
     "vsLastMonth": "% vs last mo",
     "spendingPace": "Spending Pace",
@@ -160,7 +161,9 @@
   "celebrate": {
     "savingsRate": "Savings rate hit {pct}%! 🎉",
     "health": "Financial health improved to {grade}! 🎉",
-    "goal": "Goal reached: {name} 🎉"
+    "goal": "Goal reached: {name} 🎉",
+    "creditTarget": "Credit utilization under 30% — your score will thank you! 💳",
+    "creditIdeal": "Credit utilization under 10% — that's elite! 🏆"
   },
   "charts": {
     "netLabel": "net",
@@ -524,6 +527,7 @@
     "owedOfLimit": "{balance} of {limit}",
     "availableLine": "{amount} available to spend",
     "payToTarget": "Pay {amount} to get under {pct}%",
+    "payToTargetCard": "Pay {amount} on {card} to get under {pct}%",
     "payToIdeal": "Pay {amount} to reach the ideal {pct}%",
     "underTarget": "Under the {pct}% target — nicely done",
     "atIdeal": "You're at an ideal utilization 🎉",

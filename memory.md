@@ -2,6 +2,19 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-08 — Surface credit utilization on the dashboard + celebrate paydowns (branch claude/relaxed-albattani-ffio8g)
+
+Follow-up to the Smart Credit Report below. Brought the credit signal onto the main dashboard and added a delightful milestone, both reusing the existing pure helpers (no new calc logic).
+
+- **`app/(app)/dashboard/page.tsx`** (Server Component):
+  - Computes `creditReport = buildCreditReport(accounts)` and the single `worstCard` (highest-utilization card still over the 30% target, for an actionable nudge).
+  - New **Credit Utilization card**, rendered only when `hasLimits` (no clutter for users without credit cards or limits). Placed right after the Assets/Liabilities/Savings/Emergency stat row. Shows the overall utilization %, a status chip, a bar with the dashed **30% target marker**, total balance/limit + available credit, a **Manage → /credit** link, and — when over target — *"Pay {amount} on {card} to get under 30%"*. Card tone flips rose↔emerald on whether you're over the cap. Module-scope literal-class maps `CREDIT_STATUS_BAR`/`CREDIT_STATUS_TEXT` (Tailwind v4). Added `CreditCard`/`Target` icons and `buildCreditReport`/`CREDIT_UTIL_TARGET` imports.
+  - Passes `creditUtil={creditReport.overallUtil}` to `<Celebrations>`.
+- **`app/(app)/dashboard/Celebrations.tsx`**: new `creditUtil: number | null` prop. `Stored` gains optional `creditUnderTarget`/`creditUnderIdeal`. Fires confetti + toast the first time overall utilization crosses below 30% (`celebrate.creditTarget`) or below 10% (`celebrate.creditIdeal`, supersedes the 30% message). Guarded so the first time credit becomes trackable (prev field `undefined`) baselines silently — no spurious pop for already-low or upgrading users. Added `creditUtil` to the effect deps.
+- **i18n** (`en.json`/`vi.json`): `dashboard.creditUtil`, `credit.payToTargetCard` ("Pay {amount} on {card} to get under {pct}%"), and `celebrate.creditTarget`/`celebrate.creditIdeal`. The dashboard card otherwise reuses existing `credit.*` / `common.manage` keys via the server `t()`.
+
+**Verification:** `npm run typecheck` clean; `npm test` 379/379; `npm run lint` 0 errors (27 pre-existing warnings); `npm run build` succeeds (29 routes). Visual check not run in-env (dashboard needs a Google session).
+
 ## 2026-06-08 — Smart Credit Report: credit-card utilization tracking + score guidance (branch claude/relaxed-albattani-ffio8g)
 
 New feature. Credit cards now carry a **credit limit**, and a dedicated **Smart Credit Report** page tracks utilization (balance ÷ limit), guides the user toward the score-friendly targets (under 30%, ideally under 10%), and surfaces a **nav badge notice** when any card goes over the recommended cap. Built pure-function-first (tested) to match the codebase's conventions.

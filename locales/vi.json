@@ -135,6 +135,7 @@
     "safeToSpendOver": "vượt chi trong tháng",
     "savings": "Tiết kiệm",
     "emergency": "Khẩn cấp",
+    "creditUtil": "Mức sử dụng tín dụng",
     "loansExcl": "Không tính khoản vay · xem Nợ phải trả",
     "vsLastMonth": "% so tháng trước",
     "spendingPace": "Tốc độ chi tiêu",
@@ -160,7 +161,9 @@
   "celebrate": {
     "savingsRate": "Tỷ lệ tiết kiệm đạt {pct}%! 🎉",
     "health": "Sức khỏe tài chính cải thiện lên {grade}! 🎉",
-    "goal": "Đã đạt mục tiêu: {name} 🎉"
+    "goal": "Đã đạt mục tiêu: {name} 🎉",
+    "creditTarget": "Mức sử dụng tín dụng dưới 30% — điểm của bạn sẽ cảm ơn! 💳",
+    "creditIdeal": "Mức sử dụng tín dụng dưới 10% — đỉnh cao! 🏆"
   },
   "charts": {
     "netLabel": "ròng",
@@ -524,6 +527,7 @@
     "owedOfLimit": "{balance} / {limit}",
     "availableLine": "Còn {amount} có thể chi tiêu",
     "payToTarget": "Trả {amount} để xuống dưới {pct}%",
+    "payToTargetCard": "Trả {amount} cho {card} để xuống dưới {pct}%",
     "payToIdeal": "Trả {amount} để đạt mức lý tưởng {pct}%",
     "underTarget": "Dưới mục tiêu {pct}% — rất tốt",
     "atIdeal": "Bạn đang ở mức sử dụng lý tưởng 🎉",

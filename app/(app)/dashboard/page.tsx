@@ -11,9 +11,10 @@ import {
   calcNetWorthTrendScore, calcAvgMomPct,
   calcSpendingVolatilityScore, calcCoefficientOfVariation,
   calcNetWorthProjection, myBillShare, calcRolloverDeficit,
+  buildCreditReport, CREDIT_UTIL_TARGET,
 } from '@/lib/calculations';
 import { Card, CardHeader, CardTitle, CardIcon, type CardTone } from '@/components/ui/Card';
-import { TrendingUp, TrendingDown, Calendar, PiggyBank, ArrowUpRight, Wallet, BarChart3, ArrowLeftRight, Flame, CalendarDays } from 'lucide-react';
+import { TrendingUp, TrendingDown, Calendar, PiggyBank, ArrowUpRight, Wallet, BarChart3, ArrowLeftRight, Flame, CalendarDays, CreditCard, Target } from 'lucide-react';
 import { SpendingPieChart, BudgetBars, BudgetVsActualChart, MonthlyBarChart, GoalsSummary, NetWorthTrendChart, HealthBanner, EmergencyFundWidget, FinancialHealthScore, SavingsRateGauge } from './DashboardCharts';
 import { RecentTransactions } from './RecentTransactions';
 import type { NetWorthPoint } from './DashboardCharts';
@@ -31,6 +32,17 @@ import type { Language } from '@/types';
 export const dynamic = 'force-dynamic';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// Credit-utilization status → bar/text colors (literal Tailwind classes, v4).
+const CREDIT_STATUS_BAR: Record<string, string> = {
+  excellent: 'bg-emerald-500', good: 'bg-emerald-500', fair: 'bg-amber-500',
+  high: 'bg-orange-500', maxed: 'bg-rose-500', over: 'bg-rose-600',
+};
+const CREDIT_STATUS_TEXT: Record<string, string> = {
+  excellent: 'text-emerald-600 dark:text-emerald-400', good: 'text-emerald-600 dark:text-emerald-400',
+  fair: 'text-amber-600 dark:text-amber-400', high: 'text-orange-600 dark:text-orange-400',
+  maxed: 'text-rose-600 dark:text-rose-400', over: 'text-rose-600 dark:text-rose-400',
+};
 
 
 export default async function DashboardPage() {
@@ -79,6 +91,13 @@ export default async function DashboardPage() {
   const totalDebt = calcTotalDebt(accounts);
   const totalLoanDebt = accounts.filter((a) => a.type === 'loan' && a.balance > 0).reduce((s, a) => s + a.balance, 0);
   const totalSaved = accounts.filter((a) => a.type === 'savings').reduce((s, a) => s + a.balance, 0);
+
+  // Smart Credit Report (dashboard surface): overall utilization + the single
+  // worst over-target card, so the dashboard can show an actionable next step.
+  const creditReport = buildCreditReport(accounts);
+  const worstCard = creditReport.cards
+    .filter((c) => c.util !== null && c.paydownToTarget > 0)
+    .sort((a, b) => (b.util! - a.util!))[0] ?? null;
 
   // Net worth snapshot
   const currentMonthKey = thisMonth;
@@ -395,7 +414,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto pb-28 md:pb-8">
-      <Celebrations savingsRate={savingsRate} healthScore={healthScore} achievedGoals={achievedGoals} />
+      <Celebrations savingsRate={savingsRate} healthScore={healthScore} achievedGoals={achievedGoals} creditUtil={creditReport.overallUtil} />
 
       <StaggerReveal className="space-y-5 sm:space-y-7">
       {/* Header */}
@@ -543,6 +562,52 @@ export default async function DashboardPage() {
           </p>
         </div>
       </div>
+
+      {/* Credit Utilization — only when at least one card has a limit set */}
+      {creditReport.hasLimits && creditReport.overallUtil !== null && creditReport.overallStatus !== null && (() => {
+        const util = creditReport.overallUtil;
+        const status = creditReport.overallStatus;
+        const over = util > CREDIT_UTIL_TARGET;
+        return (
+          <Card tone={over ? 'rose' : 'emerald'}>
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <CardIcon tone={over ? 'rose' : 'emerald'}>
+                  <CreditCard className="w-5 h-5" />
+                </CardIcon>
+                <div>
+                  <CardTitle>{t('dashboard.creditUtil', lang)}</CardTitle>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('credit.overallSub', lang)}</p>
+                </div>
+              </div>
+              <a href="/credit" className="whitespace-nowrap text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg">{t('common.manage', lang)}</a>
+            </CardHeader>
+            <div className="mt-2 space-y-3">
+              <div className="flex items-end justify-between gap-3">
+                <div className="flex items-baseline gap-2">
+                  <span className={`text-3xl font-extrabold font-display ${CREDIT_STATUS_TEXT[status]}`}>{Math.round(util)}%</span>
+                  <span className={`text-sm font-bold ${CREDIT_STATUS_TEXT[status]}`}>{t(`credit.status.${status}`, lang)}</span>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">{t('credit.owedOfLimit', lang, { balance: formatCurrency(creditReport.totalBalance), limit: formatCurrency(creditReport.totalLimit) })}</p>
+                  <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{t('credit.availableLine', lang, { amount: formatCurrency(creditReport.totalAvailable) })}</p>
+                </div>
+              </div>
+              {/* Utilization bar with a marker at the 30% recommended cap */}
+              <div className="relative h-3 w-full rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                <div className={`h-full rounded-full ${CREDIT_STATUS_BAR[status]}`} style={{ width: `${Math.min(100, util)}%` }} />
+                <div className="absolute top-0 bottom-0 w-px bg-slate-500/70 dark:bg-slate-300/60" style={{ left: `${CREDIT_UTIL_TARGET}%` }} aria-hidden />
+              </div>
+              {over && worstCard && (
+                <p className="text-sm font-semibold text-amber-700 dark:text-amber-300 flex items-center gap-2">
+                  <Target className="w-4 h-4 shrink-0" />
+                  {t('credit.payToTargetCard', lang, { amount: formatCurrency(worstCard.paydownToTarget), card: worstCard.account.name, pct: CREDIT_UTIL_TARGET })}
+                </p>
+              )}
+            </div>
+          </Card>
+        );
+      })()}
 
       {/* Net Worth Trend */}
       <Card>
