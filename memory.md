@@ -2,6 +2,47 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-08 — Smart Credit Report: credit-card utilization tracking + score guidance (branch claude/relaxed-albattani-ffio8g)
+
+New feature. Credit cards now carry a **credit limit**, and a dedicated **Smart Credit Report** page tracks utilization (balance ÷ limit), guides the user toward the score-friendly targets (under 30%, ideally under 10%), and surfaces a **nav badge notice** when any card goes over the recommended cap. Built pure-function-first (tested) to match the codebase's conventions.
+
+### Data model + storage
+- **`types/index.ts`**: `Account` gains optional `creditLimit?: number` (credit cards only; absent/0 = not set, so utilization shows "unknown" rather than a fake 0%).
+- **`lib/sheets.ts`**: persists `creditLimit` in **Accounts column J**.
+  - Widened every Accounts read range `A2:I200` → `A2:J200` (`getAccounts`, `DASHBOARD_CORE_RANGES`, `BATCHABLE_SHEETS.accounts`, and the new badges range).
+  - `rowToAccount` reads `r[9]` (empty/blank → undefined, not 0). Same parse added to the inline `parseDashboardCore` accounts mapper.
+  - `upsertAccount` appends `account.creditLimit ?? ''` (10-column row) and bumped its `deleteRowById` last-col arg `'I'` → `'J'` (cosmetic; `deleteRowById` deletes the whole row regardless).
+  - `batchGetBadgesData` now also fetches `Accounts!A2:J200` and returns `accounts` (for the credit-alert badge).
+
+### Pure helpers + tests (`lib/calculations.ts`)
+- `CREDIT_UTIL_TARGET = 30`, `CREDIT_UTIL_IDEAL = 10`.
+- `creditUtilization(balance, limit)` → percent, or `null` when limit ≤ 0 (never invents a denominator); a negative/credit balance counts as 0% used; can exceed 100%.
+- `creditUtilStatus(util)` → `'excellent'|'good'|'fair'|'high'|'maxed'|'over'` bands (≤10 / ≤30 / ≤50 / <90 / <100 / >100).
+- `isOverCreditTarget(util)` (the >30% "notice" trigger), `availableCredit(balance, limit)`, `calcPaydownToTarget(balance, limit, targetPct)`.
+- `buildCreditReport(accounts)` → per-card `CreditCardReport[]` + aggregate (`totalBalance/Limit/Available`, `overallUtil`/`overallStatus`, `cardsOverTarget`, `hasLimits`). Aggregate only counts cards with a KNOWN limit so an un-set card can't distort the denominator.
+- `calcCreditAlerts(accounts)` = `buildCreditReport(...).cardsOverTarget` (thin badge wrapper).
+- **`lib/__tests__/calculations.test.ts`**: +28 tests across all the above (boundaries, null-limit, over-limit, aggregate exclusion, alert counts). Suite now 379 passing.
+
+### Badge ("notice when over")
+- **`app/api/badges/route.ts`**: computes `creditAlerts` from accounts; response shape now `{ overdueBills, overBudget, creditAlerts }` (incl. the unauth/catch fallbacks).
+- **`components/Sidebar.tsx`**: `BadgeCounts` gains `creditAlerts`; bumped the client cache key `nf_badges_cache` → `nf_badges_cache_v2` so older cached payloads don't suppress the new badge. Added a **Credit** nav item (CreditCard icon) to the desktop "Money" group and to `ALL_MOBILE_NAV` + `NAV_GROUP_OF`, both with `badgeKey: 'creditAlerts'` (amber tone via the existing non-overdue branch).
+
+### Smart Credit Report page (`app/(app)/credit/page.tsx`, new + `loading.tsx`)
+Client page (loads `/api/accounts`, builds the report client-side via `buildCreditReport`, `useAutoRefresh`):
+- **Overall hero card**: big aggregate utilization %, status label, a utilization bar with a dashed **30% target marker**, and Balance / Limit / Available stats. Shows a "set your limits" prompt when no card has a limit.
+- **Alert banner**: rose warning listing how many cards are above 30% (the notice), or an emerald all-clear when every card is under target.
+- **Per-card rows**: util % + status chip, bar with target marker, available-to-spend, and **actionable paydown guidance** ("Pay $X to get under 30%", plus the path to the ideal 10%). Cards without a limit get an inline limit input; cards with one get inline edit — both POST the full account to `/api/accounts` (the route preserves `openingBalance`), optimistic with reconcile-on-failure.
+- **"How to grow your credit score"** education card: 6 utilization-/history-focused tips.
+
+### Accounts page integration (`app/(app)/accounts/page.tsx`)
+- Add/Edit form shows a **"Credit limit ($)"** input only when type is `credit`; `handleSave` stores `creditLimit` (cleared when the type isn't credit). `EMPTY_FORM`/`openEdit` carry the field.
+- Each credit-card row shows an inline utilization readout (color-coded by status) linking to `/credit`, or a "Set a limit to track utilization" link when unset.
+
+### i18n
+- **`locales/en.json` / `vi.json`**: added `nav.credit`; a full `credit.*` namespace (titles, overall card, statuses, alerts, paydown lines, 6 tips); and `accounts.creditLimit` / `accounts.utilization` / `accounts.setLimitHint`.
+
+**Verification:** `npm run typecheck` clean; `npm test` 379/379 (+28); `npm run lint` 0 errors (only pre-existing `set-state-in-effect` warnings — the credit page's `load` effect is the same accepted pattern used by every data page); `npm run build` succeeds (29 routes incl. `/credit`). Visual check not run in-env (pages need a Google session).
+
 ## 2026-06-07 — Revert Safe-to-Spend to income basis; keep cash-basis "spent" (branch claude/safe-to-spend-calc-aZapf)
 
 Follow-up to the checking-balance change below. User reconsidered and wants Safe-to-Spend driven by **income and upcoming bills, minus money already spent** — i.e. the ORIGINAL `income − spending − bills` formula — using **logged income this month** (accepting the early-month/pre-payday behavior), and **leaving budgets out** for now.

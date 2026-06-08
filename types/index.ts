@@ -86,6 +86,10 @@ export interface Account {
   color: string;
   createdAt: string;
   openingBalance?: number; // balance before any transactions; basis for reconciliation. Backfilled for legacy rows.
+  // Credit cards only: the card's total credit limit. Powers the Smart Credit
+  // Report (utilization = balance ÷ creditLimit). Absent/0 = not set yet (we
+  // never invent a denominator — utilization shows as "unknown" until set).
+  creditLimit?: number;
 }
 
 export interface Budget {

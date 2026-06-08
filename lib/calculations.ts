@@ -318,6 +318,131 @@ export function calcHealthGrade(score: number): string {
   return 'F';
 }
 
+// ── Credit Utilization (Smart Credit Report) ──────────────────────────────────
+// Credit utilization = balance owed ÷ credit limit. It's the heart of the
+// "amounts owed" factor (~30% of a FICO score) and the single fastest lever a
+// user controls. The widely-cited guidance: keep BOTH each card's utilization
+// AND your overall (aggregate) utilization under 30%, with the best scores
+// coming from under ~10%.
+//
+// A credit account's `balance` is what you OWE (positive). A negative balance
+// means the bank owes you (you overpaid) → treated as 0% used. A missing/zero
+// `creditLimit` means utilization is UNKNOWN (returns null) — we never invent a
+// denominator, so the UI can prompt for the limit instead of charting a fake 0%.
+
+export const CREDIT_UTIL_TARGET = 30; // classic "keep it under 30%" cap
+export const CREDIT_UTIL_IDEAL = 10;  // best-score target
+
+export type CreditUtilStatus = 'excellent' | 'good' | 'fair' | 'high' | 'maxed' | 'over';
+
+// Utilization as a percentage (0 = nothing owed). `null` when the limit is
+// unknown (≤ 0) so callers can prompt for it.
+export function creditUtilization(balance: number, limit: number): number | null {
+  if (!limit || limit <= 0) return null;
+  const owed = Math.max(0, balance); // a credit (negative) balance is 0% used
+  return roundCents((owed / limit) * 100);
+}
+
+// Maps a utilization % to a status band:
+//   ≤10 excellent · ≤30 good (the classic cap) · ≤50 fair · <90 high · <100 maxed · >100 over
+export function creditUtilStatus(util: number): CreditUtilStatus {
+  if (util > 100) return 'over';
+  if (util >= 90) return 'maxed';
+  if (util > 50) return 'high';
+  if (util > CREDIT_UTIL_TARGET) return 'fair';
+  if (util > CREDIT_UTIL_IDEAL) return 'good';
+  return 'excellent';
+}
+
+// True when utilization exceeds the recommended 30% cap — the "notice" trigger.
+export function isOverCreditTarget(util: number): boolean {
+  return util > CREDIT_UTIL_TARGET;
+}
+
+// Spending room left on a card = limit − owed (a credit balance counts as 0 owed).
+// Can go negative if the balance is somehow over the limit.
+export function availableCredit(balance: number, limit: number): number {
+  return roundCents(limit - Math.max(0, balance));
+}
+
+// How much to pay down to bring a card's utilization to `targetPct`. 0 when
+// already at/under the target (or when no limit is set).
+export function calcPaydownToTarget(balance: number, limit: number, targetPct: number): number {
+  if (!limit || limit <= 0) return 0;
+  const owed = Math.max(0, balance);
+  const targetBalance = (limit * targetPct) / 100;
+  return Math.max(0, roundCents(owed - targetBalance));
+}
+
+export type CreditCardReport = {
+  account: Account;
+  util: number | null;          // null when no limit is set
+  status: CreditUtilStatus | null;
+  available: number | null;
+  paydownToTarget: number;      // pay this much to reach 30%
+  paydownToIdeal: number;       // pay this much to reach 10%
+};
+
+export type CreditReport = {
+  cards: CreditCardReport[];
+  totalBalance: number;         // owed across cards that HAVE a known limit
+  totalLimit: number;
+  totalAvailable: number;
+  overallUtil: number | null;   // aggregate utilization; null when no limits set
+  overallStatus: CreditUtilStatus | null;
+  cardsOverTarget: number;      // cards above the 30% cap (incl. over limit)
+  hasLimits: boolean;           // at least one card has a limit set
+};
+
+// Builds the full Smart Credit Report from the account list. Only credit-type
+// accounts are considered. Aggregate utilization sums balances and limits across
+// the cards that have a KNOWN limit (cards without one are excluded from the
+// aggregate so they can't distort the denominator).
+export function buildCreditReport(accounts: Account[]): CreditReport {
+  let totalBalance = 0, totalLimit = 0, totalAvailable = 0, cardsOverTarget = 0;
+  let hasLimits = false;
+
+  const cards: CreditCardReport[] = accounts
+    .filter((a) => a.type === 'credit')
+    .map((account) => {
+      const limit = account.creditLimit ?? 0;
+      const util = creditUtilization(account.balance, limit);
+      if (util !== null) {
+        hasLimits = true;
+        totalBalance = roundCents(totalBalance + Math.max(0, account.balance));
+        totalLimit = roundCents(totalLimit + limit);
+        totalAvailable = roundCents(totalAvailable + availableCredit(account.balance, limit));
+        if (isOverCreditTarget(util)) cardsOverTarget++;
+      }
+      return {
+        account,
+        util,
+        status: util === null ? null : creditUtilStatus(util),
+        available: util === null ? null : availableCredit(account.balance, limit),
+        paydownToTarget: calcPaydownToTarget(account.balance, limit, CREDIT_UTIL_TARGET),
+        paydownToIdeal: calcPaydownToTarget(account.balance, limit, CREDIT_UTIL_IDEAL),
+      };
+    });
+
+  const overallUtil = totalLimit > 0 ? roundCents((totalBalance / totalLimit) * 100) : null;
+  return {
+    cards,
+    totalBalance,
+    totalLimit,
+    totalAvailable,
+    overallUtil,
+    overallStatus: overallUtil === null ? null : creditUtilStatus(overallUtil),
+    cardsOverTarget,
+    hasLimits,
+  };
+}
+
+// Badge count: how many credit cards are above the recommended 30% cap (the
+// "notice when over" signal surfaced on the Credit nav item).
+export function calcCreditAlerts(accounts: Account[]): number {
+  return buildCreditReport(accounts).cardsOverTarget;
+}
+
 // ── Transaction Balance Effects ───────────────────────────────────────────────
 
 export function roundCents(n: number): number {
