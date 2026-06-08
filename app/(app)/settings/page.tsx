@@ -69,7 +69,6 @@ export default function SettingsPage() {
   const [newExpCat, setNewExpCat] = useState('');
   const [newIncCat, setNewIncCat] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
   const [section, setSection] = useState<SectionId>('general');
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [newContactName, setNewContactName] = useState('');
@@ -80,24 +79,6 @@ export default function SettingsPage() {
   // (archive keeps history findable). Counted from the ledger on mount.
   const [catUsage, setCatUsage] = useState<Record<string, number>>({});
   const toast = useToast();
-
-  useEffect(() => {
-    try { setDarkMode(localStorage.getItem('nf_theme') === 'dark'); } catch { /* noop */ }
-  }, []);
-
-  function toggleDarkMode() {
-    const next = !darkMode;
-    setDarkMode(next);
-    try {
-      if (next) {
-        document.documentElement.classList.add('dark');
-        localStorage.setItem('nf_theme', 'dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-        localStorage.setItem('nf_theme', 'light');
-      }
-    } catch { /* noop */ }
-  }
 
   useEffect(() => {
     fetch('/api/settings')
@@ -400,13 +381,6 @@ export default function SettingsPage() {
                 desc="Excludes long-term loan balances from the net worth headline. Full debt is still shown in the Liabilities card."
                 checked={settings.excludeLoansFromNetWorth}
                 onChange={() => update('excludeLoansFromNetWorth', !settings.excludeLoansFromNetWorth)}
-              />
-              <ToggleRow
-                divider
-                label={t('settings.darkMode')}
-                desc={t('settings.darkModeDesc')}
-                checked={darkMode}
-                onChange={toggleDarkMode}
               />
               <ToggleRow
                 divider

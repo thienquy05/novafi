@@ -10,7 +10,134 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-06-08 — Category split (split one expense across categories) — SHIPPED (branch claude/intelligent-dirac-t0g3xm)
+
+Implemented the previously-deferred category split, per the agreed separate-rows +
+`splitGroupId` design. User chose BOTH entry points: add-flow split AND split an
+existing expense. **Distinct from the people-split** (`Split`/lib/splits.ts) — kept
+fully separate (and hit the warned-about name collision: existing
+`openSplitExpense`/`openEditSplitGroup` are people-split fns, so the new ones are
+`openCatSplitExpense`/`openEditCatSplit`).
+
+- `types/index.ts` — `Transaction.splitGroupId?: string`.
+- `lib/tx-split.ts` (NEW, pure, 12 tests in `lib/__tests__/tx-split.test.ts`):
+  `splitLineAmount`, `splitLinesTotal`, `isCompleteLine`, `validateSplit`
+  (≥2 complete lines, no half-entered lines, optional locked-total match within a
+  cent), `buildSplitTransactions` (shared date/desc/account/createdAt, type expense,
+  same groupId), `groupLedgerItems` (folds rows sharing splitGroupId into one group
+  item; a 1-survivor group renders as a single).
+- `lib/sheets.ts` — **Transactions column J = splitGroupId**. All `A2:I`→`A2:J`
+  (getTransactions, both batchGets, loadBatch). `rowToTransaction` + both batchGet
+  tx mappers read `r[9]`. New `transactionRow()` serializer (shared) + `addTransactions()`
+  (one append, N rows = atomic split write). add/update/delete bound `'I'`→`'J'`.
+- `app/api/transactions/route.ts` — POST now branches: `{ splits, replaceId?,
+  replaceGroupId? }` reverses+deletes the replaced row/group, appends the new rows,
+  applies each to balances (so a locked-total split nets zero balance change).
+  DELETE accepts `{ groupId }` to remove a whole group. Single-tx paths unchanged.
+- `app/(app)/transactions/page.tsx`:
+  - State: `splitMode`, `splitShared {date,description,account}`, `splitLines`,
+    `splitReplace {id?|groupId?, total}`, `expandedTxSplits`. Module-level `txSort`
+    extracted (reused by inserts/edits/splits).
+  - Entry points: "Split into categories" button in the add/edit modal (expense,
+    non-managed) → `openNewSplit` / `openCatSplitExpense(editTarget)`; a per-row
+    Split icon on eligible expense ledger rows → `openCatSplitExpense(tx)`; edit a
+    group → `openEditCatSplit`. New **split editor Modal** (shared fields + N
+    category/amount lines + live total/remaining; save disabled until valid).
+  - Ledger list view groups via `groupLedgerItems`; split groups render as a new
+    `SplitGroupRow` (collapsed: merchant + "N-way split" + combined total; expand to
+    per-category lines; edit re-opens editor; swipe deletes the whole group with undo).
+  - `handleSaveCatSplit`... (named `handleSaveSplit`), `handleDeleteSplitGroup`
+    (+ `restoreSplitGroup` undo), optimistic with authoritative-accounts response.
+- i18n (en + vi): `transactions.splitByCategory/editSplit/splitHint/splitLines/
+  addSplitLine/splitTotal/saveSplit/splitUnderBy/splitOverBy/splitMustMatch/
+  toastSplitSaved/confirmDeleteSplit`.
+- `lib/auth.ts` — refreshed stale new-spreadsheet header rows for Transactions
+  (now to_account/created_at/split_group_id) and Bills (+split_participants/variable).
+
+Why it's low-regression: every split is a normal expense row, so budgets, pie,
+reports, health score, account balance and Money Calendar all keep working unchanged;
+only the ledger LIST view collapses the group for display.
+
+Verification: `tsc` clean, `eslint` 0 errors, `vitest` 364/364 (was 352), `next build` OK.
+
+---
+
+## 2026-06-08 — Flexible bills: variable-amount + one-time (branch claude/intelligent-dirac-t0g3xm)
+
+User asked for "flexible bills" — variable amount each cycle (energy/gas) and a
+one-time non-recurring payment. Both shipped.
+
+- `types/index.ts` — `Bill.frequency` union gains `'once'` (non-recurring); added
+  optional `variable?: boolean`.
+- `lib/sheets.ts` — new **column L** = `variable`. Read range `Bills!A2:K200` →
+  `A2:L200` (all 4 sites: `getBills`, both batchGets, loadBatch registry).
+  `rowToBill` reads `r[11] === 'true'`; `upsertBill` appends `String(bill.variable
+  ?? false)` and its delete `_lastCol` bumped `'K'`→`'L'` (cosmetic — arg unused).
+- `app/(app)/bills/page.tsx`:
+  - `nextDueAfter` `'once'` case = no advance. `FREQUENCY_LABELS` + the
+    monthly-equivalent `m` map (`once: 0`, so one-time bills don't inflate the
+    monthly recurring total) — both `Record<Bill['frequency'],…>` so TS enforced
+    completeness. `EMPTY_FORM` + `openEdit` + `handleSave` carry `variable`.
+  - `advanceBillDue(bill, paidAmount?)` rewritten: a `'once'` bill is **deactivated**
+    (`isActive:false`) instead of rolled forward; a **variable** bill that is NOT
+    split has its `amount` estimate refreshed to the actual `paidAmount` on pay
+    (split bills excluded — there `paidAmount` is only your share). Called from
+    `handleRecordPayment` with `tx.amount`.
+  - Form: new "Variable amount" checkbox (Gauge icon) under the freq row; amount
+    label switches to "Estimated Amount" when variable. One-time is just a freq
+    option. Pay modal shows an indigo variable hint. Bill cards (active + paused)
+    prefix the amount with `~` when variable.
+- i18n (en + vi): `common.oneTime`; `bills.variableAmount/variableAmountDesc/
+  variableAmountHint/estimatedAmount/variablePayHint`.
+
+Note: the **Pay** modal already let you enter any amount per payment, so variable
+amounts worked at pay-time before — this adds the estimate semantics + one-time.
+
+Verification: `tsc` clean, `eslint` 0 errors, 352/352 tests.
+
+---
+
+## 2026-06-08 — Dark-mode toggle relocated to NovaFi header + budget-bar rollover fix (branch claude/intelligent-dirac-t0g3xm)
+
+Two user-reported items from the enhancement batch (split + flexible-bill items
+handled separately/discussed).
+
+**1. Dark-mode toggle now lives on the NovaFi brand header (was per-page).**
+- `components/Sidebar.tsx` — imported `ThemeToggle`; added it to the desktop
+  sidebar logo row (`ml-auto`, `w-9 h-9`, after the "NovaFi / Wealth management"
+  block) and to `MobileHeader` (right edge of the sticky top bar next to the
+  NovaFi logo). So the toggle is anchored to the brand header on both layouts.
+- `components/ui/PageHeader.tsx` — removed both `ThemeToggle` instances (mobile
+  title-row + desktop control cluster) and the import. The right-hand control
+  wrapper now renders **only when `action` is provided** (`{action && (<div …>)}`),
+  dropping the prior `action ? … : 'hidden md:flex'` branch that only existed to
+  host the toggle. Pages without an action no longer emit an empty cluster.
+- `app/(app)/settings/page.tsx` — removed the **legacy** dark-mode `ToggleRow`
+  (Dashboard Preferences card) plus its now-dead `darkMode` state, the
+  `localStorage` init `useEffect`, and `toggleDarkMode()`. The header toggle and
+  the (removed) Settings toggle always shared the same source of truth
+  (`.dark` class + `nf_theme`), so nothing else changes. `settings.darkMode` /
+  `settings.darkModeDesc` locale keys are now unused but left in place (inert).
+
+**2. Budget-vs-Actual bar chart showed 0 "Spent" for rollover-only categories.**
+- Repro: Shopping was over budget purely from last month's carried-over overspend
+  (this-month actual spend = $0, rolledOver = full usage). The
+  `BudgetVsActualChart` (`app/(app)/dashboard/DashboardCharts.tsx`) plotted raw
+  `b.spent`, so its "Spent" bar was 0-length even though the BudgetBars detail
+  cards + Planning page (which use `usage = spent + rolledOver`) correctly showed
+  it over budget.
+- Fix: chartData `spent` is now `b.spent + (b.rolledOver ?? 0)` (effective spent),
+  matching BudgetBars/Planning. The over-budget Cell color (`d.spent > d.budget →
+  rose`) and the sort now key off effective spent too, so the bar and color agree.
+
+Verification: `tsc` clean, `eslint` 0 errors (26 pre-existing warnings), 352/352 tests.
+
+---
+
 ## 2026-06-08 — NEXT SESSION: Transaction split (category split) — agreed design
+
+**✅ DONE — shipped on branch claude/intelligent-dirac-t0g3xm (see the "Category
+split — SHIPPED" entry above).** Original design note kept below for reference.
 
 Deferred to next session by user decision (this session already shipped 5
 features). **Agreed storage approach: separate rows + group ID** (NOT a single

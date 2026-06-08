@@ -78,7 +78,7 @@ async function findOrCreateSpreadsheet(accessToken: string): Promise<string> {
         },
         {
           range: 'Transactions!A1',
-          values: [['id', 'date', 'description', 'amount', 'type', 'category', 'account', 'notes']],
+          values: [['id', 'date', 'description', 'amount', 'type', 'category', 'account', 'to_account', 'created_at', 'split_group_id']],
         },
         {
           range: 'Paychecks!A1',
@@ -90,7 +90,7 @@ async function findOrCreateSpreadsheet(accessToken: string): Promise<string> {
         },
         {
           range: 'Bills!A1',
-          values: [['id', 'name', 'amount', 'frequency', 'next_due', 'account', 'category', 'is_active', 'split_contact_id', 'split_amount']],
+          values: [['id', 'name', 'amount', 'frequency', 'next_due', 'account', 'category', 'is_active', 'split_contact_id', 'split_amount', 'split_participants', 'variable']],
         },
         {
           range: 'Goals!A1',
