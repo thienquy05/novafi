@@ -16,6 +16,10 @@ import {
   calcOverdueBills, calcOverBudget,
   calcNetWorthProjection, calcPaycheckTaxToSave,
   calcPaycheckDeposited,
+  creditUtilization, creditUtilStatus, isOverCreditTarget, availableCredit,
+  calcPaydownToTarget, buildCreditReport, calcCreditAlerts,
+  calcCreditUtilizationScore, composeHealthScore, daysUntilStatement, HEALTH_WEIGHTS,
+  CREDIT_UTIL_TARGET,
 } from '@/lib/calculations';
 import type { Account, Transaction, Bill, Budget } from '@/types';
 
@@ -1174,5 +1178,195 @@ describe('calcSpendingPace', () => {
     const [item] = calcSpendingPace([budget], { Food: 30 }, 10, 30, { Food: 270 });
     expect(item.pace).toBeCloseTo(3, 2);                 // 30 / 10 days
     expect(item.projected).toBeCloseTo(30 / 10 * 30 + 270, 2); // rate-projected spend + flat carry
+  });
+});
+
+// ── Credit Utilization (Smart Credit Report) ──────────────────────────────────
+
+describe('creditUtilization', () => {
+  it('computes balance ÷ limit as a percent', () => {
+    expect(creditUtilization(300, 1000)).toBe(30);
+    expect(creditUtilization(100, 400)).toBe(25);
+  });
+  it('returns null when the limit is unknown/zero', () => {
+    expect(creditUtilization(500, 0)).toBeNull();
+    expect(creditUtilization(500, -1)).toBeNull();
+  });
+  it('treats a credit (negative) balance as 0% used', () => {
+    expect(creditUtilization(-50, 1000)).toBe(0);
+  });
+  it('can exceed 100% when over the limit', () => {
+    expect(creditUtilization(1200, 1000)).toBe(120);
+  });
+});
+
+describe('creditUtilStatus', () => {
+  it('bands utilization into the score-relevant tiers', () => {
+    expect(creditUtilStatus(5)).toBe('excellent');   // ≤10
+    expect(creditUtilStatus(10)).toBe('excellent');
+    expect(creditUtilStatus(20)).toBe('good');        // ≤30
+    expect(creditUtilStatus(30)).toBe('good');
+    expect(creditUtilStatus(45)).toBe('fair');        // ≤50
+    expect(creditUtilStatus(70)).toBe('high');        // <90
+    expect(creditUtilStatus(95)).toBe('maxed');       // <100
+    expect(creditUtilStatus(100)).toBe('maxed');
+    expect(creditUtilStatus(101)).toBe('over');       // >100
+  });
+});
+
+describe('isOverCreditTarget', () => {
+  it('flags utilization above the 30% cap only', () => {
+    expect(isOverCreditTarget(CREDIT_UTIL_TARGET)).toBe(false); // exactly 30 is OK
+    expect(isOverCreditTarget(30.01)).toBe(true);
+    expect(isOverCreditTarget(10)).toBe(false);
+  });
+});
+
+describe('availableCredit', () => {
+  it('is limit minus owed, with credit balances counted as 0 owed', () => {
+    expect(availableCredit(300, 1000)).toBe(700);
+    expect(availableCredit(-50, 1000)).toBe(1000);
+  });
+});
+
+describe('calcPaydownToTarget', () => {
+  it('returns the amount needed to reach the target utilization', () => {
+    expect(calcPaydownToTarget(500, 1000, 30)).toBe(200);  // 500 → 300
+    expect(calcPaydownToTarget(500, 1000, 10)).toBe(400);  // 500 → 100
+  });
+  it('is 0 when already at or under target, or no limit', () => {
+    expect(calcPaydownToTarget(200, 1000, 30)).toBe(0);
+    expect(calcPaydownToTarget(500, 0, 30)).toBe(0);
+  });
+});
+
+describe('buildCreditReport', () => {
+  const cardA = makeAccount({ id: 'a', type: 'credit', balance: 300, creditLimit: 1000 });   // 30%
+  const cardB = makeAccount({ id: 'b', type: 'credit', balance: 800, creditLimit: 1000 });   // 80% (over target)
+  const noLimit = makeAccount({ id: 'c', type: 'credit', balance: 500 });                     // unknown
+  const checking = makeAccount({ id: 'd', type: 'checking', balance: 5000 });
+
+  it('only considers credit accounts and excludes non-credit', () => {
+    const r = buildCreditReport([cardA, checking]);
+    expect(r.cards).toHaveLength(1);
+    expect(r.cards[0].account.id).toBe('a');
+  });
+
+  it('aggregates only cards with a known limit', () => {
+    const r = buildCreditReport([cardA, cardB, noLimit]);
+    expect(r.cards).toHaveLength(3);          // all three credit cards listed
+    expect(r.totalBalance).toBe(1100);        // 300 + 800 (noLimit excluded)
+    expect(r.totalLimit).toBe(2000);
+    expect(r.totalAvailable).toBe(900);
+    expect(r.overallUtil).toBe(55);           // 1100 / 2000
+    expect(r.overallStatus).toBe('high');
+    expect(r.cardsOverTarget).toBe(1);        // only cardB
+    expect(r.hasLimits).toBe(true);
+  });
+
+  it('marks per-card util null when no limit and surfaces paydown amounts', () => {
+    const r = buildCreditReport([cardB, noLimit]);
+    const b = r.cards.find((c) => c.account.id === 'b')!;
+    const c = r.cards.find((c) => c.account.id === 'c')!;
+    expect(c.util).toBeNull();
+    expect(b.util).toBe(80);
+    expect(b.paydownToTarget).toBe(500);      // 800 → 300
+    expect(b.paydownToIdeal).toBe(700);       // 800 → 100
+  });
+
+  it('reports no limits / null overall when nothing has a limit', () => {
+    const r = buildCreditReport([noLimit]);
+    expect(r.hasLimits).toBe(false);
+    expect(r.overallUtil).toBeNull();
+    expect(r.overallStatus).toBeNull();
+  });
+});
+
+describe('calcCreditAlerts', () => {
+  it('counts cards over the recommended target', () => {
+    const cards = [
+      makeAccount({ id: 'a', type: 'credit', balance: 300, creditLimit: 1000 }), // 30% ok
+      makeAccount({ id: 'b', type: 'credit', balance: 800, creditLimit: 1000 }), // 80% over
+      makeAccount({ id: 'c', type: 'credit', balance: 1200, creditLimit: 1000 }),// 120% over
+    ];
+    expect(calcCreditAlerts(cards)).toBe(2);
+  });
+  it('is 0 when no cards or none over target', () => {
+    expect(calcCreditAlerts([])).toBe(0);
+    expect(calcCreditAlerts([makeAccount({ id: 'a', type: 'credit', balance: 100, creditLimit: 1000 })])).toBe(0);
+  });
+});
+
+// ── Credit utilization health factor + statement dates ────────────────────────
+
+describe('calcCreditUtilizationScore', () => {
+  it('rewards low utilization, penalizes high', () => {
+    expect(calcCreditUtilizationScore(5)).toBe(15);
+    expect(calcCreditUtilizationScore(10)).toBe(15);
+    expect(calcCreditUtilizationScore(20)).toBe(13);
+    expect(calcCreditUtilizationScore(30)).toBe(11);
+    expect(calcCreditUtilizationScore(50)).toBe(7);
+    expect(calcCreditUtilizationScore(85)).toBe(2);
+    expect(calcCreditUtilizationScore(95)).toBe(1);
+    expect(calcCreditUtilizationScore(100)).toBe(1);
+    expect(calcCreditUtilizationScore(150)).toBe(0);
+  });
+  it('returns a neutral-good 12 when no card has a limit (null)', () => {
+    expect(calcCreditUtilizationScore(null)).toBe(12);
+  });
+});
+
+describe('composeHealthScore', () => {
+  it('caps at 100 with all sub-scores maxed and ideal utilization', () => {
+    const { score, breakdown } = composeHealthScore({
+      savingsScore: 25, emergencyScore: 20, budgetScore: 15, dtiScore: 20,
+      trendScore: 10, volatilityScore: 10, creditUtil: 5,
+    });
+    expect(score).toBe(100);
+    // breakdown integers sum exactly to the score
+    const sum = breakdown.savings + breakdown.emergency + breakdown.credit + breakdown.dti + breakdown.budget + breakdown.trend + breakdown.volatility;
+    expect(sum).toBe(score);
+    expect(breakdown.credit).toBe(15);
+  });
+  it('weights each factor to HEALTH_WEIGHTS at full sub-score', () => {
+    const { breakdown } = composeHealthScore({
+      savingsScore: 25, emergencyScore: 20, budgetScore: 15, dtiScore: 20,
+      trendScore: 10, volatilityScore: 10, creditUtil: 5,
+    });
+    expect(breakdown.savings).toBe(HEALTH_WEIGHTS.savings);
+    expect(breakdown.dti).toBe(HEALTH_WEIGHTS.dti);
+    expect(breakdown.budget).toBe(HEALTH_WEIGHTS.budget);
+  });
+  it('uses the neutral credit score when utilization is unknown', () => {
+    const { breakdown } = composeHealthScore({
+      savingsScore: 0, emergencyScore: 0, budgetScore: 0, dtiScore: 0,
+      trendScore: 0, volatilityScore: 0, creditUtil: null,
+    });
+    expect(breakdown.credit).toBe(12);
+  });
+  it('weights sum to 100', () => {
+    const total = Object.values(HEALTH_WEIGHTS).reduce((s, v) => s + v, 0);
+    expect(total).toBe(100);
+  });
+});
+
+describe('daysUntilStatement', () => {
+  it('returns null when unset or out of range', () => {
+    expect(daysUntilStatement(undefined, new Date(2026, 5, 8))).toBeNull();
+    expect(daysUntilStatement(0, new Date(2026, 5, 8))).toBeNull();
+    expect(daysUntilStatement(32, new Date(2026, 5, 8))).toBeNull();
+  });
+  it('counts days to a later day this month', () => {
+    expect(daysUntilStatement(15, new Date(2026, 5, 8))).toBe(7); // Jun 8 → Jun 15
+  });
+  it('is 0 on the statement day itself', () => {
+    expect(daysUntilStatement(8, new Date(2026, 5, 8))).toBe(0);
+  });
+  it('rolls to next month once the day has passed', () => {
+    expect(daysUntilStatement(5, new Date(2026, 5, 8))).toBe(27); // Jun 8 → Jul 5
+  });
+  it('clamps a 31 to the last day of a short month', () => {
+    // Feb 2026 has 28 days → statement "31" clamps to Feb 28.
+    expect(daysUntilStatement(31, new Date(2026, 1, 10))).toBe(18); // Feb 10 → Feb 28
   });
 });

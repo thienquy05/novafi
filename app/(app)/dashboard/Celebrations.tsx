@@ -7,7 +7,15 @@ import { useTranslation } from '@/lib/i18n/context';
 
 const STORE_KEY = 'nf_milestones_v1';
 
-type Stored = { savingsRateHit: boolean; grade: string; goals: string[] };
+type Stored = {
+  savingsRateHit: boolean;
+  grade: string;
+  goals: string[];
+  // Optional/added later — absent on older payloads (and when no card has a
+  // limit), which baselines silently the first time credit is tracked.
+  creditUnderTarget?: boolean;
+  creditUnderIdeal?: boolean;
+};
 
 function gradeOf(score: number): string {
   return score >= 85 ? 'A' : score >= 70 ? 'B' : score >= 55 ? 'C' : score >= 40 ? 'D' : 'F';
@@ -24,10 +32,12 @@ export function Celebrations({
   savingsRate,
   healthScore,
   achievedGoals,
+  creditUtil,
 }: {
   savingsRate: number;
   healthScore: number;
   achievedGoals: { id: string; name: string }[];
+  creditUtil: number | null; // overall credit utilization %, or null when no limits set
 }) {
   const toast = useToast();
   const { t } = useTranslation();
@@ -40,7 +50,16 @@ export function Celebrations({
     const grade = gradeOf(healthScore);
     const savingsRateHit = savingsRate >= 20;
     const goalIds = achievedGoals.map((g) => g.id);
-    const current: Stored = { savingsRateHit, grade, goals: goalIds };
+    const hasCredit = creditUtil !== null;
+    const current: Stored = {
+      savingsRateHit,
+      grade,
+      goals: goalIds,
+      // Only track credit when a limit exists; otherwise leave undefined so the
+      // first time credit becomes trackable baselines instead of celebrating.
+      creditUnderTarget: hasCredit ? creditUtil! <= 30 : undefined,
+      creditUnderIdeal: hasCredit ? creditUtil! <= 10 : undefined,
+    };
 
     let prev: Stored | null = null;
     try {
@@ -66,6 +85,17 @@ export function Celebrations({
     if (newGoal) {
       messages.push(t('celebrate.goal', { name: newGoal.name }));
     }
+    // Credit utilization: celebrate the first time you cross below a threshold.
+    // Skip entirely the first time credit is tracked (prev field undefined) so
+    // an already-low user doesn't get a spurious pop. Ideal (<10%) supersedes
+    // the 30% message in the same render.
+    if (hasCredit && prev.creditUnderTarget !== undefined) {
+      if (current.creditUnderIdeal && !prev.creditUnderIdeal) {
+        messages.push(t('celebrate.creditIdeal'));
+      } else if (current.creditUnderTarget && !prev.creditUnderTarget) {
+        messages.push(t('celebrate.creditTarget'));
+      }
+    }
 
     if (messages.length > 0) {
       fireConfetti();
@@ -74,7 +104,7 @@ export function Celebrations({
       messages.forEach((m, i) => setTimeout(() => toast(m, 'success'), i * 350));
     }
     persist();
-  }, [savingsRate, healthScore, achievedGoals, t, toast]);
+  }, [savingsRate, healthScore, achievedGoals, creditUtil, t, toast]);
 
   return null;
 }

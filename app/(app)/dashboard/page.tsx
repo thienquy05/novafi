@@ -11,9 +11,10 @@ import {
   calcNetWorthTrendScore, calcAvgMomPct,
   calcSpendingVolatilityScore, calcCoefficientOfVariation,
   calcNetWorthProjection, myBillShare, calcRolloverDeficit,
+  buildCreditReport, CREDIT_UTIL_TARGET, CREDIT_UTIL_IDEAL, composeHealthScore, daysUntilStatement,
 } from '@/lib/calculations';
 import { Card, CardHeader, CardTitle, CardIcon, type CardTone } from '@/components/ui/Card';
-import { TrendingUp, TrendingDown, Calendar, PiggyBank, ArrowUpRight, Wallet, BarChart3, ArrowLeftRight, Flame, CalendarDays } from 'lucide-react';
+import { TrendingUp, TrendingDown, Calendar, PiggyBank, Wallet, BarChart3, ArrowLeftRight, Flame, CalendarDays, CreditCard, Target } from 'lucide-react';
 import { SpendingPieChart, BudgetBars, BudgetVsActualChart, MonthlyBarChart, GoalsSummary, NetWorthTrendChart, HealthBanner, EmergencyFundWidget, FinancialHealthScore, SavingsRateGauge } from './DashboardCharts';
 import { RecentTransactions } from './RecentTransactions';
 import type { NetWorthPoint } from './DashboardCharts';
@@ -31,6 +32,17 @@ import type { Language } from '@/types';
 export const dynamic = 'force-dynamic';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// Credit-utilization status → bar/text colors (literal Tailwind classes, v4).
+const CREDIT_STATUS_BAR: Record<string, string> = {
+  excellent: 'bg-emerald-500', good: 'bg-emerald-500', fair: 'bg-amber-500',
+  high: 'bg-orange-500', maxed: 'bg-rose-500', over: 'bg-rose-600',
+};
+const CREDIT_STATUS_TEXT: Record<string, string> = {
+  excellent: 'text-emerald-600 dark:text-emerald-400', good: 'text-emerald-600 dark:text-emerald-400',
+  fair: 'text-amber-600 dark:text-amber-400', high: 'text-orange-600 dark:text-orange-400',
+  maxed: 'text-rose-600 dark:text-rose-400', over: 'text-rose-600 dark:text-rose-400',
+};
 
 
 export default async function DashboardPage() {
@@ -62,8 +74,6 @@ export default async function DashboardPage() {
   const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const prevMonthKey = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
   const prevMonthTx = transactions.filter((tx) => tx.date.startsWith(prevMonthKey));
-  const prevMonthIncome = calcMonthIncome(transactions, prevMonthKey);
-  const prevMonthSpending = calcMonthExpense(transactions, prevMonthKey);
 
   // Days info
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
@@ -80,6 +90,21 @@ export default async function DashboardPage() {
   const totalLoanDebt = accounts.filter((a) => a.type === 'loan' && a.balance > 0).reduce((s, a) => s + a.balance, 0);
   const totalSaved = accounts.filter((a) => a.type === 'savings').reduce((s, a) => s + a.balance, 0);
 
+  // Smart Credit Report (dashboard surface): overall utilization + the single
+  // worst over-target card, so the dashboard can show an actionable next step.
+  const creditReport = buildCreditReport(accounts);
+  const worstCard = creditReport.cards
+    .filter((c) => c.util !== null && c.paydownToTarget > 0)
+    .sort((a, b) => (b.util! - a.util!))[0] ?? null;
+  // Statement-aware nudge: if the worst card's statement closes soon, paying it
+  // down before then is what lowers the *reported* utilization.
+  const worstStmtDays = worstCard ? daysUntilStatement(worstCard.account.statementDay, now) : null;
+  const worstStmtSoon = worstStmtDays !== null && worstStmtDays <= 7;
+  // Top cards (highest utilization first) for the dashboard's brief breakdown.
+  const creditCardsByUtil = creditReport.cards
+    .filter((c) => c.util !== null)
+    .sort((a, b) => (b.util! - a.util!));
+
   // Net worth snapshot
   const currentMonthKey = thisMonth;
   const alreadySnapped = netWorthHistory.some((s) => s.month === currentMonthKey);
@@ -89,8 +114,22 @@ export default async function DashboardPage() {
       date: now.toISOString().split('T')[0],
       month: currentMonthKey,
       netWorth,
+      creditUtil: creditReport.overallUtil, // Smart Credit Report trend
     }).catch(() => {});
   }
+
+  // Credit-utilization trend: monthly snapshots that carry a utilization value,
+  // plus this month's live value appended (so the sparkline ends at "now").
+  const utilTrend = (() => {
+    const pts = [...netWorthHistory]
+      .sort((a, b) => a.month.localeCompare(b.month))
+      .filter((s) => typeof s.creditUtil === 'number')
+      .map((s) => s.creditUtil as number);
+    if (creditReport.overallUtil !== null && !netWorthHistory.some((s) => s.month === currentMonthKey && typeof s.creditUtil === 'number')) {
+      pts.push(creditReport.overallUtil);
+    }
+    return pts.slice(-6);
+  })();
 
   // Build chart-ready net worth series
   const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -244,7 +283,18 @@ export default async function DashboardPage() {
   const dtiScore = calcDebtToIncomeScore(dti);
   const trendScore = calcNetWorthTrendScore(netWorthTrendPct);
   const volatilityScore = calcSpendingVolatilityScore(spendingCv);
-  const healthScore = savingsRateScore + emergencyScore + budgetScore + dtiScore + trendScore + volatilityScore;
+  // 7-factor composite (now includes credit utilization). composeHealthScore
+  // rescales the six existing sub-scores to the new weights and returns a
+  // breakdown whose integers sum exactly to the score.
+  const { score: healthScore, breakdown: healthBreakdown } = composeHealthScore({
+    savingsScore: savingsRateScore,
+    emergencyScore,
+    budgetScore,
+    dtiScore,
+    trendScore,
+    volatilityScore,
+    creditUtil: creditReport.overallUtil,
+  });
 
   // Goals summary
   const goalData = goals.map((g) => {
@@ -259,18 +309,10 @@ export default async function DashboardPage() {
     };
   });
 
-  // MoM deltas
-  const spendingDelta = calcPctChange(monthSpending, prevMonthSpending);
-  const incomeDelta = calcPctChange(monthIncome, prevMonthIncome);
+  // MoM delta (net worth hero)
   const netWorthDelta = prevNetWorth !== null ? calcPctChange(netWorth, prevNetWorth) : null;
 
-  // ── Sparkline trends: last 6 months of income / spending + net worth ──────
-  const trendMonthKeys = Array.from({ length: 6 }, (_, i) => {
-    const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  });
-  const incomeTrend = trendMonthKeys.map((k) => monthlyTotals[k]?.income ?? 0);
-  const spendingTrend = trendMonthKeys.map((k) => monthlyTotals[k]?.expense ?? 0);
+  // ── Sparkline trend: last 6 net-worth snapshots (hero) ────────────────────
   const netWorthSpark = netWorthPoints.slice(-6).map((p) => p.netWorth);
 
   // ── Calendar: per-day spend, income, and bills due this month ─────────────
@@ -330,36 +372,6 @@ export default async function DashboardPage() {
 
   const smallStats = [
     {
-      key: 'income',
-      label: t('dashboard.monthIncome', lang),
-      icon: ArrowUpRight,
-      tone: 'emerald' as CardTone,
-      rawValue: monthIncome,
-      kind: 'currency' as const,
-      suffix: '',
-      valueColor: 'text-emerald-600 dark:text-emerald-400',
-      delta: incomeDelta,
-      positiveIsGood: true,
-      annotation: null as string | null,
-      spark: incomeTrend.some((v) => v > 0) ? incomeTrend : null,
-      gauge: null as number | null,
-    },
-    {
-      key: 'spending',
-      label: t('dashboard.monthSpending', lang),
-      icon: TrendingDown,
-      tone: 'rose' as CardTone,
-      rawValue: monthSpending,
-      kind: 'currency' as const,
-      suffix: '',
-      valueColor: 'text-rose-600 dark:text-rose-400',
-      delta: spendingDelta,
-      positiveIsGood: false,
-      annotation: null,
-      spark: spendingTrend.some((v) => v > 0) ? spendingTrend : null,
-      gauge: null,
-    },
-    {
       key: 'safe',
       label: t('dashboard.safeToSpend', lang),
       icon: PiggyBank,
@@ -368,13 +380,13 @@ export default async function DashboardPage() {
       kind: 'currency' as const,
       suffix: overspent ? '' : t('dashboard.perDay', lang),
       valueColor: overspent ? 'text-rose-600 dark:text-rose-400' : 'text-indigo-600 dark:text-indigo-400',
-      delta: null,
+      delta: null as number | null,
       positiveIsGood: true,
-      annotation: overspent
+      annotation: (overspent
         ? t('dashboard.safeToSpendOver', lang)
-        : t('dashboard.safeToSpendNote', lang, { total: formatCurrency(leftToSpend), days: daysRemaining }),
-      spark: null,
-      gauge: null,
+        : t('dashboard.safeToSpendNote', lang, { total: formatCurrency(leftToSpend), days: daysRemaining })) as string | null,
+      spark: null as number[] | null,
+      gauge: null as number | null,
     },
     {
       key: 'savings',
@@ -395,7 +407,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto pb-28 md:pb-8">
-      <Celebrations savingsRate={savingsRate} healthScore={healthScore} achievedGoals={achievedGoals} />
+      <Celebrations savingsRate={savingsRate} healthScore={healthScore} achievedGoals={achievedGoals} creditUtil={creditReport.overallUtil} />
 
       <StaggerReveal className="space-y-5 sm:space-y-7">
       {/* Header */}
@@ -425,14 +437,16 @@ export default async function DashboardPage() {
         daysLeft={daysLeft}
         daysInMonth={daysInMonth}
         overBudgetCount={overBudgetCount}
+        creditAlerts={creditReport.cardsOverTarget}
       />
 
-      {/* KPI Bento — Net Worth hero + four metrics */}
+      {/* KPI Bento — Net Worth hero + Safe-to-Spend + Savings Rate (income &
+          spending now live in the calendar's monthly summary below) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* Net Worth hero */}
         <Card
           tone={heroStat.tone}
-          className="col-span-2 lg:row-span-2 bento-hero flex flex-col justify-between gap-4 overflow-hidden"
+          className="col-span-2 bento-hero flex flex-col justify-between gap-4 overflow-hidden"
         >
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -522,6 +536,43 @@ export default async function DashboardPage() {
         })}
       </div>
 
+      {/* This Month — calendar (when) + category breakdown (what). The calendar's
+          footer carries the month's income / spending / net, so it replaces the
+          old income & spending KPI tiles. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <Card className="min-h-[380px] flex flex-col">
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <CardIcon tone="indigo">
+                <CalendarDays className="w-5 h-5" />
+              </CardIcon>
+              <div>
+                <CardTitle>{t('dashboard.spendingCalendar', lang)}</CardTitle>
+                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('dashboard.spendingCalendarSub', lang)}</p>
+              </div>
+            </div>
+          </CardHeader>
+          <div className="flex-1 mt-1">
+            <SpendingHeatmap days={heatmapDays} todayIso={todayIso} />
+          </div>
+        </Card>
+
+        <Card className="min-h-[380px] flex flex-col">
+          <CardHeader>
+            <div>
+              <CardTitle>{t('dashboard.spendingThisMonth', lang)}</CardTitle>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">{t('dashboard.whereMoneyWent', lang)}</p>
+            </div>
+            <div className="text-right">
+              <span className="text-xl font-extrabold text-slate-900 dark:text-slate-100 font-display">{formatCurrency(monthSpending)}</span>
+            </div>
+          </CardHeader>
+          <div className="flex-1 flex items-center justify-center">
+            <SpendingPieChart data={categoryData} />
+          </div>
+        </Card>
+      </div>
+
       {/* Assets / Liabilities / Savings / Emergency Fund */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-emerald-100 dark:border-emerald-800/50 p-4">
@@ -543,6 +594,90 @@ export default async function DashboardPage() {
           </p>
         </div>
       </div>
+
+      {/* Credit Utilization — a big-but-brief summary; full detail lives on
+          /credit. Only shown when at least one card has a limit set. */}
+      {creditReport.hasLimits && creditReport.overallUtil !== null && creditReport.overallStatus !== null && (() => {
+        const util = creditReport.overallUtil;
+        const status = creditReport.overallStatus;
+        const over = util > CREDIT_UTIL_TARGET;
+        // One actionable line: statement-aware if a close is imminent, else a
+        // paydown target, else a positive note.
+        const nudge =
+          over && worstCard && worstStmtSoon && worstStmtDays !== null
+            ? { tone: 'amber', text: t('credit.payBeforeStmt', lang, { amount: formatCurrency(worstCard.paydownToTarget), card: worstCard.account.name, days: worstStmtDays, pct: CREDIT_UTIL_TARGET }) }
+            : over && worstCard
+            ? { tone: 'amber', text: t('credit.payToTargetCard', lang, { amount: formatCurrency(worstCard.paydownToTarget), card: worstCard.account.name, pct: CREDIT_UTIL_TARGET }) }
+            : util <= CREDIT_UTIL_IDEAL
+            ? { tone: 'emerald', text: t('credit.atIdeal', lang) }
+            : { tone: 'emerald', text: t('credit.underTarget', lang, { pct: CREDIT_UTIL_TARGET }) };
+        return (
+          <Card tone={over ? 'rose' : 'emerald'}>
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <CardIcon tone={over ? 'rose' : 'emerald'}>
+                  <CreditCard className="w-5 h-5" />
+                </CardIcon>
+                <div>
+                  <CardTitle>{t('dashboard.creditUtil', lang)}</CardTitle>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('credit.overallSub', lang)}</p>
+                </div>
+              </div>
+              <a href="/credit" className="whitespace-nowrap text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg">{t('common.manage', lang)}</a>
+            </CardHeader>
+
+            <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-5 lg:gap-8">
+              {/* Left: overall utilization + trend */}
+              <div className="space-y-3">
+                <div className="flex items-end justify-between gap-3">
+                  <div className="flex items-baseline gap-2">
+                    <span className={`text-4xl font-extrabold font-display ${CREDIT_STATUS_TEXT[status]}`}>{Math.round(util)}%</span>
+                    <span className={`text-sm font-bold ${CREDIT_STATUS_TEXT[status]}`}>{t(`credit.status.${status}`, lang)}</span>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">{t('credit.owedOfLimit', lang, { balance: formatCurrency(creditReport.totalBalance), limit: formatCurrency(creditReport.totalLimit) })}</p>
+                    <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{t('credit.availableLine', lang, { amount: formatCurrency(creditReport.totalAvailable) })}</p>
+                  </div>
+                </div>
+                {/* Utilization bar with a marker at the 30% recommended cap */}
+                <div className="relative h-3 w-full rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                  <div className={`h-full rounded-full ${CREDIT_STATUS_BAR[status]}`} style={{ width: `${Math.min(100, util)}%` }} />
+                  <div className="absolute top-0 bottom-0 w-px bg-slate-500/70 dark:bg-slate-300/60" style={{ left: `${CREDIT_UTIL_TARGET}%` }} aria-hidden />
+                </div>
+                {utilTrend.length >= 2 && (
+                  <div className={CREDIT_STATUS_TEXT[status]}>
+                    <p className="text-[11px] font-bold text-slate-400 dark:text-slate-500 mb-1">{t('credit.trendLabel', lang)}</p>
+                    <Sparkline data={utilTrend} height={28} strokeWidth={2} />
+                  </div>
+                )}
+                <p className={`text-sm font-semibold flex items-center gap-2 ${nudge.tone === 'amber' ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-700 dark:text-emerald-300'}`}>
+                  <Target className="w-4 h-4 shrink-0" />
+                  {nudge.text}
+                </p>
+              </div>
+
+              {/* Right: brief per-card breakdown (highest utilization first) */}
+              <div className="space-y-2.5">
+                {creditCardsByUtil.slice(0, 3).map((c) => (
+                  <div key={c.account.id} className="flex items-center gap-3">
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200 w-28 sm:w-32 shrink-0 truncate">{c.account.name}</span>
+                    <div className="flex-1 relative h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                      <div className={`h-full rounded-full ${CREDIT_STATUS_BAR[c.status!]}`} style={{ width: `${Math.min(100, c.util!)}%` }} />
+                      <div className="absolute top-0 bottom-0 w-px bg-slate-500/60 dark:bg-slate-300/50" style={{ left: `${CREDIT_UTIL_TARGET}%` }} aria-hidden />
+                    </div>
+                    <span className={`text-xs font-extrabold w-10 text-right shrink-0 tabular-nums ${CREDIT_STATUS_TEXT[c.status!]}`}>{Math.round(c.util!)}%</span>
+                  </div>
+                ))}
+                {creditCardsByUtil.length > 3 && (
+                  <a href="/credit" className="block text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline pt-1">
+                    {t('credit.viewMoreCards', lang, { n: creditCardsByUtil.length - 3 })}
+                  </a>
+                )}
+              </div>
+            </div>
+          </Card>
+        );
+      })()}
 
       {/* Net Worth Trend */}
       <Card>
@@ -578,41 +713,6 @@ export default async function DashboardPage() {
         <MonthlyBarChart data={cashFlowData} />
       </Card>
 
-      {/* Spending: what (pie) + when (calendar heatmap) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <Card className="min-h-[380px] flex flex-col">
-          <CardHeader>
-            <div>
-              <CardTitle>{t('dashboard.spendingThisMonth', lang)}</CardTitle>
-              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">{t('dashboard.whereMoneyWent', lang)}</p>
-            </div>
-            <div className="text-right">
-              <span className="text-xl font-extrabold text-slate-900 dark:text-slate-100 font-display">{formatCurrency(monthSpending)}</span>
-            </div>
-          </CardHeader>
-          <div className="flex-1 flex items-center justify-center">
-            <SpendingPieChart data={categoryData} />
-          </div>
-        </Card>
-
-        <Card className="min-h-[380px] flex flex-col">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <CardIcon tone="indigo">
-                <CalendarDays className="w-5 h-5" />
-              </CardIcon>
-              <div>
-                <CardTitle>{t('dashboard.spendingCalendar', lang)}</CardTitle>
-                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('dashboard.spendingCalendarSub', lang)}</p>
-              </div>
-            </div>
-          </CardHeader>
-          <div className="flex-1 mt-1">
-            <SpendingHeatmap days={heatmapDays} todayIso={todayIso} />
-          </div>
-        </Card>
-      </div>
-
       {/* Emergency Fund + Health Score row */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <EmergencyFundWidget liquidSavings={liquidSavings} avgMonthlyExpense={avgMonthlyExpense} />
@@ -625,14 +725,8 @@ export default async function DashboardPage() {
           dti,
           netWorthTrendPct,
           spendingCv,
-          breakdown: {
-            savings: savingsRateScore,
-            emergency: emergencyScore,
-            budget: budgetScore,
-            dti: dtiScore,
-            trend: trendScore,
-            volatility: volatilityScore,
-          },
+          creditUtil: creditReport.overallUtil,
+          breakdown: healthBreakdown,
         }} />
       </div>
 

@@ -404,7 +404,7 @@ export async function getAccounts(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Accounts!A2:I200',
+    range: 'Accounts!A2:K200',
     // Raw cell value: a currency-formatted cell stays a number rather than
     // coming back as "$100.00" → NaN.
     valueRenderOption: 'UNFORMATTED_VALUE',
@@ -425,6 +425,11 @@ function rowToAccount(r: string[]): Account {
     // Column I is optional: the starting balance captured when the account was
     // created. Empty/blank → undefined (not 0).
     openingBalance: r[8] === undefined || r[8] === '' ? undefined : Number(r[8]),
+    // Column J is optional: a credit card's total limit (Smart Credit Report).
+    // Empty/blank → undefined (not 0, which would mean a real $0 limit).
+    creditLimit: r[9] === undefined || r[9] === '' ? undefined : Number(r[9]),
+    // Column K is optional: statement closing day-of-month (1–31).
+    statementDay: r[10] === undefined || r[10] === '' ? undefined : Number(r[10]),
   };
 }
 
@@ -433,7 +438,7 @@ export async function upsertAccount(
   spreadsheetId: string,
   account: Account
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Accounts', account.id, 'I');
+  await deleteRowById(accessToken, spreadsheetId, 'Accounts', account.id, 'K');
   const sheets = getSheetsClient(accessToken);
   await sheets.spreadsheets.values.append({
     spreadsheetId,
@@ -441,7 +446,7 @@ export async function upsertAccount(
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
-      values: [[account.id, account.name, account.type, account.institution, account.balance, account.last4, account.color, account.createdAt, account.openingBalance ?? '']],
+      values: [[account.id, account.name, account.type, account.institution, account.balance, account.last4, account.color, account.createdAt, account.openingBalance ?? '', account.creditLimit ?? '', account.statementDay ?? '']],
     },
   });
 }
@@ -943,13 +948,14 @@ async function ensureNetWorthHistorySheet(
     spreadsheetId,
     range: 'NetWorthHistory!A1',
     valueInputOption: 'RAW',
-    requestBody: { values: [['id', 'date', 'month', 'netWorth']] },
+    requestBody: { values: [['id', 'date', 'month', 'netWorth', 'creditUtil']] },
   });
 }
 
 // Range that holds the net-worth snapshots. Exported so the dashboard's combined
-// batchGet can request the same range and reuse parseNetWorthRows.
-export const NET_WORTH_RANGE = 'NetWorthHistory!A2:D';
+// batchGet can request the same range and reuse parseNetWorthRows. Column E
+// (creditUtil) is read alongside for the Smart Credit Report trend.
+export const NET_WORTH_RANGE = 'NetWorthHistory!A2:E';
 
 /** Pure row→NetWorthSnapshot parser, shared by getNetWorthHistory and the dashboard batch. */
 export function parseNetWorthRows(rows: string[][]): NetWorthSnapshot[] {
@@ -958,6 +964,9 @@ export function parseNetWorthRows(rows: string[][]): NetWorthSnapshot[] {
     date: r[1] ?? '',
     month: r[2] ?? '',
     netWorth: Number(r[3] ?? 0),
+    // Column E optional/legacy — blank on rows snapshotted before this existed
+    // or when no card had a limit that month.
+    creditUtil: r[4] === undefined || r[4] === '' ? null : Number(r[4]),
   }));
 }
 
@@ -991,7 +1000,7 @@ export async function appendNetWorthSnapshot(
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
-      values: [[snapshot.id, snapshot.date, snapshot.month, snapshot.netWorth]],
+      values: [[snapshot.id, snapshot.date, snapshot.month, snapshot.netWorth, snapshot.creditUtil ?? '']],
     },
   });
 
@@ -1030,12 +1039,13 @@ export async function appendNetWorthSnapshot(
 export async function batchGetBadgesData(
   accessToken: string,
   spreadsheetId: string
-): Promise<{ bills: Bill[]; budgets: Budget[]; transactions: Transaction[] }> {
+): Promise<{ bills: Bill[]; budgets: Budget[]; transactions: Transaction[]; accounts: Account[] }> {
   const sheets = getSheetsClient(accessToken);
   const ranges = [
     'Bills!A2:L200',
     'Budgets!A2:D200',
     'Transactions!A2:J',
+    'Accounts!A2:K200',
   ];
   const res = await sheets.spreadsheets.values.batchGet({
     spreadsheetId,
@@ -1064,7 +1074,8 @@ export async function batchGetBadgesData(
     createdAt: r[8] ?? '',
     splitGroupId: r[9] ?? '',
   }));
-  return { bills, budgets, transactions };
+  const accounts: Account[] = (vr[3]?.values ?? []).map((r) => rowToAccount(r as string[]));
+  return { bills, budgets, transactions, accounts };
 }
 
 export type DashboardData = {
@@ -1119,6 +1130,8 @@ function parseDashboardCore(
     color: String(r[6] ?? '#6366f1'),
     createdAt: String(r[7] ?? ''),
     openingBalance: r[8] === undefined || r[8] === '' ? undefined : Number(r[8]),
+    creditLimit: r[9] === undefined || r[9] === '' ? undefined : Number(r[9]),
+    statementDay: r[10] === undefined || r[10] === '' ? undefined : Number(r[10]),
   })) as Account[];
   const bills: Bill[] = (vr[3]?.values ?? []).map((r) => rowToBill(r as string[]));
   const budgets: Budget[] = (vr[4]?.values ?? []).map((r) => ({
@@ -1153,7 +1166,7 @@ function parseDashboardCore(
 const DASHBOARD_CORE_RANGES = [
   'Paychecks!A2:L',
   'Transactions!A2:J',
-  'Accounts!A2:I200',
+  'Accounts!A2:K200',
   'Bills!A2:L200',
   'Budgets!A2:D200',
   'Goals!A2:G200',
@@ -1226,7 +1239,7 @@ const BATCHABLE_SHEETS: Record<
   Exclude<BatchKey, NonBatchableKey>,
   { range: string; parse: (rows: string[][]) => unknown[] }
 > = {
-  accounts:     { range: 'Accounts!A2:I200',  parse: (rows) => rows.map(rowToAccount) },
+  accounts:     { range: 'Accounts!A2:K200',  parse: (rows) => rows.map(rowToAccount) },
   transactions: { range: 'Transactions!A2:J', parse: (rows) => rows.map(rowToTransaction) },
   bills:        { range: 'Bills!A2:L200',     parse: (rows) => rows.map(rowToBill) },
   paychecks:    { range: 'Paychecks!A2:L',    parse: (rows) => rows.map(rowToPaycheck) },

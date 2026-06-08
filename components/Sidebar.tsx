@@ -12,6 +12,7 @@ import {
   PiggyBank,
   Calendar,
   BarChart3,
+  CreditCard,
   FileText,
   MoreHorizontal,
   X,
@@ -28,13 +29,15 @@ import { ThemeToggle } from './ui/ThemeToggle';
 import { QuickAddTransaction } from '@/app/(app)/dashboard/QuickAddTransaction';
 import { useTranslation } from '@/lib/i18n/context';
 
-type BadgeCounts = { overdueBills: number; overBudget: number };
+type BadgeCounts = { overdueBills: number; overBudget: number; creditAlerts: number };
 
-const BADGES_CACHE_KEY = 'nf_badges_cache';
+// Bumped to v2 when creditAlerts was added — invalidates older cached payloads
+// that lack the field so the new badge appears without waiting out the TTL.
+const BADGES_CACHE_KEY = 'nf_badges_cache_v2';
 const BADGES_TTL_MS = 2 * 60 * 1000;
 
 function useBadges(): BadgeCounts {
-  const [badges, setBadges] = useState<BadgeCounts>({ overdueBills: 0, overBudget: 0 });
+  const [badges, setBadges] = useState<BadgeCounts>({ overdueBills: 0, overBudget: 0, creditAlerts: 0 });
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem(BADGES_CACHE_KEY);
@@ -92,6 +95,7 @@ const NAV_GROUPS: { labelKey: string; items: NavItem[] }[] = [
     items: [
       { href: '/accounts',     labelKey: 'nav.accounts',     icon: Landmark,       badgeKey: null },
       { href: '/transactions', labelKey: 'nav.transactions', icon: ArrowLeftRight, badgeKey: null },
+      { href: '/credit',       labelKey: 'nav.credit',       icon: CreditCard,     badgeKey: 'creditAlerts' },
       { href: '/paychecks',    labelKey: 'nav.paychecks',    icon: DollarSign,     badgeKey: null },
     ],
   },
@@ -111,7 +115,7 @@ const SETTINGS_ITEM: NavItem = { href: '/settings', labelKey: 'nav.settings', ic
 type GroupKey = 'overview' | 'money' | 'plan' | 'system';
 const NAV_GROUP_OF: Record<string, GroupKey> = {
   '/dashboard': 'overview', '/reports': 'overview',
-  '/accounts': 'money', '/transactions': 'money', '/paychecks': 'money',
+  '/accounts': 'money', '/transactions': 'money', '/credit': 'money', '/paychecks': 'money',
   '/savings': 'plan', '/bills': 'plan', '/planning': 'plan',
   '/settings': 'system',
 };
@@ -237,6 +241,7 @@ const ALL_MOBILE_NAV: NavItem[] = [
   { href: '/bills',        labelKey: 'nav.bills',        icon: Calendar,        badgeKey: 'overdueBills' },
   { href: '/planning',     labelKey: 'nav.planning',     icon: BarChart3,       badgeKey: 'overBudget' },
   { href: '/accounts',     labelKey: 'nav.accounts',     icon: Landmark,        badgeKey: null },
+  { href: '/credit',       labelKey: 'nav.credit',       icon: CreditCard,      badgeKey: 'creditAlerts' },
   { href: '/savings',      labelKey: 'nav.savings',      icon: PiggyBank,       badgeKey: null },
   { href: '/paychecks',    labelKey: 'nav.paychecks',    icon: DollarSign,      badgeKey: null },
   { href: '/reports',      labelKey: 'nav.reports',      icon: FileText,        badgeKey: null },

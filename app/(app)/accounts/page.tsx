@@ -1,7 +1,9 @@
 'use client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import Link from 'next/link';
 import { Plus, Trash2, CreditCard, Landmark, PiggyBank, TrendingUp, Pencil, CheckCircle2, RefreshCw, AlertCircle } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { creditUtilization, creditUtilStatus } from '@/lib/calculations';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -60,6 +62,17 @@ const EMPTY_FORM = {
   balance: '',
   last4: '',
   color: ACCOUNT_COLORS[0],
+  creditLimit: '',
+};
+
+// Status → text color for the inline utilization readout on credit rows.
+const UTIL_TEXT: Record<string, string> = {
+  excellent: 'text-emerald-600 dark:text-emerald-400',
+  good: 'text-emerald-600 dark:text-emerald-400',
+  fair: 'text-amber-600 dark:text-amber-400',
+  high: 'text-orange-600 dark:text-orange-400',
+  maxed: 'text-rose-600 dark:text-rose-400',
+  over: 'text-rose-600 dark:text-rose-400',
 };
 
 export default function AccountsPage() {
@@ -113,7 +126,7 @@ export default function AccountsPage() {
   function openAdd() { setEditTarget(null); setForm(EMPTY_FORM); setOpen(true); }
   function openEdit(account: Account) {
     setEditTarget(account);
-    setForm({ name: account.name, type: account.type, institution: account.institution, balance: String(account.balance), last4: account.last4, color: account.color });
+    setForm({ name: account.name, type: account.type, institution: account.institution, balance: String(account.balance), last4: account.last4, color: account.color, creditLimit: account.creditLimit != null ? String(account.creditLimit) : '' });
     setOpen(true);
   }
 
@@ -129,6 +142,9 @@ export default function AccountsPage() {
       last4: form.last4,
       color: form.color,
       createdAt: editTarget?.createdAt ?? today(),
+      // Credit limit only applies to credit cards (and powers the Smart Credit
+      // Report). Switching a card to another type clears it.
+      creditLimit: form.type === 'credit' && form.creditLimit ? Math.max(0, parseBalance(form.creditLimit)) : undefined,
     };
 
     // Optimistic update
@@ -287,6 +303,19 @@ export default function AccountsPage() {
                           <div>
                             <p className="text-base font-bold text-slate-900 dark:text-slate-100">{account.name}</p>
                             <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-0.5">{account.institution || label}{account.last4 ? ` ····${account.last4}` : ''}</p>
+                            {type === 'credit' && (() => {
+                              const util = creditUtilization(account.balance, account.creditLimit ?? 0);
+                              if (util === null) {
+                                return (
+                                  <Link href="/credit" className="inline-block text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline mt-1">{t('accounts.setLimitHint')}</Link>
+                                );
+                              }
+                              return (
+                                <Link href="/credit" className={`inline-block text-xs font-bold mt-1 hover:underline ${UTIL_TEXT[creditUtilStatus(util)]}`}>
+                                  {t('accounts.utilization', { pct: `${Math.round(util)}%` })}
+                                </Link>
+                              );
+                            })()}
                           </div>
                         </div>
                         <div className="flex items-center justify-between sm:justify-end gap-6 sm:gap-8 w-full sm:w-auto pl-16 sm:pl-0">
@@ -323,6 +352,9 @@ export default function AccountsPage() {
           <Input label={t('accounts.accountName')} placeholder={form.type === 'checking' ? 'e.g. Chase Checking' : form.type === 'credit' ? 'e.g. Chase Sapphire' : 'e.g. HYSA'} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
           <Input label={t('accounts.institution')} placeholder="e.g. Chase, Bank of America" value={form.institution} onChange={(e) => setForm((f) => ({ ...f, institution: e.target.value }))} />
           <Input label={form.type === 'credit' || form.type === 'loan' ? `${t('accounts.balanceOwed')} — enter negative if bank owes you` : t('accounts.currentBalance')} type="text" inputMode="decimal" placeholder="0.00" value={form.balance} onChange={(e) => setForm((f) => ({ ...f, balance: e.target.value.replace(/[^0-9.,\-]/g, '') }))} />
+          {form.type === 'credit' && (
+            <Input label={t('accounts.creditLimit')} type="text" inputMode="decimal" placeholder="0.00" value={form.creditLimit} onChange={(e) => setForm((f) => ({ ...f, creditLimit: e.target.value.replace(/[^0-9.,]/g, '') }))} />
+          )}
           <Input label={t('accounts.last4')} placeholder="1234" maxLength={4} value={form.last4} onChange={(e) => setForm((f) => ({ ...f, last4: e.target.value.replace(/\D/g, '').slice(0, 4) }))} />
           <div>
             <p className="text-sm font-bold text-slate-700 dark:text-slate-300 ml-1 mb-2">{t('common.color')}</p>
