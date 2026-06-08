@@ -273,15 +273,25 @@ export default async function DashboardPage() {
   const spendingTrend = trendMonthKeys.map((k) => monthlyTotals[k]?.expense ?? 0);
   const netWorthSpark = netWorthPoints.slice(-6).map((p) => p.netWorth);
 
-  // ── Spending heatmap: expense total per calendar day this month ───────────
+  // ── Calendar: per-day spend, income, and bills due this month ─────────────
   const dailySpend: Record<string, number> = {};
+  const dailyIncome: Record<string, number> = {};
   for (const tx of monthTx) {
     if (tx.type === 'expense') dailySpend[tx.date] = (dailySpend[tx.date] ?? 0) + tx.amount;
+    else if (tx.type === 'income') dailyIncome[tx.date] = (dailyIncome[tx.date] ?? 0) + tx.amount;
+  }
+  // Bills due this month (past + upcoming), your share only — surfaced on the
+  // calendar so cash-flow crunch days are visible before they arrive.
+  const dailyBills: Record<string, { name: string; amount: number }[]> = {};
+  for (const b of bills) {
+    if (!b.isActive) continue;
+    if (!b.nextDue.startsWith(thisMonth)) continue;
+    (dailyBills[b.nextDue] ??= []).push({ name: b.name, amount: myBillShare(b) });
   }
   const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const heatmapDays = Array.from({ length: daysInMonth }, (_, i) => {
     const date = `${thisMonth}-${String(i + 1).padStart(2, '0')}`;
-    return { date, total: dailySpend[date] ?? 0 };
+    return { date, total: dailySpend[date] ?? 0, income: dailyIncome[date] ?? 0, bills: dailyBills[date] ?? [] };
   });
 
   // ── No-spend streak: consecutive days up to today with zero expense ───────

@@ -10,6 +10,34 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-06-08 — Dashboard "Money Calendar" (spending heatmap → full month calendar) (branch claude/blissful-einstein-CH02F)
+
+Per user request: fold everything for the month into one calendar — spending,
+income, and bills due (past + upcoming) — with an at-a-glance income/expense
+notice. Enhanced the existing spending heatmap rather than adding a new page.
+
+- `app/(app)/dashboard/SpendingHeatmap.tsx` — `HeatmapDay` now carries
+  `income?` and `bills?: {name, amount}[]` alongside `total` (expense, still
+  drives the heat tint). Each cell shows up to two marker dots: emerald = income
+  that day, amber = bills due. Footer is now dual-mode: with a day selected it
+  lists that day's spent / income / each bill (name + your-share amount); with
+  nothing selected it shows three summary stats for the month — Income / Spent /
+  Net (indigo when ≥0, rose when negative). Added a marker legend
+  (income · bills due · less→more heat). New `DetailRow` + `SummaryStat`
+  subcomponents. Dropped the old no-spend-days footer line (`heatmap.noSpendDays`
+  key now unused but left in place).
+- `app/(app)/dashboard/page.tsx` — calendar data build now also aggregates
+  `dailyIncome` (income transactions) and `dailyBills` (active bills whose
+  `nextDue` is in the current month, `myBillShare(b)` for split bills), and
+  passes them through `heatmapDays`.
+- i18n: `heatmap.income/spent/net/billsDue` (en + vi); retitled the card
+  `dashboard.spendingCalendar` → "Money Calendar" / "Lịch tài chính" with a new
+  subtitle "Spending, income & bills by day".
+
+Verification: `tsc` clean, `eslint` 0 errors, `next build` succeeds, 352/352 tests.
+
+---
+
 ## 2026-06-08 — Annual report export: CSV + PDF (branch claude/blissful-einstein-CH02F)
 
 The Reports page (full-year analytics) had no export — CSV existed only on the

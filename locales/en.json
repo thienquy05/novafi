@@ -142,12 +142,16 @@
     "savingsRateKPI": "Savings Rate",
     "savingsRateKPINote": "of income saved this month",
     "noSpendStreak": "{n}-day no-spend streak",
-    "spendingCalendar": "Spending Calendar",
-    "spendingCalendarSub": "When your money went"
+    "spendingCalendar": "Money Calendar",
+    "spendingCalendarSub": "Spending, income & bills by day"
   },
   "heatmap": {
     "noSpend": "No spend",
     "noSpendDays": "{n} no-spend days this month",
+    "income": "Income",
+    "spent": "Spent",
+    "net": "Net",
+    "billsDue": "Bills due",
     "less": "Less",
     "more": "More"
   },

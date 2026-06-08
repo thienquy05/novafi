@@ -142,12 +142,16 @@
     "savingsRateKPI": "Tỷ lệ tiết kiệm",
     "savingsRateKPINote": "thu nhập tiết kiệm tháng này",
     "noSpendStreak": "chuỗi {n} ngày không chi tiêu",
-    "spendingCalendar": "Lịch chi tiêu",
-    "spendingCalendarSub": "Bạn đã chi tiêu khi nào"
+    "spendingCalendar": "Lịch tài chính",
+    "spendingCalendarSub": "Chi tiêu, thu nhập & hóa đơn theo ngày"
   },
   "heatmap": {
     "noSpend": "Không chi tiêu",
     "noSpendDays": "{n} ngày không chi tiêu trong tháng",
+    "income": "Thu nhập",
+    "spent": "Chi tiêu",
+    "net": "Ròng",
+    "billsDue": "Hóa đơn đến hạn",
     "less": "Ít",
     "more": "Nhiều"
   },
