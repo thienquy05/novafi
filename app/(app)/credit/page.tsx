@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { AccountsSkeleton } from '@/components/ui/Skeleton';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
+import { peekCache, ensureResources } from '@/lib/client/store';
 import { formatCurrency } from '@/lib/utils';
 import { useToast } from '@/lib/toast';
 import {
@@ -48,16 +49,17 @@ function fmtPct(util: number): string {
 
 export default function CreditPage() {
   const { t } = useTranslation();
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Seed from the client cache so revisiting Credit shows numbers instantly
+  // (no skeleton flash) instead of refetching every time we switch sections.
+  const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
+  const [loading, setLoading] = useState(() => peekCache(['accounts']) === null);
   const [error, setError] = useState(false);
   const toast = useToast();
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     try {
-      const res = await fetch('/api/accounts');
-      if (!res.ok) throw new Error();
-      setAccounts(await res.json());
+      const { accounts } = await ensureResources(['accounts'], { force });
+      setAccounts(accounts);
       setError(false);
     } catch {
       setError(true);
@@ -67,7 +69,8 @@ export default function CreditPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-  useAutoRefresh(load);
+  // Background re-sync forces past the cache to catch edits made elsewhere.
+  useAutoRefresh(() => load(true));
 
   const report = useMemo(() => buildCreditReport(accounts), [accounts]);
   const hasCards = report.cards.length > 0;
@@ -88,7 +91,7 @@ export default function CreditPage() {
       toast(t('credit.limitSaved'), 'success');
     } catch {
       toast(t('credit.limitFailed'), 'error');
-      await load();
+      await load(true);
     }
   }
 
@@ -111,7 +114,7 @@ export default function CreditPage() {
             <AlertCircle className="w-7 h-7 text-rose-400" />
           </div>
           <p className="text-slate-700 dark:text-slate-300 font-bold text-base mb-1">{t('credit.loadError')}</p>
-          <Button variant="secondary" onClick={load} className="mt-4">{t('credit.tryAgain')}</Button>
+          <Button variant="secondary" onClick={() => load(true)} className="mt-4">{t('credit.tryAgain')}</Button>
         </div>
       ) : !hasCards ? (
         <Card className="text-center py-16 bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700/60">

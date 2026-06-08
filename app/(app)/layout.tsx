@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { Sidebar, MobileNav, MobileHeader } from '@/components/Sidebar';
 import { MotionProvider } from '@/components/MotionProvider';
+import { CacheSync } from '@/components/CacheSync';
 import { PWA } from '@/components/PWA';
 import { AlertTriangle } from 'lucide-react';
 import { t } from '@/lib/i18n';
@@ -56,6 +57,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <MotionProvider>
+      <CacheSync />
       <div className="flex flex-col md:flex-row min-h-screen bg-slate-50 dark:bg-slate-900 pb-16 md:pb-0 relative overflow-hidden">
         <MobileHeader />
         <Sidebar />

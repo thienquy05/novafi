@@ -18,7 +18,7 @@ import { Reorder, useDragControls } from 'framer-motion';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useTranslation } from '@/lib/i18n/context';
-import { loadBatch } from '@/lib/client/api';
+import { peekCache, ensureResources } from '@/lib/client/store';
 
 const PERIOD_OPTIONS = [
   { value: 'monthly', label: 'Monthly' },
@@ -51,11 +51,11 @@ const EMPTY_GOAL_FORM = {
 
 export default function PlanningPage() {
   const { t } = useTranslation();
-  const [budgets, setBudgets] = useState<Budget[]>([]);
-  const [goals, setGoals] = useState<Goal[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [rolloverEnabled, setRolloverEnabled] = useState(false);
+  const [budgets, setBudgets] = useState<Budget[]>(() => peekCache(['budgets'])?.budgets ?? []);
+  const [goals, setGoals] = useState<Goal[]>(() => peekCache(['goals'])?.goals ?? []);
+  const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
+  const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
+  const [rolloverEnabled, setRolloverEnabled] = useState(() => peekCache(['settings'])?.settings?.budgetRollover === true);
 
   const [budgetModalOpen, setBudgetModalOpen] = useState(false);
   const [editBudget, setEditBudget] = useState<Budget | null>(null);
@@ -64,18 +64,18 @@ export default function PlanningPage() {
 
   const [budgetForm, setBudgetForm] = useState(EMPTY_BUDGET_FORM);
   const [goalForm, setGoalForm] = useState(EMPTY_GOAL_FORM);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => peekCache(['budgets', 'goals', 'transactions', 'accounts', 'settings']) === null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
   const toast = useToast();
   const { expenseCategories } = useCategories();
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     setError(false);
     try {
-      // One /api/batch round trip instead of five separate Sheets reads.
+      // One /api/batch round trip; served from the client cache when fresh.
       const { budgets, goals, transactions, accounts, settings } =
-        await loadBatch(['budgets', 'goals', 'transactions', 'accounts', 'settings']);
+        await ensureResources(['budgets', 'goals', 'transactions', 'accounts', 'settings'], { force });
       setBudgets(budgets); setGoals(goals); setTransactions(transactions); setAccounts(accounts);
       setRolloverEnabled(settings?.budgetRollover === true);
     } catch {
@@ -86,7 +86,7 @@ export default function PlanningPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-  const { pullY, refreshing } = usePullToRefresh(load);
+  const { pullY, refreshing } = usePullToRefresh(() => load(true));
 
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -377,7 +377,7 @@ export default function PlanningPage() {
           <div className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-900/30 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-rose-400" /></div>
           <p className="text-slate-700 dark:text-slate-300 font-bold text-base mb-1">Couldn&apos;t load planning data</p>
           <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">Check your connection and try again.</p>
-          <Button variant="secondary" onClick={load}>Try Again</Button>
+          <Button variant="secondary" onClick={() => load(true)}>Try Again</Button>
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-7">

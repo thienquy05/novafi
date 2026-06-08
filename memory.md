@@ -1417,3 +1417,27 @@ Caveat (pre-existing data): groups created before this column have `myShareTxId=
 - Modal is a `fixed z-[200]` overlay, so embedding the trigger inside the nav flex doesn't affect layout.
 
 **Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors (pre-existing warnings only); `npm test` 6179/6179 passing; `npm run build` compiled successfully (27/27 pages).
+
+## 2026-06-08 — Client-side stale-while-revalidate cache (instant section switches)
+
+**Goal:** Switching sections visibly reloaded every number — each `'use client'` page set `loading=true`, flashed skeletons, and refetched `/api/*` on mount even though the API routes already serve from a server-side memory cache (`lib/cache.ts`). The network round trip + skeleton flash happened on every navigation. Fix: a shared client cache so revisiting a section renders cached numbers immediately and only revalidates in the background.
+
+**New `lib/client/store.ts`:** stale-while-revalidate cache over the batch resources, mirroring the existing `useCategories`/`Sidebar` sessionStorage pattern but generalized.
+- Module-memory `Map` (survives client-side navigation) + a `sessionStorage` mirror (survives full reload), both keyed by `BatchKey`.
+- `peekCache(keys)` — synchronous read used to seed a page's initial state (returns null unless ALL requested keys are present, so a partial cache still shows the skeleton once).
+- `ensureResources(keys, { force, ttl })` — fetches only missing/stale keys (or all on `force`), dedupes concurrent fetches per-key, returns latest cached values. Default TTL 30s (a revalidation throttle, not a correctness boundary).
+- `invalidateClientCache(...keys)` — drops keys (no args = clear all) and notifies subscribers.
+- `installCacheInvalidation()` — one-time global guard: monkeypatches `window.fetch` so that after any **successful mutating** request to `/api/*` (non-GET/HEAD, excluding `/api/auth`) the whole client read-cache is dropped. This keeps every page correct after a write without each mutation handler knowing about the cache. Idempotent, browser-only.
+- Test seams: `__setFetcherForTests`, `__resetCacheForTests`. Fetcher defaults to `loadBatch`.
+
+**New `components/CacheSync.tsx`:** tiny `'use client'` component that calls `installCacheInvalidation()` in a mount effect; rendered once inside `app/(app)/layout.tsx` (inside `MotionProvider`).
+
+**Page adoption** (read path → `ensureResources`, initial state seeded via `peekCache`, `loading` initial = `peekCache(...) === null`, background re-syncs `force` past the cache): `credit`, `accounts`, `savings`, `transactions`, `planning`, `paychecks`, `reports`, `bills`.
+- `load` gained an optional `force = false` param; `useAutoRefresh`/`usePullToRefresh` now call `() => load(true)`; error-retry / manual-refresh buttons changed from `onClick={load}` to `onClick={() => load(true)}` (forces fresh + avoids passing the boolean-param fn straight to an event handler).
+- Removed now-redundant `setLoading(true)` at the top of `load` in pages that had it (savings/paychecks/reports) so background refreshes don't reflash the skeleton — the initial seed governs the first paint.
+- Extracted `sortTransactions()` helper in the transactions page (reused by the `peekCache` seed and `load`).
+- The dashboard is a server component (`force-dynamic`, its own `cachedOrFetch`) so it is intentionally left as-is.
+
+**New `lib/__tests__/store.test.ts`:** 9 tests — fetch-only-missing, dedupe concurrent, force refetch, `peekCache` all-or-nothing, invalidate (single + clear-all), TTL freshness, subscriber notify/unsub.
+
+**Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors (pre-existing warnings only); `npm test` 400/400 passing (was 391, +9 store tests).

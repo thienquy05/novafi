@@ -13,7 +13,7 @@ import { Collapsible } from '@/components/ui/Collapsible';
 import { formatCurrency, formatCompact, formatDate, generateId, today } from '@/lib/utils';
 import { transactionsToCsv } from '@/lib/csv';
 import { calcLoanRemaining } from '@/lib/calculations';
-import { loadBatch } from '@/lib/client/api';
+import { peekCache, ensureResources } from '@/lib/client/store';
 import { buildSplitTx, groupSplits, isOneOffSplit, newOneOffGroupId, resolveSplit, splitRemaining, type SplitGroup } from '@/lib/splits';
 import { validateSplit, buildSplitTransactions, groupLedgerItems, type SplitLine, type SplitGroupView } from '@/lib/tx-split';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -180,11 +180,20 @@ function buildLoanTx(
   };
 }
 
+// Newest first, breaking same-day ties by createdAt (falling back to id).
+function sortTransactions(txs: Transaction[]): Transaction[] {
+  return [...txs].sort((a, b) => {
+    const dateCmp = b.date.localeCompare(a.date);
+    if (dateCmp !== 0) return dateCmp;
+    return (b.createdAt ?? b.id).localeCompare(a.createdAt ?? a.id);
+  });
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function TransactionsPage() {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>(() => sortTransactions(peekCache(['transactions'])?.transactions ?? []));
+  const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'income' | 'expense' | 'transfer'>('all');
   const [categoryFilters, setCategoryFilters] = useState<string[]>([]);
@@ -193,7 +202,7 @@ export default function TransactionsPage() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editTarget, setEditTarget] = useState<Transaction | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => peekCache(['transactions', 'accounts', 'loans', 'contacts', 'splits']) === null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'merchant'>('list');
@@ -204,8 +213,8 @@ export default function TransactionsPage() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [prevFilterKey, setPrevFilterKey] = useState('');
   // Loans / IOUs
-  const [loans, setLoans] = useState<Loan[]>([]);
-  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [loans, setLoans] = useState<Loan[]>(() => peekCache(['loans'])?.loans ?? []);
+  const [contacts, setContacts] = useState<Contact[]>(() => peekCache(['contacts'])?.contacts ?? []);
   const [loansOpen, setLoansOpen] = useState(false);
   const [showAddLoan, setShowAddLoan] = useState(false);
   const [editingLoanId, setEditingLoanId] = useState<string | null>(null);
@@ -221,7 +230,7 @@ export default function TransactionsPage() {
   const [expandedLoanGroups, setExpandedLoanGroups] = useState<Set<string>>(new Set());
   const [showLoanHistory, setShowLoanHistory] = useState(false);
   // Split bills (one-time expense splits)
-  const [splits, setSplits] = useState<Split[]>([]);
+  const [splits, setSplits] = useState<Split[]>(() => peekCache(['splits'])?.splits ?? []);
   const [splitsOpen, setSplitsOpen] = useState(false);
   const [showSplitExpense, setShowSplitExpense] = useState(false);
   const [splitExpenseForm, setSplitExpenseForm] = useState(EMPTY_SPLIT_EXPENSE);
@@ -260,17 +269,13 @@ export default function TransactionsPage() {
   const { expenseCategories, incomeCategories, archivedExpenseCategories, archivedIncomeCategories } = useCategories();
   const { t } = useTranslation();
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     setError(false);
     try {
-      // One /api/batch round trip instead of five separate Sheets reads.
+      // One /api/batch round trip; served from the client cache when fresh.
       const { transactions: txs, accounts: accs, loans: lns, contacts: cons, splits: spls } =
-        await loadBatch(['transactions', 'accounts', 'loans', 'contacts', 'splits']);
-      setTransactions([...txs].sort((a: Transaction, b: Transaction) => {
-        const dateCmp = b.date.localeCompare(a.date);
-        if (dateCmp !== 0) return dateCmp;
-        return (b.createdAt ?? b.id).localeCompare(a.createdAt ?? a.id);
-      }));
+        await ensureResources(['transactions', 'accounts', 'loans', 'contacts', 'splits'], { force });
+      setTransactions(sortTransactions(txs));
       setAccounts(accs);
       setLoans(lns);
       setContacts(cons);
@@ -298,8 +303,8 @@ export default function TransactionsPage() {
       })
       .catch(() => {});
   }, [load]);
-  useAutoRefresh(load);
-  const { pullY, refreshing } = usePullToRefresh(load);
+  useAutoRefresh(() => load(true));
+  const { pullY, refreshing } = usePullToRefresh(() => load(true));
 
   const categories = form.type === 'expense' ? expenseCategories : form.type === 'income' ? incomeCategories : [...EXPENSE_CATEGORIES];
 
@@ -1799,7 +1804,7 @@ export default function TransactionsPage() {
           <div className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-900/30 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-rose-400" /></div>
           <p className="text-slate-700 dark:text-slate-300 font-bold text-base mb-1">{t('transactions.errorTitle')}</p>
           <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">{t('transactions.errorBody')}</p>
-          <Button variant="secondary" onClick={load}>{t('common.tryAgain')}</Button>
+          <Button variant="secondary" onClick={() => load(true)}>{t('common.tryAgain')}</Button>
         </div>
       ) : filtered.length === 0 ? (
         transactions.length === 0 ? (

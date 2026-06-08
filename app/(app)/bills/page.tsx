@@ -18,6 +18,7 @@ import type { Bill, Account, PaycheckEntry, Transaction, Contact, Split, BillSpl
 import { useCategories } from '@/hooks/useCategories';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { peekCache, ensureResources } from '@/lib/client/store';
 import { useTranslation } from '@/lib/i18n/context';
 
 // ── Subscription detection ─────────────────────────────────────────────────────
@@ -346,12 +347,15 @@ function BillsTimeline({ bills, nowMs }: { bills: Bill[]; nowMs: number }) {
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function BillsPage() {
   const { t } = useTranslation();
-  const [bills, setBills] = useState<Bill[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [paychecks, setPaychecks] = useState<PaycheckEntry[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [splits, setSplits] = useState<Split[]>([]);
+  const [bills, setBills] = useState<Bill[]>(() => {
+    const b = peekCache(['bills'])?.bills;
+    return b ? [...b].sort((x, y) => x.nextDue.localeCompare(y.nextDue)) : [];
+  });
+  const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
+  const [paychecks, setPaychecks] = useState<PaycheckEntry[]>(() => peekCache(['paychecks'])?.paychecks ?? []);
+  const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
+  const [contacts, setContacts] = useState<Contact[]>(() => peekCache(['contacts'])?.contacts ?? []);
+  const [splits, setSplits] = useState<Split[]>(() => peekCache(['splits'])?.splits ?? []);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -362,7 +366,7 @@ export default function BillsPage() {
   // total is inferred by summing everyone's parts — see resolveSplit).
   const [billMyShare, setBillMyShare] = useState('');
   const [addingContact, setAddingContact] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => peekCache(['bills', 'accounts', 'paychecks', 'transactions', 'contacts', 'splits']) === null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
   const [payBill, setPayBill] = useState<Bill | null>(null);
@@ -388,20 +392,17 @@ export default function BillsPage() {
     once: t('common.oneTime'),
   };
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     setError(false);
     try {
-      // One round trip instead of six — see /api/batch.
-      const res = await fetch('/api/batch?keys=bills,accounts,paychecks,transactions,contacts,splits');
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      const b: Bill[] = data.bills ?? [];
-      setBills([...b].sort((x: Bill, y: Bill) => x.nextDue.localeCompare(y.nextDue)));
-      setAccounts(data.accounts ?? []);
-      setPaychecks(data.paychecks ?? []);
-      setTransactions(data.transactions ?? []);
-      setContacts(data.contacts ?? []);
-      setSplits(data.splits ?? []);
+      // One round trip instead of six; served from the client cache when fresh.
+      const data = await ensureResources(['bills', 'accounts', 'paychecks', 'transactions', 'contacts', 'splits'], { force });
+      setBills([...data.bills].sort((x, y) => x.nextDue.localeCompare(y.nextDue)));
+      setAccounts(data.accounts);
+      setPaychecks(data.paychecks);
+      setTransactions(data.transactions);
+      setContacts(data.contacts);
+      setSplits(data.splits);
     } catch {
       setError(true);
     } finally {
@@ -410,7 +411,7 @@ export default function BillsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-  const { pullY, refreshing } = usePullToRefresh(load);
+  const { pullY, refreshing } = usePullToRefresh(() => load(true));
 
   function resetSplitMode() { setBillMyShare(''); }
   function openAdd() { setEditingId(null); setForm(EMPTY_FORM); setBillParticipantRows([emptyParticipant()]); resetSplitMode(); setOpen(true); }
@@ -884,7 +885,7 @@ export default function BillsPage() {
           <div className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-900/30 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-rose-400" /></div>
           <p className="text-slate-700 dark:text-slate-300 font-bold text-base mb-1">Couldn&apos;t load bills</p>
           <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">Check your connection and try again.</p>
-          <Button variant="secondary" onClick={load}>Try Again</Button>
+          <Button variant="secondary" onClick={() => load(true)}>Try Again</Button>
         </div>
       ) : bills.length === 0 ? (
         <Card className="text-center py-16 bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700/60">
