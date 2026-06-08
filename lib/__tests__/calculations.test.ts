@@ -17,7 +17,7 @@ import {
   calcNetWorthProjection, calcPaycheckTaxToSave,
   calcPaycheckDeposited,
   creditUtilization, creditUtilStatus, isOverCreditTarget, availableCredit,
-  calcPaydownToTarget, buildCreditReport, calcCreditAlerts,
+  calcPaydownToTarget, buildCreditReport, calcCreditAlerts, allocateSmartPayment,
   calcCreditUtilizationScore, composeHealthScore, daysUntilStatement, HEALTH_WEIGHTS,
   CREDIT_UTIL_TARGET,
 } from '@/lib/calculations';
@@ -1279,6 +1279,72 @@ describe('buildCreditReport', () => {
     expect(r.hasLimits).toBe(false);
     expect(r.overallUtil).toBeNull();
     expect(r.overallStatus).toBeNull();
+  });
+});
+
+describe('allocateSmartPayment', () => {
+  // Two cards over the 30% cap with different paydown costs, plus one healthy card.
+  const spikeSmall = makeAccount({ id: 's', type: 'credit', balance: 400, creditLimit: 1000 }); // 40% → needs 100 to hit 30%
+  const spikeBig = makeAccount({ id: 'b', type: 'credit', balance: 900, creditLimit: 1000 });    // 90% → needs 600 to hit 30%
+  const healthy = makeAccount({ id: 'h', type: 'credit', balance: 50, creditLimit: 1000 });      // 5% already ideal
+  const checking = makeAccount({ id: 'c', type: 'checking', balance: 9999 });
+
+  it('ignores non-credit and zero-balance/no-limit cards', () => {
+    const noLimit = makeAccount({ id: 'n', type: 'credit', balance: 500 });
+    const zero = makeAccount({ id: 'z', type: 'credit', balance: 0, creditLimit: 1000 });
+    const plan = allocateSmartPayment([checking, noLimit, zero, spikeSmall], 50);
+    expect(plan.allCards.map((c) => c.account.id)).toEqual(['s']);
+  });
+
+  it('eliminates the cheapest spike first to maximize spikes cleared', () => {
+    // $100 only covers the small spike (needs 100); big spike needs 600.
+    const plan = allocateSmartPayment([spikeSmall, spikeBig], 100);
+    const s = plan.allCards.find((c) => c.account.id === 's')!;
+    const b = plan.allCards.find((c) => c.account.id === 'b')!;
+    expect(s.payment).toBe(100);   // small spike fully cleared to 30%
+    expect(b.payment).toBe(0);     // nothing left for the big one
+    expect(s.utilAfter).toBe(30);
+    expect(plan.spikesBefore).toBe(2);
+    expect(plan.spikesAfter).toBe(1);
+    expect(plan.totalPaid).toBe(100);
+    expect(plan.leftover).toBe(0);
+  });
+
+  it('clears all spikes then pushes toward the 10% ideal', () => {
+    // 100 (small→30) + 600 (big→30) = 700 clears both spikes; 100 more pushes
+    // the cheapest toward 10%. Small at 30% (300 owed) needs 200 to reach 10%.
+    const plan = allocateSmartPayment([spikeSmall, spikeBig], 800);
+    expect(plan.spikesAfter).toBe(0);
+    const s = plan.allCards.find((c) => c.account.id === 's')!;
+    // 100 to clear spike + 100 of the remaining toward ideal.
+    expect(s.payment).toBe(200);
+    expect(plan.totalPaid).toBe(800);
+  });
+
+  it('never overpays a card and reports leftover when budget exceeds total owed', () => {
+    const plan = allocateSmartPayment([spikeSmall, healthy], 5000);
+    const s = plan.allCards.find((c) => c.account.id === 's')!;
+    const h = plan.allCards.find((c) => c.account.id === 'h')!;
+    expect(s.payment).toBe(400);   // full balance, not more
+    expect(h.payment).toBe(50);
+    expect(s.utilAfter).toBe(0);
+    expect(plan.totalPaid).toBe(450);
+    expect(plan.leftover).toBe(4550);
+  });
+
+  it('computes overall utilization before/after across all limited cards', () => {
+    const plan = allocateSmartPayment([spikeSmall, spikeBig, healthy], 100);
+    // before: (400+900+50)/3000 = 45%
+    expect(plan.overallUtilBefore).toBe(45);
+    // after paying 100: (1350-100)/3000 = 41.67%
+    expect(plan.overallUtilAfter).toBeCloseTo(41.67, 1);
+  });
+
+  it('handles a zero budget as a no-op plan', () => {
+    const plan = allocateSmartPayment([spikeSmall, spikeBig], 0);
+    expect(plan.totalPaid).toBe(0);
+    expect(plan.allocations).toHaveLength(0);
+    expect(plan.spikesAfter).toBe(plan.spikesBefore);
   });
 });
 

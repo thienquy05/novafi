@@ -506,6 +506,116 @@ export function calcCreditAlerts(accounts: Account[]): number {
   return buildCreditReport(accounts).cardsOverTarget;
 }
 
+// ── Smart Payment Allocation ──────────────────────────────────────────────────
+// Given a fixed payment budget, distribute it across cards to maximize the
+// immediate credit-score win rather than just chipping at one balance. Score
+// damage is dominated by individual cards sitting above the 30% cap, so the
+// allocation greedily ELIMINATES the most >30% spikes first (cheapest-to-fix
+// first → most spikes cleared per dollar), then pushes cards toward the <10%
+// "ideal" band, then applies any remainder to the largest remaining balance.
+
+export type PaymentAllocation = {
+  account: Account;
+  owed: number;        // current balance owed (≥ 0)
+  limit: number;
+  payment: number;     // recommended payment toward this card
+  utilBefore: number;  // % utilization now
+  utilAfter: number;   // % utilization after the payment
+  statusBefore: CreditUtilStatus;
+  statusAfter: CreditUtilStatus;
+};
+
+export type PaymentPlan = {
+  budget: number;
+  allocations: PaymentAllocation[]; // cards receiving a payment, biggest first
+  allCards: PaymentAllocation[];    // every eligible card (incl. zero-payment)
+  totalPaid: number;                // sum of payments (≤ budget)
+  leftover: number;                 // budget − totalPaid (when budget > total owed)
+  spikesBefore: number;             // cards over the 30% cap before
+  spikesAfter: number;              // cards over the 30% cap after
+  overallUtilBefore: number | null;
+  overallUtilAfter: number | null;
+};
+
+type Bucket = { account: Account; limit: number; owed: number; payment: number };
+
+// Paydown still needed on a bucket to reach `pct`, accounting for any payment
+// already allocated to it this pass.
+function remainingPaydown(b: Bucket, pct: number): number {
+  return calcPaydownToTarget(b.owed - b.payment, b.limit, pct);
+}
+
+export function allocateSmartPayment(accounts: Account[], budget: number): PaymentPlan {
+  // Denominator for the aggregate mirrors buildCreditReport: every card with a
+  // known limit counts toward total limit, even those carrying no balance.
+  const limited = accounts.filter((a) => a.type === 'credit' && (a.creditLimit ?? 0) > 0);
+  const totalLimit = limited.reduce((s, a) => roundCents(s + (a.creditLimit ?? 0)), 0);
+  const totalOwedBefore = limited.reduce((s, a) => roundCents(s + Math.max(0, a.balance)), 0);
+
+  // Only cards actually carrying a balance can receive a payment.
+  const buckets: Bucket[] = limited
+    .map((account) => ({ account, limit: account.creditLimit ?? 0, owed: Math.max(0, account.balance), payment: 0 }))
+    .filter((b) => b.owed > 0);
+
+  let remaining = Math.max(0, roundCents(budget));
+
+  // Phase 1 — clear >30% spikes, cheapest fix first (maximize spikes eliminated).
+  for (const b of [...buckets]
+    .filter((b) => creditUtilization(b.owed, b.limit)! > CREDIT_UTIL_TARGET)
+    .sort((a, b) => remainingPaydown(a, CREDIT_UTIL_TARGET) - remainingPaydown(b, CREDIT_UTIL_TARGET))) {
+    if (remaining <= 0) break;
+    const pay = Math.min(remainingPaydown(b, CREDIT_UTIL_TARGET), remaining);
+    b.payment = roundCents(b.payment + pay);
+    remaining = roundCents(remaining - pay);
+  }
+
+  // Phase 2 — push toward the <10% ideal, cheapest first (maximize cards reaching it).
+  for (const b of [...buckets]
+    .filter((b) => remainingPaydown(b, CREDIT_UTIL_IDEAL) > 0)
+    .sort((a, b) => remainingPaydown(a, CREDIT_UTIL_IDEAL) - remainingPaydown(b, CREDIT_UTIL_IDEAL))) {
+    if (remaining <= 0) break;
+    const pay = Math.min(remainingPaydown(b, CREDIT_UTIL_IDEAL), remaining);
+    b.payment = roundCents(b.payment + pay);
+    remaining = roundCents(remaining - pay);
+  }
+
+  // Phase 3 — any leftover goes to the largest remaining balance (general paydown),
+  // never exceeding what's actually owed on a card.
+  for (const b of [...buckets].sort((a, b) => (b.owed - b.payment) - (a.owed - a.payment))) {
+    if (remaining <= 0) break;
+    const pay = Math.min(roundCents(b.owed - b.payment), remaining);
+    b.payment = roundCents(b.payment + pay);
+    remaining = roundCents(remaining - pay);
+  }
+
+  const toAllocation = (b: Bucket): PaymentAllocation => {
+    const utilBefore = creditUtilization(b.owed, b.limit) ?? 0;
+    const utilAfter = creditUtilization(b.owed - b.payment, b.limit) ?? 0;
+    return {
+      account: b.account, owed: b.owed, limit: b.limit, payment: b.payment,
+      utilBefore, utilAfter,
+      statusBefore: creditUtilStatus(utilBefore),
+      statusAfter: creditUtilStatus(utilAfter),
+    };
+  };
+
+  const allCards = buckets.map(toAllocation);
+  const totalPaid = roundCents(buckets.reduce((s, b) => s + b.payment, 0));
+  const totalOwedAfter = roundCents(totalOwedBefore - totalPaid);
+
+  return {
+    budget: roundCents(Math.max(0, budget)),
+    allocations: allCards.filter((a) => a.payment > 0).sort((x, y) => y.payment - x.payment),
+    allCards,
+    totalPaid,
+    leftover: Math.max(0, roundCents(Math.max(0, budget) - totalPaid)),
+    spikesBefore: allCards.filter((a) => a.utilBefore > CREDIT_UTIL_TARGET).length,
+    spikesAfter: allCards.filter((a) => a.utilAfter > CREDIT_UTIL_TARGET).length,
+    overallUtilBefore: totalLimit > 0 ? roundCents((totalOwedBefore / totalLimit) * 100) : null,
+    overallUtilAfter: totalLimit > 0 ? roundCents((totalOwedAfter / totalLimit) * 100) : null,
+  };
+}
+
 // Days until a card's next statement closing date (0 = closes today). Returns
 // null when no statement day is set. Bureaus report the STATEMENT balance, so
 // paying down before this date is what actually lowers reported utilization.

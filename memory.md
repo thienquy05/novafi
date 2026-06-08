@@ -1441,3 +1441,21 @@ Caveat (pre-existing data): groups created before this column have `myShareTxId=
 **New `lib/__tests__/store.test.ts`:** 9 tests — fetch-only-missing, dedupe concurrent, force refetch, `peekCache` all-or-nothing, invalidate (single + clear-all), TTL freshness, subscriber notify/unsub.
 
 **Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors (pre-existing warnings only); `npm test` 400/400 passing (was 391, +9 store tests).
+
+## 2026-06-08 — Smart Payment Allocation Simulator (credit page)
+
+**Goal:** A budget-aware payment planner that beats generic avalanche/snowball: type how much you can pay and NovaFi splits it to maximize the immediate credit-score win — clearing the most cards above the 30% utilization cap first, since per-card spikes do the most score damage.
+
+**`lib/calculations.ts` — `allocateSmartPayment(accounts, budget)`:**
+- Considers only credit accounts with a known limit and a positive balance; aggregate denominator (overall util) still spans every limited card (mirrors `buildCreditReport`).
+- Phase 1: eliminate >30% spikes, **cheapest-fix-first** (sorts by paydown-to-30%) so the most spikes are cleared per dollar.
+- Phase 2: push remaining budget toward the <10% ideal, cheapest-first.
+- Phase 3: any leftover goes to the largest remaining balance (general paydown), never exceeding what's owed; true surplus is reported as `leftover`.
+- Returns `PaymentPlan`: `allocations` (cards that get a payment, biggest first), `allCards`, `totalPaid`, `leftover`, `spikesBefore/After`, `overallUtilBefore/After`. New exported types `PaymentAllocation`, `PaymentPlan`.
+- New tests in `lib/__tests__/calculations.test.ts` (`allocateSmartPayment` describe, 6 cases): ignores ineligible cards, cheapest-spike-first, clear-then-push-to-ideal, never overpays + leftover, overall util before/after, zero-budget no-op.
+
+**`app/(app)/credit/page.tsx`:** new `SmartPaymentPlanner` + `PlannerRow` components, rendered between the per-card list and the tips card (only when `report.totalBalance > 0`). A text/decimal input drives a `useMemo(allocateSmartPayment)`; shows a headline outcome (all spikes cleared / reduced N→M / pushing toward ideal / nothing-cleared-yet), before→after stat chips for spikes and overall utilization, and a per-card split with a before→after utilization bar. Pure display — all logic is in the calc layer. Added `Calculator` lucide icon import.
+
+**Locales:** added `credit.sim*` keys to en/vi (`simTitle`, `simSub`, `simInputLabel`, `simPlaceholder`, `simPrompt`, `simRecommended`, `simPay`, `simArrow`, `simSpikesLabel`, `simOverallLabel`, `simAllClear`, `simReduced`, `simTowardIdeal`, `simLeftover`, `simNothing`).
+
+**Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors (pre-existing warnings only); `npm test` 406/406; `npm run build` compiled successfully.

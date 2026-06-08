@@ -566,7 +566,22 @@
     "tip5Title": "Xin tăng hạn mức",
     "tip5Body": "Hạn mức cao hơn làm giảm mức sử dụng mà không cần trả nợ. Hãy xin sau 6–12 tháng thanh toán đúng hạn — tránh việc kiểm tra tín dụng cứng nếu có thể.",
     "tip6Title": "Phân bổ dư nợ",
-    "tip6Body": "Nếu một thẻ kịch hạn mức, chuyển bớt dư nợ sang thẻ khác sẽ giảm mức sử dụng cao nhất trên một thẻ — điều mà bên cho vay cũng theo dõi."
+    "tip6Body": "Nếu một thẻ kịch hạn mức, chuyển bớt dư nợ sang thẻ khác sẽ giảm mức sử dụng cao nhất trên một thẻ — điều mà bên cho vay cũng theo dõi.",
+    "simTitle": "Lập kế hoạch trả thông minh",
+    "simSub": "Nhập số tiền bạn có thể trả — NovaFi chia để xử lý các thẻ vượt {pct}% trước, cách giúp điểm tín dụng tăng nhanh nhất.",
+    "simInputLabel": "Bạn có thể trả bao nhiêu?",
+    "simPlaceholder": "vd: 500",
+    "simPrompt": "Nhập số tiền ở trên để xem cách chia tối ưu.",
+    "simRecommended": "Đề xuất phân bổ",
+    "simPay": "Trả {amount}",
+    "simArrow": "{before} → {after}",
+    "simSpikesLabel": "Thẻ vượt {pct}%",
+    "simOverallLabel": "Mức sử dụng tổng",
+    "simAllClear": "Xử lý mọi thẻ vượt {pct}% 🎉",
+    "simReduced": "Giảm số thẻ vượt {pct}% từ {before} xuống {after}.",
+    "simTowardIdeal": "Đã dưới {pct}% — khoản này đưa bạn về mức lý tưởng 10%.",
+    "simLeftover": "Dư {amount} sau khi trả hết các dư nợ.",
+    "simNothing": "Khoản này chưa xử lý hết một thẻ, nhưng mỗi đồng vẫn giảm mức sử dụng."
   },
   "savings": {
     "title": "Tiết kiệm",

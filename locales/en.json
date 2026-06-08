@@ -566,7 +566,22 @@
     "tip5Title": "Ask for a limit increase",
     "tip5Body": "A higher limit lowers utilization without paying anything down. Ask after 6–12 months of on-time payments — just avoid a hard pull if you can.",
     "tip6Title": "Spread out balances",
-    "tip6Body": "If one card is maxed, moving part of the balance to another card lowers your highest single-card utilization, which lenders also watch."
+    "tip6Body": "If one card is maxed, moving part of the balance to another card lowers your highest single-card utilization, which lenders also watch.",
+    "simTitle": "Smart payment planner",
+    "simSub": "Enter what you can pay — NovaFi splits it to clear the most over-{pct}% cards first, the move that lifts your score the most.",
+    "simInputLabel": "How much can you pay?",
+    "simPlaceholder": "e.g. 500",
+    "simPrompt": "Enter an amount above to see your optimal split.",
+    "simRecommended": "Recommended split",
+    "simPay": "Pay {amount}",
+    "simArrow": "{before} → {after}",
+    "simSpikesLabel": "Cards over {pct}%",
+    "simOverallLabel": "Overall utilization",
+    "simAllClear": "Clears every card above {pct}% 🎉",
+    "simReduced": "Drops cards over {pct}% from {before} to {after}.",
+    "simTowardIdeal": "Already under {pct}% — this pushes you toward the 10% ideal.",
+    "simLeftover": "{amount} left after clearing every balance.",
+    "simNothing": "This won't clear a full spike yet, but every dollar still lowers utilization."
   },
   "savings": {
     "title": "Savings",
