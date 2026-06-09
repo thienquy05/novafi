@@ -21,6 +21,7 @@ const TTL: Record<BatchKey, number> = {
   transactions: CACHE_TTL.SHORT,
   splits: CACHE_TTL.SHORT,
   loans: CACHE_TTL.SHORT,
+  funding: CACHE_TTL.SHORT,
   bills: CACHE_TTL.LONG,
   paychecks: CACHE_TTL.LONG,
   budgets: CACHE_TTL.LONG,

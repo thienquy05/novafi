@@ -1602,3 +1602,26 @@ Per the user: enhance the existing `loan` **account type** (not the IOU `Loan`) 
 - Summary strip above the list: Total in / Total out / Net change across the full filtered set.
 - Visible rows grouped by month (`txByMonth`) with a per-month header showing the month label (localized) + that month's net change.
 - `useTranslation()` now also destructures `lang` for month formatting. New `savings.totalIn/totalOut/netChange` locale keys (en/vi).
+
+### Tier 3 — Funding (new feature: treasurer-held group money pools)
+
+Brand-new section per the user: act as treasurer holding pooled group money. Decisions: held in a real account (NOT income); only my own share of a spend counts as my expense; separate page with per-person tracking.
+
+**Types** (`types/index.ts`): `Funding` + `FundingParticipant` ({ name, contributed, isMe }). A pool stores description, holding `account`, `participants`, `totalContributed`, `spent`, `contributionTxId`, `spendTxIds[]`, `closed`.
+
+**Cash model** (`lib/funding.ts`, pure + 7 tests): mirrors the *inverse* of a Split.
+- Others' contributions → one `transfer` from an empty source INTO the account (`buildContributionTx`): raises balance, never income.
+- My own contribution → no cash row (already my money), just tracked for the pool total.
+- A spend (`buildSpendTxs`) books my share as an `expense` from the account and the remainder as a `transfer` OUT to an empty destination (spending the group's money — not my expense). Helpers: `othersContribution`, `myContribution`, `totalContribution`, `poolRemaining`.
+
+**Persistence** (`lib/sheets.ts`): new `Funding` tab (cols A–J, participants stored as JSON in col E), `getFundings`/`upsertFunding`/`deleteFunding` (auto-creates the tab like Splits/Loans). Registered `funding` as a non-batchable batch key (`BatchResult`, `NonBatchableKey`, `BATCH_KEYS`, `batchGetSheets` task). Mirrored in `lib/client/api.ts` `BatchData` and `app/api/batch/route.ts` TTL map (SHORT). `store.test.ts` fixture updated.
+
+**API** (`app/api/funding/route.ts`): GET (cachedGet 'funding'); POST `{ funding, addTxs?, removeTxIds? }` applies/reverses cash rows then upserts the pool (used for create + spend), returns authoritative accounts; DELETE reverses the contribution + all spend rows then deletes (mirrors loan/split deletes).
+
+**UI** (`app/(app)/funding/page.tsx`): new page. Empty/no-deposit-account states; pool cards show pool/spent/remaining + participant chips (mine highlighted) + your stake; "Spend" modal (amount + my share + note) and delete (reverses cash). New-pool modal: description, hold-in account, "Include me" + my amount, dynamic other-people rows, live pool total. Optimistic updates + authoritative balances from POST.
+
+**Nav** (`components/Sidebar.tsx`): added Funding (HandCoins) to the Money group, the `GROUP_FOR` map, and the mobile flat list.
+
+**Locales**: new `nav.funding`, `funding.*` namespace (en/vi), and reusable `common.pullToRefresh/refreshing/releaseToRefresh` (en/vi).
+
+**Verification:** `tsc --noEmit` clean; `vitest` 454 passing; `eslint` 0 errors (warnings only, incl. the established load-effect setState pattern); `next build` compiled (routes `/funding` + `/api/funding` present).

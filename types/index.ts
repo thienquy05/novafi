@@ -214,6 +214,35 @@ export interface Loan {
   groupId?: string;          // shared id linking per-person loans created together (multi-person); absent = standalone
 }
 
+// A money pool the user (treasurer) holds on behalf of a group — e.g. everyone
+// chips in for a trip and the user keeps the cash. Modeled after Split but
+// INVERTED: the user collects contributions up front, then disburses. Key rules:
+//   • Contributions from OTHERS land in a real account but are NOT income — they're
+//     held on the group's behalf (recorded as a `transfer` from an empty source).
+//   • The user's own contribution is their existing money (no cash row) — just an
+//     earmark, tracked for the pool total.
+//   • When money is spent from the pool, only the user's OWN share counts as their
+//     expense; the rest leaves the account as a `transfer` (spending others' money).
+export interface FundingParticipant {
+  name: string;        // display name ('' allowed only for the "me" row, which sets isMe)
+  contributed: number; // amount this person put into the pool
+  isMe: boolean;       // true for the treasurer's own contribution
+}
+
+export interface Funding {
+  id: string;
+  description: string;
+  account: string;          // real account holding the pooled cash
+  date: string;             // YYYY-MM-DD created
+  participants: FundingParticipant[];
+  totalContributed: number; // sum of all participants' contributions (pool size)
+  spent: number;            // cumulative amount disbursed from the pool
+  // Cash rows this pool created, so deletion reverses them atomically:
+  contributionTxId: string; // the external→account transfer for OTHERS' contributions ('' = none)
+  spendTxIds: string[];     // ids of every spend row (my-share expenses + others transfers)
+  closed: boolean;          // user marked the pool wrapped up
+}
+
 export const EXPENSE_CATEGORIES = [
   'Food',
   'Grocery',

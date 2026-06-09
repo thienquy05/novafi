@@ -12,6 +12,7 @@ import type {
   Contact,
   Split,
   Loan,
+  Funding,
 } from '@/types';
 import { DEFAULT_TAX_SETTINGS } from './utils';
 import { withRetryProxy } from './retry';
@@ -92,6 +93,10 @@ const LOANS_HEADER = [
   'id', 'direction', 'contact_id', 'contact_name', 'account', 'principal',
   'repaid_amount', 'date', 'note', 'settled', 'settled_date',
   'principal_tx_id', 'repayment_tx_ids', 'category', 'group_id',
+];
+const FUNDING_HEADER = [
+  'id', 'description', 'account', 'date', 'participants_json',
+  'total_contributed', 'spent', 'contribution_tx_id', 'spend_tx_ids', 'closed',
 ];
 
 // A `values.get` against a tab that doesn't exist fails with HTTP 400 ("Unable
@@ -867,6 +872,74 @@ export async function deleteSplit(
   await deleteRowById(accessToken, spreadsheetId, 'Splits', id, 'O');
 }
 
+// ── Funding (treasurer-held group money pools) ─────────────────────────────────
+
+export async function getFundings(
+  accessToken: string,
+  spreadsheetId: string
+): Promise<Funding[]> {
+  const sheets = getSheetsClient(accessToken);
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'Funding!A2:J1000',
+    });
+    return (res.data.values ?? []).map((r) => {
+      let participants: Funding['participants'] = [];
+      try { participants = JSON.parse(String(r[4] ?? '[]')); } catch { participants = []; }
+      return {
+        id: r[0] ?? '',
+        description: r[1] ?? '',
+        account: r[2] ?? '',
+        date: r[3] ?? '',
+        participants,
+        totalContributed: Number(r[5] ?? 0),
+        spent: Number(r[6] ?? 0),
+        contributionTxId: r[7] ?? '',
+        spendTxIds: String(r[8] ?? '').split('|').filter(Boolean),
+        closed: r[9] === 'true',
+      };
+    });
+  } catch (err) {
+    if (!isMissingTabError(err)) throw err;
+    await ensureSheet(sheets, spreadsheetId, 'Funding', FUNDING_HEADER);
+    return [];
+  }
+}
+
+export async function upsertFunding(
+  accessToken: string,
+  spreadsheetId: string,
+  funding: Funding
+): Promise<void> {
+  const sheets = getSheetsClient(accessToken);
+  await ensureSheet(sheets, spreadsheetId, 'Funding', FUNDING_HEADER);
+  await deleteRowById(accessToken, spreadsheetId, 'Funding', funding.id, 'J');
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: 'Funding!A1',
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: {
+      values: [[
+        funding.id, funding.description, funding.account, funding.date,
+        JSON.stringify(funding.participants ?? []),
+        funding.totalContributed, funding.spent,
+        funding.contributionTxId ?? '', (funding.spendTxIds ?? []).join('|'),
+        String(funding.closed),
+      ]],
+    },
+  });
+}
+
+export async function deleteFunding(
+  accessToken: string,
+  spreadsheetId: string,
+  id: string
+): Promise<void> {
+  await deleteRowById(accessToken, spreadsheetId, 'Funding', id, 'J');
+}
+
 // ── Loans (personal lend/borrow IOUs) ──────────────────────────────────────────
 
 export async function getLoans(
@@ -1239,12 +1312,13 @@ type BatchResult = {
   contacts: Contact[];
   splits: Split[];
   loans: Loan[];
+  funding: Funding[];
   settings: TaxSettings;
 };
 
 // Keys fetched via their own getter (auto-create a missing tab, or non-array
 // shape) rather than the shared batchGet of always-present array sheets.
-type NonBatchableKey = 'contacts' | 'splits' | 'loans' | 'settings';
+type NonBatchableKey = 'contacts' | 'splits' | 'loans' | 'funding' | 'settings';
 
 // Sheets that always exist and carry no auto-create fallback — safe to batchGet.
 const BATCHABLE_SHEETS: Record<
@@ -1264,6 +1338,7 @@ export const BATCH_KEYS = [
   'contacts',
   'splits',
   'loans',
+  'funding',
   'settings',
 ] as BatchKey[];
 
@@ -1305,6 +1380,9 @@ export async function batchGetSheets(
   }
   if (keys.includes('loans')) {
     tasks.push(getLoans(accessToken, spreadsheetId).then((l) => { assign.loans = l; }));
+  }
+  if (keys.includes('funding')) {
+    tasks.push(getFundings(accessToken, spreadsheetId).then((f) => { assign.funding = f; }));
   }
   if (keys.includes('settings')) {
     tasks.push(getSettings(accessToken, spreadsheetId).then((s) => { assign.settings = s; }));
