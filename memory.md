@@ -1570,3 +1570,11 @@ Applied to the three advisory sections the user asked to make expandable:
 - `bills/page.tsx` `SubscriptionTracker` → now an `ExpandableCard` (Repeat/indigo, badge = $/mo total).
 
 **Pull-to-refresh stuck behind the header** (`app/(app)/layout.tsx`): `<main>` had `relative z-10`, which creates a stacking context that trapped the page's `fixed z-50` refresh indicator beneath the sticky mobile header (`z-40`) — the whole `main` sat at z-10. Changed to `relative` (no z-index): keeps the positioning context for page content but no longer creates a stacking context, so the indicator (and modals) escape to the root level and paint above the header.
+
+### Tier 2a — Card colors, bank brand icons, cash-back redemption
+
+**More card colors** (`accounts/page.tsx`): expanded `ACCOUNT_COLORS` from 7 to 16 swatches (full hue ramp + slate/near-black). The picker maps the array, so the new options appear automatically.
+
+**Bank brand icons** (new `lib/bankBrands.ts` + `components/BankBadge.tsx`): `getBankBrand(institution)` fuzzy-matches a free-text institution name (normalized) against ~18 known banks (Chase, AMEX, Huntington, Fifth Third, BoFA, Capital One, Citi, Discover, KeyBank, Wells Fargo, US Bank, PNC, TD, Ally, Chime, Truist, USAA, Navy Federal) → `{ label, short, color }`. We do NOT ship trademarked logos; `BankBadge` renders a tinted monogram tile in the brand color. The accounts list row shows the badge when a brand is recognized, else falls back to the type icon. 2 tests (`bankBrands.test.ts`).
+
+**Cash-back redemption** (`credit/page.tsx`): per-card "Redeem cash back" action (Gift/emerald) with an inline amount input. Records a `transfer` from external (`account: ''`) INTO the card → `applyTransactionToBalances` lowers the owed balance (statement credit) and, being a transfer, it never counts as income/expense (same fronting pattern as loans/splits). Optimistic update + authoritative balances from the POST response. Category `Cash Back`. New `credit.cashBack*` locale keys (en/vi).

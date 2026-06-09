@@ -19,9 +19,13 @@ import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import type { Account } from '@/types';
 import { useTranslation } from '@/lib/i18n/context';
+import { getBankBrand } from '@/lib/bankBrands';
+import { BankBadge } from '@/components/BankBadge';
 
 const ACCOUNT_COLORS = [
-  '#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#84cc16',
+  '#6366f1', '#3b82f6', '#0ea5e9', '#06b6d4', '#14b8a6', '#10b981', '#84cc16',
+  '#eab308', '#f59e0b', '#f97316', '#ef4444', '#ec4899', '#d946ef', '#8b5cf6',
+  '#64748b', '#0f172a',
 ];
 
 const ACCOUNT_TYPE_CONFIG = {
@@ -304,9 +308,16 @@ export default function AccountsPage() {
                     {list.map((account) => (
                       <div key={account.id} className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 hover:bg-white dark:hover:bg-slate-800 hover:shadow-sm transition-all duration-300 gap-4 sm:gap-0">
                         <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-sm border border-slate-100 dark:border-slate-700/60 bg-white dark:bg-slate-800">
-                            <Icon className="w-6 h-6" style={{ color: account.color }} />
-                          </div>
+                          {(() => {
+                            const brand = getBankBrand(account.institution);
+                            return brand ? (
+                              <BankBadge brand={brand} size={48} />
+                            ) : (
+                              <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-sm border border-slate-100 dark:border-slate-700/60 bg-white dark:bg-slate-800">
+                                <Icon className="w-6 h-6" style={{ color: account.color }} />
+                              </div>
+                            );
+                          })()}
                           <div>
                             <p className="text-base font-bold text-slate-900 dark:text-slate-100">{account.name}</p>
                             <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-0.5">{account.institution || label}{account.last4 ? ` ····${account.last4}` : ''}</p>
