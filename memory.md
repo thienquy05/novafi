@@ -1594,3 +1594,11 @@ Per the user: enhance the existing `loan` **account type** (not the IOU `Loan`) 
 - Loan rows show a payoff insight line ("Paid off in ~X mo · $Y interest") plus a smart "+$extra/mo → debt-free N mo sooner, save $Z" tip (extra = 10% of the payment rounded to $25). Falls back to "add APR & payment" or "payment below interest" states.
 - New `makeLoanPayment(account)` action (Banknote button) records a `transfer` from the linked `paymentAccountId` INTO the loan for the scheduled amount (capped at balance) → lowers owed balance and counts as cash spending. Optimistic + authoritative balances from POST.
 - New `accounts.loan*`/`monthlyPayment`/`termMonths`/`paymentAccount*`/`makePayment`/`paymentMade` etc. locale keys (en/vi).
+
+### Tier 2c — Savings transaction history enhancement
+
+`savings/page.tsx`: the flat history list is now a mini statement.
+- Added an `isIncomingTx` helper (deposit/income or transfer INTO savings = in).
+- Summary strip above the list: Total in / Total out / Net change across the full filtered set.
+- Visible rows grouped by month (`txByMonth`) with a per-month header showing the month label (localized) + that month's net change.
+- `useTranslation()` now also destructures `lang` for month formatting. New `savings.totalIn/totalOut/netChange` locale keys (en/vi).
