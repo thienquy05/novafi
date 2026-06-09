@@ -18,11 +18,11 @@ import { useToast } from '@/lib/toast';
 import {
   buildCreditReport, CREDIT_UTIL_TARGET, CREDIT_UTIL_IDEAL, daysUntilStatement,
   allocateSmartPayment, buildLimitIncreaseAdvisories, buildStatementArbitrage,
-  buildBalanceTransferAdvice, creditUtilStatus,
+  buildBalanceTransferAdvice, creditUtilStatus, suggestCardPaymentBudget,
   type CreditUtilStatus, type CreditCardReport, type PaymentAllocation, type LimitIncreaseAdvice,
-  type StatementArbitrageItem, type BalanceTransferAdvice,
+  type StatementArbitrageItem, type BalanceTransferAdvice, type CardPaymentBreakdown,
 } from '@/lib/calculations';
-import type { Account, Transaction } from '@/types';
+import type { Account, Transaction, Bill, Budget, Loan, Split } from '@/types';
 import { useTranslation } from '@/lib/i18n/context';
 
 // Literal Tailwind class strings per status band (Tailwind v4 needs literals —
@@ -55,17 +55,28 @@ export default function CreditPage() {
   // Seed from the client cache so revisiting Credit shows numbers instantly
   // (no skeleton flash) instead of refetching every time we switch sections.
   const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
-  // Transactions power the Limit Increase Advisor's "solid payment history" check.
+  // Transactions power the Limit Increase Advisor's "solid payment history" check
+  // and the Smart Payment Planner's predicted-income suggestion.
   const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
+  // Bills, budgets, loans and splits feed the planner's income-based suggestion:
+  // what's left after this month's obligations is what's safe to put on the cards.
+  const [bills, setBills] = useState<Bill[]>(() => peekCache(['bills'])?.bills ?? []);
+  const [budgets, setBudgets] = useState<Budget[]>(() => peekCache(['budgets'])?.budgets ?? []);
+  const [loans, setLoans] = useState<Loan[]>(() => peekCache(['loans'])?.loans ?? []);
+  const [splits, setSplits] = useState<Split[]>(() => peekCache(['splits'])?.splits ?? []);
   const [loading, setLoading] = useState(() => peekCache(['accounts', 'transactions']) === null);
   const [error, setError] = useState(false);
   const toast = useToast();
 
   const load = useCallback(async (force = false) => {
     try {
-      const { accounts, transactions } = await ensureResources(['accounts', 'transactions'], { force });
-      setAccounts(accounts);
-      setTransactions(transactions);
+      const res = await ensureResources(['accounts', 'transactions', 'bills', 'budgets', 'loans', 'splits'], { force });
+      setAccounts(res.accounts);
+      setTransactions(res.transactions);
+      setBills(res.bills);
+      setBudgets(res.budgets);
+      setLoans(res.loans);
+      setSplits(res.splits);
       setError(false);
     } catch {
       setError(true);
@@ -181,7 +192,16 @@ export default function CreditPage() {
           {advisories.length > 0 && <LimitAdvisorCard advisories={advisories} />}
 
           {/* ── Smart payment planner ────────────────────────────────────── */}
-          {report.totalBalance > 0 && <SmartPaymentPlanner accounts={accounts} />}
+          {report.totalBalance > 0 && (
+            <SmartPaymentPlanner
+              accounts={accounts}
+              transactions={transactions}
+              bills={bills}
+              budgets={budgets}
+              loans={loans}
+              splits={splits}
+            />
+          )}
 
           {/* ── Balance-transfer / APR optimizer ─────────────────────────── */}
           {transferAdvice.length > 0 && <BalanceTransferCard advice={transferAdvice} />}
@@ -513,13 +533,34 @@ function LimitAdvisorCard({ advisories }: { advisories: LimitIncreaseAdvice[] })
 }
 
 // ── Smart payment planner ─────────────────────────────────────────────────────
-// Type a budget; NovaFi splits it across cards to clear the most >30% spikes
-// first (the move that maximizes the immediate score gain), then pushes toward
-// the 10% ideal. All math lives in allocateSmartPayment — this is pure display.
-function SmartPaymentPlanner({ accounts }: { accounts: Account[] }) {
+// NovaFi first ESTIMATES what you can pay this month from your money picture —
+// predicted income minus bills, budgets and loans you owe, plus what others owe
+// you (suggestCardPaymentBudget) — then splits that across cards to clear the most
+// >30% spikes first (allocateSmartPayment). The estimate prefills the amount; you
+// can still type your own to override. All math lives in lib/calculations.
+function SmartPaymentPlanner({
+  accounts, transactions, bills, budgets, loans, splits,
+}: {
+  accounts: Account[];
+  transactions: Transaction[];
+  bills: Bill[];
+  budgets: Budget[];
+  loans: Loan[];
+  splits: Split[];
+}) {
   const { t } = useTranslation();
   const [input, setInput] = useState('');
-  const budget = parseNum(input);
+  const [showBreakdown, setShowBreakdown] = useState(false);
+
+  const suggestion = useMemo(
+    () => suggestCardPaymentBudget({ accounts, transactions, bills, budgets, loans, splits }),
+    [accounts, transactions, bills, budgets, loans, splits],
+  );
+
+  // Typing overrides the estimate; otherwise the income-based suggestion drives it.
+  const manual = input.trim() !== '';
+  const budget = manual ? parseNum(input) : suggestion.suggested;
+  const usingSuggestion = !manual && suggestion.suggested > 0;
   const plan = useMemo(() => allocateSmartPayment(accounts, budget), [accounts, budget]);
   const active = budget > 0;
 
@@ -542,17 +583,30 @@ function SmartPaymentPlanner({ accounts }: { accounts: Account[] }) {
         </div>
       </div>
 
+      {/* Income-based suggestion: prefilled estimate + a breakdown you can open. */}
+      {suggestion.suggested > 0 && (
+        <IncomeSuggestion
+          breakdown={suggestion}
+          manual={manual}
+          showBreakdown={showBreakdown}
+          onToggleBreakdown={() => setShowBreakdown((v) => !v)}
+          onUseSuggestion={() => setInput('')}
+        />
+      )}
+
       <Input
-        label={t('credit.simInputLabel')}
+        label={usingSuggestion ? t('credit.simInputLabelAuto') : t('credit.simInputLabel')}
         type="text"
         inputMode="decimal"
-        placeholder={t('credit.simPlaceholder')}
+        placeholder={suggestion.suggested > 0 ? formatCurrency(suggestion.suggested) : t('credit.simPlaceholder')}
         value={input}
         onChange={(e) => setInput(e.target.value.replace(/[^0-9.]/g, ''))}
       />
 
       {!active ? (
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-4">{t('credit.simPrompt')}</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-4">
+          {suggestion.predictedIncome > 0 ? t('credit.simNoFreeCash') : t('credit.simPrompt')}
+        </p>
       ) : (
         <div className="mt-5 space-y-4">
           {/* Headline outcome */}
@@ -595,6 +649,88 @@ function SmartPaymentPlanner({ accounts }: { accounts: Account[] }) {
         </div>
       )}
     </Card>
+  );
+}
+
+// Income-based estimate panel: the headline "pay about $X", which method backed
+// it, an optional line-by-line breakdown, and (when you've typed your own amount)
+// a button to snap back to the suggestion.
+function IncomeSuggestion({
+  breakdown, manual, showBreakdown, onToggleBreakdown, onUseSuggestion,
+}: {
+  breakdown: CardPaymentBreakdown;
+  manual: boolean;
+  showBreakdown: boolean;
+  onToggleBreakdown: () => void;
+  onUseSuggestion: () => void;
+}) {
+  const { t } = useTranslation();
+  const methodLabel =
+    breakdown.incomeMethod === 'recurring' ? t('credit.simIncomeRecurring')
+      : breakdown.incomeMethod === 'average' ? t('credit.simIncomeAverage')
+        : t('credit.simIncomeCurrent');
+  const cardLinked = Math.round(
+    (breakdown.cardLinked.bills + breakdown.cardLinked.loans + breakdown.cardLinked.splits) * 100,
+  ) / 100;
+
+  return (
+    <div className="mb-4 rounded-2xl border border-indigo-100 dark:border-indigo-900/40 bg-indigo-50/60 dark:bg-indigo-900/15 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-bold uppercase tracking-wider text-indigo-500 dark:text-indigo-300">{t('credit.simIncomeTitle')}</p>
+          <p className="text-2xl font-extrabold text-indigo-700 dark:text-indigo-200 mt-1 tabular-nums">{formatCurrency(breakdown.suggested)}</p>
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{methodLabel}</p>
+        </div>
+        <Sparkles className="w-5 h-5 text-indigo-400 shrink-0" />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3">
+        {manual && (
+          <button onClick={onUseSuggestion} className="text-xs font-bold text-indigo-600 dark:text-indigo-300 underline underline-offset-2">
+            {t('credit.simUseSuggestion', { amount: formatCurrency(breakdown.suggested) })}
+          </button>
+        )}
+        <button onClick={onToggleBreakdown} className="text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+          {showBreakdown ? t('credit.simBreakdownHide') : t('credit.simBreakdownShow')}
+        </button>
+      </div>
+
+      {showBreakdown && (
+        <div className="mt-3 space-y-1.5 text-sm border-t border-indigo-100 dark:border-indigo-900/40 pt-3">
+          <BreakdownRow label={t('credit.simRowIncome')} amount={breakdown.predictedIncome} sign="+" />
+          <BreakdownRow label={t('credit.simRowBills')} amount={breakdown.bills} sign="-" />
+          <BreakdownRow label={t('credit.simRowBudgets')} amount={breakdown.budgets} sign="-" />
+          <BreakdownRow label={t('credit.simRowLoans')} amount={breakdown.loanRepayments} sign="-" />
+          <BreakdownRow label={t('credit.simRowIncoming')} amount={breakdown.incomingOwed} sign="+" />
+          <BreakdownRow label={t('credit.simRowFreeCash')} amount={breakdown.freeCash} sign="=" strong />
+          {breakdown.freeCash > breakdown.cardBalance && (
+            <BreakdownRow label={t('credit.simRowCapped')} amount={breakdown.cardBalance} sign="=" />
+          )}
+          {cardLinked > 0 && (
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 pt-1">{t('credit.simCardLinked', { amount: formatCurrency(cardLinked) })}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// One line in the income breakdown: a label, a +/−/= cue, and the amount.
+function BreakdownRow({ label, amount, sign, strong = false }: {
+  label: string;
+  amount: number;
+  sign: '+' | '-' | '=';
+  strong?: boolean;
+}) {
+  const tone =
+    sign === '-' ? 'text-rose-600 dark:text-rose-400'
+      : sign === '+' ? 'text-emerald-600 dark:text-emerald-400'
+        : 'text-slate-800 dark:text-slate-100';
+  return (
+    <div className={`flex items-center justify-between gap-3 ${strong ? 'font-bold' : 'font-medium'}`}>
+      <span className="text-slate-600 dark:text-slate-300">{label}</span>
+      <span className={`tabular-nums ${tone}`}>{sign === '=' ? '' : sign}{formatCurrency(amount)}</span>
+    </div>
   );
 }
 
