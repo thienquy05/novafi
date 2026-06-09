@@ -20,6 +20,7 @@ import {
   calcPaydownToTarget, buildCreditReport, calcCreditAlerts, allocateSmartPayment,
   assessCardPaymentHistory, buildLimitIncreaseAdvisories, LIMIT_ADVISOR_TARGET,
   buildStatementArbitrage, buildBalanceTransferAdvice,
+  detectSubscriptions, suggestBudgetReallocations, denormalizeMonthlyBudget,
   calcCreditUtilizationScore, composeHealthScore, daysUntilStatement, HEALTH_WEIGHTS,
   CREDIT_UTIL_TARGET,
 } from '@/lib/calculations';
@@ -1515,6 +1516,138 @@ describe('buildBalanceTransferAdvice', () => {
     expect(advice[0].transferable).toBe(400);
     expect(advice[1].account.id).toBe('b');
     expect(advice[1].transferable).toBe(0);
+  });
+});
+
+describe('detectSubscriptions', () => {
+  const today = new Date('2026-06-08');
+
+  it('detects a recurring charge across months and flags price creep', () => {
+    const txs = [
+      makeTx({ id: '1', type: 'expense', description: 'Netflix', amount: 15.99, category: 'Entertainment', date: '2026-03-05' }),
+      makeTx({ id: '2', type: 'expense', description: 'Netflix', amount: 15.99, category: 'Entertainment', date: '2026-04-05' }),
+      makeTx({ id: '3', type: 'expense', description: 'Netflix', amount: 17.99, category: 'Entertainment', date: '2026-05-05' }),
+    ];
+    const subs = detectSubscriptions(txs, today);
+    expect(subs).toHaveLength(1);
+    expect(subs[0].merchant).toBe('Netflix');
+    expect(subs[0].monthlyAmount).toBe(17.99);
+    expect(subs[0].firstAmount).toBe(15.99);
+    expect(subs[0].priceIncrease).toBe(2);
+    expect(subs[0].hasPriceCreep).toBe(true);
+    expect(subs[0].isActive).toBe(true);
+  });
+
+  it('groups merchant-name noise (card digits / punctuation) together', () => {
+    const txs = [
+      makeTx({ id: '1', type: 'expense', description: 'NETFLIX 1234', amount: 15.99, date: '2026-03-05' }),
+      makeTx({ id: '2', type: 'expense', description: 'Netflix.com', amount: 15.99, date: '2026-04-05' }),
+      makeTx({ id: '3', type: 'expense', description: 'netflix', amount: 15.99, date: '2026-05-05' }),
+    ];
+    expect(detectSubscriptions(txs, today)).toHaveLength(1);
+  });
+
+  it('ignores merchants with wildly varying amounts (e.g. groceries)', () => {
+    const txs = [
+      makeTx({ id: '1', type: 'expense', description: 'Kroger', amount: 20, date: '2026-03-05' }),
+      makeTx({ id: '2', type: 'expense', description: 'Kroger', amount: 180, date: '2026-04-05' }),
+      makeTx({ id: '3', type: 'expense', description: 'Kroger', amount: 95, date: '2026-05-05' }),
+    ];
+    expect(detectSubscriptions(txs, today)).toHaveLength(0);
+  });
+
+  it('ignores merchants seen in too few months', () => {
+    const txs = [
+      makeTx({ id: '1', type: 'expense', description: 'Spotify', amount: 9.99, date: '2026-05-01' }),
+      makeTx({ id: '2', type: 'expense', description: 'Spotify', amount: 9.99, date: '2026-05-15' }),
+      makeTx({ id: '3', type: 'expense', description: 'Spotify', amount: 9.99, date: '2026-05-28' }),
+    ];
+    expect(detectSubscriptions(txs, today)).toHaveLength(0); // 3 charges but only 1 month
+  });
+
+  it('marks a stale subscription inactive', () => {
+    const txs = [
+      makeTx({ id: '1', type: 'expense', description: 'OldGym', amount: 30, date: '2025-09-05' }),
+      makeTx({ id: '2', type: 'expense', description: 'OldGym', amount: 30, date: '2025-10-05' }),
+      makeTx({ id: '3', type: 'expense', description: 'OldGym', amount: 30, date: '2025-11-05' }),
+    ];
+    expect(detectSubscriptions(txs, today)[0].isActive).toBe(false);
+  });
+});
+
+describe('suggestBudgetReallocations', () => {
+  const today = new Date('2026-06-08'); // window = 2026-05, 2026-04, 2026-03
+  const monthly = (cat: string, amount: number): Budget => ({ id: cat, category: cat, amount, period: 'monthly' });
+  const spend = (cat: string, month: string, amount: number, i: number) =>
+    makeTx({ id: `${cat}-${month}-${i}`, type: 'expense', category: cat, amount, date: `${month}-10` });
+
+  it('suggests increasing a chronically overspent budget', () => {
+    const budgets = [monthly('Food', 300)];
+    const txs = [
+      spend('Food', '2026-03', 400, 1),
+      spend('Food', '2026-04', 420, 2),
+      spend('Food', '2026-05', 410, 3),
+    ];
+    const r = suggestBudgetReallocations(budgets, txs, today);
+    expect(r).toHaveLength(1);
+    expect(r[0].direction).toBe('increase');
+    expect(r[0].avgSpend).toBe(410);
+    expect(r[0].suggestedMonthly).toBe(410);
+    expect(r[0].delta).toBe(110);
+    expect(r[0].monthsOver).toBe(3);
+  });
+
+  it('suggests decreasing a chronically underspent budget', () => {
+    const budgets = [monthly('Entertainment', 200)];
+    const txs = [
+      spend('Entertainment', '2026-03', 120, 1),
+      spend('Entertainment', '2026-04', 130, 2),
+      spend('Entertainment', '2026-05', 125, 3),
+    ];
+    const r = suggestBudgetReallocations(budgets, txs, today);
+    expect(r[0].direction).toBe('decrease');
+    expect(r[0].suggestedMonthly).toBe(125);
+    expect(r[0].delta).toBe(-75);
+  });
+
+  it('leaves budgets that roughly match spend alone', () => {
+    const budgets = [monthly('Food', 300)];
+    const txs = [
+      spend('Food', '2026-03', 300, 1),
+      spend('Food', '2026-04', 310, 2),
+      spend('Food', '2026-05', 295, 3),
+    ];
+    expect(suggestBudgetReallocations(budgets, txs, today)).toHaveLength(0);
+  });
+
+  it('excludes the current (partial) month from the window', () => {
+    const budgets = [monthly('Food', 300)];
+    const txs = [
+      spend('Food', '2026-03', 300, 1),
+      spend('Food', '2026-04', 300, 2),
+      spend('Food', '2026-05', 300, 3),
+      spend('Food', '2026-06', 999, 4), // current month — should be ignored
+    ];
+    expect(suggestBudgetReallocations(budgets, txs, today)).toHaveLength(0);
+  });
+
+  it('ignores sub-threshold deltas', () => {
+    const budgets = [monthly('Food', 300)];
+    const txs = [
+      spend('Food', '2026-03', 303, 1),
+      spend('Food', '2026-04', 304, 2),
+      spend('Food', '2026-05', 302, 3),
+    ];
+    expect(suggestBudgetReallocations(budgets, txs, today)).toHaveLength(0);
+  });
+});
+
+describe('denormalizeMonthlyBudget', () => {
+  it('inverts normalizeMonthlyBudget for each period', () => {
+    expect(denormalizeMonthlyBudget(300, 'monthly')).toBe(300);
+    expect(denormalizeMonthlyBudget(120, 'yearly')).toBe(1440);
+    // weekly: normalize multiplies by 4.33, so denormalize divides by it.
+    expect(denormalizeMonthlyBudget(433, 'weekly')).toBe(100);
   });
 });
 

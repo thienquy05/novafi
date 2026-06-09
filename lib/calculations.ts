@@ -1008,6 +1008,192 @@ export function aggregateCategoryTotals(
   return out;
 }
 
+// ── Ghost Subscription & Price-Creep Detection ────────────────────────────────
+// Scans the expense ledger for recurring charges (a stable amount hitting the
+// same merchant across several months) so the user can spot forgotten "ghost"
+// subscriptions and silent price hikes. We can't see usage/location data, so we
+// surface every recurring charge by monthly cost and flag the ones whose price
+// has crept up since the first charge.
+
+const SUB_MIN_OCCURRENCES = 2;          // need this many charges …
+const SUB_MIN_MONTHS = 2;               // … across this many distinct months …
+const SUB_AMOUNT_RATIO_TOLERANCE = 1.5; // … with amounts this consistent (max/min).
+const SUB_ACTIVE_DAYS = 45;             // charged within this → still "active".
+const SUB_CREEP_MIN = 0.01;             // a price increase above this counts as creep.
+
+export type Subscription = {
+  merchant: string;            // display label (most frequent original description)
+  category: string;
+  monthlyAmount: number;       // most recent charge
+  firstAmount: number;         // earliest charge
+  occurrences: number;
+  months: number;              // distinct YYYY-MM with a charge
+  firstDate: string;
+  lastDate: string;
+  priceIncrease: number;       // monthlyAmount − firstAmount (may be negative)
+  priceIncreasePct: number | null;
+  hasPriceCreep: boolean;      // price rose meaningfully since the first charge
+  isActive: boolean;           // last charge within the recency window
+};
+
+// Collapse merchant noise (trailing card digits, dates, punctuation) so
+// "NETFLIX 1234" and "Netflix.com" group together.
+function normalizeMerchant(desc: string): string {
+  return desc
+    .toLowerCase()
+    .replace(/[0-9#*/.,_-]+/g, ' ')   // card digits, dates, punctuation
+    .replace(/\b(com|www)\b/g, ' ')   // domain noise ("netflix.com" → "netflix")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function mostCommonDescription(txs: Transaction[]): string {
+  const counts = new Map<string, number>();
+  for (const t of txs) counts.set(t.description, (counts.get(t.description) ?? 0) + 1);
+  let best = txs[0]?.description ?? '';
+  let bestN = 0;
+  for (const [desc, n] of counts) if (n > bestN) { best = desc; bestN = n; }
+  return best;
+}
+
+function daysSinceDate(dateStr: string, today: Date): number | null {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  if (!y || !m || !d) return null;
+  const then = new Date(y, m - 1, d);
+  const now = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.round((now.getTime() - then.getTime()) / 86400000);
+}
+
+export function detectSubscriptions(transactions: Transaction[], today: Date = new Date()): Subscription[] {
+  const groups = new Map<string, Transaction[]>();
+  for (const t of transactions) {
+    if (t.type !== 'expense' || t.amount <= 0) continue;
+    const key = normalizeMerchant(t.description);
+    if (!key) continue;
+    let arr = groups.get(key);
+    if (!arr) { arr = []; groups.set(key, arr); }
+    arr.push(t);
+  }
+
+  const out: Subscription[] = [];
+  for (const txs of groups.values()) {
+    if (txs.length < SUB_MIN_OCCURRENCES) continue;
+    const sorted = [...txs].sort((a, b) => a.date.localeCompare(b.date));
+    const months = new Set(sorted.map((t) => t.date.slice(0, 7)));
+    if (months.size < SUB_MIN_MONTHS) continue;
+    const amounts = sorted.map((t) => t.amount);
+    const min = Math.min(...amounts), max = Math.max(...amounts);
+    if (min <= 0 || max / min > SUB_AMOUNT_RATIO_TOLERANCE) continue; // too variable → not a subscription
+
+    const first = sorted[0], last = sorted[sorted.length - 1];
+    const priceIncrease = roundCents(last.amount - first.amount);
+    const lastDays = daysSinceDate(last.date, today);
+    out.push({
+      merchant: mostCommonDescription(sorted),
+      category: last.category,
+      monthlyAmount: last.amount,
+      firstAmount: first.amount,
+      occurrences: sorted.length,
+      months: months.size,
+      firstDate: first.date,
+      lastDate: last.date,
+      priceIncrease,
+      priceIncreasePct: first.amount > 0 ? roundCents((priceIncrease / first.amount) * 100) : null,
+      hasPriceCreep: priceIncrease > SUB_CREEP_MIN,
+      isActive: lastDays !== null && lastDays <= SUB_ACTIVE_DAYS,
+    });
+  }
+  return out.sort((a, b) => b.monthlyAmount - a.monthlyAmount);
+}
+
+// ── Dynamic Budget Reallocation ───────────────────────────────────────────────
+// If a category is chronically over (or under) its budget, suggest resetting the
+// budget to match reality. Looks at the last few COMPLETE months (the current,
+// partial month is excluded so a mid-month snapshot doesn't understate spend).
+
+const REALLOC_MIN_DELTA = 5;     // ignore tweaks smaller than this ($/mo)
+const REALLOC_OVER_RATIO = 1.1;  // avg spend must exceed budget by 10% to suggest an increase
+const REALLOC_UNDER_RATIO = 0.9; // avg spend below 90% of budget to suggest a decrease
+
+export type BudgetReallocation = {
+  budgetId: string;
+  category: string;
+  period: Budget['period'];
+  currentMonthly: number;    // normalized monthly budget
+  avgSpend: number;          // avg monthly spend across the window
+  suggestedMonthly: number;  // recommended monthly budget (rounded to $5)
+  delta: number;             // suggestedMonthly − currentMonthly (>0 = increase)
+  direction: 'increase' | 'decrease';
+  monthsOver: number;        // months spend exceeded the budget
+  monthsUnder: number;
+  windowMonths: number;
+};
+
+// The `count` complete month keys immediately before `today` (most recent first).
+function monthKeysBefore(today: Date, count: number): string[] {
+  const keys: string[] = [];
+  for (let i = 1; i <= count; i++) {
+    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+  return keys;
+}
+
+function categorySpendInMonth(transactions: Transaction[], category: string, monthKey: string): number {
+  let sum = 0;
+  for (const t of transactions) {
+    if (t.type === 'expense' && t.category === category && t.date.startsWith(monthKey)) sum += t.amount;
+  }
+  return roundCents(sum);
+}
+
+function roundTo5(n: number): number {
+  return Math.max(0, Math.round(n / 5) * 5);
+}
+
+// Convert a monthly figure back into a budget's native period (inverse of
+// normalizeMonthlyBudget) so a suggestion can be applied to the stored budget.
+export function denormalizeMonthlyBudget(monthly: number, period: 'monthly' | 'weekly' | 'yearly'): number {
+  if (period === 'monthly') return roundCents(monthly);
+  if (period === 'weekly') return roundCents(monthly / 4.33);
+  return roundCents(monthly * 12);
+}
+
+export function suggestBudgetReallocations(
+  budgets: Budget[],
+  transactions: Transaction[],
+  today: Date = new Date(),
+  windowMonths = 3,
+): BudgetReallocation[] {
+  const monthKeys = monthKeysBefore(today, windowMonths);
+  const minConsistent = Math.ceil((windowMonths * 2) / 3); // e.g. 2 of 3 months
+  const out: BudgetReallocation[] = [];
+
+  for (const b of budgets) {
+    const currentMonthly = normalizeMonthlyBudget(b.amount, b.period);
+    const spends = monthKeys.map((mk) => categorySpendInMonth(transactions, b.category, mk));
+    const avgSpend = roundCents(spends.reduce((s, x) => s + x, 0) / windowMonths);
+    const monthsOver = spends.filter((s) => s > currentMonthly).length;
+    const monthsUnder = spends.filter((s) => s < currentMonthly).length;
+
+    let direction: 'increase' | 'decrease' | null = null;
+    if (avgSpend > currentMonthly * REALLOC_OVER_RATIO && monthsOver >= minConsistent) direction = 'increase';
+    else if (currentMonthly > 0 && avgSpend < currentMonthly * REALLOC_UNDER_RATIO && monthsUnder >= minConsistent) direction = 'decrease';
+    if (!direction) continue;
+
+    const suggestedMonthly = roundTo5(avgSpend);
+    const delta = roundCents(suggestedMonthly - currentMonthly);
+    if (Math.abs(delta) < REALLOC_MIN_DELTA) continue;
+
+    out.push({
+      budgetId: b.id, category: b.category, period: b.period,
+      currentMonthly, avgSpend, suggestedMonthly, delta, direction,
+      monthsOver, monthsUnder, windowMonths,
+    });
+  }
+  return out.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+}
+
 // ── Bill helpers ──────────────────────────────────────────────────────────────
 
 export function billToTransactionDefaults(bill: Bill, date: string): Omit<Transaction, 'id'> {

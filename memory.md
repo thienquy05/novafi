@@ -1505,3 +1505,18 @@ Caveat (pre-existing data): groups created before this column have `myShareTxId=
 **Locales:** `accounts.apr` and `credit.bx*` keys added to en/vi.
 
 **Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors (27 pre-existing warnings, unchanged count); `npm test` 424/424; `npm run build` compiled successfully.
+
+## 2026-06-08 — Ghost Subscription & Price-Creep Detector + Dynamic Budget Reallocation + parallel CI
+
+**Ghost Subscription & Price-Creep Detector**
+- The bills page already had an untested local `detectSubscriptions` (recurring detection only). Consolidated onto a tested calc-layer `detectSubscriptions(transactions, today)` in `lib/calculations.ts` and enriched the output. Groups expense txs by a normalized merchant key (strips card digits/dates/punctuation and `com`/`www` domain noise); requires ≥2 charges across ≥2 distinct months with amounts within a 1.5× max/min band (so groceries don't register). Returns per subscription: merchant (most common original description), category, monthlyAmount (latest), firstAmount, occurrences, months, first/last date, priceIncrease + pct, `hasPriceCreep`, and `isActive` (charged within 45 days). New type `Subscription`. 5 tests.
+- `app/(app)/bills/page.tsx`: removed the local detector/type; `SubscriptionTracker` now uses the calc version (memoized), the monthly headline counts only active subs, and each row shows a **price-creep** badge (`↑ {amount} ({pct}%)`) and a **ghost** badge for stale ones (dimmed). Added `bills.subPriceCreep`/`bills.subGhost` locale keys + `TrendingUp` icon.
+
+**Dynamic Budget Reallocation**
+- `lib/calculations.ts`: `suggestBudgetReallocations(budgets, transactions, today, windowMonths=3)` → `BudgetReallocation[]`. Averages each budgeted category's spend over the last N **complete** months (current partial month excluded); suggests an increase when avg exceeds the budget by >10% in ≥2/3 of months, a decrease when avg is <90% in ≥2/3 of months; suggested budget is the average rounded to $5; sub-$5 deltas dropped; sorted by |delta|. Also added `denormalizeMonthlyBudget` (inverse of normalizeMonthlyBudget) so a monthly suggestion can be written back in the budget's native period. New type `BudgetReallocation`. 6 tests (incl. denormalize).
+- `app/(app)/planning/page.tsx`: `reallocations` memo + `applyReallocation` (optimistic POST to `/api/budgets` with the denormalized amount, reconcile on failure). New `BudgetRealityCard` rendered between Budgets and Goals when suggestions exist — per row: direction icon, over/under copy, current→suggested, and a one-tap **Apply**. Added `planning.realloc*` locale keys.
+
+**CI parallelization (`.github/workflows/ci.yml`)**
+- Split the single sequential `test` job (lint → typecheck → test) into three independent jobs (`lint`, `typecheck`, `test`) that run in parallel, each with its own checkout + npm cache. Switched `npm install` → `npm ci` for reproducible installs, and added a `concurrency` group (`cancel-in-progress`) so a quick re-push cancels superseded runs.
+
+**Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors (27 pre-existing warnings, unchanged); `npm test` 435/435 (was 424, +11); `npm run build` compiled successfully.
