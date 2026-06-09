@@ -175,7 +175,7 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="hidden md:flex flex-col w-64 h-screen sticky top-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-r border-slate-200 dark:border-slate-700/50 px-4 py-6 shrink-0 z-50">
+    <aside className="hidden md:flex flex-col w-64 h-[calc(100vh-1.5rem)] sticky top-3 m-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-700/50 rounded-3xl shadow-xl shadow-slate-300/30 dark:shadow-black/40 px-4 py-6 shrink-0 z-50">
       {/* Logo */}
       <div className="flex items-center gap-3 px-2 mb-5">
         <div className="relative">
@@ -223,7 +223,7 @@ export function Sidebar() {
 
 export function MobileHeader() {
   return (
-    <header className="md:hidden flex items-center justify-between px-4 py-4 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-slate-200 dark:border-slate-700/50 sticky top-0 z-40">
+    <header className="md:hidden flex items-center justify-between px-4 py-3 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200 dark:border-slate-700/50 rounded-2xl shadow-lg shadow-slate-300/30 dark:shadow-black/30 mx-3 mt-3 sticky top-3 z-40">
       <div className="flex items-center gap-3">
         <LogoMark className="w-9 h-9 rounded-xl shadow-md" />
         <p className="text-slate-900 dark:text-white font-bold text-xl tracking-tight leading-none">Nova<span className="text-gradient">Fi</span></p>
@@ -408,7 +408,7 @@ export function MobileNav() {
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring', bounce: 0.1, duration: 0.38 }}
-            className="md:hidden fixed bottom-[72px] left-0 right-0 z-50 bg-white dark:bg-slate-800 rounded-t-3xl border-t border-slate-200 dark:border-slate-700 shadow-[0_-20px_60px_rgba(0,0,0,0.12)] px-4 pt-5 pb-6 max-h-[80vh] overflow-y-auto"
+            className="md:hidden fixed bottom-[96px] left-0 right-0 z-50 bg-white dark:bg-slate-800 rounded-t-3xl border-t border-slate-200 dark:border-slate-700 shadow-[0_-20px_60px_rgba(0,0,0,0.12)] px-4 pt-5 pb-6 max-h-[80vh] overflow-y-auto"
           >
             <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full mx-auto mb-4" />
             <div className="flex items-center justify-between mb-4">
@@ -478,7 +478,7 @@ export function MobileNav() {
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring', bounce: 0.1, duration: 0.38 }}
-            className="md:hidden fixed bottom-[72px] left-0 right-0 z-50 bg-white dark:bg-slate-800 rounded-t-3xl border-t border-slate-200 dark:border-slate-700 shadow-[0_-20px_60px_rgba(0,0,0,0.12)] px-4 pt-5 pb-6 max-h-[70vh] overflow-y-auto"
+            className="md:hidden fixed bottom-[96px] left-0 right-0 z-50 bg-white dark:bg-slate-800 rounded-t-3xl border-t border-slate-200 dark:border-slate-700 shadow-[0_-20px_60px_rgba(0,0,0,0.12)] px-4 pt-5 pb-6 max-h-[70vh] overflow-y-auto"
           >
             <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full mx-auto mb-5" />
 
@@ -511,7 +511,7 @@ export function MobileNav() {
       </AnimatePresence>
 
       {/* Bottom bar: 2 nav · raised "+" · 1 nav · More */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-t border-slate-200 dark:border-slate-700/50 px-2 py-2 flex items-center justify-around z-50 pb-safe shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
+      <nav className="md:hidden fixed bottom-4 left-4 right-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-700/50 rounded-3xl px-2 py-2 flex items-center justify-around z-50 shadow-[0_12px_40px_rgba(0,0,0,0.16)] dark:shadow-[0_12px_40px_rgba(0,0,0,0.5)]">
         {primaryNav.slice(0, 2).map(renderBottomItem)}
 
         <QuickAddTransaction variant="navFab" />
