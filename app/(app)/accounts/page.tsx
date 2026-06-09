@@ -1,9 +1,9 @@
 'use client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
-import { Plus, Trash2, CreditCard, Landmark, PiggyBank, TrendingUp, Pencil, CheckCircle2, RefreshCw, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, CreditCard, Landmark, PiggyBank, TrendingUp, Pencil, CheckCircle2, RefreshCw, AlertCircle, Banknote } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { creditUtilization, creditUtilStatus } from '@/lib/calculations';
+import { creditUtilization, creditUtilStatus, calcLoanPayoff, calcLoanExtraPaymentImpact } from '@/lib/calculations';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -17,7 +17,7 @@ import { FitText } from '@/components/ui/FitText';
 import { formatCurrency, generateId, today } from '@/lib/utils';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
-import type { Account } from '@/types';
+import type { Account, Transaction } from '@/types';
 import { useTranslation } from '@/lib/i18n/context';
 import { getBankBrand } from '@/lib/bankBrands';
 import { BankBadge } from '@/components/BankBadge';
@@ -69,6 +69,9 @@ const EMPTY_FORM = {
   color: ACCOUNT_COLORS[0],
   creditLimit: '',
   apr: '',
+  monthlyPayment: '',
+  termMonths: '',
+  paymentAccountId: '',
 };
 
 // Status → text color for the inline utilization readout on credit rows.
@@ -131,7 +134,7 @@ export default function AccountsPage() {
   function openAdd() { setEditTarget(null); setForm(EMPTY_FORM); setOpen(true); }
   function openEdit(account: Account) {
     setEditTarget(account);
-    setForm({ name: account.name, type: account.type, institution: account.institution, balance: String(account.balance), last4: account.last4, color: account.color, creditLimit: account.creditLimit != null ? String(account.creditLimit) : '', apr: account.apr != null ? String(account.apr) : '' });
+    setForm({ name: account.name, type: account.type, institution: account.institution, balance: String(account.balance), last4: account.last4, color: account.color, creditLimit: account.creditLimit != null ? String(account.creditLimit) : '', apr: account.apr != null ? String(account.apr) : '', monthlyPayment: account.monthlyPayment != null ? String(account.monthlyPayment) : '', termMonths: account.termMonths != null ? String(account.termMonths) : '', paymentAccountId: account.paymentAccountId ?? '' });
     setOpen(true);
   }
 
@@ -154,8 +157,14 @@ export default function AccountsPage() {
       // so preserve the stored value on edit — the API only self-maintains
       // openingBalance, so omitting it here would wipe it. Cleared off non-credit.
       statementDay: form.type === 'credit' ? editTarget?.statementDay : undefined,
-      // APR powers the Balance-Transfer Optimizer; 0 is a valid 0% APR.
-      apr: form.type === 'credit' && form.apr !== '' ? Math.max(0, parseFloat(form.apr)) : undefined,
+      // APR powers the Balance-Transfer Optimizer (credit) and payoff math (loan);
+      // 0 is a valid 0% APR. Kept for both card and loan accounts.
+      apr: (form.type === 'credit' || form.type === 'loan') && form.apr !== '' ? Math.max(0, parseFloat(form.apr)) : undefined,
+      // Loan-only fields: scheduled monthly payment, original term, and the
+      // account payments are drawn from. Cleared on non-loan types.
+      monthlyPayment: form.type === 'loan' && form.monthlyPayment !== '' ? Math.max(0, parseBalance(form.monthlyPayment)) : undefined,
+      termMonths: form.type === 'loan' && form.termMonths !== '' ? Math.max(0, Math.round(parseFloat(form.termMonths))) : undefined,
+      paymentAccountId: form.type === 'loan' && form.paymentAccountId ? form.paymentAccountId : undefined,
     };
 
     // Optimistic update
@@ -183,6 +192,48 @@ export default function AccountsPage() {
       await load(true); // reconcile from server truth after a failed write
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Make a loan payment: a `transfer` from the linked payment account INTO the
+  // loan reduces the owed balance (and counts as real cash leaving for safe-to-
+  // spend, since it's a debt payment). Pays the scheduled monthly amount, capped
+  // at the remaining balance. The POST returns authoritative post-write balances.
+  async function makeLoanPayment(account: Account) {
+    const from = account.paymentAccountId;
+    const owed = Math.max(0, account.balance);
+    const amount = Math.min(account.monthlyPayment ?? 0, owed);
+    if (!from || !(amount > 0)) return;
+    if (!confirm(t('accounts.confirmPayment', { amount: formatCurrency(amount), card: account.name }))) return;
+    const tx: Transaction = {
+      id: generateId(),
+      date: today(),
+      description: t('accounts.loanPaymentDesc', { card: account.name }),
+      amount,
+      type: 'transfer',
+      category: 'Loan Payment',
+      account: from,
+      toAccount: account.id,
+      createdAt: new Date().toISOString(),
+    };
+    setAccounts((prev) => prev.map((a) => {
+      if (a.id === account.id) return { ...a, balance: Math.round((a.balance - amount) * 100) / 100 };
+      if (a.id === from) return { ...a, balance: Math.round((a.balance - amount) * 100) / 100 };
+      return a;
+    }));
+    try {
+      const res = await fetch('/api/transactions', {
+        method: 'POST',
+        body: JSON.stringify(tx),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      if (data.accounts) setAccounts(data.accounts);
+      toast(t('accounts.paymentMade', { amount: formatCurrency(amount) }), 'success');
+    } catch {
+      toast(t('accounts.paymentFailed'), 'error');
+      await load(true);
     }
   }
 
@@ -334,6 +385,29 @@ export default function AccountsPage() {
                                 </Link>
                               );
                             })()}
+                            {type === 'loan' && account.balance > 0 && (() => {
+                              const payoff = calcLoanPayoff(account.balance, account.apr ?? 0, account.monthlyPayment ?? 0);
+                              if (!(account.monthlyPayment && account.monthlyPayment > 0)) {
+                                return <button onClick={() => openEdit(account)} className="block text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline mt-1">{t('accounts.setLoanTerms')}</button>;
+                              }
+                              if (!payoff.amortizes) {
+                                return <p className="text-xs font-bold text-rose-600 dark:text-rose-400 mt-1">{t('accounts.loanNoAmortize', { interest: formatCurrency(payoff.monthlyInterest) })}</p>;
+                              }
+                              const extra = Math.max(25, Math.round((account.monthlyPayment * 0.1) / 25) * 25);
+                              const impact = calcLoanExtraPaymentImpact(account.balance, account.apr ?? 0, account.monthlyPayment, extra);
+                              return (
+                                <div className="mt-1 space-y-0.5">
+                                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                                    {t('accounts.loanPayoff', { months: payoff.months ?? 0, interest: formatCurrency(payoff.totalInterest) })}
+                                  </p>
+                                  {impact && impact.monthsSaved > 0 && (
+                                    <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                                      {t('accounts.loanPayExtra', { extra: formatCurrency(extra), months: impact.monthsSaved, saved: formatCurrency(impact.interestSaved) })}
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </div>
                         </div>
                         <div className="flex items-center justify-between sm:justify-end gap-6 sm:gap-8 w-full sm:w-auto pl-16 sm:pl-0">
@@ -351,6 +425,9 @@ export default function AccountsPage() {
                             )}
                           </div>
                           <div className="flex gap-2">
+                            {type === 'loan' && account.balance > 0 && account.paymentAccountId && (account.monthlyPayment ?? 0) > 0 && (
+                              <Button variant="ghost" size="icon" title={t('accounts.makePayment')} className="text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 h-10 w-10 rounded-xl" onClick={() => makeLoanPayment(account)}><Banknote className="w-4 h-4" /></Button>
+                            )}
                             <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 h-10 w-10 rounded-xl" onClick={() => openEdit(account)}><Pencil className="w-4 h-4" /></Button>
                             <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 h-10 w-10 rounded-xl" onClick={() => handleDelete(account.id)}><Trash2 className="w-4 h-4" /></Button>
                           </div>
@@ -374,6 +451,27 @@ export default function AccountsPage() {
             <div className="grid grid-cols-2 gap-3">
               <Input label={t('accounts.creditLimit')} type="text" inputMode="decimal" placeholder="0.00" value={form.creditLimit} onChange={(e) => setForm((f) => ({ ...f, creditLimit: e.target.value.replace(/[^0-9.,]/g, '') }))} />
               <Input label={t('accounts.apr')} type="text" inputMode="decimal" placeholder="0.00" value={form.apr} onChange={(e) => setForm((f) => ({ ...f, apr: e.target.value.replace(/[^0-9.]/g, '') }))} />
+            </div>
+          )}
+          {form.type === 'loan' && (
+            <div className="space-y-4 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-4">
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('accounts.loanDetails')}</p>
+              <div className="grid grid-cols-2 gap-3">
+                <Input label={t('accounts.apr')} type="text" inputMode="decimal" placeholder="0.00" value={form.apr} onChange={(e) => setForm((f) => ({ ...f, apr: e.target.value.replace(/[^0-9.]/g, '') }))} />
+                <Input label={t('accounts.monthlyPayment')} type="text" inputMode="decimal" placeholder="0.00" value={form.monthlyPayment} onChange={(e) => setForm((f) => ({ ...f, monthlyPayment: e.target.value.replace(/[^0-9.,]/g, '') }))} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Input label={t('accounts.termMonths')} type="text" inputMode="numeric" placeholder="60" value={form.termMonths} onChange={(e) => setForm((f) => ({ ...f, termMonths: e.target.value.replace(/[^0-9]/g, '').slice(0, 3) }))} />
+                <Select
+                  label={t('accounts.paymentAccount')}
+                  value={form.paymentAccountId}
+                  options={[
+                    { value: '', label: t('accounts.paymentAccountNone') },
+                    ...accounts.filter((a) => a.type !== 'loan').map((a) => ({ value: a.id, label: a.name })),
+                  ]}
+                  onChange={(e) => setForm((f) => ({ ...f, paymentAccountId: e.target.value }))}
+                />
+              </div>
             </div>
           )}
           <Input label={t('accounts.last4')} placeholder="1234" maxLength={4} value={form.last4} onChange={(e) => setForm((f) => ({ ...f, last4: e.target.value.replace(/\D/g, '').slice(0, 4) }))} />

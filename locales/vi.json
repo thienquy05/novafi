@@ -508,7 +508,21 @@
     "creditLimit": "Hạn mức tín dụng ($)",
     "apr": "Lãi suất APR (%)",
     "utilization": "đã dùng {pct}",
-    "setLimitHint": "Đặt hạn mức để theo dõi mức sử dụng"
+    "setLimitHint": "Đặt hạn mức để theo dõi mức sử dụng",
+    "loanDetails": "Chi tiết khoản vay",
+    "monthlyPayment": "Trả hàng tháng ($)",
+    "termMonths": "Kỳ hạn (tháng)",
+    "paymentAccount": "Trả từ",
+    "paymentAccountNone": "Chưa đặt",
+    "setLoanTerms": "Thêm APR & khoản trả để xem lộ trình",
+    "loanNoAmortize": "Khoản trả thấp hơn lãi {interest}/tháng — sẽ không giảm nợ",
+    "loanPayoff": "Trả hết trong ~{months} tháng · lãi {interest}",
+    "loanPayExtra": "+{extra}/tháng → hết nợ sớm {months} tháng, tiết kiệm {saved}",
+    "makePayment": "Thanh toán",
+    "confirmPayment": "Trả {amount} cho {card}?",
+    "loanPaymentDesc": "Trả khoản vay — {card}",
+    "paymentMade": "Đã trả {amount} cho khoản vay",
+    "paymentFailed": "Không thể ghi nhận thanh toán"
   },
   "credit": {
     "title": "Báo cáo tín dụng thông minh",

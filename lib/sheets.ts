@@ -404,7 +404,7 @@ export async function getAccounts(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Accounts!A2:L200',
+    range: 'Accounts!A2:O200',
     // Raw cell value: a currency-formatted cell stays a number rather than
     // coming back as "$100.00" → NaN.
     valueRenderOption: 'UNFORMATTED_VALUE',
@@ -430,9 +430,14 @@ function rowToAccount(r: string[]): Account {
     creditLimit: r[9] === undefined || r[9] === '' ? undefined : Number(r[9]),
     // Column K is optional: statement closing day-of-month (1–31).
     statementDay: r[10] === undefined || r[10] === '' ? undefined : Number(r[10]),
-    // Column L is optional: a credit card's purchase APR % (Balance-Transfer
-    // Optimizer). Empty/blank → undefined (not 0, which means a real 0% APR).
+    // Column L is optional: a credit card's purchase APR %, OR a loan's APR
+    // (Balance-Transfer Optimizer / loan payoff). Blank → undefined (not 0 = real 0%).
     apr: r[11] === undefined || r[11] === '' ? undefined : Number(r[11]),
+    // Columns M/N/O are loan-only: scheduled monthly payment, original term in
+    // months, and the id of the account payments are drawn from. Blank → undefined.
+    monthlyPayment: r[12] === undefined || r[12] === '' ? undefined : Number(r[12]),
+    termMonths: r[13] === undefined || r[13] === '' ? undefined : Number(r[13]),
+    paymentAccountId: r[14] === undefined || r[14] === '' ? undefined : String(r[14]),
   };
 }
 
@@ -441,7 +446,7 @@ export async function upsertAccount(
   spreadsheetId: string,
   account: Account
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Accounts', account.id, 'L');
+  await deleteRowById(accessToken, spreadsheetId, 'Accounts', account.id, 'O');
   const sheets = getSheetsClient(accessToken);
   await sheets.spreadsheets.values.append({
     spreadsheetId,
@@ -449,7 +454,7 @@ export async function upsertAccount(
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
-      values: [[account.id, account.name, account.type, account.institution, account.balance, account.last4, account.color, account.createdAt, account.openingBalance ?? '', account.creditLimit ?? '', account.statementDay ?? '', account.apr ?? '']],
+      values: [[account.id, account.name, account.type, account.institution, account.balance, account.last4, account.color, account.createdAt, account.openingBalance ?? '', account.creditLimit ?? '', account.statementDay ?? '', account.apr ?? '', account.monthlyPayment ?? '', account.termMonths ?? '', account.paymentAccountId ?? '']],
     },
   });
 }
@@ -1048,7 +1053,7 @@ export async function batchGetBadgesData(
     'Bills!A2:L200',
     'Budgets!A2:D200',
     'Transactions!A2:J',
-    'Accounts!A2:L200',
+    'Accounts!A2:O200',
   ];
   const res = await sheets.spreadsheets.values.batchGet({
     spreadsheetId,
@@ -1135,6 +1140,10 @@ function parseDashboardCore(
     openingBalance: r[8] === undefined || r[8] === '' ? undefined : Number(r[8]),
     creditLimit: r[9] === undefined || r[9] === '' ? undefined : Number(r[9]),
     statementDay: r[10] === undefined || r[10] === '' ? undefined : Number(r[10]),
+    apr: r[11] === undefined || r[11] === '' ? undefined : Number(r[11]),
+    monthlyPayment: r[12] === undefined || r[12] === '' ? undefined : Number(r[12]),
+    termMonths: r[13] === undefined || r[13] === '' ? undefined : Number(r[13]),
+    paymentAccountId: r[14] === undefined || r[14] === '' ? undefined : String(r[14]),
   })) as Account[];
   const bills: Bill[] = (vr[3]?.values ?? []).map((r) => rowToBill(r as string[]));
   const budgets: Budget[] = (vr[4]?.values ?? []).map((r) => ({
@@ -1169,7 +1178,7 @@ function parseDashboardCore(
 const DASHBOARD_CORE_RANGES = [
   'Paychecks!A2:L',
   'Transactions!A2:J',
-  'Accounts!A2:L200',
+  'Accounts!A2:O200',
   'Bills!A2:L200',
   'Budgets!A2:D200',
   'Goals!A2:G200',
@@ -1242,7 +1251,7 @@ const BATCHABLE_SHEETS: Record<
   Exclude<BatchKey, NonBatchableKey>,
   { range: string; parse: (rows: string[][]) => unknown[] }
 > = {
-  accounts:     { range: 'Accounts!A2:L200',  parse: (rows) => rows.map(rowToAccount) },
+  accounts:     { range: 'Accounts!A2:O200',  parse: (rows) => rows.map(rowToAccount) },
   transactions: { range: 'Transactions!A2:J', parse: (rows) => rows.map(rowToTransaction) },
   bills:        { range: 'Bills!A2:L200',     parse: (rows) => rows.map(rowToBill) },
   paychecks:    { range: 'Paychecks!A2:L',    parse: (rows) => rows.map(rowToPaycheck) },

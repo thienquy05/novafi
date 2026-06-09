@@ -94,10 +94,19 @@ export interface Account {
   // statement balance, so this drives "pay before your statement closes" nudges.
   // Absent = not set.
   statementDay?: number;
-  // Credit cards only: the purchase APR as a percent (e.g. 24.99). Powers the
-  // Balance-Transfer Optimizer (interest cost + savings from moving a balance to
-  // a 0%/low-APR card). Absent = not set; 0 is a real 0% APR.
+  // Credit cards AND loans: the APR as a percent (e.g. 24.99 / 6.5). For cards it
+  // powers the Balance-Transfer Optimizer; for loans it drives the amortization /
+  // payoff math. Absent = not set; 0 is a real 0% APR.
   apr?: number;
+  // Loan accounts only: the scheduled monthly payment. Drives payoff time, total
+  // interest and the "pay extra" advisor. Absent/0 = not set.
+  monthlyPayment?: number;
+  // Loan accounts only: the original loan term in months (e.g. 60). Informational
+  // (shown alongside the live payoff estimate). Absent/0 = not set.
+  termMonths?: number;
+  // Loan accounts only: id of the account the monthly payment is drawn FROM (a
+  // checking/savings/credit). Used by the in-app "Make payment" action. Absent = none.
+  paymentAccountId?: string;
 }
 
 export interface Budget {

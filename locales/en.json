@@ -508,7 +508,21 @@
     "creditLimit": "Credit limit ($)",
     "apr": "APR (%)",
     "utilization": "{pct} used",
-    "setLimitHint": "Set a limit to track utilization"
+    "setLimitHint": "Set a limit to track utilization",
+    "loanDetails": "Loan details",
+    "monthlyPayment": "Monthly payment ($)",
+    "termMonths": "Term (months)",
+    "paymentAccount": "Pay from",
+    "paymentAccountNone": "Not set",
+    "setLoanTerms": "Add APR & payment to see payoff",
+    "loanNoAmortize": "Payment below {interest}/mo interest — won't pay down",
+    "loanPayoff": "Paid off in ~{months} mo · {interest} interest",
+    "loanPayExtra": "+{extra}/mo → debt-free {months} mo sooner, save {saved}",
+    "makePayment": "Make payment",
+    "confirmPayment": "Pay {amount} toward {card}?",
+    "loanPaymentDesc": "Loan payment — {card}",
+    "paymentMade": "Paid {amount} toward your loan",
+    "paymentFailed": "Couldn't record the payment"
   },
   "credit": {
     "title": "Smart Credit Report",

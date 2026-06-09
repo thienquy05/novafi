@@ -1578,3 +1578,19 @@ Applied to the three advisory sections the user asked to make expandable:
 **Bank brand icons** (new `lib/bankBrands.ts` + `components/BankBadge.tsx`): `getBankBrand(institution)` fuzzy-matches a free-text institution name (normalized) against ~18 known banks (Chase, AMEX, Huntington, Fifth Third, BoFA, Capital One, Citi, Discover, KeyBank, Wells Fargo, US Bank, PNC, TD, Ally, Chime, Truist, USAA, Navy Federal) → `{ label, short, color }`. We do NOT ship trademarked logos; `BankBadge` renders a tinted monogram tile in the brand color. The accounts list row shows the badge when a brand is recognized, else falls back to the type icon. 2 tests (`bankBrands.test.ts`).
 
 **Cash-back redemption** (`credit/page.tsx`): per-card "Redeem cash back" action (Gift/emerald) with an inline amount input. Records a `transfer` from external (`account: ''`) INTO the card → `applyTransactionToBalances` lowers the owed balance (statement credit) and, being a transfer, it never counts as income/expense (same fronting pattern as loans/splits). Optimistic update + authoritative balances from the POST response. Category `Cash Back`. New `credit.cashBack*` locale keys (en/vi).
+
+### Tier 2b — Loan account amortization + payoff advisor
+
+Per the user: enhance the existing `loan` **account type** (not the IOU `Loan`) with real-debt features.
+
+**Types** (`types/index.ts`): `Account` gains loan-only `monthlyPayment?`, `termMonths?`, `paymentAccountId?` (and APR is now documented as card-or-loan).
+
+**Sheets persistence** (`lib/sheets.ts`): Accounts tab extended from columns A–L to A–O (M=monthly_payment, N=term_months, O=payment_account_id). Updated both `rowToAccount` and the dashboard batch parse (which also now reads `apr` at r[11], previously omitted), `upsertAccount` row values, `deleteRowById` last-col 'L'→'O', and every `Accounts!A2:L200` range → `A2:O200`.
+
+**Calc** (`lib/calculations.ts`): `calcLoanPayoff(balance, apr, monthlyPayment, today)` → `LoanPayoff { months, totalInterest, monthlyInterest, amortizes, payoffMonth }` (standard fixed-payment amortization; flags loans whose payment can't cover first-month interest). `calcLoanExtraPaymentImpact(balance, apr, monthlyPayment, extra, today)` → `{ monthsSaved, interestSaved, newMonths }` for the "pay extra" advisor. `addMonthsKey` helper. 6 tests.
+
+**Accounts UI** (`accounts/page.tsx`):
+- Form shows a loan-only block (APR, monthly payment, term months, "Pay from" account select) when type=loan; `EMPTY_FORM`/`openEdit`/`handleSave` carry the three fields (cleared on non-loan).
+- Loan rows show a payoff insight line ("Paid off in ~X mo · $Y interest") plus a smart "+$extra/mo → debt-free N mo sooner, save $Z" tip (extra = 10% of the payment rounded to $25). Falls back to "add APR & payment" or "payment below interest" states.
+- New `makeLoanPayment(account)` action (Banknote button) records a `transfer` from the linked `paymentAccountId` INTO the loan for the scheduled amount (capped at balance) → lowers owed balance and counts as cash spending. Optimistic + authoritative balances from POST.
+- New `accounts.loan*`/`monthlyPayment`/`termMonths`/`paymentAccount*`/`makePayment`/`paymentMade` etc. locale keys (en/vi).

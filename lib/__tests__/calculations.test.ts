@@ -15,6 +15,7 @@ import {
   billToTransactionDefaults, calcSplitShares, calcLoanRemaining, myBillShare,
   calcOverdueBills, calcOverBudget,
   calcNetWorthProjection, calcPaycheckTaxToSave, calcLongestUntouchedSavings,
+  calcLoanPayoff, calcLoanExtraPaymentImpact,
   calcPaycheckDeposited,
   creditUtilization, creditUtilStatus, isOverCreditTarget, availableCredit,
   calcPaydownToTarget, buildCreditReport, calcCreditAlerts, allocateSmartPayment,
@@ -259,6 +260,55 @@ describe('calcLongestUntouchedSavings', () => {
     const r = calcLongestUntouchedSavings(accts, [], today);
     expect(r?.lastDeposit).toBeNull();
     expect(r?.daysSince).toBe(30);
+  });
+});
+
+describe('calcLoanPayoff', () => {
+  const today = new Date('2026-06-09T00:00:00');
+
+  it('paid-off loan → 0 months, no interest', () => {
+    const r = calcLoanPayoff(0, 6, 300, today);
+    expect(r.months).toBe(0);
+    expect(r.amortizes).toBe(true);
+  });
+
+  it('0% APR → simple division', () => {
+    const r = calcLoanPayoff(1200, 0, 100, today);
+    expect(r.months).toBe(12);
+    expect(r.totalInterest).toBe(0);
+    expect(r.payoffMonth).toBe('2027-06');
+  });
+
+  it('amortizes a typical loan and charges interest', () => {
+    // $10,000 at 6% APR, $200/mo → ~58 months, a few hundred in interest.
+    const r = calcLoanPayoff(10000, 6, 200, today);
+    expect(r.amortizes).toBe(true);
+    expect(r.months).toBe(58);
+    expect(r.monthlyInterest).toBe(50); // 10000 * 0.005
+    expect(r.totalInterest).toBeGreaterThan(1000);
+    expect(r.totalInterest).toBeLessThan(2000);
+  });
+
+  it('payment below first-month interest never amortizes', () => {
+    const r = calcLoanPayoff(10000, 24, 100, today); // monthly interest = 200 > 100
+    expect(r.amortizes).toBe(false);
+    expect(r.months).toBeNull();
+    expect(r.monthlyInterest).toBe(200);
+  });
+});
+
+describe('calcLoanExtraPaymentImpact', () => {
+  const today = new Date('2026-06-09T00:00:00');
+  it('paying extra shortens the term and saves interest', () => {
+    const r = calcLoanExtraPaymentImpact(10000, 6, 200, 100, today);
+    expect(r).not.toBeNull();
+    expect(r!.monthsSaved).toBeGreaterThan(0);
+    expect(r!.interestSaved).toBeGreaterThan(0);
+    expect(r!.newMonths).toBeLessThan(58);
+  });
+  it('returns null with no balance or no extra', () => {
+    expect(calcLoanExtraPaymentImpact(0, 6, 200, 100, today)).toBeNull();
+    expect(calcLoanExtraPaymentImpact(10000, 6, 200, 0, today)).toBeNull();
   });
 });
 

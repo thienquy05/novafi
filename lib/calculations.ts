@@ -191,6 +191,89 @@ export function calcLongestUntouchedSavings(
   return worst;
 }
 
+// ── Loan amortization / payoff ────────────────────────────────────────────────
+// Standard fixed-payment amortization. Given the current balance, APR and the
+// scheduled monthly payment, derive how long until the loan is paid off and how
+// much interest that costs from today forward. The monthly rate is APR/12. A
+// payment that doesn't even cover the first month's interest never amortizes
+// (`amortizes=false`, `months=null`) — we surface that instead of pretending.
+export interface LoanPayoff {
+  /** Whole months until paid off, or null when the payment can't amortize it. */
+  months: number | null;
+  /** Total interest paid from now until payoff (estimate; 0 at 0% APR). */
+  totalInterest: number;
+  /** First-month interest = balance × monthly rate. The payment floor to amortize. */
+  monthlyInterest: number;
+  /** True when the scheduled payment is large enough to eventually clear the loan. */
+  amortizes: boolean;
+  /** Months added to `today` for the payoff month (YYYY-MM), or null. */
+  payoffMonth: string | null;
+}
+
+export function calcLoanPayoff(
+  balance: number,
+  apr: number,
+  monthlyPayment: number,
+  today: Date = new Date(),
+): LoanPayoff {
+  const owed = Math.max(0, balance);
+  const empty: LoanPayoff = { months: null, totalInterest: 0, monthlyInterest: 0, amortizes: false, payoffMonth: null };
+  if (owed === 0) return { months: 0, totalInterest: 0, monthlyInterest: 0, amortizes: true, payoffMonth: null };
+  if (!(monthlyPayment > 0)) return empty;
+
+  const r = (apr || 0) / 100 / 12;
+  if (r <= 0) {
+    const months = Math.ceil(owed / monthlyPayment);
+    return { months, totalInterest: 0, monthlyInterest: 0, amortizes: true, payoffMonth: addMonthsKey(today, months) };
+  }
+
+  const monthlyInterest = roundCents(owed * r);
+  if (monthlyPayment <= monthlyInterest) {
+    // Payment never dents principal — interest-only or worse.
+    return { ...empty, monthlyInterest };
+  }
+
+  const months = Math.ceil(-Math.log(1 - (owed * r) / monthlyPayment) / Math.log(1 + r));
+  // Interest = sum of payments − principal. The final payment is usually smaller,
+  // so this slightly over-estimates; close enough for guidance.
+  const totalInterest = roundCents(monthlyPayment * months - owed);
+  return { months, totalInterest, monthlyInterest, amortizes: true, payoffMonth: addMonthsKey(today, months) };
+}
+
+// Impact of paying `extra` more each month: how many months sooner the loan is
+// cleared and how much interest that saves vs the scheduled payment. Returns null
+// when there's nothing to compare (no balance, base payment can't amortize, or no
+// extra). Powers the "pay extra when…" advisor.
+export interface LoanExtraImpact {
+  monthsSaved: number;
+  interestSaved: number;
+  newMonths: number;
+}
+
+export function calcLoanExtraPaymentImpact(
+  balance: number,
+  apr: number,
+  monthlyPayment: number,
+  extra: number,
+  today: Date = new Date(),
+): LoanExtraImpact | null {
+  if (!(balance > 0) || !(extra > 0)) return null;
+  const base = calcLoanPayoff(balance, apr, monthlyPayment, today);
+  const boosted = calcLoanPayoff(balance, apr, monthlyPayment + extra, today);
+  if (!base.amortizes || base.months === null || !boosted.amortizes || boosted.months === null) return null;
+  return {
+    monthsSaved: base.months - boosted.months,
+    interestSaved: roundCents(base.totalInterest - boosted.totalInterest),
+    newMonths: boosted.months,
+  };
+}
+
+// Helper: YYYY-MM `months` after `from`.
+function addMonthsKey(from: Date, months: number): string {
+  const d = new Date(from.getFullYear(), from.getMonth() + months, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
 // ── Spending Pace / Velocity ──────────────────────────────────────────────────
 // Extrapolates current spending rate to project end-of-month total.
 // Formula: projected = (spent / daysElapsed) × daysInMonth
