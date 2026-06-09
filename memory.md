@@ -1486,3 +1486,22 @@ Caveat (pre-existing data): groups created before this column have `myShareTxId=
 **Locales:** added `credit.arbTitle/arbSub/arbItem/arbItemToday` to en/vi.
 
 **Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors; `npm test` 419/419; `npm run build` compiled successfully.
+
+## 2026-06-08 — APR field + Balance-Transfer Optimizer (credit page)
+
+**Goal:** Identify debt on high-interest cards and quantify the savings of moving it to a 0%/low-APR card. Requires a new optional `apr` field on credit accounts.
+
+**Schema (`apr`, account column L):**
+- `types/index.ts`: `Account.apr?: number` (percent; 0 is a real 0% APR).
+- `lib/sheets.ts`: extended all four `Accounts!A2:K200` ranges to `A2:L200` (getAccounts, dashboard core ranges, legacy combined reader, BATCHABLE_SHEETS); `rowToAccount` reads column L; `upsertAccount` writes `account.apr ?? ''` (and its vestigial deleteRowById col arg bumped K→L). `deleteRowById` deletes the whole row, so no other delete change needed.
+- `lib/auth.ts`: the provisioning header for Accounts was stale (stopped at `opening_balance`); updated to the full 12 columns incl. `credit_limit`, `statement_day`, `apr` for newly provisioned sheets.
+
+**Accounts form (`app/(app)/accounts/page.tsx`):** added an APR input next to Credit limit (credit cards only); `EMPTY_FORM`, `openEdit`, and `handleSave` carry `apr`. handleSave now also **preserves `statementDay`** from the edit target (the API only self-maintains `openingBalance`, so the form previously wiped statementDay — fixed) and clears both off non-credit types.
+
+**`lib/calculations.ts` — `buildBalanceTransferAdvice(accounts, introMonths=12)`** → `BalanceTransferAdvice[]`. Sources = credit cards with `apr` set, `apr > HIGH_APR_THRESHOLD` (15), and a balance, worst-APR-first. Destination pool = available room on cards with `apr <= LOW_APR_DEST_THRESHOLD` (5); room is allocated worst-APR-first and capped per card. Each entry reports monthly/annual interest cost, transferable amount, best destination name (or null → hypothetical 0% card), and interest saved over the intro window. New consts/types exported. 5 new tests.
+
+**`app/(app)/credit/page.tsx`:** new `BalanceTransferCard` rendered after the planner when advice exists — per card: APR chip, interest cost line, and the move/save recommendation (real destination vs hypothetical 0% card). Imports `buildBalanceTransferAdvice` + `BalanceTransferAdvice`.
+
+**Locales:** `accounts.apr` and `credit.bx*` keys added to en/vi.
+
+**Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors (27 pre-existing warnings, unchanged count); `npm test` 424/424; `npm run build` compiled successfully.

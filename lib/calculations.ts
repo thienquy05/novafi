@@ -740,6 +740,71 @@ export function buildStatementArbitrage(
   return out.sort((a, b) => a.daysUntil - b.daysUntil);
 }
 
+// ── Balance-Transfer / APR Optimizer ──────────────────────────────────────────
+// Debt on a high-APR card quietly bleeds interest. If the user has a low/0%-APR
+// card with available room, moving the balance there saves that interest for the
+// intro window. Needs the optional `apr` field on the account.
+
+export const HIGH_APR_THRESHOLD = 15;    // APR above this is "high interest"
+export const LOW_APR_DEST_THRESHOLD = 5; // a card at/under this is a transfer destination
+
+export type BalanceTransferAdvice = {
+  account: Account;            // the high-APR card carrying the balance
+  apr: number;
+  balance: number;
+  monthlyInterest: number;     // interest accruing per month at this APR
+  annualInterest: number;      // interest over a year if left in place
+  transferable: number;        // amount that fits real low-APR room (0 when none)
+  destinationName: string | null; // best low-APR destination card, or null (hypothetical 0% card)
+  introMonths: number;
+  savings: number;             // interest avoided over introMonths on the moved amount
+};
+
+export function buildBalanceTransferAdvice(
+  accounts: Account[],
+  introMonths = 12,
+): BalanceTransferAdvice[] {
+  const cards = accounts.filter((a) => a.type === 'credit');
+
+  // Destination pool: available room on low/0%-APR cards, best (most room) first.
+  const destinations = cards
+    .filter((a) => a.apr !== undefined && a.apr <= LOW_APR_DEST_THRESHOLD && (a.creditLimit ?? 0) > 0)
+    .map((a) => ({ name: a.name, room: Math.max(0, availableCredit(a.balance, a.creditLimit ?? 0)) }))
+    .filter((d) => d.room > 0)
+    .sort((x, y) => y.room - x.room);
+  let pool = roundCents(destinations.reduce((s, d) => s + d.room, 0));
+  const bestDest = destinations.length > 0 ? destinations[0].name : null;
+
+  // Sources: high-APR cards carrying a balance, worst APR first (move those first).
+  const sources = cards
+    .filter((a) => a.apr !== undefined && a.apr > HIGH_APR_THRESHOLD && Math.max(0, a.balance) > 0)
+    .sort((a, b) => (b.apr ?? 0) - (a.apr ?? 0));
+
+  const out: BalanceTransferAdvice[] = [];
+  for (const account of sources) {
+    const apr = account.apr ?? 0;
+    const balance = Math.max(0, account.balance);
+    let transferable = 0;
+    let destinationName: string | null = null;
+    if (pool > 0) {
+      transferable = Math.min(balance, pool);
+      pool = roundCents(pool - transferable);
+      destinationName = bestDest;
+    }
+    // Savings = interest avoided on the moved amount over the intro window. With no
+    // real destination, show the potential on the full balance vs a 0% card.
+    const movable = transferable > 0 ? transferable : balance;
+    out.push({
+      account, apr, balance,
+      monthlyInterest: roundCents((balance * apr) / 100 / 12),
+      annualInterest: roundCents((balance * apr) / 100),
+      transferable, destinationName, introMonths,
+      savings: roundCents((movable * apr) / 100 * (introMonths / 12)),
+    });
+  }
+  return out;
+}
+
 // Days until a card's next statement closing date (0 = closes today). Returns
 // null when no statement day is set. Bureaus report the STATEMENT balance, so
 // paying down before this date is what actually lowers reported utilization.

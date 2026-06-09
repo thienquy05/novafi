@@ -498,6 +498,7 @@
     "groupInvestment": "Đầu tư",
     "groupLoan": "Khoản vay",
     "creditLimit": "Hạn mức tín dụng ($)",
+    "apr": "Lãi suất APR (%)",
     "utilization": "đã dùng {pct}",
     "setLimitHint": "Đặt hạn mức để theo dõi mức sử dụng"
   },
@@ -592,7 +593,12 @@
     "arbTitle": "Trả trước khi chốt sao kê",
     "arbSub": "Tổ chức tín dụng báo cáo số dư vào ngày chốt sao kê, không phải ngày đến hạn — hãy trả các thẻ này trước để giảm mức sử dụng được báo cáo.",
     "arbItem": "{card} chốt sau {days} ngày: trả {amount} để báo cáo dưới {pct}%",
-    "arbItemToday": "{card} chốt hôm nay: trả {amount} để báo cáo dưới {pct}%"
+    "arbItemToday": "{card} chốt hôm nay: trả {amount} để báo cáo dưới {pct}%",
+    "bxTitle": "Tối ưu chuyển dư nợ",
+    "bxSub": "Dư nợ lãi cao âm thầm tốn tiền — chuyển sang thẻ 0% giúp bạn giữ lại khoản lãi đó.",
+    "bxInterest": "Tốn {monthly}/tháng ({annual}/năm) ở mức APR {apr}%",
+    "bxMove": "Chuyển {amount} sang {dest} để tiết kiệm khoảng {savings} trong {months} tháng",
+    "bxMoveHypo": "Một thẻ chuyển dư nợ 0% có thể tiết kiệm khoảng {savings} trong {months} tháng"
   },
   "savings": {
     "title": "Tiết kiệm",

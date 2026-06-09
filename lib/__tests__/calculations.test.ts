@@ -19,7 +19,7 @@ import {
   creditUtilization, creditUtilStatus, isOverCreditTarget, availableCredit,
   calcPaydownToTarget, buildCreditReport, calcCreditAlerts, allocateSmartPayment,
   assessCardPaymentHistory, buildLimitIncreaseAdvisories, LIMIT_ADVISOR_TARGET,
-  buildStatementArbitrage,
+  buildStatementArbitrage, buildBalanceTransferAdvice,
   calcCreditUtilizationScore, composeHealthScore, daysUntilStatement, HEALTH_WEIGHTS,
   CREDIT_UTIL_TARGET,
 } from '@/lib/calculations';
@@ -1464,6 +1464,57 @@ describe('buildStatementArbitrage', () => {
     const later = makeAccount({ id: 'later', type: 'credit', balance: 800, creditLimit: 1000, statementDay: 12 }); // 4 days
     const items = buildStatementArbitrage([later, soon], today);
     expect(items.map((i) => i.account.id)).toEqual(['soon', 'later']);
+  });
+});
+
+describe('buildBalanceTransferAdvice', () => {
+  it('reports interest cost and savings into a real 0% destination', () => {
+    const high = makeAccount({ id: 'h', type: 'credit', balance: 1000, creditLimit: 2000, apr: 24 });
+    const zero = makeAccount({ id: 'z', type: 'credit', balance: 0, creditLimit: 5000, apr: 0 });
+    const advice = buildBalanceTransferAdvice([high, zero]);
+    expect(advice).toHaveLength(1);
+    const a = advice[0];
+    expect(a.account.id).toBe('h');
+    expect(a.annualInterest).toBe(240);           // 1000 * 24%
+    expect(a.monthlyInterest).toBe(20);           // 240 / 12
+    expect(a.transferable).toBe(1000);            // fits the 5000 of room
+    expect(a.destinationName).toBe('Test');       // the 0% card's name
+    expect(a.savings).toBe(240);                  // full balance moved, 12-month window
+  });
+
+  it('caps the transfer at the destination available room', () => {
+    const high = makeAccount({ id: 'h', type: 'credit', balance: 1000, creditLimit: 2000, apr: 24 });
+    const zero = makeAccount({ id: 'z', type: 'credit', balance: 700, creditLimit: 1000, apr: 0 }); // 300 room
+    const advice = buildBalanceTransferAdvice([high, zero]);
+    expect(advice[0].transferable).toBe(300);
+    expect(advice[0].savings).toBe(72);           // 300 * 24% over a year
+  });
+
+  it('still advises (hypothetical 0% card) when no low-APR destination exists', () => {
+    const high = makeAccount({ id: 'h', type: 'credit', balance: 1000, creditLimit: 2000, apr: 24 });
+    const advice = buildBalanceTransferAdvice([high]);
+    expect(advice).toHaveLength(1);
+    expect(advice[0].transferable).toBe(0);
+    expect(advice[0].destinationName).toBeNull();
+    expect(advice[0].savings).toBe(240);          // potential on the full balance
+  });
+
+  it('ignores low-APR cards as sources and cards without an APR set', () => {
+    const lowApr = makeAccount({ id: 'l', type: 'credit', balance: 1000, creditLimit: 2000, apr: 8 });
+    const noApr = makeAccount({ id: 'n', type: 'credit', balance: 1000, creditLimit: 2000 });
+    expect(buildBalanceTransferAdvice([lowApr, noApr])).toHaveLength(0);
+  });
+
+  it('allocates limited destination room worst-APR-first', () => {
+    const worst = makeAccount({ id: 'w', type: 'credit', balance: 500, creditLimit: 1000, apr: 27 });
+    const bad = makeAccount({ id: 'b', type: 'credit', balance: 500, creditLimit: 1000, apr: 20 });
+    const zero = makeAccount({ id: 'z', type: 'credit', balance: 600, creditLimit: 1000, apr: 0 }); // 400 room
+    const advice = buildBalanceTransferAdvice([bad, worst, zero]);
+    // 400 of room → all to the 27% card first, none left for the 20% card.
+    expect(advice[0].account.id).toBe('w');
+    expect(advice[0].transferable).toBe(400);
+    expect(advice[1].account.id).toBe('b');
+    expect(advice[1].transferable).toBe(0);
   });
 });
 

@@ -404,7 +404,7 @@ export async function getAccounts(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Accounts!A2:K200',
+    range: 'Accounts!A2:L200',
     // Raw cell value: a currency-formatted cell stays a number rather than
     // coming back as "$100.00" → NaN.
     valueRenderOption: 'UNFORMATTED_VALUE',
@@ -430,6 +430,9 @@ function rowToAccount(r: string[]): Account {
     creditLimit: r[9] === undefined || r[9] === '' ? undefined : Number(r[9]),
     // Column K is optional: statement closing day-of-month (1–31).
     statementDay: r[10] === undefined || r[10] === '' ? undefined : Number(r[10]),
+    // Column L is optional: a credit card's purchase APR % (Balance-Transfer
+    // Optimizer). Empty/blank → undefined (not 0, which means a real 0% APR).
+    apr: r[11] === undefined || r[11] === '' ? undefined : Number(r[11]),
   };
 }
 
@@ -438,7 +441,7 @@ export async function upsertAccount(
   spreadsheetId: string,
   account: Account
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Accounts', account.id, 'K');
+  await deleteRowById(accessToken, spreadsheetId, 'Accounts', account.id, 'L');
   const sheets = getSheetsClient(accessToken);
   await sheets.spreadsheets.values.append({
     spreadsheetId,
@@ -446,7 +449,7 @@ export async function upsertAccount(
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
-      values: [[account.id, account.name, account.type, account.institution, account.balance, account.last4, account.color, account.createdAt, account.openingBalance ?? '', account.creditLimit ?? '', account.statementDay ?? '']],
+      values: [[account.id, account.name, account.type, account.institution, account.balance, account.last4, account.color, account.createdAt, account.openingBalance ?? '', account.creditLimit ?? '', account.statementDay ?? '', account.apr ?? '']],
     },
   });
 }
@@ -1045,7 +1048,7 @@ export async function batchGetBadgesData(
     'Bills!A2:L200',
     'Budgets!A2:D200',
     'Transactions!A2:J',
-    'Accounts!A2:K200',
+    'Accounts!A2:L200',
   ];
   const res = await sheets.spreadsheets.values.batchGet({
     spreadsheetId,
@@ -1166,7 +1169,7 @@ function parseDashboardCore(
 const DASHBOARD_CORE_RANGES = [
   'Paychecks!A2:L',
   'Transactions!A2:J',
-  'Accounts!A2:K200',
+  'Accounts!A2:L200',
   'Bills!A2:L200',
   'Budgets!A2:D200',
   'Goals!A2:G200',
@@ -1239,7 +1242,7 @@ const BATCHABLE_SHEETS: Record<
   Exclude<BatchKey, NonBatchableKey>,
   { range: string; parse: (rows: string[][]) => unknown[] }
 > = {
-  accounts:     { range: 'Accounts!A2:K200',  parse: (rows) => rows.map(rowToAccount) },
+  accounts:     { range: 'Accounts!A2:L200',  parse: (rows) => rows.map(rowToAccount) },
   transactions: { range: 'Transactions!A2:J', parse: (rows) => rows.map(rowToTransaction) },
   bills:        { range: 'Bills!A2:L200',     parse: (rows) => rows.map(rowToBill) },
   paychecks:    { range: 'Paychecks!A2:L',    parse: (rows) => rows.map(rowToPaycheck) },

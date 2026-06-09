@@ -17,9 +17,10 @@ import { formatCurrency } from '@/lib/utils';
 import { useToast } from '@/lib/toast';
 import {
   buildCreditReport, CREDIT_UTIL_TARGET, CREDIT_UTIL_IDEAL, daysUntilStatement,
-  allocateSmartPayment, buildLimitIncreaseAdvisories, buildStatementArbitrage, creditUtilStatus,
+  allocateSmartPayment, buildLimitIncreaseAdvisories, buildStatementArbitrage,
+  buildBalanceTransferAdvice, creditUtilStatus,
   type CreditUtilStatus, type CreditCardReport, type PaymentAllocation, type LimitIncreaseAdvice,
-  type StatementArbitrageItem,
+  type StatementArbitrageItem, type BalanceTransferAdvice,
 } from '@/lib/calculations';
 import type { Account, Transaction } from '@/types';
 import { useTranslation } from '@/lib/i18n/context';
@@ -80,6 +81,7 @@ export default function CreditPage() {
   const report = useMemo(() => buildCreditReport(accounts), [accounts]);
   const advisories = useMemo(() => buildLimitIncreaseAdvisories(accounts, transactions, new Date()), [accounts, transactions]);
   const arbitrage = useMemo(() => buildStatementArbitrage(accounts, new Date()), [accounts]);
+  const transferAdvice = useMemo(() => buildBalanceTransferAdvice(accounts), [accounts]);
   const hasCards = report.cards.length > 0;
 
   // Persist a single card's credit fields (limit and/or statement day) —
@@ -180,6 +182,9 @@ export default function CreditPage() {
 
           {/* ── Smart payment planner ────────────────────────────────────── */}
           {report.totalBalance > 0 && <SmartPaymentPlanner accounts={accounts} />}
+
+          {/* ── Balance-transfer / APR optimizer ─────────────────────────── */}
+          {transferAdvice.length > 0 && <BalanceTransferCard advice={transferAdvice} />}
 
           {/* ── How to improve ───────────────────────────────────────────── */}
           <TipsCard />
@@ -615,6 +620,46 @@ function PlannerRow({ alloc }: { alloc: PaymentAllocation }) {
         <span className={styleAfter.text}>{fmtPct(alloc.utilAfter)}</span>
       </div>
     </div>
+  );
+}
+
+// ── Balance-transfer / APR optimizer ──────────────────────────────────────────
+// Surfaces interest cost on high-APR cards and the savings from moving the
+// balance to a 0%/low-APR card (logic in buildBalanceTransferAdvice). Only shows
+// when a card has its APR set and runs hot.
+function BalanceTransferCard({ advice }: { advice: BalanceTransferAdvice[] }) {
+  const { t } = useTranslation();
+  return (
+    <Card>
+      <div className="flex items-center gap-3 mb-5">
+        <CardIcon tone="rose"><Shuffle className="w-5 h-5" /></CardIcon>
+        <div>
+          <p className="text-base font-bold text-slate-900 dark:text-slate-100">{t('credit.bxTitle')}</p>
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('credit.bxSub')}</p>
+        </div>
+      </div>
+      <div className="space-y-3">
+        {advice.map((a) => (
+          <div key={a.account.id} className="rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-4 space-y-1.5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <CreditCard className="w-4 h-4 shrink-0" style={{ color: a.account.color }} />
+                <span className="font-bold text-sm text-slate-900 dark:text-slate-100 truncate">{a.account.name}</span>
+              </div>
+              <span className="text-xs font-bold text-rose-600 dark:text-rose-400 shrink-0">{a.apr}% APR</span>
+            </div>
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+              {t('credit.bxInterest', { monthly: formatCurrency(a.monthlyInterest), annual: formatCurrency(a.annualInterest), apr: a.apr })}
+            </p>
+            <p className="text-sm font-bold text-emerald-700 dark:text-emerald-300">
+              {a.destinationName
+                ? t('credit.bxMove', { amount: formatCurrency(a.transferable), dest: a.destinationName, savings: formatCurrency(a.savings), months: a.introMonths })
+                : t('credit.bxMoveHypo', { savings: formatCurrency(a.savings), months: a.introMonths })}
+            </p>
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }
 

@@ -498,6 +498,7 @@
     "groupInvestment": "Investments",
     "groupLoan": "Loans",
     "creditLimit": "Credit limit ($)",
+    "apr": "APR (%)",
     "utilization": "{pct} used",
     "setLimitHint": "Set a limit to track utilization"
   },
@@ -592,7 +593,12 @@
     "arbTitle": "Pay before your statement closes",
     "arbSub": "Bureaus report your balance on the closing date, not the due date — pay these down first to lower reported utilization.",
     "arbItem": "{card} closes in {days} day(s): pay {amount} to report under {pct}%",
-    "arbItemToday": "{card} closes today: pay {amount} to report under {pct}%"
+    "arbItemToday": "{card} closes today: pay {amount} to report under {pct}%",
+    "bxTitle": "Balance-transfer optimizer",
+    "bxSub": "High-interest balances quietly cost you — moving them to a 0% card keeps that interest in your pocket.",
+    "bxInterest": "Costing {monthly}/mo ({annual}/yr) at {apr}% APR",
+    "bxMove": "Move {amount} to {dest} to save about {savings} over {months} months",
+    "bxMoveHypo": "A 0% balance-transfer card could save about {savings} over {months} months"
   },
   "savings": {
     "title": "Savings",
