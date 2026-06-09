@@ -1520,3 +1520,19 @@ Caveat (pre-existing data): groups created before this column have `myShareTxId=
 - Split the single sequential `test` job (lint → typecheck → test) into three independent jobs (`lint`, `typecheck`, `test`) that run in parallel, each with its own checkout + npm cache. Switched `npm install` → `npm ci` for reproducible installs, and added a `concurrency` group (`cancel-in-progress`) so a quick re-push cancels superseded runs.
 
 **Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors (27 pre-existing warnings, unchanged); `npm test` 435/435 (was 424, +11); `npm run build` compiled successfully.
+
+## 2026-06-09 — Floating navigation UI (branch claude/menu-bar-floating-ui-w0ep7p)
+
+Reskinned the navigation surfaces to "float" (detached, rounded, elevated) instead of sitting flush against the screen edges. **No structural / functional changes** — every nav item, badge, hover/active Framer-Motion pill, the Quick-Add FAB, the More/Customize sheets, sign-out, theme toggle, and the localStorage nav ordering are untouched. All page content sections are unchanged.
+
+### `components/Sidebar.tsx`
+- **Desktop `Sidebar` (`aside`)**: was edge-to-edge full-height with a `border-r`. Now floats: `m-3` gap on all sides, `h-[calc(100vh-1.5rem)]` with `sticky top-3`, full `border` + `rounded-3xl`, and `shadow-xl` (light) / `shadow-black/40` (dark). The `w-64` width and flex placement are unchanged, so the main content simply starts after the floating panel + its gap.
+- **`MobileHeader`**: was a flush sticky top bar with `border-b`. Now floats: `mx-3 mt-3`, `sticky top-3`, full `border` + `rounded-2xl` + `shadow-lg`; trimmed `py-4`→`py-3` to keep height tidy.
+- **`MobileNav` bottom bar**: was `fixed bottom-0 left-0 right-0` with `border-t` + `pb-safe`. Now floats as a detached pill: `fixed bottom-4 left-4 right-4`, full `border` + `rounded-3xl`, upward/ambient `shadow` (light + dark variants). Removed `pb-safe` (no longer flush to the home indicator).
+- **More / Customize slide-up sheets**: anchor bumped `bottom-[72px]`→`bottom-[96px]` so they clear the floating bottom bar (which now sits ~16px off the edge).
+
+### `app/(app)/layout.tsx`
+- Mobile content bottom padding `pb-16`→`pb-24` so page content clears the floating bottom bar (now ~16px gap + ~64px height). `md:pb-0` unchanged.
+
+### Verification
+- `node_modules` is not installed in this fresh web session, so `tsc`/`eslint`/`build` cannot run here. Changes are pure Tailwind utility-class swaps (all standard utilities, no config or API changes), so no type/lint impact is expected.
