@@ -581,7 +581,14 @@
     "simReduced": "Giảm số thẻ vượt {pct}% từ {before} xuống {after}.",
     "simTowardIdeal": "Đã dưới {pct}% — khoản này đưa bạn về mức lý tưởng 10%.",
     "simLeftover": "Dư {amount} sau khi trả hết các dư nợ.",
-    "simNothing": "Khoản này chưa xử lý hết một thẻ, nhưng mỗi đồng vẫn giảm mức sử dụng."
+    "simNothing": "Khoản này chưa xử lý hết một thẻ, nhưng mỗi đồng vẫn giảm mức sử dụng.",
+    "advTitle": "Tư vấn tăng hạn mức",
+    "advSub": "Các thẻ này dùng cao nhưng bạn đã trả đều đặn — xin tăng hạn mức sẽ giảm mức sử dụng mà không tốn tiền.",
+    "advAskBank": "Đề nghị {bank} tăng hạn mức {amount}",
+    "advAsk": "Đề nghị tăng hạn mức {amount}",
+    "advNewLimit": "Hạn mức mới {amount}",
+    "advDilute": "Mức sử dụng {before} → {after}",
+    "advRecord": "{payments} lần trả trong {months} tháng được ghi nhận"
   },
   "savings": {
     "title": "Tiết kiệm",

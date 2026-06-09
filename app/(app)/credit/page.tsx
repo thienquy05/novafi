@@ -17,10 +17,10 @@ import { formatCurrency } from '@/lib/utils';
 import { useToast } from '@/lib/toast';
 import {
   buildCreditReport, CREDIT_UTIL_TARGET, CREDIT_UTIL_IDEAL, daysUntilStatement,
-  allocateSmartPayment,
-  type CreditUtilStatus, type CreditCardReport, type PaymentAllocation,
+  allocateSmartPayment, buildLimitIncreaseAdvisories, creditUtilStatus,
+  type CreditUtilStatus, type CreditCardReport, type PaymentAllocation, type LimitIncreaseAdvice,
 } from '@/lib/calculations';
-import type { Account } from '@/types';
+import type { Account, Transaction } from '@/types';
 import { useTranslation } from '@/lib/i18n/context';
 
 // Literal Tailwind class strings per status band (Tailwind v4 needs literals —
@@ -53,14 +53,17 @@ export default function CreditPage() {
   // Seed from the client cache so revisiting Credit shows numbers instantly
   // (no skeleton flash) instead of refetching every time we switch sections.
   const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
-  const [loading, setLoading] = useState(() => peekCache(['accounts']) === null);
+  // Transactions power the Limit Increase Advisor's "solid payment history" check.
+  const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
+  const [loading, setLoading] = useState(() => peekCache(['accounts', 'transactions']) === null);
   const [error, setError] = useState(false);
   const toast = useToast();
 
   const load = useCallback(async (force = false) => {
     try {
-      const { accounts } = await ensureResources(['accounts'], { force });
+      const { accounts, transactions } = await ensureResources(['accounts', 'transactions'], { force });
       setAccounts(accounts);
+      setTransactions(transactions);
       setError(false);
     } catch {
       setError(true);
@@ -74,6 +77,7 @@ export default function CreditPage() {
   useAutoRefresh(() => load(true));
 
   const report = useMemo(() => buildCreditReport(accounts), [accounts]);
+  const advisories = useMemo(() => buildLimitIncreaseAdvisories(accounts, transactions, new Date()), [accounts, transactions]);
   const hasCards = report.cards.length > 0;
 
   // Persist a single card's credit fields (limit and/or statement day) —
@@ -165,6 +169,9 @@ export default function CreditPage() {
               <CreditCardItem key={c.account.id} report={c} onSave={saveCard} />
             ))}
           </div>
+
+          {/* ── Limit increase advisor ───────────────────────────────────── */}
+          {advisories.length > 0 && <LimitAdvisorCard advisories={advisories} />}
 
           {/* ── Smart payment planner ────────────────────────────────────── */}
           {report.totalBalance > 0 && <SmartPaymentPlanner accounts={accounts} />}
@@ -415,6 +422,51 @@ function CreditCardItem({
           </div>
         </>
       )}
+    </Card>
+  );
+}
+
+// ── Limit increase advisor ────────────────────────────────────────────────────
+// High-utilization cards with a solid payment record: requesting a higher limit
+// dilutes utilization to a healthy band without spending cash. Logic lives in
+// buildLimitIncreaseAdvisories; this is pure display.
+function LimitAdvisorCard({ advisories }: { advisories: LimitIncreaseAdvice[] }) {
+  const { t } = useTranslation();
+  return (
+    <Card>
+      <div className="flex items-center gap-3 mb-5">
+        <CardIcon tone="emerald"><ArrowUpCircle className="w-5 h-5" /></CardIcon>
+        <div>
+          <p className="text-base font-bold text-slate-900 dark:text-slate-100">{t('credit.advTitle')}</p>
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('credit.advSub')}</p>
+        </div>
+      </div>
+      <div className="space-y-3">
+        {advisories.map((a) => {
+          const styleBefore = STATUS_STYLE[creditUtilStatus(a.currentUtil)];
+          return (
+            <div key={a.account.id} className="rounded-2xl bg-emerald-50/60 dark:bg-emerald-900/15 border border-emerald-100 dark:border-emerald-800/40 p-4 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <CreditCard className="w-4 h-4 shrink-0" style={{ color: a.account.color }} />
+                  <span className="font-bold text-sm text-slate-900 dark:text-slate-100 truncate">{a.account.name}</span>
+                </div>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${styleBefore.chip}`}>{fmtPct(a.currentUtil)}</span>
+              </div>
+              <p className="text-sm font-bold text-emerald-700 dark:text-emerald-300">
+                {a.account.institution
+                  ? t('credit.advAskBank', { bank: a.account.institution, amount: formatCurrency(a.increase) })
+                  : t('credit.advAsk', { amount: formatCurrency(a.increase) })}
+              </p>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                <span>{t('credit.advNewLimit', { amount: formatCurrency(a.recommendedLimit) })}</span>
+                <span className="text-emerald-600 dark:text-emerald-400">{t('credit.advDilute', { before: fmtPct(a.currentUtil), after: fmtPct(a.resultingUtil) })}</span>
+              </div>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500">{t('credit.advRecord', { payments: a.history.payments, months: a.history.monthsWithPayment })}</p>
+            </div>
+          );
+        })}
+      </div>
     </Card>
   );
 }

@@ -616,6 +616,92 @@ export function allocateSmartPayment(accounts: Account[], budget: number): Payme
   };
 }
 
+// ── Automated Limit Increase Advisor ──────────────────────────────────────────
+// A credit-limit increase dilutes utilization without spending a dollar — but
+// only worth requesting on a card you've shown you can manage. We infer a "solid
+// payment history" from the ledger (consistent payments toward the card) and, for
+// high-utilization cards that pass, compute the limit to request to drop
+// utilization to a healthy 15%.
+
+export const LIMIT_ADVISOR_TARGET = 15; // healthy band to dilute utilization to
+
+const SOLID_MIN_PAYMENTS = 3;        // ≥ this many payments toward the card …
+const SOLID_MIN_MONTHS = 3;          // … spread across ≥ this many distinct months …
+const HISTORY_WINDOW_MONTHS = 12;    // … within this lookback.
+
+// A card payment in this app is a transfer INTO the card (toAccount === card.id),
+// which reduces the owed balance. Charges (expenses on the card) are not payments.
+export type CardPaymentHistory = {
+  payments: number;          // payments toward the card within the window
+  monthsWithPayment: number; // distinct YYYY-MM with at least one payment
+  solid: boolean;            // consistent enough to justify asking for a bump
+};
+
+function isoDaysAgo(today: Date, months: number): string {
+  const d = new Date(today.getFullYear(), today.getMonth() - months, today.getDate());
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function assessCardPaymentHistory(
+  card: Account,
+  transactions: Transaction[],
+  today: Date = new Date(),
+): CardPaymentHistory {
+  const cutoff = isoDaysAgo(today, HISTORY_WINDOW_MONTHS);
+  const pays = transactions.filter(
+    (t) => t.type === 'transfer' && t.toAccount === card.id && t.amount > 0 && t.date >= cutoff,
+  );
+  const months = new Set(pays.map((t) => t.date.slice(0, 7)));
+  return {
+    payments: pays.length,
+    monthsWithPayment: months.size,
+    solid: pays.length >= SOLID_MIN_PAYMENTS && months.size >= SOLID_MIN_MONTHS,
+  };
+}
+
+export type LimitIncreaseAdvice = {
+  account: Account;
+  owed: number;
+  currentLimit: number;
+  currentUtil: number;       // % now (always > 30 for an advisory)
+  recommendedLimit: number;  // bank-friendly round limit that dilutes util to ≤ 15%
+  increase: number;          // recommendedLimit − currentLimit (> 0)
+  resultingUtil: number;     // % after the bump (≤ 15)
+  history: CardPaymentHistory;
+};
+
+// Advisories for every high-utilization card with a solid payment record. Cards
+// without a limit, at/under the 30% cap, or without the history are skipped.
+export function buildLimitIncreaseAdvisories(
+  accounts: Account[],
+  transactions: Transaction[],
+  today: Date = new Date(),
+): LimitIncreaseAdvice[] {
+  const out: LimitIncreaseAdvice[] = [];
+  for (const account of accounts) {
+    if (account.type !== 'credit') continue;
+    const currentLimit = account.creditLimit ?? 0;
+    if (currentLimit <= 0) continue;
+    const owed = Math.max(0, account.balance);
+    const currentUtil = creditUtilization(owed, currentLimit);
+    if (currentUtil === null || currentUtil <= CREDIT_UTIL_TARGET) continue; // only high-util cards
+    const history = assessCardPaymentHistory(account, transactions, today);
+    if (!history.solid) continue;
+    // Smallest limit that dilutes utilization to ≤15%, rounded up to a $100 that
+    // a bank would actually grant.
+    const raw = owed / (LIMIT_ADVISOR_TARGET / 100);
+    const recommendedLimit = Math.max(currentLimit, Math.ceil(raw / 100) * 100);
+    const increase = roundCents(recommendedLimit - currentLimit);
+    if (increase <= 0) continue;
+    out.push({
+      account, owed, currentLimit, currentUtil, recommendedLimit, increase,
+      resultingUtil: creditUtilization(owed, recommendedLimit) ?? 0,
+      history,
+    });
+  }
+  return out;
+}
+
 // Days until a card's next statement closing date (0 = closes today). Returns
 // null when no statement day is set. Bureaus report the STATEMENT balance, so
 // paying down before this date is what actually lowers reported utilization.

@@ -581,7 +581,14 @@
     "simReduced": "Drops cards over {pct}% from {before} to {after}.",
     "simTowardIdeal": "Already under {pct}% — this pushes you toward the 10% ideal.",
     "simLeftover": "{amount} left after clearing every balance.",
-    "simNothing": "This won't clear a full spike yet, but every dollar still lowers utilization."
+    "simNothing": "This won't clear a full spike yet, but every dollar still lowers utilization.",
+    "advTitle": "Limit increase advisor",
+    "advSub": "These cards run high but you've paid them down consistently — asking for a higher limit dilutes utilization with zero cash out.",
+    "advAskBank": "Ask {bank} for a {amount} limit increase",
+    "advAsk": "Request a {amount} limit increase",
+    "advNewLimit": "New limit {amount}",
+    "advDilute": "Utilization {before} → {after}",
+    "advRecord": "{payments} payments across {months} months on record"
   },
   "savings": {
     "title": "Savings",

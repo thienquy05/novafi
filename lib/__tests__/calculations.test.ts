@@ -18,6 +18,7 @@ import {
   calcPaycheckDeposited,
   creditUtilization, creditUtilStatus, isOverCreditTarget, availableCredit,
   calcPaydownToTarget, buildCreditReport, calcCreditAlerts, allocateSmartPayment,
+  assessCardPaymentHistory, buildLimitIncreaseAdvisories, LIMIT_ADVISOR_TARGET,
   calcCreditUtilizationScore, composeHealthScore, daysUntilStatement, HEALTH_WEIGHTS,
   CREDIT_UTIL_TARGET,
 } from '@/lib/calculations';
@@ -1345,6 +1346,84 @@ describe('allocateSmartPayment', () => {
     expect(plan.totalPaid).toBe(0);
     expect(plan.allocations).toHaveLength(0);
     expect(plan.spikesAfter).toBe(plan.spikesBefore);
+  });
+});
+
+describe('assessCardPaymentHistory', () => {
+  const card = makeAccount({ id: 'cc', type: 'credit', balance: 800, creditLimit: 1000, createdAt: '2025-01-01' });
+  const today = new Date('2026-06-08');
+
+  it('counts only transfers INTO the card as payments', () => {
+    const txs = [
+      makeTx({ id: '1', type: 'transfer', toAccount: 'cc', amount: 100, date: '2026-05-10' }), // payment
+      makeTx({ id: '2', type: 'expense', account: 'cc', amount: 50, date: '2026-05-11' }),       // charge, not a payment
+      makeTx({ id: '3', type: 'transfer', account: 'cc', amount: 30, date: '2026-05-12' }),      // cash advance OUT, not a payment
+    ];
+    const h = assessCardPaymentHistory(card, txs, today);
+    expect(h.payments).toBe(1);
+  });
+
+  it('is solid with 3+ payments across 3+ distinct months', () => {
+    const txs = [
+      makeTx({ id: '1', type: 'transfer', toAccount: 'cc', amount: 100, date: '2026-03-10' }),
+      makeTx({ id: '2', type: 'transfer', toAccount: 'cc', amount: 100, date: '2026-04-10' }),
+      makeTx({ id: '3', type: 'transfer', toAccount: 'cc', amount: 100, date: '2026-05-10' }),
+    ];
+    const h = assessCardPaymentHistory(card, txs, today);
+    expect(h.monthsWithPayment).toBe(3);
+    expect(h.solid).toBe(true);
+  });
+
+  it('is not solid when payments cluster in too few months', () => {
+    const txs = [
+      makeTx({ id: '1', type: 'transfer', toAccount: 'cc', amount: 50, date: '2026-05-01' }),
+      makeTx({ id: '2', type: 'transfer', toAccount: 'cc', amount: 50, date: '2026-05-10' }),
+      makeTx({ id: '3', type: 'transfer', toAccount: 'cc', amount: 50, date: '2026-05-20' }),
+    ];
+    expect(assessCardPaymentHistory(card, txs, today).solid).toBe(false);
+  });
+
+  it('ignores payments older than the lookback window', () => {
+    const txs = [
+      makeTx({ id: '1', type: 'transfer', toAccount: 'cc', amount: 100, date: '2024-01-10' }),
+      makeTx({ id: '2', type: 'transfer', toAccount: 'cc', amount: 100, date: '2024-02-10' }),
+      makeTx({ id: '3', type: 'transfer', toAccount: 'cc', amount: 100, date: '2024-03-10' }),
+    ];
+    expect(assessCardPaymentHistory(card, txs, today).payments).toBe(0);
+  });
+});
+
+describe('buildLimitIncreaseAdvisories', () => {
+  const today = new Date('2026-06-08');
+  const solidHistory = (id: string) => [
+    makeTx({ id: id + 'a', type: 'transfer', toAccount: id, amount: 100, date: '2026-03-10' }),
+    makeTx({ id: id + 'b', type: 'transfer', toAccount: id, amount: 100, date: '2026-04-10' }),
+    makeTx({ id: id + 'c', type: 'transfer', toAccount: id, amount: 100, date: '2026-05-10' }),
+  ];
+
+  it('recommends the limit that dilutes a high-util card to <=15%, rounded up to $100', () => {
+    const card = makeAccount({ id: 'cc', type: 'credit', balance: 800, creditLimit: 1000 }); // 80%
+    const advice = buildLimitIncreaseAdvisories([card], solidHistory('cc'), today);
+    expect(advice).toHaveLength(1);
+    // 800 / 0.15 = 5333.3 → round up to 5400.
+    expect(advice[0].recommendedLimit).toBe(5400);
+    expect(advice[0].increase).toBe(4400);
+    expect(advice[0].resultingUtil).toBeLessThanOrEqual(LIMIT_ADVISOR_TARGET);
+  });
+
+  it('skips cards at or under the 30% cap', () => {
+    const card = makeAccount({ id: 'cc', type: 'credit', balance: 200, creditLimit: 1000 }); // 20%
+    expect(buildLimitIncreaseAdvisories([card], solidHistory('cc'), today)).toHaveLength(0);
+  });
+
+  it('skips high-util cards without a solid payment history', () => {
+    const card = makeAccount({ id: 'cc', type: 'credit', balance: 800, creditLimit: 1000 });
+    expect(buildLimitIncreaseAdvisories([card], [], today)).toHaveLength(0);
+  });
+
+  it('skips cards with no limit set', () => {
+    const card = makeAccount({ id: 'cc', type: 'credit', balance: 800 });
+    expect(buildLimitIncreaseAdvisories([card], solidHistory('cc'), today)).toHaveLength(0);
   });
 });
 

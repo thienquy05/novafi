@@ -1459,3 +1459,18 @@ Caveat (pre-existing data): groups created before this column have `myShareTxId=
 **Locales:** added `credit.sim*` keys to en/vi (`simTitle`, `simSub`, `simInputLabel`, `simPlaceholder`, `simPrompt`, `simRecommended`, `simPay`, `simArrow`, `simSpikesLabel`, `simOverallLabel`, `simAllClear`, `simReduced`, `simTowardIdeal`, `simLeftover`, `simNothing`).
 
 **Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors (pre-existing warnings only); `npm test` 406/406; `npm run build` compiled successfully.
+
+## 2026-06-08 — Automated Limit Increase Advisor (credit page)
+
+**Goal:** For a high-utilization card with a solid payment record, tell the user the exact limit increase to request so utilization dilutes to a healthy 15% — no cash spent. "Solid payment history" is inferred from the ledger (per the chosen approach).
+
+**`lib/calculations.ts`:**
+- `assessCardPaymentHistory(card, transactions, today)` → `CardPaymentHistory { payments, monthsWithPayment, solid }`. A card payment = a `transfer` with `toAccount === card.id` and `amount > 0` (the model that reduces a debt balance); charges/cash-advances are excluded. `solid` = ≥3 payments across ≥3 distinct months within a 12-month lookback.
+- `buildLimitIncreaseAdvisories(accounts, transactions, today)` → `LimitIncreaseAdvice[]`. For each credit card with a limit, util > 30% (`CREDIT_UTIL_TARGET`), and a solid history: recommends the smallest **$100-rounded** limit that dilutes utilization to ≤15% (`LIMIT_ADVISOR_TARGET`), with `increase`, `resultingUtil`, and the `history`. Skips cards with no limit, at/under 30%, or without the history.
+- New exports: `LIMIT_ADVISOR_TARGET`, `assessCardPaymentHistory`, `buildLimitIncreaseAdvisories`, types `CardPaymentHistory`/`LimitIncreaseAdvice`. 8 new tests (payment detection, solid/not-solid, lookback window, recommendation math, skip conditions).
+
+**`app/(app)/credit/page.tsx`:** credit page now also loads `transactions` (via `ensureResources(['accounts','transactions'])`, seeded from cache) to feed the advisor. New `LimitAdvisorCard` rendered above the planner when `advisories.length > 0`; per card it shows the current utilization chip, an "Ask {bank} for a {amount} limit increase" headline (generic when no institution), the new limit, the utilization before→after, and the payment record backing the recommendation. Imports `buildLimitIncreaseAdvisories`/`creditUtilStatus` and the `Transaction` type.
+
+**Locales:** added `credit.adv*` keys to en/vi (`advTitle`, `advSub`, `advAskBank`, `advAsk`, `advNewLimit`, `advDilute`, `advRecord`).
+
+**Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors; `npm test` 414/414; `npm run build` compiled successfully (29/29 pages).
