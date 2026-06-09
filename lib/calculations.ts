@@ -1,4 +1,4 @@
-import type { Account, Transaction, Bill, Budget } from '@/types';
+import type { Account, Transaction, Bill, Budget, Loan, Split } from '@/types';
 
 // ── Net Worth ─────────────────────────────────────────────────────────────────
 
@@ -613,6 +613,239 @@ export function allocateSmartPayment(accounts: Account[], budget: number): Payme
     spikesAfter: allCards.filter((a) => a.utilAfter > CREDIT_UTIL_TARGET).length,
     overallUtilBefore: totalLimit > 0 ? roundCents((totalOwedBefore / totalLimit) * 100) : null,
     overallUtilAfter: totalLimit > 0 ? roundCents((totalOwedAfter / totalLimit) * 100) : null,
+  };
+}
+
+// ── Predicted Income ──────────────────────────────────────────────────────────
+// Forecast a normal month's income from the ledger so features can answer "how
+// much can I afford?" without the user typing a number. Preference order:
+//   1. Recurring paychecks — income rows that repeat (same source, steady amount,
+//      regular cadence). Each source's monthly contribution is its average amount
+//      scaled by how often it lands (≈30.44 ÷ median gap in days), so weekly,
+//      biweekly, semimonthly and monthly paychecks all normalize to a month.
+//   2. Average of the last 3 COMPLETE months (months with income only, so a gap
+//      month doesn't drag the mean down).
+//   3. The current partial month's income so far — last resort with sparse history.
+
+export const INCOME_RECUR_MIN_OCCURRENCES = 3; // need ≥ this many deposits …
+export const INCOME_RECUR_MIN_MONTHS = 2;      // … across ≥ this many distinct months …
+export const INCOME_RECUR_AMOUNT_TOLERANCE = 1.5; // … with amounts this consistent (max/min) …
+export const INCOME_RECUR_ACTIVE_DAYS = 45;    // … and the latest deposit within this window.
+const DAYS_PER_MONTH = 30.44;
+
+export type IncomeMethod = 'recurring' | 'average' | 'current' | 'none';
+
+export type IncomeSource = {
+  name: string;          // most common description for the recurring deposit
+  monthlyAmount: number; // average deposit scaled to a month by its cadence
+  cadenceDays: number;   // median days between deposits (≈7 weekly, ≈14 biweekly…)
+  occurrences: number;   // how many deposits backed this estimate
+};
+
+export type PredictedIncome = {
+  amount: number;        // forecast income for a normal month
+  method: IncomeMethod;
+  sources: IncomeSource[]; // populated only for the 'recurring' method
+};
+
+// Absolute whole-day distance between two YYYY-MM-DD dates (order-independent).
+function daysBetween(a: string, b: string): number | null {
+  const da = daysSinceDate(a, new Date(0));
+  const db = daysSinceDate(b, new Date(0));
+  if (da === null || db === null) return null;
+  return Math.abs(da - db);
+}
+
+export function predictMonthlyIncome(
+  transactions: Transaction[],
+  today: Date = new Date(),
+): PredictedIncome {
+  // 1 — recurring paycheck detection (mirrors detectSubscriptions for income).
+  const groups = new Map<string, Transaction[]>();
+  for (const t of transactions) {
+    if (t.type !== 'income' || t.amount <= 0) continue;
+    const key = normalizeMerchant(t.description);
+    if (!key) continue;
+    let arr = groups.get(key);
+    if (!arr) { arr = []; groups.set(key, arr); }
+    arr.push(t);
+  }
+
+  const sources: IncomeSource[] = [];
+  for (const txs of groups.values()) {
+    if (txs.length < INCOME_RECUR_MIN_OCCURRENCES) continue;
+    const sorted = [...txs].sort((a, b) => a.date.localeCompare(b.date));
+    const months = new Set(sorted.map((t) => t.date.slice(0, 7)));
+    if (months.size < INCOME_RECUR_MIN_MONTHS) continue;
+    const amounts = sorted.map((t) => t.amount);
+    const min = Math.min(...amounts), max = Math.max(...amounts);
+    if (min <= 0 || max / min > INCOME_RECUR_AMOUNT_TOLERANCE) continue; // erratic → not a steady paycheck
+    const lastDays = daysSinceDate(sorted[sorted.length - 1].date, today);
+    if (lastDays === null || lastDays > INCOME_RECUR_ACTIVE_DAYS) continue; // stopped → don't project it forward
+
+    const gaps: number[] = [];
+    for (let i = 1; i < sorted.length; i++) {
+      const g = daysBetween(sorted[i - 1].date, sorted[i].date);
+      if (g !== null && g > 0) gaps.push(g);
+    }
+    if (gaps.length === 0) continue;
+    gaps.sort((a, b) => a - b);
+    const cadence = gaps[Math.floor(gaps.length / 2)]; // median gap → cadence
+    const avgAmount = roundCents(amounts.reduce((s, x) => s + x, 0) / amounts.length);
+    const perMonth = DAYS_PER_MONTH / Math.max(1, cadence);
+    sources.push({
+      name: mostCommonDescription(sorted),
+      monthlyAmount: roundCents(avgAmount * perMonth),
+      cadenceDays: cadence,
+      occurrences: sorted.length,
+    });
+  }
+
+  if (sources.length > 0) {
+    sources.sort((a, b) => b.monthlyAmount - a.monthlyAmount);
+    return {
+      amount: roundCents(sources.reduce((s, x) => s + x.monthlyAmount, 0)),
+      method: 'recurring',
+      sources,
+    };
+  }
+
+  // 2 — average of the last 3 complete months (ignoring zero-income months).
+  const monthly = monthKeysBefore(today, 3).map((mk) => calcMonthIncome(transactions, mk));
+  const withIncome = monthly.filter((m) => m > 0);
+  if (withIncome.length > 0) {
+    return {
+      amount: roundCents(withIncome.reduce((s, x) => s + x, 0) / withIncome.length),
+      method: 'average',
+      sources: [],
+    };
+  }
+
+  // 3 — current partial month so far.
+  const curKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  const cur = calcMonthIncome(transactions, curKey);
+  if (cur > 0) return { amount: roundCents(cur), method: 'current', sources: [] };
+
+  return { amount: 0, method: 'none', sources: [] };
+}
+
+// ── Suggested Credit-Card Payment Budget ──────────────────────────────────────
+// Answers "how much should I throw at my cards this month?" from your actual
+// money picture instead of a typed guess. The disposable cash for debt paydown is:
+//
+//   predicted income
+//     − bills due this month (your share after splits)
+//     − budgeted discretionary spending (monthly-normalized caps)
+//     − outstanding 'borrowed' loans you owe back
+//     + money owed TO you (unsettled 'lent' loans + split receivables)
+//
+// floored at 0, then capped at what you actually owe across cards (never suggest
+// paying more than the balance). Feed the result into allocateSmartPayment to get
+// the per-card split. Obligations tied to a specific credit card (a bill auto-
+// charged to it, a loan drawn on it, a split fronted from it) are tracked in
+// `cardLinked` so the UI can show that the card itself is the reason — that's the
+// "include loans/splits related to the card" accuracy the estimate leans on.
+
+export type CardPaymentBreakdown = {
+  predictedIncome: number;
+  incomeMethod: IncomeMethod;
+  incomeSources: IncomeSource[];
+  bills: number;          // your share of bills due this calendar month (subtracted)
+  budgets: number;        // monthly-normalized budget caps (subtracted)
+  loanRepayments: number; // outstanding 'borrowed' loans you owe (subtracted)
+  incomingOwed: number;   // unsettled 'lent' loans + split receivables (added back)
+  cardLinked: {           // the slice of the above that is tied to a credit card
+    bills: number;
+    loans: number;
+    splits: number;
+  };
+  freeCash: number;       // income − bills − budgets − loans + incoming, floored at 0
+  cardBalance: number;    // total currently owed across all credit cards
+  suggested: number;      // min(freeCash, cardBalance) — what to hand the planner
+};
+
+// Active bills whose nextDue lands in the given month (overdue-earlier-this-month
+// included). 'once' bills count only while still active.
+function billsDueInMonth(bills: Bill[], monthKey: string, cardIds: Set<string>) {
+  let total = 0;
+  let cardLinked = 0;
+  for (const b of bills) {
+    if (!b.isActive) continue;
+    if (!b.nextDue.startsWith(monthKey)) continue;
+    const share = myBillShare(b);
+    total = roundCents(total + share);
+    if (cardIds.has(b.account)) cardLinked = roundCents(cardLinked + share);
+  }
+  return { total, cardLinked };
+}
+
+export function suggestCardPaymentBudget(input: {
+  accounts: Account[];
+  transactions: Transaction[];
+  bills: Bill[];
+  budgets: Budget[];
+  loans: Loan[];
+  splits: Split[];
+  today?: Date;
+}): CardPaymentBreakdown {
+  const today = input.today ?? new Date();
+  const monthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+
+  const cardIds = new Set(input.accounts.filter((a) => a.type === 'credit').map((a) => a.id));
+  const cardBalance = roundCents(
+    input.accounts
+      .filter((a) => a.type === 'credit')
+      .reduce((s, a) => s + Math.max(0, a.balance), 0),
+  );
+
+  const predicted = predictMonthlyIncome(input.transactions, today);
+
+  const billsDue = billsDueInMonth(input.bills, monthKey, cardIds);
+
+  const budgets = roundCents(
+    input.budgets.reduce((s, b) => s + normalizeMonthlyBudget(b.amount, b.period), 0),
+  );
+
+  let loanRepayments = 0;
+  let cardLinkedLoans = 0;
+  for (const l of input.loans) {
+    if (l.direction !== 'borrowed' || l.settled) continue;
+    const owed = calcLoanRemaining(l.principal, l.repaidAmount);
+    loanRepayments = roundCents(loanRepayments + owed);
+    if (cardIds.has(l.account)) cardLinkedLoans = roundCents(cardLinkedLoans + owed);
+  }
+
+  let incomingOwed = 0;
+  let cardLinkedSplits = 0;
+  for (const l of input.loans) {
+    if (l.direction !== 'lent' || l.settled) continue;
+    incomingOwed = roundCents(incomingOwed + calcLoanRemaining(l.principal, l.repaidAmount));
+  }
+  for (const s of input.splits) {
+    if (s.settled) continue;
+    const owed = Math.max(0, roundCents(s.amount - (s.repaidAmount || 0)));
+    incomingOwed = roundCents(incomingOwed + owed);
+    if (cardIds.has(s.account)) cardLinkedSplits = roundCents(cardLinkedSplits + owed);
+  }
+
+  const freeCash = Math.max(
+    0,
+    roundCents(predicted.amount - billsDue.total - budgets - loanRepayments + incomingOwed),
+  );
+  const suggested = roundCents(Math.min(freeCash, cardBalance));
+
+  return {
+    predictedIncome: predicted.amount,
+    incomeMethod: predicted.method,
+    incomeSources: predicted.sources,
+    bills: billsDue.total,
+    budgets,
+    loanRepayments,
+    incomingOwed,
+    cardLinked: { bills: billsDue.cardLinked, loans: cardLinkedLoans, splits: cardLinkedSplits },
+    freeCash,
+    cardBalance,
+    suggested,
   };
 }
 

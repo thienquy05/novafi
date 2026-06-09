@@ -2,6 +2,34 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-09 — Income-based credit-card payment suggestion (branch claude/predicted-income-card-payment)
+
+The Smart Payment Planner on `/credit` used to require the user to **type** a payment amount; it only decided how to split that amount across cards. Now NovaFi **estimates the amount itself** from the user's money picture (predicted income − obligations + what's owed to you), prefills it, and still lets the user override by typing. Per the user's request, the estimate factors in income (predicted, not just current), bills, budgets, loans, and splits — including ones tied to a specific card for accuracy.
+
+### `lib/calculations.ts` — two new pure functions (+ types)
+- **`predictMonthlyIncome(transactions, today)` → `PredictedIncome`** (`{ amount, method, sources }`). Forecasts a normal month's income, preference order:
+  1. **Recurring paychecks** — groups income txs by `normalizeMerchant(description)` (reuses the subscription-detector helper). A group qualifies with ≥3 deposits across ≥2 distinct months, amounts within a 1.5× max/min band, latest within 45 days. Cadence = **median gap** between consecutive deposits; each source's monthly contribution = `avgAmount × (30.44 / cadenceDays)`, so weekly/biweekly/semimonthly/monthly paychecks all normalize to a month. `method: 'recurring'`, `sources` populated.
+  2. **Average** of the last 3 **complete** months (zero-income months ignored so a gap month doesn't drag the mean). `method: 'average'`.
+  3. **Current** partial month's income so far. `method: 'current'`. Else `{ amount: 0, method: 'none' }`.
+  - New exported consts `INCOME_RECUR_MIN_OCCURRENCES/MIN_MONTHS/AMOUNT_TOLERANCE/ACTIVE_DAYS`, types `IncomeMethod`, `IncomeSource`, `PredictedIncome`. Added a small hoisted `daysBetween(a,b)` helper (order-independent day distance, built on the existing `daysSinceDate`).
+- **`suggestCardPaymentBudget({ accounts, transactions, bills, budgets, loans, splits, today? })` → `CardPaymentBreakdown`**. Disposable cash for card paydown:
+  `predictedIncome − billsDueThisMonth(my share) − budgetedSpending(monthly-normalized caps) − outstanding 'borrowed' loans + (unsettled 'lent' loans + split receivables)`, **floored at 0** and **capped at total card balance** → `suggested`. Bills counted only when `nextDue` is in the current month (helper `billsDueInMonth`), using `myBillShare` (split-aware). Obligations whose `account` is a credit card (a bill charged to it, a loan drawn on it, a split fronted from it) are also summed into `cardLinked.{bills,loans,splits}` for transparency/accuracy. Returns every line item (`predictedIncome`, `incomeMethod`, `incomeSources`, `bills`, `budgets`, `loanRepayments`, `incomingOwed`, `cardLinked`, `freeCash`, `cardBalance`, `suggested`). Imports `Loan`/`Split` types.
+
+### `app/(app)/credit/page.tsx`
+- Page now loads `bills`, `budgets`, `loans`, `splits` alongside `accounts`/`transactions` via `ensureResources` (each cache-seeded with `peekCache`) and passes them to the planner.
+- **`SmartPaymentPlanner`** computes `suggestCardPaymentBudget` (memoized). The effective budget = the user's typed value if present, else `suggestion.suggested` (so it works with **zero input**). Input label switches to "Adjust the amount (optional)" and the placeholder shows the suggested figure when auto-driven. When income is predicted but free cash is 0, shows `simNoFreeCash` instead of the generic prompt.
+- New **`IncomeSuggestion`** sub-component: indigo panel with the headline "Suggested from your income → $X", the method label (recurring / average / current), a "Use suggested $X" reset button (only when overriding), and a collapsible **breakdown** (`BreakdownRow` rows: +income, −bills, −budgets, −loans, +owed-to-you, =free cash, capped-at-balance, plus a "$Y tied to these cards" note). Imports `suggestCardPaymentBudget` + `CardPaymentBreakdown` and the `Bill/Budget/Loan/Split` types.
+
+### Locales (`en.json` + `vi.json`)
+- Reworded `credit.simSub`; added `simInputLabelAuto`, `simNoFreeCash`, `simIncomeTitle`, `simIncome{Recurring,Average,Current}`, `simUseSuggestion`, `simBreakdown{Show,Hide}`, `simRow{Income,Bills,Budgets,Loans,Incoming,FreeCash,Capped}`, `simCardLinked`.
+
+### Tests — `lib/__tests__/calculations.test.ts` (+7, 435 → 442)
+- `predictMonthlyIncome`: biweekly projection (cadence 14, ≈$4348.57/mo), stopped-paycheck → none, average fallback, no-income → none.
+- `suggestCardPaymentBudget`: full breakdown arithmetic + card-linked split flagging, free-cash floored at 0, current-month-only bill filter. Added `makeLoan`/`makeSplit` fixtures.
+
+### Verification
+`npm run typecheck` clean · `npm run lint` 0 errors (pre-existing warnings only, unchanged) · `npm test` 442/442 · `npm run build` compiled successfully.
+
 ## 2026-06-08 — Credit deepening: health-score factor, statement dates, util trend, banner notice + dashboard redesign (branch claude/relaxed-albattani-ffio8g)
 
 Implemented all four follow-up ideas plus a dashboard reorganization.

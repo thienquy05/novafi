@@ -23,8 +23,9 @@ import {
   detectSubscriptions, suggestBudgetReallocations, denormalizeMonthlyBudget,
   calcCreditUtilizationScore, composeHealthScore, daysUntilStatement, HEALTH_WEIGHTS,
   CREDIT_UTIL_TARGET,
+  predictMonthlyIncome, suggestCardPaymentBudget,
 } from '@/lib/calculations';
-import type { Account, Transaction, Bill, Budget } from '@/types';
+import type { Account, Transaction, Bill, Budget, Loan, Split } from '@/types';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -1737,5 +1738,142 @@ describe('daysUntilStatement', () => {
   it('clamps a 31 to the last day of a short month', () => {
     // Feb 2026 has 28 days → statement "31" clamps to Feb 28.
     expect(daysUntilStatement(31, new Date(2026, 1, 10))).toBe(18); // Feb 10 → Feb 28
+  });
+});
+
+// ── predictMonthlyIncome ──────────────────────────────────────────────────────
+
+describe('predictMonthlyIncome', () => {
+  const today = new Date(2026, 5, 15); // Jun 15 2026
+
+  it('projects recurring biweekly paychecks to a monthly figure', () => {
+    // Same payer, steady amount, ~14 days apart, latest within the active window.
+    const txs: Transaction[] = [
+      '2026-04-03', '2026-04-17', '2026-05-01', '2026-05-15', '2026-05-29', '2026-06-12',
+    ].map((date, i) => makeTx({ id: `p${i}`, type: 'income', description: 'ACME Payroll', amount: 2000, date }));
+    const r = predictMonthlyIncome(txs, today);
+    expect(r.method).toBe('recurring');
+    expect(r.sources).toHaveLength(1);
+    expect(r.sources[0].cadenceDays).toBe(14);
+    // 2000 × (30.44 / 14) ≈ 4348.57 — biweekly normalizes to ~2.17 paychecks/month.
+    expect(r.amount).toBeCloseTo(4348.57, 1);
+  });
+
+  it('ignores a paycheck that stopped (latest deposit too old)', () => {
+    const txs: Transaction[] = ['2026-01-03', '2026-01-17', '2026-01-31'].map((date, i) =>
+      makeTx({ id: `o${i}`, type: 'income', description: 'Old Job', amount: 2000, date }),
+    );
+    // No active recurring source and no income in the trailing 3 months → none.
+    expect(predictMonthlyIncome(txs, today).method).toBe('none');
+  });
+
+  it('falls back to the average of the last 3 complete months when nothing recurs', () => {
+    // Distinct descriptions → never grouped as a recurring paycheck.
+    const txs: Transaction[] = [
+      makeTx({ id: 'a', type: 'income', description: 'May gig', amount: 3000, date: '2026-05-10' }),
+      makeTx({ id: 'b', type: 'income', description: 'Apr gig', amount: 1000, date: '2026-04-10' }),
+      makeTx({ id: 'c', type: 'income', description: 'Mar gig', amount: 2000, date: '2026-03-10' }),
+    ];
+    const r = predictMonthlyIncome(txs, today);
+    expect(r.method).toBe('average');
+    expect(r.amount).toBe(2000); // (3000 + 1000 + 2000) / 3
+    expect(r.sources).toHaveLength(0);
+  });
+
+  it('returns zero / none with no income at all', () => {
+    const r = predictMonthlyIncome([makeTx({ type: 'expense', amount: 50 })], today);
+    expect(r.amount).toBe(0);
+    expect(r.method).toBe('none');
+  });
+});
+
+// ── suggestCardPaymentBudget ──────────────────────────────────────────────────
+
+function makeLoan(overrides: Partial<Loan> & { direction: Loan['direction'] }): Loan {
+  return {
+    id: 'loan_1', contactId: 'c1', contactName: 'Sam', account: 'acc_1', category: '',
+    principal: 0, repaidAmount: 0, date: '2026-05-01', note: '', settled: false, settledDate: '',
+    principalTxId: '', repaymentTxIds: [],
+    ...overrides,
+  };
+}
+
+function makeSplit(overrides: Partial<Split> = {}): Split {
+  return {
+    id: 'split_1', billId: 'b1', billName: 'Dinner', contactId: 'c1', contactName: 'Sam',
+    amount: 0, category: 'Food', account: 'acc_1', date: '2026-05-01', settled: false, settledDate: '',
+    repaidAmount: 0, repaymentTxIds: [],
+    ...overrides,
+  };
+}
+
+describe('suggestCardPaymentBudget', () => {
+  const today = new Date(2026, 5, 15); // Jun 15 2026
+  const card = makeAccount({ id: 'cc', type: 'credit', balance: 1000, creditLimit: 5000 });
+  const checking = makeAccount({ id: 'chk', type: 'checking', balance: 8000 });
+
+  // Distinct descriptions keep income on the clean 'average' path: avg = 3000.
+  const income: Transaction[] = [
+    makeTx({ id: 'i1', type: 'income', description: 'May pay', amount: 3000, date: '2026-05-10' }),
+    makeTx({ id: 'i2', type: 'income', description: 'Apr pay', amount: 3000, date: '2026-04-10' }),
+    makeTx({ id: 'i3', type: 'income', description: 'Mar pay', amount: 3000, date: '2026-03-10' }),
+  ];
+
+  it('derives free cash from income minus obligations plus what is owed to you', () => {
+    const r = suggestCardPaymentBudget({
+      accounts: [card, checking],
+      transactions: income,
+      bills: [makeBill({ amount: 500, nextDue: '2026-06-20', account: 'chk' })],
+      budgets: [{ id: 'bg', category: 'Food', amount: 800, period: 'monthly' }],
+      loans: [
+        makeLoan({ direction: 'borrowed', principal: 1000, repaidAmount: 200, account: 'chk' }), // owe 800
+        makeLoan({ id: 'l2', direction: 'lent', principal: 300 }),                               // owed 300
+      ],
+      splits: [makeSplit({ amount: 100, account: 'cc' })],                                        // owed 100, on the card
+      today,
+    });
+    expect(r.predictedIncome).toBe(3000);
+    expect(r.incomeMethod).toBe('average');
+    expect(r.bills).toBe(500);
+    expect(r.budgets).toBe(800);
+    expect(r.loanRepayments).toBe(800);
+    expect(r.incomingOwed).toBe(400); // 300 lent + 100 split
+    // 3000 − 500 − 800 − 800 + 400 = 1300 free cash, capped at the 1000 owed.
+    expect(r.freeCash).toBe(1300);
+    expect(r.cardBalance).toBe(1000);
+    expect(r.suggested).toBe(1000);
+    // The split was fronted from the card, so it's flagged as card-linked.
+    expect(r.cardLinked.splits).toBe(100);
+    expect(r.cardLinked.bills).toBe(0);
+  });
+
+  it('floors free cash at zero when obligations swallow income', () => {
+    const r = suggestCardPaymentBudget({
+      accounts: [card],
+      transactions: income,
+      bills: [makeBill({ amount: 2500, nextDue: '2026-06-05', account: 'chk' })],
+      budgets: [{ id: 'bg', category: 'Rent', amount: 1500, period: 'monthly' }],
+      loans: [],
+      splits: [],
+      today,
+    });
+    expect(r.freeCash).toBe(0); // 3000 − 2500 − 1500 < 0 → floored
+    expect(r.suggested).toBe(0);
+  });
+
+  it('only counts bills due in the current month', () => {
+    const r = suggestCardPaymentBudget({
+      accounts: [card],
+      transactions: income,
+      bills: [
+        makeBill({ id: 'now', amount: 200, nextDue: '2026-06-28', account: 'chk' }),
+        makeBill({ id: 'later', amount: 999, nextDue: '2026-07-01', account: 'chk' }),
+      ],
+      budgets: [],
+      loans: [],
+      splits: [],
+      today,
+    });
+    expect(r.bills).toBe(200); // July bill excluded
   });
 });
