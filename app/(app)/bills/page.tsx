@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Plus, Calendar, CheckCircle2, Circle, AlarmClock, Pencil, RefreshCw, AlertCircle, Banknote, Repeat, Users, UserPlus, HandCoins, Check, Trash2, ChevronDown, Gauge } from 'lucide-react';
+import { Plus, Calendar, CheckCircle2, Circle, AlarmClock, Pencil, RefreshCw, AlertCircle, Banknote, Repeat, Users, UserPlus, HandCoins, Check, Trash2, ChevronDown, Gauge, TrendingUp } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -12,64 +12,25 @@ import { BillsSkeleton } from '@/components/ui/Skeleton';
 import { FitText } from '@/components/ui/FitText';
 import { Collapsible } from '@/components/ui/Collapsible';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
-import { billToTransactionDefaults, calcPaycheckDeposited, myBillShare, billParticipants, billOthersShare } from '@/lib/calculations';
+import { billToTransactionDefaults, calcPaycheckDeposited, myBillShare, billParticipants, billOthersShare, detectSubscriptions } from '@/lib/calculations';
 import { buildSplitTx, groupSplits, isOneOffSplit, resolveSplit, splitRemaining } from '@/lib/splits';
 import type { Bill, Account, PaycheckEntry, Transaction, Contact, Split, BillSplitParticipant } from '@/types';
 import { useCategories } from '@/hooks/useCategories';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { peekCache, ensureResources } from '@/lib/client/store';
 import { useTranslation } from '@/lib/i18n/context';
 
-// ── Subscription detection ─────────────────────────────────────────────────────
-
-type DetectedSub = {
-  name: string;
-  avgAmount: number;
-  monthlyCount: number;
-  lastDate: string;
-  category: string;
-};
-
-function detectSubscriptions(transactions: Transaction[]): DetectedSub[] {
-  const expenses = transactions.filter((t) => t.type === 'expense' && t.description);
-  const grouped: Record<string, Transaction[]> = {};
-  for (const tx of expenses) {
-    const key = tx.description.toLowerCase().trim();
-    if (!grouped[key]) grouped[key] = [];
-    grouped[key].push(tx);
-  }
-
-  const subs: DetectedSub[] = [];
-  for (const [, txs] of Object.entries(grouped)) {
-    if (txs.length < 2) continue;
-    const months = new Set(txs.map((t) => t.date.slice(0, 7)));
-    if (months.size < 2) continue;
-
-    // Check if amounts are similar (within 20% or $5)
-    const amounts = txs.map((t) => t.amount);
-    const avg = amounts.reduce((s, a) => s + a, 0) / amounts.length;
-    const allSimilar = amounts.every((a) => Math.abs(a - avg) <= Math.max(avg * 0.2, 5));
-    if (!allSimilar) continue;
-
-    const sorted = [...txs].sort((a, b) => b.date.localeCompare(a.date));
-    subs.push({
-      name: sorted[0].description,
-      avgAmount: avg,
-      monthlyCount: months.size,
-      lastDate: sorted[0].date,
-      category: sorted[0].category,
-    });
-  }
-
-  return subs.sort((a, b) => b.avgAmount - a.avgAmount);
-}
+// Subscription detection (incl. price-creep + ghost flags) lives in the tested
+// calc layer — see detectSubscriptions in lib/calculations.
 
 // ── Subscription Tracker component ────────────────────────────────────────────
 
 function SubscriptionTracker({ transactions }: { transactions: Transaction[] }) {
   const { t } = useTranslation();
-  const subs = detectSubscriptions(transactions);
-  const monthlyTotal = subs.reduce((s, sub) => s + sub.avgAmount, 0);
+  const subs = useMemo(() => detectSubscriptions(transactions, new Date()), [transactions]);
+  // Active subscriptions drive the "what you're burning monthly" headline.
+  const monthlyTotal = subs.filter((s) => s.isActive).reduce((s, sub) => s + sub.monthlyAmount, 0);
 
   if (subs.length === 0) return null;
 
@@ -85,17 +46,30 @@ function SubscriptionTracker({ transactions }: { transactions: Transaction[] }) 
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
         {subs.map((sub) => (
-          <div key={sub.name} className="flex items-center justify-between p-3.5 rounded-2xl bg-white dark:bg-slate-800 border border-indigo-100 dark:border-indigo-800/50 hover:border-indigo-200 dark:hover:border-indigo-800/50 transition-colors">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50 flex items-center justify-center shrink-0">
-                <Repeat className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
+          <div key={sub.merchant} className={`flex items-center justify-between p-3.5 rounded-2xl bg-white dark:bg-slate-800 border transition-colors ${sub.isActive ? 'border-indigo-100 dark:border-indigo-800/50 hover:border-indigo-200' : 'border-slate-200 dark:border-slate-700 opacity-80'}`}>
+            <div className="flex items-center gap-3 min-w-0">
+              <div className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 ${sub.isActive ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-100 dark:border-indigo-800/50' : 'bg-slate-100 dark:bg-slate-700/60 border-slate-200 dark:border-slate-700'}`}>
+                <Repeat className={`w-4 h-4 ${sub.isActive ? 'text-indigo-500 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'}`} />
               </div>
-              <div>
-                <p className="text-sm font-bold text-slate-900 dark:text-slate-100 capitalize">{sub.name}</p>
-                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{sub.category} · {t('bills.moDetected', { n: sub.monthlyCount })}</p>
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-slate-900 dark:text-slate-100 capitalize truncate">{sub.merchant}</p>
+                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">{sub.category} · {t('bills.moDetected', { n: sub.months })}</p>
+                <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                  {sub.hasPriceCreep && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+                      <TrendingUp className="w-3 h-3" />
+                      {t('bills.subPriceCreep', { amount: formatCurrency(sub.priceIncrease), pct: sub.priceIncreasePct ?? 0 })}
+                    </span>
+                  )}
+                  {!sub.isActive && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
+                      {t('bills.subGhost')}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
-            <span className="text-sm font-extrabold text-indigo-600 dark:text-indigo-400 ml-2 shrink-0">{formatCurrency(sub.avgAmount)}</span>
+            <span className="text-sm font-extrabold text-indigo-600 dark:text-indigo-400 ml-2 shrink-0">{formatCurrency(sub.monthlyAmount)}</span>
           </div>
         ))}
       </div>
@@ -346,12 +320,15 @@ function BillsTimeline({ bills, nowMs }: { bills: Bill[]; nowMs: number }) {
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function BillsPage() {
   const { t } = useTranslation();
-  const [bills, setBills] = useState<Bill[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [paychecks, setPaychecks] = useState<PaycheckEntry[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [splits, setSplits] = useState<Split[]>([]);
+  const [bills, setBills] = useState<Bill[]>(() => {
+    const b = peekCache(['bills'])?.bills;
+    return b ? [...b].sort((x, y) => x.nextDue.localeCompare(y.nextDue)) : [];
+  });
+  const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
+  const [paychecks, setPaychecks] = useState<PaycheckEntry[]>(() => peekCache(['paychecks'])?.paychecks ?? []);
+  const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
+  const [contacts, setContacts] = useState<Contact[]>(() => peekCache(['contacts'])?.contacts ?? []);
+  const [splits, setSplits] = useState<Split[]>(() => peekCache(['splits'])?.splits ?? []);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -362,7 +339,7 @@ export default function BillsPage() {
   // total is inferred by summing everyone's parts — see resolveSplit).
   const [billMyShare, setBillMyShare] = useState('');
   const [addingContact, setAddingContact] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => peekCache(['bills', 'accounts', 'paychecks', 'transactions', 'contacts', 'splits']) === null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
   const [payBill, setPayBill] = useState<Bill | null>(null);
@@ -388,20 +365,17 @@ export default function BillsPage() {
     once: t('common.oneTime'),
   };
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     setError(false);
     try {
-      // One round trip instead of six — see /api/batch.
-      const res = await fetch('/api/batch?keys=bills,accounts,paychecks,transactions,contacts,splits');
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      const b: Bill[] = data.bills ?? [];
-      setBills([...b].sort((x: Bill, y: Bill) => x.nextDue.localeCompare(y.nextDue)));
-      setAccounts(data.accounts ?? []);
-      setPaychecks(data.paychecks ?? []);
-      setTransactions(data.transactions ?? []);
-      setContacts(data.contacts ?? []);
-      setSplits(data.splits ?? []);
+      // One round trip instead of six; served from the client cache when fresh.
+      const data = await ensureResources(['bills', 'accounts', 'paychecks', 'transactions', 'contacts', 'splits'], { force });
+      setBills([...data.bills].sort((x, y) => x.nextDue.localeCompare(y.nextDue)));
+      setAccounts(data.accounts);
+      setPaychecks(data.paychecks);
+      setTransactions(data.transactions);
+      setContacts(data.contacts);
+      setSplits(data.splits);
     } catch {
       setError(true);
     } finally {
@@ -410,7 +384,7 @@ export default function BillsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-  const { pullY, refreshing } = usePullToRefresh(load);
+  const { pullY, refreshing } = usePullToRefresh(() => load(true));
 
   function resetSplitMode() { setBillMyShare(''); }
   function openAdd() { setEditingId(null); setForm(EMPTY_FORM); setBillParticipantRows([emptyParticipant()]); resetSplitMode(); setOpen(true); }
@@ -884,7 +858,7 @@ export default function BillsPage() {
           <div className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-900/30 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-rose-400" /></div>
           <p className="text-slate-700 dark:text-slate-300 font-bold text-base mb-1">Couldn&apos;t load bills</p>
           <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">Check your connection and try again.</p>
-          <Button variant="secondary" onClick={load}>Try Again</Button>
+          <Button variant="secondary" onClick={() => load(true)}>Try Again</Button>
         </div>
       ) : bills.length === 0 ? (
         <Card className="text-center py-16 bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700/60">

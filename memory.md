@@ -1417,3 +1417,106 @@ Caveat (pre-existing data): groups created before this column have `myShareTxId=
 - Modal is a `fixed z-[200]` overlay, so embedding the trigger inside the nav flex doesn't affect layout.
 
 **Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors (pre-existing warnings only); `npm test` 6179/6179 passing; `npm run build` compiled successfully (27/27 pages).
+
+## 2026-06-08 — Client-side stale-while-revalidate cache (instant section switches)
+
+**Goal:** Switching sections visibly reloaded every number — each `'use client'` page set `loading=true`, flashed skeletons, and refetched `/api/*` on mount even though the API routes already serve from a server-side memory cache (`lib/cache.ts`). The network round trip + skeleton flash happened on every navigation. Fix: a shared client cache so revisiting a section renders cached numbers immediately and only revalidates in the background.
+
+**New `lib/client/store.ts`:** stale-while-revalidate cache over the batch resources, mirroring the existing `useCategories`/`Sidebar` sessionStorage pattern but generalized.
+- Module-memory `Map` (survives client-side navigation) + a `sessionStorage` mirror (survives full reload), both keyed by `BatchKey`.
+- `peekCache(keys)` — synchronous read used to seed a page's initial state (returns null unless ALL requested keys are present, so a partial cache still shows the skeleton once).
+- `ensureResources(keys, { force, ttl })` — fetches only missing/stale keys (or all on `force`), dedupes concurrent fetches per-key, returns latest cached values. Default TTL 30s (a revalidation throttle, not a correctness boundary).
+- `invalidateClientCache(...keys)` — drops keys (no args = clear all) and notifies subscribers.
+- `installCacheInvalidation()` — one-time global guard: monkeypatches `window.fetch` so that after any **successful mutating** request to `/api/*` (non-GET/HEAD, excluding `/api/auth`) the whole client read-cache is dropped. This keeps every page correct after a write without each mutation handler knowing about the cache. Idempotent, browser-only.
+- Test seams: `__setFetcherForTests`, `__resetCacheForTests`. Fetcher defaults to `loadBatch`.
+
+**New `components/CacheSync.tsx`:** tiny `'use client'` component that calls `installCacheInvalidation()` in a mount effect; rendered once inside `app/(app)/layout.tsx` (inside `MotionProvider`).
+
+**Page adoption** (read path → `ensureResources`, initial state seeded via `peekCache`, `loading` initial = `peekCache(...) === null`, background re-syncs `force` past the cache): `credit`, `accounts`, `savings`, `transactions`, `planning`, `paychecks`, `reports`, `bills`.
+- `load` gained an optional `force = false` param; `useAutoRefresh`/`usePullToRefresh` now call `() => load(true)`; error-retry / manual-refresh buttons changed from `onClick={load}` to `onClick={() => load(true)}` (forces fresh + avoids passing the boolean-param fn straight to an event handler).
+- Removed now-redundant `setLoading(true)` at the top of `load` in pages that had it (savings/paychecks/reports) so background refreshes don't reflash the skeleton — the initial seed governs the first paint.
+- Extracted `sortTransactions()` helper in the transactions page (reused by the `peekCache` seed and `load`).
+- The dashboard is a server component (`force-dynamic`, its own `cachedOrFetch`) so it is intentionally left as-is.
+
+**New `lib/__tests__/store.test.ts`:** 9 tests — fetch-only-missing, dedupe concurrent, force refetch, `peekCache` all-or-nothing, invalidate (single + clear-all), TTL freshness, subscriber notify/unsub.
+
+**Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors (pre-existing warnings only); `npm test` 400/400 passing (was 391, +9 store tests).
+
+## 2026-06-08 — Smart Payment Allocation Simulator (credit page)
+
+**Goal:** A budget-aware payment planner that beats generic avalanche/snowball: type how much you can pay and NovaFi splits it to maximize the immediate credit-score win — clearing the most cards above the 30% utilization cap first, since per-card spikes do the most score damage.
+
+**`lib/calculations.ts` — `allocateSmartPayment(accounts, budget)`:**
+- Considers only credit accounts with a known limit and a positive balance; aggregate denominator (overall util) still spans every limited card (mirrors `buildCreditReport`).
+- Phase 1: eliminate >30% spikes, **cheapest-fix-first** (sorts by paydown-to-30%) so the most spikes are cleared per dollar.
+- Phase 2: push remaining budget toward the <10% ideal, cheapest-first.
+- Phase 3: any leftover goes to the largest remaining balance (general paydown), never exceeding what's owed; true surplus is reported as `leftover`.
+- Returns `PaymentPlan`: `allocations` (cards that get a payment, biggest first), `allCards`, `totalPaid`, `leftover`, `spikesBefore/After`, `overallUtilBefore/After`. New exported types `PaymentAllocation`, `PaymentPlan`.
+- New tests in `lib/__tests__/calculations.test.ts` (`allocateSmartPayment` describe, 6 cases): ignores ineligible cards, cheapest-spike-first, clear-then-push-to-ideal, never overpays + leftover, overall util before/after, zero-budget no-op.
+
+**`app/(app)/credit/page.tsx`:** new `SmartPaymentPlanner` + `PlannerRow` components, rendered between the per-card list and the tips card (only when `report.totalBalance > 0`). A text/decimal input drives a `useMemo(allocateSmartPayment)`; shows a headline outcome (all spikes cleared / reduced N→M / pushing toward ideal / nothing-cleared-yet), before→after stat chips for spikes and overall utilization, and a per-card split with a before→after utilization bar. Pure display — all logic is in the calc layer. Added `Calculator` lucide icon import.
+
+**Locales:** added `credit.sim*` keys to en/vi (`simTitle`, `simSub`, `simInputLabel`, `simPlaceholder`, `simPrompt`, `simRecommended`, `simPay`, `simArrow`, `simSpikesLabel`, `simOverallLabel`, `simAllClear`, `simReduced`, `simTowardIdeal`, `simLeftover`, `simNothing`).
+
+**Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors (pre-existing warnings only); `npm test` 406/406; `npm run build` compiled successfully.
+
+## 2026-06-08 — Automated Limit Increase Advisor (credit page)
+
+**Goal:** For a high-utilization card with a solid payment record, tell the user the exact limit increase to request so utilization dilutes to a healthy 15% — no cash spent. "Solid payment history" is inferred from the ledger (per the chosen approach).
+
+**`lib/calculations.ts`:**
+- `assessCardPaymentHistory(card, transactions, today)` → `CardPaymentHistory { payments, monthsWithPayment, solid }`. A card payment = a `transfer` with `toAccount === card.id` and `amount > 0` (the model that reduces a debt balance); charges/cash-advances are excluded. `solid` = ≥3 payments across ≥3 distinct months within a 12-month lookback.
+- `buildLimitIncreaseAdvisories(accounts, transactions, today)` → `LimitIncreaseAdvice[]`. For each credit card with a limit, util > 30% (`CREDIT_UTIL_TARGET`), and a solid history: recommends the smallest **$100-rounded** limit that dilutes utilization to ≤15% (`LIMIT_ADVISOR_TARGET`), with `increase`, `resultingUtil`, and the `history`. Skips cards with no limit, at/under 30%, or without the history.
+- New exports: `LIMIT_ADVISOR_TARGET`, `assessCardPaymentHistory`, `buildLimitIncreaseAdvisories`, types `CardPaymentHistory`/`LimitIncreaseAdvice`. 8 new tests (payment detection, solid/not-solid, lookback window, recommendation math, skip conditions).
+
+**`app/(app)/credit/page.tsx`:** credit page now also loads `transactions` (via `ensureResources(['accounts','transactions'])`, seeded from cache) to feed the advisor. New `LimitAdvisorCard` rendered above the planner when `advisories.length > 0`; per card it shows the current utilization chip, an "Ask {bank} for a {amount} limit increase" headline (generic when no institution), the new limit, the utilization before→after, and the payment record backing the recommendation. Imports `buildLimitIncreaseAdvisories`/`creditUtilStatus` and the `Transaction` type.
+
+**Locales:** added `credit.adv*` keys to en/vi (`advTitle`, `advSub`, `advAskBank`, `advAsk`, `advNewLimit`, `advDilute`, `advRecord`).
+
+**Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors; `npm test` 414/414; `npm run build` compiled successfully (29/29 pages).
+
+## 2026-06-08 — Statement Date Arbitrage banner (credit page)
+
+**Goal:** Promote the existing "pay before your statement closes" nudge (previously only a small per-card chip) into a prominent, aggregated, time-sorted flag, since the bureau reports the balance on the closing date and the action is time-sensitive.
+
+**`lib/calculations.ts` — `buildStatementArbitrage(accounts, today, withinDays=5)`** → `StatementArbitrageItem[]`. For each credit card with a limit whose statement closes within `withinDays`, returns the single most useful pre-close payment: paydown to the 30% cap when over it, otherwise toward the 10% ideal. Skips cards with no statement day, closing beyond the window, or already at/under the relevant target. Sorted soonest-closing first. New type `StatementArbitrageItem`. 5 new tests (over-cap targets 30, under-cap targets 10, window/no-stmt-day exclusion, already-ideal skip, sort order).
+
+**`app/(app)/credit/page.tsx`:** new `StatementArbitrageCard` amber banner rendered between the all-clear/over-target alert and the per-card list when `arbitrage.length > 0`; each line reads "{card} closes in {days} day(s): pay {amount} to report under {pct}%" (special-cased for "closes today"). Imports `buildStatementArbitrage` + `StatementArbitrageItem`.
+
+**Locales:** added `credit.arbTitle/arbSub/arbItem/arbItemToday` to en/vi.
+
+**Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors; `npm test` 419/419; `npm run build` compiled successfully.
+
+## 2026-06-08 — APR field + Balance-Transfer Optimizer (credit page)
+
+**Goal:** Identify debt on high-interest cards and quantify the savings of moving it to a 0%/low-APR card. Requires a new optional `apr` field on credit accounts.
+
+**Schema (`apr`, account column L):**
+- `types/index.ts`: `Account.apr?: number` (percent; 0 is a real 0% APR).
+- `lib/sheets.ts`: extended all four `Accounts!A2:K200` ranges to `A2:L200` (getAccounts, dashboard core ranges, legacy combined reader, BATCHABLE_SHEETS); `rowToAccount` reads column L; `upsertAccount` writes `account.apr ?? ''` (and its vestigial deleteRowById col arg bumped K→L). `deleteRowById` deletes the whole row, so no other delete change needed.
+- `lib/auth.ts`: the provisioning header for Accounts was stale (stopped at `opening_balance`); updated to the full 12 columns incl. `credit_limit`, `statement_day`, `apr` for newly provisioned sheets.
+
+**Accounts form (`app/(app)/accounts/page.tsx`):** added an APR input next to Credit limit (credit cards only); `EMPTY_FORM`, `openEdit`, and `handleSave` carry `apr`. handleSave now also **preserves `statementDay`** from the edit target (the API only self-maintains `openingBalance`, so the form previously wiped statementDay — fixed) and clears both off non-credit types.
+
+**`lib/calculations.ts` — `buildBalanceTransferAdvice(accounts, introMonths=12)`** → `BalanceTransferAdvice[]`. Sources = credit cards with `apr` set, `apr > HIGH_APR_THRESHOLD` (15), and a balance, worst-APR-first. Destination pool = available room on cards with `apr <= LOW_APR_DEST_THRESHOLD` (5); room is allocated worst-APR-first and capped per card. Each entry reports monthly/annual interest cost, transferable amount, best destination name (or null → hypothetical 0% card), and interest saved over the intro window. New consts/types exported. 5 new tests.
+
+**`app/(app)/credit/page.tsx`:** new `BalanceTransferCard` rendered after the planner when advice exists — per card: APR chip, interest cost line, and the move/save recommendation (real destination vs hypothetical 0% card). Imports `buildBalanceTransferAdvice` + `BalanceTransferAdvice`.
+
+**Locales:** `accounts.apr` and `credit.bx*` keys added to en/vi.
+
+**Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors (27 pre-existing warnings, unchanged count); `npm test` 424/424; `npm run build` compiled successfully.
+
+## 2026-06-08 — Ghost Subscription & Price-Creep Detector + Dynamic Budget Reallocation + parallel CI
+
+**Ghost Subscription & Price-Creep Detector**
+- The bills page already had an untested local `detectSubscriptions` (recurring detection only). Consolidated onto a tested calc-layer `detectSubscriptions(transactions, today)` in `lib/calculations.ts` and enriched the output. Groups expense txs by a normalized merchant key (strips card digits/dates/punctuation and `com`/`www` domain noise); requires ≥2 charges across ≥2 distinct months with amounts within a 1.5× max/min band (so groceries don't register). Returns per subscription: merchant (most common original description), category, monthlyAmount (latest), firstAmount, occurrences, months, first/last date, priceIncrease + pct, `hasPriceCreep`, and `isActive` (charged within 45 days). New type `Subscription`. 5 tests.
+- `app/(app)/bills/page.tsx`: removed the local detector/type; `SubscriptionTracker` now uses the calc version (memoized), the monthly headline counts only active subs, and each row shows a **price-creep** badge (`↑ {amount} ({pct}%)`) and a **ghost** badge for stale ones (dimmed). Added `bills.subPriceCreep`/`bills.subGhost` locale keys + `TrendingUp` icon.
+
+**Dynamic Budget Reallocation**
+- `lib/calculations.ts`: `suggestBudgetReallocations(budgets, transactions, today, windowMonths=3)` → `BudgetReallocation[]`. Averages each budgeted category's spend over the last N **complete** months (current partial month excluded); suggests an increase when avg exceeds the budget by >10% in ≥2/3 of months, a decrease when avg is <90% in ≥2/3 of months; suggested budget is the average rounded to $5; sub-$5 deltas dropped; sorted by |delta|. Also added `denormalizeMonthlyBudget` (inverse of normalizeMonthlyBudget) so a monthly suggestion can be written back in the budget's native period. New type `BudgetReallocation`. 6 tests (incl. denormalize).
+- `app/(app)/planning/page.tsx`: `reallocations` memo + `applyReallocation` (optimistic POST to `/api/budgets` with the denormalized amount, reconcile on failure). New `BudgetRealityCard` rendered between Budgets and Goals when suggestions exist — per row: direction icon, over/under copy, current→suggested, and a one-tap **Apply**. Added `planning.realloc*` locale keys.
+
+**CI parallelization (`.github/workflows/ci.yml`)**
+- Split the single sequential `test` job (lint → typecheck → test) into three independent jobs (`lint`, `typecheck`, `test`) that run in parallel, each with its own checkout + npm cache. Switched `npm install` → `npm ci` for reproducible installs, and added a `concurrency` group (`cancel-in-progress`) so a quick re-push cancels superseded runs.
+
+**Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors (27 pre-existing warnings, unchanged); `npm test` 435/435 (was 424, +11); `npm run build` compiled successfully.

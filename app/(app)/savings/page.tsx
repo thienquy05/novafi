@@ -9,6 +9,7 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
+import { peekCache, ensureResources } from '@/lib/client/store';
 import type { Account, Transaction, Goal } from '@/types';
 import { FitText } from '@/components/ui/FitText';
 import { useTranslation } from '@/lib/i18n/context';
@@ -54,17 +55,17 @@ const SAVINGS_PAGE_SIZE = 25;
 
 export default function SavingsPage() {
   const { t } = useTranslation();
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [allAccounts, setAllAccounts] = useState<Account[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [goals, setGoals] = useState<Goal[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>(() => (peekCache(['accounts'])?.accounts ?? []).filter((a) => a.type === 'savings'));
+  const [allAccounts, setAllAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
+  const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
+  const [goals, setGoals] = useState<Goal[]>(() => peekCache(['goals'])?.goals ?? []);
   const [selectedAccount, setSelectedAccount] = useState<string>('all');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ActionForm>(EMPTY_FORM);
   const [editOpen, setEditOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Account | null>(null);
   const [editForm, setEditForm] = useState<EditForm>(EMPTY_EDIT_FORM);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => peekCache(['accounts', 'transactions', 'goals']) === null);
   const [saving, setSaving] = useState(false);
   const [visibleCount, setVisibleCount] = useState(SAVINGS_PAGE_SIZE);
 
@@ -74,22 +75,19 @@ export default function SavingsPage() {
     setVisibleCount(SAVINGS_PAGE_SIZE);
   }
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    // One round trip instead of three — see /api/batch.
-    const res = await fetch('/api/batch?keys=accounts,transactions,goals');
-    const data = await res.json();
-    const accs: Account[] = data.accounts ?? [];
-    const savingsAccs: Account[] = accs.filter((a: Account) => a.type === 'savings');
+  const load = useCallback(async (force = false) => {
+    // One round trip instead of three; served from the client cache when fresh.
+    const data = await ensureResources(['accounts', 'transactions', 'goals'], { force });
+    const accs = data.accounts;
     setAllAccounts(accs);
-    setAccounts(savingsAccs);
-    setTransactions(data.transactions ?? []);
-    setGoals(data.goals ?? []);
+    setAccounts(accs.filter((a) => a.type === 'savings'));
+    setTransactions(data.transactions);
+    setGoals(data.goals);
     setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
-  useAutoRefresh(load);
+  useAutoRefresh(() => load(true));
 
   const savingsAccountIds = useMemo(() => accounts.map((a) => a.id), [accounts]);
   const accountMap = useMemo(() => {

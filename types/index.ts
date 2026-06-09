@@ -94,6 +94,10 @@ export interface Account {
   // statement balance, so this drives "pay before your statement closes" nudges.
   // Absent = not set.
   statementDay?: number;
+  // Credit cards only: the purchase APR as a percent (e.g. 24.99). Powers the
+  // Balance-Transfer Optimizer (interest cost + savings from moving a balance to
+  // a 0%/low-APR card). Absent = not set; 0 is a real 0% APR.
+  apr?: number;
 }
 
 export interface Budget {

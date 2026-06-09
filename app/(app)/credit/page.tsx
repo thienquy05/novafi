@@ -4,7 +4,7 @@ import Link from 'next/link';
 import {
   CreditCard, AlertCircle, AlertTriangle, CheckCircle2, ShieldCheck,
   TrendingUp, Pencil, Sparkles, Lightbulb, Target, CalendarClock,
-  History, ArrowUpCircle, Shuffle,
+  History, ArrowUpCircle, Shuffle, Calculator,
 } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardIcon } from '@/components/ui/Card';
@@ -12,13 +12,17 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { AccountsSkeleton } from '@/components/ui/Skeleton';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
+import { peekCache, ensureResources } from '@/lib/client/store';
 import { formatCurrency } from '@/lib/utils';
 import { useToast } from '@/lib/toast';
 import {
   buildCreditReport, CREDIT_UTIL_TARGET, CREDIT_UTIL_IDEAL, daysUntilStatement,
-  type CreditUtilStatus, type CreditCardReport,
+  allocateSmartPayment, buildLimitIncreaseAdvisories, buildStatementArbitrage,
+  buildBalanceTransferAdvice, creditUtilStatus,
+  type CreditUtilStatus, type CreditCardReport, type PaymentAllocation, type LimitIncreaseAdvice,
+  type StatementArbitrageItem, type BalanceTransferAdvice,
 } from '@/lib/calculations';
-import type { Account } from '@/types';
+import type { Account, Transaction } from '@/types';
 import { useTranslation } from '@/lib/i18n/context';
 
 // Literal Tailwind class strings per status band (Tailwind v4 needs literals —
@@ -48,16 +52,20 @@ function fmtPct(util: number): string {
 
 export default function CreditPage() {
   const { t } = useTranslation();
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Seed from the client cache so revisiting Credit shows numbers instantly
+  // (no skeleton flash) instead of refetching every time we switch sections.
+  const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
+  // Transactions power the Limit Increase Advisor's "solid payment history" check.
+  const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
+  const [loading, setLoading] = useState(() => peekCache(['accounts', 'transactions']) === null);
   const [error, setError] = useState(false);
   const toast = useToast();
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     try {
-      const res = await fetch('/api/accounts');
-      if (!res.ok) throw new Error();
-      setAccounts(await res.json());
+      const { accounts, transactions } = await ensureResources(['accounts', 'transactions'], { force });
+      setAccounts(accounts);
+      setTransactions(transactions);
       setError(false);
     } catch {
       setError(true);
@@ -67,9 +75,13 @@ export default function CreditPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-  useAutoRefresh(load);
+  // Background re-sync forces past the cache to catch edits made elsewhere.
+  useAutoRefresh(() => load(true));
 
   const report = useMemo(() => buildCreditReport(accounts), [accounts]);
+  const advisories = useMemo(() => buildLimitIncreaseAdvisories(accounts, transactions, new Date()), [accounts, transactions]);
+  const arbitrage = useMemo(() => buildStatementArbitrage(accounts, new Date()), [accounts]);
+  const transferAdvice = useMemo(() => buildBalanceTransferAdvice(accounts), [accounts]);
   const hasCards = report.cards.length > 0;
 
   // Persist a single card's credit fields (limit and/or statement day) —
@@ -88,7 +100,7 @@ export default function CreditPage() {
       toast(t('credit.limitSaved'), 'success');
     } catch {
       toast(t('credit.limitFailed'), 'error');
-      await load();
+      await load(true);
     }
   }
 
@@ -111,7 +123,7 @@ export default function CreditPage() {
             <AlertCircle className="w-7 h-7 text-rose-400" />
           </div>
           <p className="text-slate-700 dark:text-slate-300 font-bold text-base mb-1">{t('credit.loadError')}</p>
-          <Button variant="secondary" onClick={load} className="mt-4">{t('credit.tryAgain')}</Button>
+          <Button variant="secondary" onClick={() => load(true)} className="mt-4">{t('credit.tryAgain')}</Button>
         </div>
       ) : !hasCards ? (
         <Card className="text-center py-16 bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700/60">
@@ -154,6 +166,9 @@ export default function CreditPage() {
             )
           )}
 
+          {/* ── Statement-close arbitrage (pay before the bureau snapshot) ── */}
+          {arbitrage.length > 0 && <StatementArbitrageCard items={arbitrage} />}
+
           {/* ── Per-card breakdown ───────────────────────────────────────── */}
           <div className="space-y-4">
             <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 px-1">{t('credit.yourCards')}</h2>
@@ -161,6 +176,15 @@ export default function CreditPage() {
               <CreditCardItem key={c.account.id} report={c} onSave={saveCard} />
             ))}
           </div>
+
+          {/* ── Limit increase advisor ───────────────────────────────────── */}
+          {advisories.length > 0 && <LimitAdvisorCard advisories={advisories} />}
+
+          {/* ── Smart payment planner ────────────────────────────────────── */}
+          {report.totalBalance > 0 && <SmartPaymentPlanner accounts={accounts} />}
+
+          {/* ── Balance-transfer / APR optimizer ─────────────────────────── */}
+          {transferAdvice.length > 0 && <BalanceTransferCard advice={transferAdvice} />}
 
           {/* ── How to improve ───────────────────────────────────────────── */}
           <TipsCard />
@@ -408,6 +432,233 @@ function CreditCardItem({
           </div>
         </>
       )}
+    </Card>
+  );
+}
+
+// ── Statement-close arbitrage banner ──────────────────────────────────────────
+// Promotes the "pay before your statement closes" nudge to a prominent, sorted
+// list (logic in buildStatementArbitrage) so the time-sensitive action isn't
+// buried in the per-card rows.
+function StatementArbitrageCard({ items }: { items: StatementArbitrageItem[] }) {
+  const { t } = useTranslation();
+  return (
+    <div className="rounded-2xl border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-900/20 p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <CalendarClock className="w-5 h-5 text-amber-500 shrink-0" />
+        <div>
+          <p className="font-bold text-amber-700 dark:text-amber-300 text-sm">{t('credit.arbTitle')}</p>
+          <p className="text-amber-600/90 dark:text-amber-400/90 text-xs mt-0.5">{t('credit.arbSub')}</p>
+        </div>
+      </div>
+      <ul className="space-y-1.5">
+        {items.map((i) => (
+          <li key={i.account.id} className="flex items-start gap-2 text-sm font-semibold text-amber-800 dark:text-amber-200">
+            <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" aria-hidden />
+            <span>
+              {(i.daysUntil === 0
+                ? t('credit.arbItemToday', { card: i.account.name, amount: formatCurrency(i.recommendedPayment), pct: i.targetPct })
+                : t('credit.arbItem', { card: i.account.name, days: i.daysUntil, amount: formatCurrency(i.recommendedPayment), pct: i.targetPct }))}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ── Limit increase advisor ────────────────────────────────────────────────────
+// High-utilization cards with a solid payment record: requesting a higher limit
+// dilutes utilization to a healthy band without spending cash. Logic lives in
+// buildLimitIncreaseAdvisories; this is pure display.
+function LimitAdvisorCard({ advisories }: { advisories: LimitIncreaseAdvice[] }) {
+  const { t } = useTranslation();
+  return (
+    <Card>
+      <div className="flex items-center gap-3 mb-5">
+        <CardIcon tone="emerald"><ArrowUpCircle className="w-5 h-5" /></CardIcon>
+        <div>
+          <p className="text-base font-bold text-slate-900 dark:text-slate-100">{t('credit.advTitle')}</p>
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('credit.advSub')}</p>
+        </div>
+      </div>
+      <div className="space-y-3">
+        {advisories.map((a) => {
+          const styleBefore = STATUS_STYLE[creditUtilStatus(a.currentUtil)];
+          return (
+            <div key={a.account.id} className="rounded-2xl bg-emerald-50/60 dark:bg-emerald-900/15 border border-emerald-100 dark:border-emerald-800/40 p-4 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <CreditCard className="w-4 h-4 shrink-0" style={{ color: a.account.color }} />
+                  <span className="font-bold text-sm text-slate-900 dark:text-slate-100 truncate">{a.account.name}</span>
+                </div>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${styleBefore.chip}`}>{fmtPct(a.currentUtil)}</span>
+              </div>
+              <p className="text-sm font-bold text-emerald-700 dark:text-emerald-300">
+                {a.account.institution
+                  ? t('credit.advAskBank', { bank: a.account.institution, amount: formatCurrency(a.increase) })
+                  : t('credit.advAsk', { amount: formatCurrency(a.increase) })}
+              </p>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                <span>{t('credit.advNewLimit', { amount: formatCurrency(a.recommendedLimit) })}</span>
+                <span className="text-emerald-600 dark:text-emerald-400">{t('credit.advDilute', { before: fmtPct(a.currentUtil), after: fmtPct(a.resultingUtil) })}</span>
+              </div>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500">{t('credit.advRecord', { payments: a.history.payments, months: a.history.monthsWithPayment })}</p>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
+// ── Smart payment planner ─────────────────────────────────────────────────────
+// Type a budget; NovaFi splits it across cards to clear the most >30% spikes
+// first (the move that maximizes the immediate score gain), then pushes toward
+// the 10% ideal. All math lives in allocateSmartPayment — this is pure display.
+function SmartPaymentPlanner({ accounts }: { accounts: Account[] }) {
+  const { t } = useTranslation();
+  const [input, setInput] = useState('');
+  const budget = parseNum(input);
+  const plan = useMemo(() => allocateSmartPayment(accounts, budget), [accounts, budget]);
+  const active = budget > 0;
+
+  const headline =
+    plan.spikesBefore > 0 && plan.spikesAfter === 0
+      ? t('credit.simAllClear', { pct: CREDIT_UTIL_TARGET })
+      : plan.spikesAfter < plan.spikesBefore
+        ? t('credit.simReduced', { pct: CREDIT_UTIL_TARGET, before: plan.spikesBefore, after: plan.spikesAfter })
+        : plan.spikesBefore === 0 && plan.totalPaid > 0
+          ? t('credit.simTowardIdeal', { pct: CREDIT_UTIL_TARGET })
+          : t('credit.simNothing');
+
+  return (
+    <Card>
+      <div className="flex items-center gap-3 mb-5">
+        <CardIcon tone="indigo"><Calculator className="w-5 h-5" /></CardIcon>
+        <div>
+          <p className="text-base font-bold text-slate-900 dark:text-slate-100">{t('credit.simTitle')}</p>
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('credit.simSub', { pct: CREDIT_UTIL_TARGET })}</p>
+        </div>
+      </div>
+
+      <Input
+        label={t('credit.simInputLabel')}
+        type="text"
+        inputMode="decimal"
+        placeholder={t('credit.simPlaceholder')}
+        value={input}
+        onChange={(e) => setInput(e.target.value.replace(/[^0-9.]/g, ''))}
+      />
+
+      {!active ? (
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-4">{t('credit.simPrompt')}</p>
+      ) : (
+        <div className="mt-5 space-y-4">
+          {/* Headline outcome */}
+          <div className={`flex items-start gap-2 rounded-2xl p-4 text-sm font-semibold ${
+            plan.spikesAfter === 0
+              ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300'
+              : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300'
+          }`}>
+            <Sparkles className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{headline}</span>
+          </div>
+
+          {/* Before/after summary */}
+          <div className="grid grid-cols-2 gap-3">
+            <Stat
+              label={t('credit.simSpikesLabel', { pct: CREDIT_UTIL_TARGET })}
+              value={t('credit.simArrow', { before: plan.spikesBefore, after: plan.spikesAfter })}
+              tone={plan.spikesAfter < plan.spikesBefore ? 'emerald' : 'slate'}
+            />
+            <Stat
+              label={t('credit.simOverallLabel')}
+              value={t('credit.simArrow', { before: fmtPct(plan.overallUtilBefore ?? 0), after: fmtPct(plan.overallUtilAfter ?? 0) })}
+              tone={(plan.overallUtilAfter ?? 0) < (plan.overallUtilBefore ?? 0) ? 'emerald' : 'slate'}
+            />
+          </div>
+
+          {/* Per-card recommended split */}
+          {plan.allocations.length > 0 && (
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2 px-1">{t('credit.simRecommended')}</p>
+              <div className="space-y-2">
+                {plan.allocations.map((a) => <PlannerRow key={a.account.id} alloc={a} />)}
+              </div>
+            </div>
+          )}
+
+          {plan.leftover > 0 && (
+            <p className="text-xs text-slate-500 dark:text-slate-400">{t('credit.simLeftover', { amount: formatCurrency(plan.leftover) })}</p>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// One card's recommended payment with a before→after utilization bar.
+function PlannerRow({ alloc }: { alloc: PaymentAllocation }) {
+  const { t } = useTranslation();
+  const styleBefore = STATUS_STYLE[alloc.statusBefore];
+  const styleAfter = STATUS_STYLE[alloc.statusAfter];
+  return (
+    <div className="rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-3">
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <CreditCard className="w-4 h-4 shrink-0" style={{ color: alloc.account.color }} />
+          <span className="font-bold text-sm text-slate-900 dark:text-slate-100 truncate">{alloc.account.name}</span>
+        </div>
+        <span className="text-sm font-extrabold text-indigo-600 dark:text-indigo-400 shrink-0">{t('credit.simPay', { amount: formatCurrency(alloc.payment) })}</span>
+      </div>
+      <div className="flex items-center gap-2 text-xs font-semibold">
+        <span className={styleBefore.text}>{fmtPct(alloc.utilBefore)}</span>
+        <div className="flex-1 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+          <div className={`h-full rounded-full ${styleAfter.bar} transition-[width] duration-500`} style={{ width: `${Math.min(100, Math.max(0, alloc.utilAfter))}%` }} />
+        </div>
+        <span className={styleAfter.text}>{fmtPct(alloc.utilAfter)}</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Balance-transfer / APR optimizer ──────────────────────────────────────────
+// Surfaces interest cost on high-APR cards and the savings from moving the
+// balance to a 0%/low-APR card (logic in buildBalanceTransferAdvice). Only shows
+// when a card has its APR set and runs hot.
+function BalanceTransferCard({ advice }: { advice: BalanceTransferAdvice[] }) {
+  const { t } = useTranslation();
+  return (
+    <Card>
+      <div className="flex items-center gap-3 mb-5">
+        <CardIcon tone="rose"><Shuffle className="w-5 h-5" /></CardIcon>
+        <div>
+          <p className="text-base font-bold text-slate-900 dark:text-slate-100">{t('credit.bxTitle')}</p>
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('credit.bxSub')}</p>
+        </div>
+      </div>
+      <div className="space-y-3">
+        {advice.map((a) => (
+          <div key={a.account.id} className="rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-4 space-y-1.5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <CreditCard className="w-4 h-4 shrink-0" style={{ color: a.account.color }} />
+                <span className="font-bold text-sm text-slate-900 dark:text-slate-100 truncate">{a.account.name}</span>
+              </div>
+              <span className="text-xs font-bold text-rose-600 dark:text-rose-400 shrink-0">{a.apr}% APR</span>
+            </div>
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+              {t('credit.bxInterest', { monthly: formatCurrency(a.monthlyInterest), annual: formatCurrency(a.annualInterest), apr: a.apr })}
+            </p>
+            <p className="text-sm font-bold text-emerald-700 dark:text-emerald-300">
+              {a.destinationName
+                ? t('credit.bxMove', { amount: formatCurrency(a.transferable), dest: a.destinationName, savings: formatCurrency(a.savings), months: a.introMonths })
+                : t('credit.bxMoveHypo', { savings: formatCurrency(a.savings), months: a.introMonths })}
+            </p>
+          </div>
+        ))}
+      </div>
     </Card>
   );
 }

@@ -506,6 +506,305 @@ export function calcCreditAlerts(accounts: Account[]): number {
   return buildCreditReport(accounts).cardsOverTarget;
 }
 
+// ── Smart Payment Allocation ──────────────────────────────────────────────────
+// Given a fixed payment budget, distribute it across cards to maximize the
+// immediate credit-score win rather than just chipping at one balance. Score
+// damage is dominated by individual cards sitting above the 30% cap, so the
+// allocation greedily ELIMINATES the most >30% spikes first (cheapest-to-fix
+// first → most spikes cleared per dollar), then pushes cards toward the <10%
+// "ideal" band, then applies any remainder to the largest remaining balance.
+
+export type PaymentAllocation = {
+  account: Account;
+  owed: number;        // current balance owed (≥ 0)
+  limit: number;
+  payment: number;     // recommended payment toward this card
+  utilBefore: number;  // % utilization now
+  utilAfter: number;   // % utilization after the payment
+  statusBefore: CreditUtilStatus;
+  statusAfter: CreditUtilStatus;
+};
+
+export type PaymentPlan = {
+  budget: number;
+  allocations: PaymentAllocation[]; // cards receiving a payment, biggest first
+  allCards: PaymentAllocation[];    // every eligible card (incl. zero-payment)
+  totalPaid: number;                // sum of payments (≤ budget)
+  leftover: number;                 // budget − totalPaid (when budget > total owed)
+  spikesBefore: number;             // cards over the 30% cap before
+  spikesAfter: number;              // cards over the 30% cap after
+  overallUtilBefore: number | null;
+  overallUtilAfter: number | null;
+};
+
+type Bucket = { account: Account; limit: number; owed: number; payment: number };
+
+// Paydown still needed on a bucket to reach `pct`, accounting for any payment
+// already allocated to it this pass.
+function remainingPaydown(b: Bucket, pct: number): number {
+  return calcPaydownToTarget(b.owed - b.payment, b.limit, pct);
+}
+
+export function allocateSmartPayment(accounts: Account[], budget: number): PaymentPlan {
+  // Denominator for the aggregate mirrors buildCreditReport: every card with a
+  // known limit counts toward total limit, even those carrying no balance.
+  const limited = accounts.filter((a) => a.type === 'credit' && (a.creditLimit ?? 0) > 0);
+  const totalLimit = limited.reduce((s, a) => roundCents(s + (a.creditLimit ?? 0)), 0);
+  const totalOwedBefore = limited.reduce((s, a) => roundCents(s + Math.max(0, a.balance)), 0);
+
+  // Only cards actually carrying a balance can receive a payment.
+  const buckets: Bucket[] = limited
+    .map((account) => ({ account, limit: account.creditLimit ?? 0, owed: Math.max(0, account.balance), payment: 0 }))
+    .filter((b) => b.owed > 0);
+
+  let remaining = Math.max(0, roundCents(budget));
+
+  // Phase 1 — clear >30% spikes, cheapest fix first (maximize spikes eliminated).
+  for (const b of [...buckets]
+    .filter((b) => creditUtilization(b.owed, b.limit)! > CREDIT_UTIL_TARGET)
+    .sort((a, b) => remainingPaydown(a, CREDIT_UTIL_TARGET) - remainingPaydown(b, CREDIT_UTIL_TARGET))) {
+    if (remaining <= 0) break;
+    const pay = Math.min(remainingPaydown(b, CREDIT_UTIL_TARGET), remaining);
+    b.payment = roundCents(b.payment + pay);
+    remaining = roundCents(remaining - pay);
+  }
+
+  // Phase 2 — push toward the <10% ideal, cheapest first (maximize cards reaching it).
+  for (const b of [...buckets]
+    .filter((b) => remainingPaydown(b, CREDIT_UTIL_IDEAL) > 0)
+    .sort((a, b) => remainingPaydown(a, CREDIT_UTIL_IDEAL) - remainingPaydown(b, CREDIT_UTIL_IDEAL))) {
+    if (remaining <= 0) break;
+    const pay = Math.min(remainingPaydown(b, CREDIT_UTIL_IDEAL), remaining);
+    b.payment = roundCents(b.payment + pay);
+    remaining = roundCents(remaining - pay);
+  }
+
+  // Phase 3 — any leftover goes to the largest remaining balance (general paydown),
+  // never exceeding what's actually owed on a card.
+  for (const b of [...buckets].sort((a, b) => (b.owed - b.payment) - (a.owed - a.payment))) {
+    if (remaining <= 0) break;
+    const pay = Math.min(roundCents(b.owed - b.payment), remaining);
+    b.payment = roundCents(b.payment + pay);
+    remaining = roundCents(remaining - pay);
+  }
+
+  const toAllocation = (b: Bucket): PaymentAllocation => {
+    const utilBefore = creditUtilization(b.owed, b.limit) ?? 0;
+    const utilAfter = creditUtilization(b.owed - b.payment, b.limit) ?? 0;
+    return {
+      account: b.account, owed: b.owed, limit: b.limit, payment: b.payment,
+      utilBefore, utilAfter,
+      statusBefore: creditUtilStatus(utilBefore),
+      statusAfter: creditUtilStatus(utilAfter),
+    };
+  };
+
+  const allCards = buckets.map(toAllocation);
+  const totalPaid = roundCents(buckets.reduce((s, b) => s + b.payment, 0));
+  const totalOwedAfter = roundCents(totalOwedBefore - totalPaid);
+
+  return {
+    budget: roundCents(Math.max(0, budget)),
+    allocations: allCards.filter((a) => a.payment > 0).sort((x, y) => y.payment - x.payment),
+    allCards,
+    totalPaid,
+    leftover: Math.max(0, roundCents(Math.max(0, budget) - totalPaid)),
+    spikesBefore: allCards.filter((a) => a.utilBefore > CREDIT_UTIL_TARGET).length,
+    spikesAfter: allCards.filter((a) => a.utilAfter > CREDIT_UTIL_TARGET).length,
+    overallUtilBefore: totalLimit > 0 ? roundCents((totalOwedBefore / totalLimit) * 100) : null,
+    overallUtilAfter: totalLimit > 0 ? roundCents((totalOwedAfter / totalLimit) * 100) : null,
+  };
+}
+
+// ── Automated Limit Increase Advisor ──────────────────────────────────────────
+// A credit-limit increase dilutes utilization without spending a dollar — but
+// only worth requesting on a card you've shown you can manage. We infer a "solid
+// payment history" from the ledger (consistent payments toward the card) and, for
+// high-utilization cards that pass, compute the limit to request to drop
+// utilization to a healthy 15%.
+
+export const LIMIT_ADVISOR_TARGET = 15; // healthy band to dilute utilization to
+
+const SOLID_MIN_PAYMENTS = 3;        // ≥ this many payments toward the card …
+const SOLID_MIN_MONTHS = 3;          // … spread across ≥ this many distinct months …
+const HISTORY_WINDOW_MONTHS = 12;    // … within this lookback.
+
+// A card payment in this app is a transfer INTO the card (toAccount === card.id),
+// which reduces the owed balance. Charges (expenses on the card) are not payments.
+export type CardPaymentHistory = {
+  payments: number;          // payments toward the card within the window
+  monthsWithPayment: number; // distinct YYYY-MM with at least one payment
+  solid: boolean;            // consistent enough to justify asking for a bump
+};
+
+function isoDaysAgo(today: Date, months: number): string {
+  const d = new Date(today.getFullYear(), today.getMonth() - months, today.getDate());
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function assessCardPaymentHistory(
+  card: Account,
+  transactions: Transaction[],
+  today: Date = new Date(),
+): CardPaymentHistory {
+  const cutoff = isoDaysAgo(today, HISTORY_WINDOW_MONTHS);
+  const pays = transactions.filter(
+    (t) => t.type === 'transfer' && t.toAccount === card.id && t.amount > 0 && t.date >= cutoff,
+  );
+  const months = new Set(pays.map((t) => t.date.slice(0, 7)));
+  return {
+    payments: pays.length,
+    monthsWithPayment: months.size,
+    solid: pays.length >= SOLID_MIN_PAYMENTS && months.size >= SOLID_MIN_MONTHS,
+  };
+}
+
+export type LimitIncreaseAdvice = {
+  account: Account;
+  owed: number;
+  currentLimit: number;
+  currentUtil: number;       // % now (always > 30 for an advisory)
+  recommendedLimit: number;  // bank-friendly round limit that dilutes util to ≤ 15%
+  increase: number;          // recommendedLimit − currentLimit (> 0)
+  resultingUtil: number;     // % after the bump (≤ 15)
+  history: CardPaymentHistory;
+};
+
+// Advisories for every high-utilization card with a solid payment record. Cards
+// without a limit, at/under the 30% cap, or without the history are skipped.
+export function buildLimitIncreaseAdvisories(
+  accounts: Account[],
+  transactions: Transaction[],
+  today: Date = new Date(),
+): LimitIncreaseAdvice[] {
+  const out: LimitIncreaseAdvice[] = [];
+  for (const account of accounts) {
+    if (account.type !== 'credit') continue;
+    const currentLimit = account.creditLimit ?? 0;
+    if (currentLimit <= 0) continue;
+    const owed = Math.max(0, account.balance);
+    const currentUtil = creditUtilization(owed, currentLimit);
+    if (currentUtil === null || currentUtil <= CREDIT_UTIL_TARGET) continue; // only high-util cards
+    const history = assessCardPaymentHistory(account, transactions, today);
+    if (!history.solid) continue;
+    // Smallest limit that dilutes utilization to ≤15%, rounded up to a $100 that
+    // a bank would actually grant.
+    const raw = owed / (LIMIT_ADVISOR_TARGET / 100);
+    const recommendedLimit = Math.max(currentLimit, Math.ceil(raw / 100) * 100);
+    const increase = roundCents(recommendedLimit - currentLimit);
+    if (increase <= 0) continue;
+    out.push({
+      account, owed, currentLimit, currentUtil, recommendedLimit, increase,
+      resultingUtil: creditUtilization(owed, recommendedLimit) ?? 0,
+      history,
+    });
+  }
+  return out;
+}
+
+// ── Statement Date Arbitrage ──────────────────────────────────────────────────
+// Bureaus report the balance on the STATEMENT closing date, not the due date, so
+// paying a card down in the few days before it closes lowers reported utilization
+// for that whole cycle. Flag cards closing soon that still carry a balance worth
+// paying down, with the single most useful amount to pay (under the 30% cap when
+// over it, otherwise toward the 10% ideal).
+
+export type StatementArbitrageItem = {
+  account: Account;
+  daysUntil: number;          // days until the statement closes (0 = today)
+  util: number;               // current utilization %
+  recommendedPayment: number; // pay this before close to hit targetPct
+  targetPct: number;          // 30 when over the cap, else 10
+};
+
+export function buildStatementArbitrage(
+  accounts: Account[],
+  today: Date = new Date(),
+  withinDays = 5,
+): StatementArbitrageItem[] {
+  const out: StatementArbitrageItem[] = [];
+  for (const account of accounts) {
+    if (account.type !== 'credit') continue;
+    const limit = account.creditLimit ?? 0;
+    if (limit <= 0) continue;
+    const daysUntil = daysUntilStatement(account.statementDay, today);
+    if (daysUntil === null || daysUntil > withinDays) continue;
+    const util = creditUtilization(account.balance, limit);
+    if (util === null) continue;
+    const over = util > CREDIT_UTIL_TARGET;
+    const targetPct = over ? CREDIT_UTIL_TARGET : CREDIT_UTIL_IDEAL;
+    const recommendedPayment = calcPaydownToTarget(account.balance, limit, targetPct);
+    if (recommendedPayment <= 0) continue; // already at/under the relevant target
+    out.push({ account, daysUntil, util, recommendedPayment, targetPct });
+  }
+  return out.sort((a, b) => a.daysUntil - b.daysUntil);
+}
+
+// ── Balance-Transfer / APR Optimizer ──────────────────────────────────────────
+// Debt on a high-APR card quietly bleeds interest. If the user has a low/0%-APR
+// card with available room, moving the balance there saves that interest for the
+// intro window. Needs the optional `apr` field on the account.
+
+export const HIGH_APR_THRESHOLD = 15;    // APR above this is "high interest"
+export const LOW_APR_DEST_THRESHOLD = 5; // a card at/under this is a transfer destination
+
+export type BalanceTransferAdvice = {
+  account: Account;            // the high-APR card carrying the balance
+  apr: number;
+  balance: number;
+  monthlyInterest: number;     // interest accruing per month at this APR
+  annualInterest: number;      // interest over a year if left in place
+  transferable: number;        // amount that fits real low-APR room (0 when none)
+  destinationName: string | null; // best low-APR destination card, or null (hypothetical 0% card)
+  introMonths: number;
+  savings: number;             // interest avoided over introMonths on the moved amount
+};
+
+export function buildBalanceTransferAdvice(
+  accounts: Account[],
+  introMonths = 12,
+): BalanceTransferAdvice[] {
+  const cards = accounts.filter((a) => a.type === 'credit');
+
+  // Destination pool: available room on low/0%-APR cards, best (most room) first.
+  const destinations = cards
+    .filter((a) => a.apr !== undefined && a.apr <= LOW_APR_DEST_THRESHOLD && (a.creditLimit ?? 0) > 0)
+    .map((a) => ({ name: a.name, room: Math.max(0, availableCredit(a.balance, a.creditLimit ?? 0)) }))
+    .filter((d) => d.room > 0)
+    .sort((x, y) => y.room - x.room);
+  let pool = roundCents(destinations.reduce((s, d) => s + d.room, 0));
+  const bestDest = destinations.length > 0 ? destinations[0].name : null;
+
+  // Sources: high-APR cards carrying a balance, worst APR first (move those first).
+  const sources = cards
+    .filter((a) => a.apr !== undefined && a.apr > HIGH_APR_THRESHOLD && Math.max(0, a.balance) > 0)
+    .sort((a, b) => (b.apr ?? 0) - (a.apr ?? 0));
+
+  const out: BalanceTransferAdvice[] = [];
+  for (const account of sources) {
+    const apr = account.apr ?? 0;
+    const balance = Math.max(0, account.balance);
+    let transferable = 0;
+    let destinationName: string | null = null;
+    if (pool > 0) {
+      transferable = Math.min(balance, pool);
+      pool = roundCents(pool - transferable);
+      destinationName = bestDest;
+    }
+    // Savings = interest avoided on the moved amount over the intro window. With no
+    // real destination, show the potential on the full balance vs a 0% card.
+    const movable = transferable > 0 ? transferable : balance;
+    out.push({
+      account, apr, balance,
+      monthlyInterest: roundCents((balance * apr) / 100 / 12),
+      annualInterest: roundCents((balance * apr) / 100),
+      transferable, destinationName, introMonths,
+      savings: roundCents((movable * apr) / 100 * (introMonths / 12)),
+    });
+  }
+  return out;
+}
+
 // Days until a card's next statement closing date (0 = closes today). Returns
 // null when no statement day is set. Bureaus report the STATEMENT balance, so
 // paying down before this date is what actually lowers reported utilization.
@@ -707,6 +1006,192 @@ export function aggregateCategoryTotals(
     out[t.category] = roundCents((out[t.category] ?? 0) + t.amount);
   }
   return out;
+}
+
+// ── Ghost Subscription & Price-Creep Detection ────────────────────────────────
+// Scans the expense ledger for recurring charges (a stable amount hitting the
+// same merchant across several months) so the user can spot forgotten "ghost"
+// subscriptions and silent price hikes. We can't see usage/location data, so we
+// surface every recurring charge by monthly cost and flag the ones whose price
+// has crept up since the first charge.
+
+const SUB_MIN_OCCURRENCES = 2;          // need this many charges …
+const SUB_MIN_MONTHS = 2;               // … across this many distinct months …
+const SUB_AMOUNT_RATIO_TOLERANCE = 1.5; // … with amounts this consistent (max/min).
+const SUB_ACTIVE_DAYS = 45;             // charged within this → still "active".
+const SUB_CREEP_MIN = 0.01;             // a price increase above this counts as creep.
+
+export type Subscription = {
+  merchant: string;            // display label (most frequent original description)
+  category: string;
+  monthlyAmount: number;       // most recent charge
+  firstAmount: number;         // earliest charge
+  occurrences: number;
+  months: number;              // distinct YYYY-MM with a charge
+  firstDate: string;
+  lastDate: string;
+  priceIncrease: number;       // monthlyAmount − firstAmount (may be negative)
+  priceIncreasePct: number | null;
+  hasPriceCreep: boolean;      // price rose meaningfully since the first charge
+  isActive: boolean;           // last charge within the recency window
+};
+
+// Collapse merchant noise (trailing card digits, dates, punctuation) so
+// "NETFLIX 1234" and "Netflix.com" group together.
+function normalizeMerchant(desc: string): string {
+  return desc
+    .toLowerCase()
+    .replace(/[0-9#*/.,_-]+/g, ' ')   // card digits, dates, punctuation
+    .replace(/\b(com|www)\b/g, ' ')   // domain noise ("netflix.com" → "netflix")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function mostCommonDescription(txs: Transaction[]): string {
+  const counts = new Map<string, number>();
+  for (const t of txs) counts.set(t.description, (counts.get(t.description) ?? 0) + 1);
+  let best = txs[0]?.description ?? '';
+  let bestN = 0;
+  for (const [desc, n] of counts) if (n > bestN) { best = desc; bestN = n; }
+  return best;
+}
+
+function daysSinceDate(dateStr: string, today: Date): number | null {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  if (!y || !m || !d) return null;
+  const then = new Date(y, m - 1, d);
+  const now = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.round((now.getTime() - then.getTime()) / 86400000);
+}
+
+export function detectSubscriptions(transactions: Transaction[], today: Date = new Date()): Subscription[] {
+  const groups = new Map<string, Transaction[]>();
+  for (const t of transactions) {
+    if (t.type !== 'expense' || t.amount <= 0) continue;
+    const key = normalizeMerchant(t.description);
+    if (!key) continue;
+    let arr = groups.get(key);
+    if (!arr) { arr = []; groups.set(key, arr); }
+    arr.push(t);
+  }
+
+  const out: Subscription[] = [];
+  for (const txs of groups.values()) {
+    if (txs.length < SUB_MIN_OCCURRENCES) continue;
+    const sorted = [...txs].sort((a, b) => a.date.localeCompare(b.date));
+    const months = new Set(sorted.map((t) => t.date.slice(0, 7)));
+    if (months.size < SUB_MIN_MONTHS) continue;
+    const amounts = sorted.map((t) => t.amount);
+    const min = Math.min(...amounts), max = Math.max(...amounts);
+    if (min <= 0 || max / min > SUB_AMOUNT_RATIO_TOLERANCE) continue; // too variable → not a subscription
+
+    const first = sorted[0], last = sorted[sorted.length - 1];
+    const priceIncrease = roundCents(last.amount - first.amount);
+    const lastDays = daysSinceDate(last.date, today);
+    out.push({
+      merchant: mostCommonDescription(sorted),
+      category: last.category,
+      monthlyAmount: last.amount,
+      firstAmount: first.amount,
+      occurrences: sorted.length,
+      months: months.size,
+      firstDate: first.date,
+      lastDate: last.date,
+      priceIncrease,
+      priceIncreasePct: first.amount > 0 ? roundCents((priceIncrease / first.amount) * 100) : null,
+      hasPriceCreep: priceIncrease > SUB_CREEP_MIN,
+      isActive: lastDays !== null && lastDays <= SUB_ACTIVE_DAYS,
+    });
+  }
+  return out.sort((a, b) => b.monthlyAmount - a.monthlyAmount);
+}
+
+// ── Dynamic Budget Reallocation ───────────────────────────────────────────────
+// If a category is chronically over (or under) its budget, suggest resetting the
+// budget to match reality. Looks at the last few COMPLETE months (the current,
+// partial month is excluded so a mid-month snapshot doesn't understate spend).
+
+const REALLOC_MIN_DELTA = 5;     // ignore tweaks smaller than this ($/mo)
+const REALLOC_OVER_RATIO = 1.1;  // avg spend must exceed budget by 10% to suggest an increase
+const REALLOC_UNDER_RATIO = 0.9; // avg spend below 90% of budget to suggest a decrease
+
+export type BudgetReallocation = {
+  budgetId: string;
+  category: string;
+  period: Budget['period'];
+  currentMonthly: number;    // normalized monthly budget
+  avgSpend: number;          // avg monthly spend across the window
+  suggestedMonthly: number;  // recommended monthly budget (rounded to $5)
+  delta: number;             // suggestedMonthly − currentMonthly (>0 = increase)
+  direction: 'increase' | 'decrease';
+  monthsOver: number;        // months spend exceeded the budget
+  monthsUnder: number;
+  windowMonths: number;
+};
+
+// The `count` complete month keys immediately before `today` (most recent first).
+function monthKeysBefore(today: Date, count: number): string[] {
+  const keys: string[] = [];
+  for (let i = 1; i <= count; i++) {
+    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+  return keys;
+}
+
+function categorySpendInMonth(transactions: Transaction[], category: string, monthKey: string): number {
+  let sum = 0;
+  for (const t of transactions) {
+    if (t.type === 'expense' && t.category === category && t.date.startsWith(monthKey)) sum += t.amount;
+  }
+  return roundCents(sum);
+}
+
+function roundTo5(n: number): number {
+  return Math.max(0, Math.round(n / 5) * 5);
+}
+
+// Convert a monthly figure back into a budget's native period (inverse of
+// normalizeMonthlyBudget) so a suggestion can be applied to the stored budget.
+export function denormalizeMonthlyBudget(monthly: number, period: 'monthly' | 'weekly' | 'yearly'): number {
+  if (period === 'monthly') return roundCents(monthly);
+  if (period === 'weekly') return roundCents(monthly / 4.33);
+  return roundCents(monthly * 12);
+}
+
+export function suggestBudgetReallocations(
+  budgets: Budget[],
+  transactions: Transaction[],
+  today: Date = new Date(),
+  windowMonths = 3,
+): BudgetReallocation[] {
+  const monthKeys = monthKeysBefore(today, windowMonths);
+  const minConsistent = Math.ceil((windowMonths * 2) / 3); // e.g. 2 of 3 months
+  const out: BudgetReallocation[] = [];
+
+  for (const b of budgets) {
+    const currentMonthly = normalizeMonthlyBudget(b.amount, b.period);
+    const spends = monthKeys.map((mk) => categorySpendInMonth(transactions, b.category, mk));
+    const avgSpend = roundCents(spends.reduce((s, x) => s + x, 0) / windowMonths);
+    const monthsOver = spends.filter((s) => s > currentMonthly).length;
+    const monthsUnder = spends.filter((s) => s < currentMonthly).length;
+
+    let direction: 'increase' | 'decrease' | null = null;
+    if (avgSpend > currentMonthly * REALLOC_OVER_RATIO && monthsOver >= minConsistent) direction = 'increase';
+    else if (currentMonthly > 0 && avgSpend < currentMonthly * REALLOC_UNDER_RATIO && monthsUnder >= minConsistent) direction = 'decrease';
+    if (!direction) continue;
+
+    const suggestedMonthly = roundTo5(avgSpend);
+    const delta = roundCents(suggestedMonthly - currentMonthly);
+    if (Math.abs(delta) < REALLOC_MIN_DELTA) continue;
+
+    out.push({
+      budgetId: b.id, category: b.category, period: b.period,
+      currentMonthly, avgSpend, suggestedMonthly, delta, direction,
+      monthsOver, monthsUnder, windowMonths,
+    });
+  }
+  return out.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
 }
 
 // ── Bill helpers ──────────────────────────────────────────────────────────────

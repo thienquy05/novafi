@@ -12,6 +12,7 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { AccountsSkeleton } from '@/components/ui/Skeleton';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
+import { peekCache, ensureResources } from '@/lib/client/store';
 import { FitText } from '@/components/ui/FitText';
 import { formatCurrency, generateId, today } from '@/lib/utils';
 import { useToast } from '@/lib/toast';
@@ -63,6 +64,7 @@ const EMPTY_FORM = {
   last4: '',
   color: ACCOUNT_COLORS[0],
   creditLimit: '',
+  apr: '',
 };
 
 // Status → text color for the inline utilization readout on credit rows.
@@ -77,11 +79,11 @@ const UTIL_TEXT: Record<string, string> = {
 
 export default function AccountsPage() {
   const { t } = useTranslation();
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
   const [open, setOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Account | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => peekCache(['accounts']) === null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
   const toast = useToast();
@@ -105,11 +107,10 @@ export default function AccountsPage() {
     loan: t('accounts.groupLoan'),
   };
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     try {
-      const res = await fetch('/api/accounts');
-      if (!res.ok) throw new Error();
-      setAccounts(await res.json());
+      const { accounts } = await ensureResources(['accounts'], { force });
+      setAccounts(accounts);
       setError(false);
     } catch {
       setError(true);
@@ -119,14 +120,14 @@ export default function AccountsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-  useAutoRefresh(load);
+  useAutoRefresh(() => load(true));
 
-  const { pullY, refreshing } = usePullToRefresh(load);
+  const { pullY, refreshing } = usePullToRefresh(() => load(true));
 
   function openAdd() { setEditTarget(null); setForm(EMPTY_FORM); setOpen(true); }
   function openEdit(account: Account) {
     setEditTarget(account);
-    setForm({ name: account.name, type: account.type, institution: account.institution, balance: String(account.balance), last4: account.last4, color: account.color, creditLimit: account.creditLimit != null ? String(account.creditLimit) : '' });
+    setForm({ name: account.name, type: account.type, institution: account.institution, balance: String(account.balance), last4: account.last4, color: account.color, creditLimit: account.creditLimit != null ? String(account.creditLimit) : '', apr: account.apr != null ? String(account.apr) : '' });
     setOpen(true);
   }
 
@@ -145,6 +146,12 @@ export default function AccountsPage() {
       // Credit limit only applies to credit cards (and powers the Smart Credit
       // Report). Switching a card to another type clears it.
       creditLimit: form.type === 'credit' && form.creditLimit ? Math.max(0, parseBalance(form.creditLimit)) : undefined,
+      // The accounts form has no statement-day input (it lives on the Credit page),
+      // so preserve the stored value on edit — the API only self-maintains
+      // openingBalance, so omitting it here would wipe it. Cleared off non-credit.
+      statementDay: form.type === 'credit' ? editTarget?.statementDay : undefined,
+      // APR powers the Balance-Transfer Optimizer; 0 is a valid 0% APR.
+      apr: form.type === 'credit' && form.apr !== '' ? Math.max(0, parseFloat(form.apr)) : undefined,
     };
 
     // Optimistic update
@@ -169,7 +176,7 @@ export default function AccountsPage() {
       // server-maintained field, openingBalance, isn't shown) — so no reload needed.
     } catch {
       toast(t('accounts.toastFailedSave'), 'error');
-      await load(); // reconcile from server truth after a failed write
+      await load(true); // reconcile from server truth after a failed write
     } finally {
       setSaving(false);
     }
@@ -268,7 +275,7 @@ export default function AccountsPage() {
           </div>
           <p className="text-slate-700 dark:text-slate-300 font-bold text-base mb-1">Couldn&apos;t load accounts</p>
           <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">Check your connection and try again.</p>
-          <Button variant="secondary" onClick={load}>Try Again</Button>
+          <Button variant="secondary" onClick={() => load(true)}>Try Again</Button>
         </div>
       ) : accounts.length === 0 ? (
         <Card className="text-center py-16 bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700/60">
@@ -353,7 +360,10 @@ export default function AccountsPage() {
           <Input label={t('accounts.institution')} placeholder="e.g. Chase, Bank of America" value={form.institution} onChange={(e) => setForm((f) => ({ ...f, institution: e.target.value }))} />
           <Input label={form.type === 'credit' || form.type === 'loan' ? `${t('accounts.balanceOwed')} — enter negative if bank owes you` : t('accounts.currentBalance')} type="text" inputMode="decimal" placeholder="0.00" value={form.balance} onChange={(e) => setForm((f) => ({ ...f, balance: e.target.value.replace(/[^0-9.,\-]/g, '') }))} />
           {form.type === 'credit' && (
-            <Input label={t('accounts.creditLimit')} type="text" inputMode="decimal" placeholder="0.00" value={form.creditLimit} onChange={(e) => setForm((f) => ({ ...f, creditLimit: e.target.value.replace(/[^0-9.,]/g, '') }))} />
+            <div className="grid grid-cols-2 gap-3">
+              <Input label={t('accounts.creditLimit')} type="text" inputMode="decimal" placeholder="0.00" value={form.creditLimit} onChange={(e) => setForm((f) => ({ ...f, creditLimit: e.target.value.replace(/[^0-9.,]/g, '') }))} />
+              <Input label={t('accounts.apr')} type="text" inputMode="decimal" placeholder="0.00" value={form.apr} onChange={(e) => setForm((f) => ({ ...f, apr: e.target.value.replace(/[^0-9.]/g, '') }))} />
+            </div>
           )}
           <Input label={t('accounts.last4')} placeholder="1234" maxLength={4} value={form.last4} onChange={(e) => setForm((f) => ({ ...f, last4: e.target.value.replace(/\D/g, '').slice(0, 4) }))} />
           <div>

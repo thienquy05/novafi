@@ -11,14 +11,17 @@ import { Modal } from '@/components/ui/Modal';
 import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { PlanningSkeleton } from '@/components/ui/Skeleton';
 import { formatCurrency, formatDate, generateId } from '@/lib/utils';
-import { calcRolloverDeficit, calcEffectiveSpent } from '@/lib/calculations';
+import {
+  calcRolloverDeficit, calcEffectiveSpent,
+  suggestBudgetReallocations, denormalizeMonthlyBudget, type BudgetReallocation,
+} from '@/lib/calculations';
 import type { Budget, Goal, Transaction, Account } from '@/types';
 import { useCategories } from '@/hooks/useCategories';
 import { Reorder, useDragControls } from 'framer-motion';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useTranslation } from '@/lib/i18n/context';
-import { loadBatch } from '@/lib/client/api';
+import { peekCache, ensureResources } from '@/lib/client/store';
 
 const PERIOD_OPTIONS = [
   { value: 'monthly', label: 'Monthly' },
@@ -51,11 +54,11 @@ const EMPTY_GOAL_FORM = {
 
 export default function PlanningPage() {
   const { t } = useTranslation();
-  const [budgets, setBudgets] = useState<Budget[]>([]);
-  const [goals, setGoals] = useState<Goal[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [rolloverEnabled, setRolloverEnabled] = useState(false);
+  const [budgets, setBudgets] = useState<Budget[]>(() => peekCache(['budgets'])?.budgets ?? []);
+  const [goals, setGoals] = useState<Goal[]>(() => peekCache(['goals'])?.goals ?? []);
+  const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
+  const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
+  const [rolloverEnabled, setRolloverEnabled] = useState(() => peekCache(['settings'])?.settings?.budgetRollover === true);
 
   const [budgetModalOpen, setBudgetModalOpen] = useState(false);
   const [editBudget, setEditBudget] = useState<Budget | null>(null);
@@ -64,18 +67,18 @@ export default function PlanningPage() {
 
   const [budgetForm, setBudgetForm] = useState(EMPTY_BUDGET_FORM);
   const [goalForm, setGoalForm] = useState(EMPTY_GOAL_FORM);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => peekCache(['budgets', 'goals', 'transactions', 'accounts', 'settings']) === null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
   const toast = useToast();
   const { expenseCategories } = useCategories();
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     setError(false);
     try {
-      // One /api/batch round trip instead of five separate Sheets reads.
+      // One /api/batch round trip; served from the client cache when fresh.
       const { budgets, goals, transactions, accounts, settings } =
-        await loadBatch(['budgets', 'goals', 'transactions', 'accounts', 'settings']);
+        await ensureResources(['budgets', 'goals', 'transactions', 'accounts', 'settings'], { force });
       setBudgets(budgets); setGoals(goals); setTransactions(transactions); setAccounts(accounts);
       setRolloverEnabled(settings?.budgetRollover === true);
     } catch {
@@ -86,7 +89,7 @@ export default function PlanningPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-  const { pullY, refreshing } = usePullToRefresh(load);
+  const { pullY, refreshing } = usePullToRefresh(() => load(true));
 
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -321,6 +324,23 @@ export default function PlanningPage() {
 
   const savingsAccounts = accounts.filter((a) => a.type === 'savings');
   const budgetedCategories = useMemo(() => new Set(budgets.map((b) => b.category)), [budgets]);
+  const reallocations = useMemo(() => suggestBudgetReallocations(budgets, transactions, new Date()), [budgets, transactions]);
+
+  // Reset a chronically over/under budget to match real spending, in its own period.
+  async function applyReallocation(r: BudgetReallocation) {
+    const existing = budgets.find((b) => b.id === r.budgetId);
+    if (!existing) return;
+    const updated: Budget = { ...existing, amount: denormalizeMonthlyBudget(r.suggestedMonthly, existing.period) };
+    setBudgets((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
+    try {
+      const res = await fetch('/api/budgets', { method: 'POST', body: JSON.stringify(updated), headers: { 'Content-Type': 'application/json' } });
+      if (!res.ok) throw new Error();
+      toast(t('planning.toastBudgetUpdated'), 'success');
+    } catch {
+      toast(t('planning.toastBudgetFailed'), 'error');
+      await load(true);
+    }
+  }
   const unbudgetedWithSpending = useMemo(
     () => expenseCategories.filter((c) => !budgetedCategories.has(c) && (categorySpendMap[c] ?? 0) > 0),
     [expenseCategories, budgetedCategories, categorySpendMap]
@@ -377,7 +397,7 @@ export default function PlanningPage() {
           <div className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-900/30 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-rose-400" /></div>
           <p className="text-slate-700 dark:text-slate-300 font-bold text-base mb-1">Couldn&apos;t load planning data</p>
           <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">Check your connection and try again.</p>
-          <Button variant="secondary" onClick={load}>Try Again</Button>
+          <Button variant="secondary" onClick={() => load(true)}>Try Again</Button>
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-7">
@@ -493,6 +513,11 @@ export default function PlanningPage() {
               </div>
             )}
           </div>
+
+          {/* ── BUDGET REALITY CHECK (dynamic reallocation) ──────────────── */}
+          {reallocations.length > 0 && (
+            <BudgetRealityCard suggestions={reallocations} onApply={applyReallocation} />
+          )}
 
           {/* ── GOALS ────────────────────────────────────────────────────── */}
           <div className="flex flex-col gap-4">
@@ -694,6 +719,56 @@ export default function PlanningPage() {
 }
 
 // ── Draggable Budget Card ──────────────────────────────────────────────────────
+// ── Budget reality check (dynamic reallocation) ───────────────────────────────
+// Surfaces budgets that chronically miss actual spending and offers a one-tap
+// reset to the real average (logic in suggestBudgetReallocations).
+function BudgetRealityCard({ suggestions, onApply }: {
+  suggestions: BudgetReallocation[];
+  onApply: (r: BudgetReallocation) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <Card>
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-10 h-10 rounded-2xl bg-amber-50 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+          <Zap className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+        </div>
+        <div>
+          <p className="text-base font-bold text-slate-900 dark:text-slate-100">{t('planning.reallocTitle')}</p>
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('planning.reallocSub', { months: suggestions[0].windowMonths })}</p>
+        </div>
+      </div>
+      <div className="space-y-2.5">
+        {suggestions.map((r) => {
+          const inc = r.direction === 'increase';
+          const Icon = inc ? TrendingUp : TrendingDown;
+          return (
+            <div key={r.budgetId} className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-3">
+              <div className="min-w-0">
+                <p className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                  <Icon className={`w-4 h-4 shrink-0 ${inc ? 'text-rose-500' : 'text-emerald-500'}`} />
+                  <span className="truncate">{r.category}</span>
+                </p>
+                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
+                  {inc
+                    ? t('planning.reallocIncrease', { amount: formatCurrency(Math.abs(r.delta)) })
+                    : t('planning.reallocDecrease', { amount: formatCurrency(Math.abs(r.delta)) })}
+                </p>
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                  {t('planning.reallocFromTo', { from: formatCurrency(r.currentMonthly), to: formatCurrency(r.suggestedMonthly) })}
+                </p>
+              </div>
+              <Button size="sm" variant="secondary" className="shrink-0" onClick={() => onApply(r)}>
+                {t('planning.reallocApply')}
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 function BudgetItem({ budget, monthly, rolledOver, spent, usage, prevSpent, rollingAvg, categoryPct, momDiff, pct, over, remaining, willOvershoot, overshootAmt, daysLeft, onEdit, onDelete }: {
   budget: Budget;
   monthly: number; rolledOver: number; spent: number; usage: number; prevSpent: number; rollingAvg: number; categoryPct: number; momDiff: number;

@@ -12,7 +12,7 @@ import { calcSpendingPace, calcRolloverDeficit, normalizeMonthlyBudget } from '@
 import { SpendingPaceWidget } from '../dashboard/SpendingPaceWidget';
 import { useTranslation } from '@/lib/i18n/context';
 import { motion, useReducedMotion } from 'framer-motion';
-import { loadBatch } from '@/lib/client/api';
+import { peekCache, ensureResources } from '@/lib/client/store';
 import { dynamicChart } from '@/lib/dynamicChart';
 
 // Recharts loads lazily so it stays out of the reports route's first-load JS.
@@ -30,20 +30,20 @@ const DEFAULT_COLOR = '#6366f1';
 
 export default function ReportsPage() {
   const { t } = useTranslation();
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [budgets, setBudgets] = useState<Budget[]>([]);
-  const [budgetRollover, setBudgetRollover] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
+  const [budgets, setBudgets] = useState<Budget[]>(() => peekCache(['budgets'])?.budgets ?? []);
+  const [budgetRollover, setBudgetRollover] = useState(() => peekCache(['settings'])?.settings?.budgetRollover === true);
+  const [loading, setLoading] = useState(() => peekCache(['transactions', 'budgets', 'settings']) === null);
   const [error, setError] = useState(false);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const reduced = useReducedMotion();
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     setError(false);
-    setLoading(true);
     try {
-      // One /api/batch round trip instead of three separate Sheets reads.
-      const { transactions, budgets, settings } = await loadBatch(['transactions', 'budgets', 'settings']);
+      // One /api/batch round trip instead of three separate Sheets reads;
+      // served from the client cache when fresh (no skeleton on revisit).
+      const { transactions, budgets, settings } = await ensureResources(['transactions', 'budgets', 'settings'], { force });
       setTransactions(transactions);
       setBudgets(budgets);
       setBudgetRollover(settings?.budgetRollover === true);
@@ -231,7 +231,7 @@ export default function ReportsPage() {
             <Button variant="secondary" onClick={handleExportPdf} disabled={noData} className="shadow-sm" title={t('reports.exportPdf')}>
               <Printer className="w-4 h-4" /><span className="hidden sm:inline">PDF</span>
             </Button>
-            <Button variant="secondary" onClick={load} className="shadow-sm" title={t('common.refresh')}>
+            <Button variant="secondary" onClick={() => load(true)} className="shadow-sm" title={t('common.refresh')}>
               <RefreshCw className="w-4 h-4" />
             </Button>
           </div>
@@ -246,7 +246,7 @@ export default function ReportsPage() {
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <div className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-900/30 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-rose-400" /></div>
           <p className="text-slate-700 dark:text-slate-300 font-bold text-base mb-1">{t('reports.errorTitle')}</p>
-          <Button variant="secondary" onClick={load} className="mt-4">{t('common.tryAgain')}</Button>
+          <Button variant="secondary" onClick={() => load(true)} className="mt-4">{t('common.tryAgain')}</Button>
         </div>
       ) : (
         <>

@@ -12,7 +12,7 @@ import { calcPaycheckTax } from '@/lib/tax';
 import { calcPaycheckTaxToSave, calcPaycheckDeposited } from '@/lib/calculations';
 import type { PaycheckEntry, TaxSettings, Account } from '@/types';
 import { useTranslation } from '@/lib/i18n/context';
-import { loadBatch } from '@/lib/client/api';
+import { peekCache, ensureResources } from '@/lib/client/store';
 
 const EMPTY_FORM = {
   date: today(),
@@ -24,20 +24,22 @@ const EMPTY_FORM = {
 };
 
 export default function PaychecksPage() {
-  const [paychecks, setPaychecks] = useState<PaycheckEntry[]>([]);
-  const [settings, setSettings] = useState<TaxSettings | null>(null);
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [paychecks, setPaychecks] = useState<PaycheckEntry[]>(() => {
+    const pc = peekCache(['paychecks'])?.paychecks;
+    return pc ? [...pc].sort((a, b) => b.date.localeCompare(a.date)) : [];
+  });
+  const [settings, setSettings] = useState<TaxSettings | null>(() => peekCache(['settings'])?.settings ?? null);
+  const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [preview, setPreview] = useState<ReturnType<typeof calcPaycheckTax> | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => peekCache(['paychecks', 'settings', 'accounts']) === null);
   const [saving, setSaving] = useState(false);
   const { t } = useTranslation();
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    // One /api/batch round trip instead of three separate Sheets reads.
-    const { paychecks: pc, settings: st, accounts: accs } = await loadBatch(['paychecks', 'settings', 'accounts']);
+  const load = useCallback(async (force = false) => {
+    // One /api/batch round trip; served from the client cache when fresh.
+    const { paychecks: pc, settings: st, accounts: accs } = await ensureResources(['paychecks', 'settings', 'accounts'], { force });
     const sorted = [...pc].sort((a: PaycheckEntry, b: PaycheckEntry) => b.date.localeCompare(a.date));
     setPaychecks(sorted);
     setSettings(st);

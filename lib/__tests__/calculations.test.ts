@@ -17,7 +17,10 @@ import {
   calcNetWorthProjection, calcPaycheckTaxToSave,
   calcPaycheckDeposited,
   creditUtilization, creditUtilStatus, isOverCreditTarget, availableCredit,
-  calcPaydownToTarget, buildCreditReport, calcCreditAlerts,
+  calcPaydownToTarget, buildCreditReport, calcCreditAlerts, allocateSmartPayment,
+  assessCardPaymentHistory, buildLimitIncreaseAdvisories, LIMIT_ADVISOR_TARGET,
+  buildStatementArbitrage, buildBalanceTransferAdvice,
+  detectSubscriptions, suggestBudgetReallocations, denormalizeMonthlyBudget,
   calcCreditUtilizationScore, composeHealthScore, daysUntilStatement, HEALTH_WEIGHTS,
   CREDIT_UTIL_TARGET,
 } from '@/lib/calculations';
@@ -1279,6 +1282,372 @@ describe('buildCreditReport', () => {
     expect(r.hasLimits).toBe(false);
     expect(r.overallUtil).toBeNull();
     expect(r.overallStatus).toBeNull();
+  });
+});
+
+describe('allocateSmartPayment', () => {
+  // Two cards over the 30% cap with different paydown costs, plus one healthy card.
+  const spikeSmall = makeAccount({ id: 's', type: 'credit', balance: 400, creditLimit: 1000 }); // 40% → needs 100 to hit 30%
+  const spikeBig = makeAccount({ id: 'b', type: 'credit', balance: 900, creditLimit: 1000 });    // 90% → needs 600 to hit 30%
+  const healthy = makeAccount({ id: 'h', type: 'credit', balance: 50, creditLimit: 1000 });      // 5% already ideal
+  const checking = makeAccount({ id: 'c', type: 'checking', balance: 9999 });
+
+  it('ignores non-credit and zero-balance/no-limit cards', () => {
+    const noLimit = makeAccount({ id: 'n', type: 'credit', balance: 500 });
+    const zero = makeAccount({ id: 'z', type: 'credit', balance: 0, creditLimit: 1000 });
+    const plan = allocateSmartPayment([checking, noLimit, zero, spikeSmall], 50);
+    expect(plan.allCards.map((c) => c.account.id)).toEqual(['s']);
+  });
+
+  it('eliminates the cheapest spike first to maximize spikes cleared', () => {
+    // $100 only covers the small spike (needs 100); big spike needs 600.
+    const plan = allocateSmartPayment([spikeSmall, spikeBig], 100);
+    const s = plan.allCards.find((c) => c.account.id === 's')!;
+    const b = plan.allCards.find((c) => c.account.id === 'b')!;
+    expect(s.payment).toBe(100);   // small spike fully cleared to 30%
+    expect(b.payment).toBe(0);     // nothing left for the big one
+    expect(s.utilAfter).toBe(30);
+    expect(plan.spikesBefore).toBe(2);
+    expect(plan.spikesAfter).toBe(1);
+    expect(plan.totalPaid).toBe(100);
+    expect(plan.leftover).toBe(0);
+  });
+
+  it('clears all spikes then pushes toward the 10% ideal', () => {
+    // 100 (small→30) + 600 (big→30) = 700 clears both spikes; 100 more pushes
+    // the cheapest toward 10%. Small at 30% (300 owed) needs 200 to reach 10%.
+    const plan = allocateSmartPayment([spikeSmall, spikeBig], 800);
+    expect(plan.spikesAfter).toBe(0);
+    const s = plan.allCards.find((c) => c.account.id === 's')!;
+    // 100 to clear spike + 100 of the remaining toward ideal.
+    expect(s.payment).toBe(200);
+    expect(plan.totalPaid).toBe(800);
+  });
+
+  it('never overpays a card and reports leftover when budget exceeds total owed', () => {
+    const plan = allocateSmartPayment([spikeSmall, healthy], 5000);
+    const s = plan.allCards.find((c) => c.account.id === 's')!;
+    const h = plan.allCards.find((c) => c.account.id === 'h')!;
+    expect(s.payment).toBe(400);   // full balance, not more
+    expect(h.payment).toBe(50);
+    expect(s.utilAfter).toBe(0);
+    expect(plan.totalPaid).toBe(450);
+    expect(plan.leftover).toBe(4550);
+  });
+
+  it('computes overall utilization before/after across all limited cards', () => {
+    const plan = allocateSmartPayment([spikeSmall, spikeBig, healthy], 100);
+    // before: (400+900+50)/3000 = 45%
+    expect(plan.overallUtilBefore).toBe(45);
+    // after paying 100: (1350-100)/3000 = 41.67%
+    expect(plan.overallUtilAfter).toBeCloseTo(41.67, 1);
+  });
+
+  it('handles a zero budget as a no-op plan', () => {
+    const plan = allocateSmartPayment([spikeSmall, spikeBig], 0);
+    expect(plan.totalPaid).toBe(0);
+    expect(plan.allocations).toHaveLength(0);
+    expect(plan.spikesAfter).toBe(plan.spikesBefore);
+  });
+});
+
+describe('assessCardPaymentHistory', () => {
+  const card = makeAccount({ id: 'cc', type: 'credit', balance: 800, creditLimit: 1000, createdAt: '2025-01-01' });
+  const today = new Date('2026-06-08');
+
+  it('counts only transfers INTO the card as payments', () => {
+    const txs = [
+      makeTx({ id: '1', type: 'transfer', toAccount: 'cc', amount: 100, date: '2026-05-10' }), // payment
+      makeTx({ id: '2', type: 'expense', account: 'cc', amount: 50, date: '2026-05-11' }),       // charge, not a payment
+      makeTx({ id: '3', type: 'transfer', account: 'cc', amount: 30, date: '2026-05-12' }),      // cash advance OUT, not a payment
+    ];
+    const h = assessCardPaymentHistory(card, txs, today);
+    expect(h.payments).toBe(1);
+  });
+
+  it('is solid with 3+ payments across 3+ distinct months', () => {
+    const txs = [
+      makeTx({ id: '1', type: 'transfer', toAccount: 'cc', amount: 100, date: '2026-03-10' }),
+      makeTx({ id: '2', type: 'transfer', toAccount: 'cc', amount: 100, date: '2026-04-10' }),
+      makeTx({ id: '3', type: 'transfer', toAccount: 'cc', amount: 100, date: '2026-05-10' }),
+    ];
+    const h = assessCardPaymentHistory(card, txs, today);
+    expect(h.monthsWithPayment).toBe(3);
+    expect(h.solid).toBe(true);
+  });
+
+  it('is not solid when payments cluster in too few months', () => {
+    const txs = [
+      makeTx({ id: '1', type: 'transfer', toAccount: 'cc', amount: 50, date: '2026-05-01' }),
+      makeTx({ id: '2', type: 'transfer', toAccount: 'cc', amount: 50, date: '2026-05-10' }),
+      makeTx({ id: '3', type: 'transfer', toAccount: 'cc', amount: 50, date: '2026-05-20' }),
+    ];
+    expect(assessCardPaymentHistory(card, txs, today).solid).toBe(false);
+  });
+
+  it('ignores payments older than the lookback window', () => {
+    const txs = [
+      makeTx({ id: '1', type: 'transfer', toAccount: 'cc', amount: 100, date: '2024-01-10' }),
+      makeTx({ id: '2', type: 'transfer', toAccount: 'cc', amount: 100, date: '2024-02-10' }),
+      makeTx({ id: '3', type: 'transfer', toAccount: 'cc', amount: 100, date: '2024-03-10' }),
+    ];
+    expect(assessCardPaymentHistory(card, txs, today).payments).toBe(0);
+  });
+});
+
+describe('buildLimitIncreaseAdvisories', () => {
+  const today = new Date('2026-06-08');
+  const solidHistory = (id: string) => [
+    makeTx({ id: id + 'a', type: 'transfer', toAccount: id, amount: 100, date: '2026-03-10' }),
+    makeTx({ id: id + 'b', type: 'transfer', toAccount: id, amount: 100, date: '2026-04-10' }),
+    makeTx({ id: id + 'c', type: 'transfer', toAccount: id, amount: 100, date: '2026-05-10' }),
+  ];
+
+  it('recommends the limit that dilutes a high-util card to <=15%, rounded up to $100', () => {
+    const card = makeAccount({ id: 'cc', type: 'credit', balance: 800, creditLimit: 1000 }); // 80%
+    const advice = buildLimitIncreaseAdvisories([card], solidHistory('cc'), today);
+    expect(advice).toHaveLength(1);
+    // 800 / 0.15 = 5333.3 → round up to 5400.
+    expect(advice[0].recommendedLimit).toBe(5400);
+    expect(advice[0].increase).toBe(4400);
+    expect(advice[0].resultingUtil).toBeLessThanOrEqual(LIMIT_ADVISOR_TARGET);
+  });
+
+  it('skips cards at or under the 30% cap', () => {
+    const card = makeAccount({ id: 'cc', type: 'credit', balance: 200, creditLimit: 1000 }); // 20%
+    expect(buildLimitIncreaseAdvisories([card], solidHistory('cc'), today)).toHaveLength(0);
+  });
+
+  it('skips high-util cards without a solid payment history', () => {
+    const card = makeAccount({ id: 'cc', type: 'credit', balance: 800, creditLimit: 1000 });
+    expect(buildLimitIncreaseAdvisories([card], [], today)).toHaveLength(0);
+  });
+
+  it('skips cards with no limit set', () => {
+    const card = makeAccount({ id: 'cc', type: 'credit', balance: 800 });
+    expect(buildLimitIncreaseAdvisories([card], solidHistory('cc'), today)).toHaveLength(0);
+  });
+});
+
+describe('buildStatementArbitrage', () => {
+  // today = 2026-06-08; statementDay 11 → closes in 3 days.
+  const today = new Date('2026-06-08');
+
+  it('flags a card closing soon that is over the 30% cap, with paydown to 30%', () => {
+    const card = makeAccount({ id: 'cc', type: 'credit', balance: 800, creditLimit: 1000, statementDay: 11 }); // 80%
+    const items = buildStatementArbitrage([card], today);
+    expect(items).toHaveLength(1);
+    expect(items[0].daysUntil).toBe(3);
+    expect(items[0].targetPct).toBe(30);
+    expect(items[0].recommendedPayment).toBe(500); // 800 → 300
+  });
+
+  it('targets the 10% ideal when already under the cap', () => {
+    const card = makeAccount({ id: 'cc', type: 'credit', balance: 250, creditLimit: 1000, statementDay: 11 }); // 25%
+    const items = buildStatementArbitrage([card], today);
+    expect(items[0].targetPct).toBe(10);
+    expect(items[0].recommendedPayment).toBe(150); // 250 → 100
+  });
+
+  it('ignores cards closing beyond the window or with no statement day', () => {
+    const far = makeAccount({ id: 'a', type: 'credit', balance: 800, creditLimit: 1000, statementDay: 1 }); // closes ~23 days out
+    const noStmt = makeAccount({ id: 'b', type: 'credit', balance: 800, creditLimit: 1000 });
+    expect(buildStatementArbitrage([far, noStmt], today)).toHaveLength(0);
+  });
+
+  it('skips cards already at/under the relevant target', () => {
+    const ideal = makeAccount({ id: 'cc', type: 'credit', balance: 50, creditLimit: 1000, statementDay: 11 }); // 5%
+    expect(buildStatementArbitrage([ideal], today)).toHaveLength(0);
+  });
+
+  it('sorts by soonest closing first', () => {
+    const soon = makeAccount({ id: 'soon', type: 'credit', balance: 800, creditLimit: 1000, statementDay: 9 });  // 1 day
+    const later = makeAccount({ id: 'later', type: 'credit', balance: 800, creditLimit: 1000, statementDay: 12 }); // 4 days
+    const items = buildStatementArbitrage([later, soon], today);
+    expect(items.map((i) => i.account.id)).toEqual(['soon', 'later']);
+  });
+});
+
+describe('buildBalanceTransferAdvice', () => {
+  it('reports interest cost and savings into a real 0% destination', () => {
+    const high = makeAccount({ id: 'h', type: 'credit', balance: 1000, creditLimit: 2000, apr: 24 });
+    const zero = makeAccount({ id: 'z', type: 'credit', balance: 0, creditLimit: 5000, apr: 0 });
+    const advice = buildBalanceTransferAdvice([high, zero]);
+    expect(advice).toHaveLength(1);
+    const a = advice[0];
+    expect(a.account.id).toBe('h');
+    expect(a.annualInterest).toBe(240);           // 1000 * 24%
+    expect(a.monthlyInterest).toBe(20);           // 240 / 12
+    expect(a.transferable).toBe(1000);            // fits the 5000 of room
+    expect(a.destinationName).toBe('Test');       // the 0% card's name
+    expect(a.savings).toBe(240);                  // full balance moved, 12-month window
+  });
+
+  it('caps the transfer at the destination available room', () => {
+    const high = makeAccount({ id: 'h', type: 'credit', balance: 1000, creditLimit: 2000, apr: 24 });
+    const zero = makeAccount({ id: 'z', type: 'credit', balance: 700, creditLimit: 1000, apr: 0 }); // 300 room
+    const advice = buildBalanceTransferAdvice([high, zero]);
+    expect(advice[0].transferable).toBe(300);
+    expect(advice[0].savings).toBe(72);           // 300 * 24% over a year
+  });
+
+  it('still advises (hypothetical 0% card) when no low-APR destination exists', () => {
+    const high = makeAccount({ id: 'h', type: 'credit', balance: 1000, creditLimit: 2000, apr: 24 });
+    const advice = buildBalanceTransferAdvice([high]);
+    expect(advice).toHaveLength(1);
+    expect(advice[0].transferable).toBe(0);
+    expect(advice[0].destinationName).toBeNull();
+    expect(advice[0].savings).toBe(240);          // potential on the full balance
+  });
+
+  it('ignores low-APR cards as sources and cards without an APR set', () => {
+    const lowApr = makeAccount({ id: 'l', type: 'credit', balance: 1000, creditLimit: 2000, apr: 8 });
+    const noApr = makeAccount({ id: 'n', type: 'credit', balance: 1000, creditLimit: 2000 });
+    expect(buildBalanceTransferAdvice([lowApr, noApr])).toHaveLength(0);
+  });
+
+  it('allocates limited destination room worst-APR-first', () => {
+    const worst = makeAccount({ id: 'w', type: 'credit', balance: 500, creditLimit: 1000, apr: 27 });
+    const bad = makeAccount({ id: 'b', type: 'credit', balance: 500, creditLimit: 1000, apr: 20 });
+    const zero = makeAccount({ id: 'z', type: 'credit', balance: 600, creditLimit: 1000, apr: 0 }); // 400 room
+    const advice = buildBalanceTransferAdvice([bad, worst, zero]);
+    // 400 of room → all to the 27% card first, none left for the 20% card.
+    expect(advice[0].account.id).toBe('w');
+    expect(advice[0].transferable).toBe(400);
+    expect(advice[1].account.id).toBe('b');
+    expect(advice[1].transferable).toBe(0);
+  });
+});
+
+describe('detectSubscriptions', () => {
+  const today = new Date('2026-06-08');
+
+  it('detects a recurring charge across months and flags price creep', () => {
+    const txs = [
+      makeTx({ id: '1', type: 'expense', description: 'Netflix', amount: 15.99, category: 'Entertainment', date: '2026-03-05' }),
+      makeTx({ id: '2', type: 'expense', description: 'Netflix', amount: 15.99, category: 'Entertainment', date: '2026-04-05' }),
+      makeTx({ id: '3', type: 'expense', description: 'Netflix', amount: 17.99, category: 'Entertainment', date: '2026-05-05' }),
+    ];
+    const subs = detectSubscriptions(txs, today);
+    expect(subs).toHaveLength(1);
+    expect(subs[0].merchant).toBe('Netflix');
+    expect(subs[0].monthlyAmount).toBe(17.99);
+    expect(subs[0].firstAmount).toBe(15.99);
+    expect(subs[0].priceIncrease).toBe(2);
+    expect(subs[0].hasPriceCreep).toBe(true);
+    expect(subs[0].isActive).toBe(true);
+  });
+
+  it('groups merchant-name noise (card digits / punctuation) together', () => {
+    const txs = [
+      makeTx({ id: '1', type: 'expense', description: 'NETFLIX 1234', amount: 15.99, date: '2026-03-05' }),
+      makeTx({ id: '2', type: 'expense', description: 'Netflix.com', amount: 15.99, date: '2026-04-05' }),
+      makeTx({ id: '3', type: 'expense', description: 'netflix', amount: 15.99, date: '2026-05-05' }),
+    ];
+    expect(detectSubscriptions(txs, today)).toHaveLength(1);
+  });
+
+  it('ignores merchants with wildly varying amounts (e.g. groceries)', () => {
+    const txs = [
+      makeTx({ id: '1', type: 'expense', description: 'Kroger', amount: 20, date: '2026-03-05' }),
+      makeTx({ id: '2', type: 'expense', description: 'Kroger', amount: 180, date: '2026-04-05' }),
+      makeTx({ id: '3', type: 'expense', description: 'Kroger', amount: 95, date: '2026-05-05' }),
+    ];
+    expect(detectSubscriptions(txs, today)).toHaveLength(0);
+  });
+
+  it('ignores merchants seen in too few months', () => {
+    const txs = [
+      makeTx({ id: '1', type: 'expense', description: 'Spotify', amount: 9.99, date: '2026-05-01' }),
+      makeTx({ id: '2', type: 'expense', description: 'Spotify', amount: 9.99, date: '2026-05-15' }),
+      makeTx({ id: '3', type: 'expense', description: 'Spotify', amount: 9.99, date: '2026-05-28' }),
+    ];
+    expect(detectSubscriptions(txs, today)).toHaveLength(0); // 3 charges but only 1 month
+  });
+
+  it('marks a stale subscription inactive', () => {
+    const txs = [
+      makeTx({ id: '1', type: 'expense', description: 'OldGym', amount: 30, date: '2025-09-05' }),
+      makeTx({ id: '2', type: 'expense', description: 'OldGym', amount: 30, date: '2025-10-05' }),
+      makeTx({ id: '3', type: 'expense', description: 'OldGym', amount: 30, date: '2025-11-05' }),
+    ];
+    expect(detectSubscriptions(txs, today)[0].isActive).toBe(false);
+  });
+});
+
+describe('suggestBudgetReallocations', () => {
+  const today = new Date('2026-06-08'); // window = 2026-05, 2026-04, 2026-03
+  const monthly = (cat: string, amount: number): Budget => ({ id: cat, category: cat, amount, period: 'monthly' });
+  const spend = (cat: string, month: string, amount: number, i: number) =>
+    makeTx({ id: `${cat}-${month}-${i}`, type: 'expense', category: cat, amount, date: `${month}-10` });
+
+  it('suggests increasing a chronically overspent budget', () => {
+    const budgets = [monthly('Food', 300)];
+    const txs = [
+      spend('Food', '2026-03', 400, 1),
+      spend('Food', '2026-04', 420, 2),
+      spend('Food', '2026-05', 410, 3),
+    ];
+    const r = suggestBudgetReallocations(budgets, txs, today);
+    expect(r).toHaveLength(1);
+    expect(r[0].direction).toBe('increase');
+    expect(r[0].avgSpend).toBe(410);
+    expect(r[0].suggestedMonthly).toBe(410);
+    expect(r[0].delta).toBe(110);
+    expect(r[0].monthsOver).toBe(3);
+  });
+
+  it('suggests decreasing a chronically underspent budget', () => {
+    const budgets = [monthly('Entertainment', 200)];
+    const txs = [
+      spend('Entertainment', '2026-03', 120, 1),
+      spend('Entertainment', '2026-04', 130, 2),
+      spend('Entertainment', '2026-05', 125, 3),
+    ];
+    const r = suggestBudgetReallocations(budgets, txs, today);
+    expect(r[0].direction).toBe('decrease');
+    expect(r[0].suggestedMonthly).toBe(125);
+    expect(r[0].delta).toBe(-75);
+  });
+
+  it('leaves budgets that roughly match spend alone', () => {
+    const budgets = [monthly('Food', 300)];
+    const txs = [
+      spend('Food', '2026-03', 300, 1),
+      spend('Food', '2026-04', 310, 2),
+      spend('Food', '2026-05', 295, 3),
+    ];
+    expect(suggestBudgetReallocations(budgets, txs, today)).toHaveLength(0);
+  });
+
+  it('excludes the current (partial) month from the window', () => {
+    const budgets = [monthly('Food', 300)];
+    const txs = [
+      spend('Food', '2026-03', 300, 1),
+      spend('Food', '2026-04', 300, 2),
+      spend('Food', '2026-05', 300, 3),
+      spend('Food', '2026-06', 999, 4), // current month — should be ignored
+    ];
+    expect(suggestBudgetReallocations(budgets, txs, today)).toHaveLength(0);
+  });
+
+  it('ignores sub-threshold deltas', () => {
+    const budgets = [monthly('Food', 300)];
+    const txs = [
+      spend('Food', '2026-03', 303, 1),
+      spend('Food', '2026-04', 304, 2),
+      spend('Food', '2026-05', 302, 3),
+    ];
+    expect(suggestBudgetReallocations(budgets, txs, today)).toHaveLength(0);
+  });
+});
+
+describe('denormalizeMonthlyBudget', () => {
+  it('inverts normalizeMonthlyBudget for each period', () => {
+    expect(denormalizeMonthlyBudget(300, 'monthly')).toBe(300);
+    expect(denormalizeMonthlyBudget(120, 'yearly')).toBe(1440);
+    // weekly: normalize multiplies by 4.33, so denormalize divides by it.
+    expect(denormalizeMonthlyBudget(433, 'weekly')).toBe(100);
   });
 });
 
