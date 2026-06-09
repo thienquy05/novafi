@@ -1474,3 +1474,15 @@ Caveat (pre-existing data): groups created before this column have `myShareTxId=
 **Locales:** added `credit.adv*` keys to en/vi (`advTitle`, `advSub`, `advAskBank`, `advAsk`, `advNewLimit`, `advDilute`, `advRecord`).
 
 **Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors; `npm test` 414/414; `npm run build` compiled successfully (29/29 pages).
+
+## 2026-06-08 — Statement Date Arbitrage banner (credit page)
+
+**Goal:** Promote the existing "pay before your statement closes" nudge (previously only a small per-card chip) into a prominent, aggregated, time-sorted flag, since the bureau reports the balance on the closing date and the action is time-sensitive.
+
+**`lib/calculations.ts` — `buildStatementArbitrage(accounts, today, withinDays=5)`** → `StatementArbitrageItem[]`. For each credit card with a limit whose statement closes within `withinDays`, returns the single most useful pre-close payment: paydown to the 30% cap when over it, otherwise toward the 10% ideal. Skips cards with no statement day, closing beyond the window, or already at/under the relevant target. Sorted soonest-closing first. New type `StatementArbitrageItem`. 5 new tests (over-cap targets 30, under-cap targets 10, window/no-stmt-day exclusion, already-ideal skip, sort order).
+
+**`app/(app)/credit/page.tsx`:** new `StatementArbitrageCard` amber banner rendered between the all-clear/over-target alert and the per-card list when `arbitrage.length > 0`; each line reads "{card} closes in {days} day(s): pay {amount} to report under {pct}%" (special-cased for "closes today"). Imports `buildStatementArbitrage` + `StatementArbitrageItem`.
+
+**Locales:** added `credit.arbTitle/arbSub/arbItem/arbItemToday` to en/vi.
+
+**Verification:** `npx tsc --noEmit` clean; `npm run lint` 0 errors; `npm test` 419/419; `npm run build` compiled successfully.

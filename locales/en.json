@@ -588,7 +588,11 @@
     "advAsk": "Request a {amount} limit increase",
     "advNewLimit": "New limit {amount}",
     "advDilute": "Utilization {before} → {after}",
-    "advRecord": "{payments} payments across {months} months on record"
+    "advRecord": "{payments} payments across {months} months on record",
+    "arbTitle": "Pay before your statement closes",
+    "arbSub": "Bureaus report your balance on the closing date, not the due date — pay these down first to lower reported utilization.",
+    "arbItem": "{card} closes in {days} day(s): pay {amount} to report under {pct}%",
+    "arbItemToday": "{card} closes today: pay {amount} to report under {pct}%"
   },
   "savings": {
     "title": "Savings",

@@ -19,6 +19,7 @@ import {
   creditUtilization, creditUtilStatus, isOverCreditTarget, availableCredit,
   calcPaydownToTarget, buildCreditReport, calcCreditAlerts, allocateSmartPayment,
   assessCardPaymentHistory, buildLimitIncreaseAdvisories, LIMIT_ADVISOR_TARGET,
+  buildStatementArbitrage,
   calcCreditUtilizationScore, composeHealthScore, daysUntilStatement, HEALTH_WEIGHTS,
   CREDIT_UTIL_TARGET,
 } from '@/lib/calculations';
@@ -1424,6 +1425,45 @@ describe('buildLimitIncreaseAdvisories', () => {
   it('skips cards with no limit set', () => {
     const card = makeAccount({ id: 'cc', type: 'credit', balance: 800 });
     expect(buildLimitIncreaseAdvisories([card], solidHistory('cc'), today)).toHaveLength(0);
+  });
+});
+
+describe('buildStatementArbitrage', () => {
+  // today = 2026-06-08; statementDay 11 → closes in 3 days.
+  const today = new Date('2026-06-08');
+
+  it('flags a card closing soon that is over the 30% cap, with paydown to 30%', () => {
+    const card = makeAccount({ id: 'cc', type: 'credit', balance: 800, creditLimit: 1000, statementDay: 11 }); // 80%
+    const items = buildStatementArbitrage([card], today);
+    expect(items).toHaveLength(1);
+    expect(items[0].daysUntil).toBe(3);
+    expect(items[0].targetPct).toBe(30);
+    expect(items[0].recommendedPayment).toBe(500); // 800 → 300
+  });
+
+  it('targets the 10% ideal when already under the cap', () => {
+    const card = makeAccount({ id: 'cc', type: 'credit', balance: 250, creditLimit: 1000, statementDay: 11 }); // 25%
+    const items = buildStatementArbitrage([card], today);
+    expect(items[0].targetPct).toBe(10);
+    expect(items[0].recommendedPayment).toBe(150); // 250 → 100
+  });
+
+  it('ignores cards closing beyond the window or with no statement day', () => {
+    const far = makeAccount({ id: 'a', type: 'credit', balance: 800, creditLimit: 1000, statementDay: 1 }); // closes ~23 days out
+    const noStmt = makeAccount({ id: 'b', type: 'credit', balance: 800, creditLimit: 1000 });
+    expect(buildStatementArbitrage([far, noStmt], today)).toHaveLength(0);
+  });
+
+  it('skips cards already at/under the relevant target', () => {
+    const ideal = makeAccount({ id: 'cc', type: 'credit', balance: 50, creditLimit: 1000, statementDay: 11 }); // 5%
+    expect(buildStatementArbitrage([ideal], today)).toHaveLength(0);
+  });
+
+  it('sorts by soonest closing first', () => {
+    const soon = makeAccount({ id: 'soon', type: 'credit', balance: 800, creditLimit: 1000, statementDay: 9 });  // 1 day
+    const later = makeAccount({ id: 'later', type: 'credit', balance: 800, creditLimit: 1000, statementDay: 12 }); // 4 days
+    const items = buildStatementArbitrage([later, soon], today);
+    expect(items.map((i) => i.account.id)).toEqual(['soon', 'later']);
   });
 });
 

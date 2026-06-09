@@ -702,6 +702,44 @@ export function buildLimitIncreaseAdvisories(
   return out;
 }
 
+// ── Statement Date Arbitrage ──────────────────────────────────────────────────
+// Bureaus report the balance on the STATEMENT closing date, not the due date, so
+// paying a card down in the few days before it closes lowers reported utilization
+// for that whole cycle. Flag cards closing soon that still carry a balance worth
+// paying down, with the single most useful amount to pay (under the 30% cap when
+// over it, otherwise toward the 10% ideal).
+
+export type StatementArbitrageItem = {
+  account: Account;
+  daysUntil: number;          // days until the statement closes (0 = today)
+  util: number;               // current utilization %
+  recommendedPayment: number; // pay this before close to hit targetPct
+  targetPct: number;          // 30 when over the cap, else 10
+};
+
+export function buildStatementArbitrage(
+  accounts: Account[],
+  today: Date = new Date(),
+  withinDays = 5,
+): StatementArbitrageItem[] {
+  const out: StatementArbitrageItem[] = [];
+  for (const account of accounts) {
+    if (account.type !== 'credit') continue;
+    const limit = account.creditLimit ?? 0;
+    if (limit <= 0) continue;
+    const daysUntil = daysUntilStatement(account.statementDay, today);
+    if (daysUntil === null || daysUntil > withinDays) continue;
+    const util = creditUtilization(account.balance, limit);
+    if (util === null) continue;
+    const over = util > CREDIT_UTIL_TARGET;
+    const targetPct = over ? CREDIT_UTIL_TARGET : CREDIT_UTIL_IDEAL;
+    const recommendedPayment = calcPaydownToTarget(account.balance, limit, targetPct);
+    if (recommendedPayment <= 0) continue; // already at/under the relevant target
+    out.push({ account, daysUntil, util, recommendedPayment, targetPct });
+  }
+  return out.sort((a, b) => a.daysUntil - b.daysUntil);
+}
+
 // Days until a card's next statement closing date (0 = closes today). Returns
 // null when no statement day is set. Bureaus report the STATEMENT balance, so
 // paying down before this date is what actually lowers reported utilization.

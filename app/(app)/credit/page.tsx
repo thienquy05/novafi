@@ -17,8 +17,9 @@ import { formatCurrency } from '@/lib/utils';
 import { useToast } from '@/lib/toast';
 import {
   buildCreditReport, CREDIT_UTIL_TARGET, CREDIT_UTIL_IDEAL, daysUntilStatement,
-  allocateSmartPayment, buildLimitIncreaseAdvisories, creditUtilStatus,
+  allocateSmartPayment, buildLimitIncreaseAdvisories, buildStatementArbitrage, creditUtilStatus,
   type CreditUtilStatus, type CreditCardReport, type PaymentAllocation, type LimitIncreaseAdvice,
+  type StatementArbitrageItem,
 } from '@/lib/calculations';
 import type { Account, Transaction } from '@/types';
 import { useTranslation } from '@/lib/i18n/context';
@@ -78,6 +79,7 @@ export default function CreditPage() {
 
   const report = useMemo(() => buildCreditReport(accounts), [accounts]);
   const advisories = useMemo(() => buildLimitIncreaseAdvisories(accounts, transactions, new Date()), [accounts, transactions]);
+  const arbitrage = useMemo(() => buildStatementArbitrage(accounts, new Date()), [accounts]);
   const hasCards = report.cards.length > 0;
 
   // Persist a single card's credit fields (limit and/or statement day) —
@@ -161,6 +163,9 @@ export default function CreditPage() {
               </div>
             )
           )}
+
+          {/* ── Statement-close arbitrage (pay before the bureau snapshot) ── */}
+          {arbitrage.length > 0 && <StatementArbitrageCard items={arbitrage} />}
 
           {/* ── Per-card breakdown ───────────────────────────────────────── */}
           <div className="space-y-4">
@@ -423,6 +428,37 @@ function CreditCardItem({
         </>
       )}
     </Card>
+  );
+}
+
+// ── Statement-close arbitrage banner ──────────────────────────────────────────
+// Promotes the "pay before your statement closes" nudge to a prominent, sorted
+// list (logic in buildStatementArbitrage) so the time-sensitive action isn't
+// buried in the per-card rows.
+function StatementArbitrageCard({ items }: { items: StatementArbitrageItem[] }) {
+  const { t } = useTranslation();
+  return (
+    <div className="rounded-2xl border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-900/20 p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <CalendarClock className="w-5 h-5 text-amber-500 shrink-0" />
+        <div>
+          <p className="font-bold text-amber-700 dark:text-amber-300 text-sm">{t('credit.arbTitle')}</p>
+          <p className="text-amber-600/90 dark:text-amber-400/90 text-xs mt-0.5">{t('credit.arbSub')}</p>
+        </div>
+      </div>
+      <ul className="space-y-1.5">
+        {items.map((i) => (
+          <li key={i.account.id} className="flex items-start gap-2 text-sm font-semibold text-amber-800 dark:text-amber-200">
+            <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" aria-hidden />
+            <span>
+              {(i.daysUntil === 0
+                ? t('credit.arbItemToday', { card: i.account.name, amount: formatCurrency(i.recommendedPayment), pct: i.targetPct })
+                : t('credit.arbItem', { card: i.account.name, days: i.daysUntil, amount: formatCurrency(i.recommendedPayment), pct: i.targetPct }))}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

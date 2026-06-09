@@ -588,7 +588,11 @@
     "advAsk": "Đề nghị tăng hạn mức {amount}",
     "advNewLimit": "Hạn mức mới {amount}",
     "advDilute": "Mức sử dụng {before} → {after}",
-    "advRecord": "{payments} lần trả trong {months} tháng được ghi nhận"
+    "advRecord": "{payments} lần trả trong {months} tháng được ghi nhận",
+    "arbTitle": "Trả trước khi chốt sao kê",
+    "arbSub": "Tổ chức tín dụng báo cáo số dư vào ngày chốt sao kê, không phải ngày đến hạn — hãy trả các thẻ này trước để giảm mức sử dụng được báo cáo.",
+    "arbItem": "{card} chốt sau {days} ngày: trả {amount} để báo cáo dưới {pct}%",
+    "arbItemToday": "{card} chốt hôm nay: trả {amount} để báo cáo dưới {pct}%"
   },
   "savings": {
     "title": "Tiết kiệm",
