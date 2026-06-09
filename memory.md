@@ -1559,3 +1559,14 @@ Batch of enhancements requested from two dashboard screenshots. Decisions confir
 - Budget Progress keeps the full overview chart but trims the detailed `BudgetBars` cards to the top 3 by effective spend (`topBudgetData`), with a "View all N other categories" link to Planning.
 - New `calcLongestUntouchedSavings(accounts, transactions, today)` → `StaleSavings | null` (oldest last-deposit savings account; deposit = income to / transfer into the account; falls back to creation date). Dashboard shows an amber nudge in the Savings Goals card when `daysSince ≥ 45`. 3 tests.
 - New locales: `dashboard.moreUpcomingBills`, `moreBudgetCategories`, `staleSavingsTitle/Body/Never`.
+
+### Tier 1b — Expandable insight cards + pull-to-refresh stacking fix
+
+**New `components/ui/ExpandableCard.tsx`**: a `Card`-styled surface whose body collapses behind a clickable header (icon tile + title + subtitle + optional badge + chevron). Reuses `Collapsible` for the height animation; `defaultOpen` controls initial state (defaults collapsed).
+
+Applied to the three advisory sections the user asked to make expandable:
+- `planning/page.tsx` `BudgetRealityCard` → now an `ExpandableCard` (Zap/amber, badge = suggestion count).
+- `planning/page.tsx` **Unbudgeted spending** → new local `UnbudgetedSpendingSection` (lives inside the Budgets card, so it's a lightweight dashed collapsible inset rather than a full card; header has count badge + chevron, body via `Collapsible`).
+- `bills/page.tsx` `SubscriptionTracker` → now an `ExpandableCard` (Repeat/indigo, badge = $/mo total).
+
+**Pull-to-refresh stuck behind the header** (`app/(app)/layout.tsx`): `<main>` had `relative z-10`, which creates a stacking context that trapped the page's `fixed z-50` refresh indicator beneath the sticky mobile header (`z-40`) — the whole `main` sat at z-10. Changed to `relative` (no z-index): keeps the positioning context for page content but no longer creates a stacking context, so the indicator (and modals) escape to the root level and paint above the header.

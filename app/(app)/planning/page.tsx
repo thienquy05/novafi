@@ -1,8 +1,10 @@
 'use client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap, RefreshCw, AlertCircle, GripVertical } from 'lucide-react';
+import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap, RefreshCw, AlertCircle, GripVertical, ChevronDown } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
+import { ExpandableCard } from '@/components/ui/ExpandableCard';
+import { Collapsible } from '@/components/ui/Collapsible';
 import { Button } from '@/components/ui/Button';
 import { HelpHint } from '@/components/ui/HelpHint';
 import { Input } from '@/components/ui/Input';
@@ -487,30 +489,13 @@ export default function PlanningPage() {
               </Reorder.Group>
             )}
 
-            {/* Unbudgeted categories with spending */}
+            {/* Unbudgeted categories with spending — collapsible */}
             {unbudgetedWithSpending.length > 0 && (
-              <div className="mt-2">
-                <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3 px-1">{t('planning.unbudgetedSpending')}</p>
-                <div className="space-y-2">
-                  {unbudgetedWithSpending.map((c) => {
-                    const spent = spentForCategory(c);
-                    return (
-                      <div key={c} className="flex items-center justify-between px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-700/50 border border-dashed border-slate-200 dark:border-slate-700">
-                        <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{c}</p>
-                        <div className="flex items-center gap-3">
-                          <p className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(spent)}</p>
-                          <button
-                            onClick={() => { setBudgetForm((f) => ({ ...f, category: c })); setBudgetModalOpen(true); }}
-                            className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg"
-                          >
-                            {t('planning.setLimit')}
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              <UnbudgetedSpendingSection
+                categories={unbudgetedWithSpending}
+                spentFor={spentForCategory}
+                onSetLimit={(c) => { setBudgetForm((f) => ({ ...f, category: c })); setBudgetModalOpen(true); }}
+              />
             )}
           </div>
 
@@ -719,6 +704,53 @@ export default function PlanningPage() {
 }
 
 // ── Draggable Budget Card ──────────────────────────────────────────────────────
+// ── Unbudgeted spending (collapsible inset) ───────────────────────────────────
+// Lives inside the Budgets card, so it's a lightweight collapsible disclosure
+// rather than a full card. Lists categories that have spending but no budget.
+function UnbudgetedSpendingSection({ categories, spentFor, onSetLimit }: {
+  categories: string[];
+  spentFor: (c: string) => number;
+  onSetLimit: (c: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-2 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="w-full flex items-center gap-2 px-4 py-3 text-left"
+      >
+        <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex-1">{t('planning.unbudgetedSpending')}</p>
+        <span className="text-xs font-bold px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{categories.length}</span>
+        <ChevronDown className={`w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform duration-300 ${open ? 'rotate-180' : ''}`} />
+      </button>
+      <Collapsible open={open}>
+        <div className="px-3 pb-3 space-y-2">
+          {categories.map((c) => {
+            const spent = spentFor(c);
+            return (
+              <div key={c} className="flex items-center justify-between px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-700/50">
+                <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{c}</p>
+                <div className="flex items-center gap-3">
+                  <p className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(spent)}</p>
+                  <button
+                    onClick={() => onSetLimit(c)}
+                    className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg"
+                  >
+                    {t('planning.setLimit')}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Collapsible>
+    </div>
+  );
+}
+
 // ── Budget reality check (dynamic reallocation) ───────────────────────────────
 // Surfaces budgets that chronically miss actual spending and offers a one-tap
 // reset to the real average (logic in suggestBudgetReallocations).
@@ -728,16 +760,13 @@ function BudgetRealityCard({ suggestions, onApply }: {
 }) {
   const { t } = useTranslation();
   return (
-    <Card>
-      <div className="flex items-center gap-3 mb-4">
-        <div className="w-10 h-10 rounded-2xl bg-amber-50 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
-          <Zap className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-        </div>
-        <div>
-          <p className="text-base font-bold text-slate-900 dark:text-slate-100">{t('planning.reallocTitle')}</p>
-          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('planning.reallocSub', { months: suggestions[0].windowMonths })}</p>
-        </div>
-      </div>
+    <ExpandableCard
+      icon={<Zap className="w-5 h-5" />}
+      iconWrapClass="bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400"
+      title={t('planning.reallocTitle')}
+      subtitle={t('planning.reallocSub', { months: suggestions[0].windowMonths })}
+      badge={<span className="text-xs font-bold px-2 py-0.5 rounded-lg bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">{suggestions.length}</span>}
+    >
       <div className="space-y-2.5">
         {suggestions.map((r) => {
           const inc = r.direction === 'increase';
@@ -765,7 +794,7 @@ function BudgetRealityCard({ suggestions, onApply }: {
           );
         })}
       </div>
-    </Card>
+    </ExpandableCard>
   );
 }
 

@@ -11,6 +11,7 @@ import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { BillsSkeleton } from '@/components/ui/Skeleton';
 import { FitText } from '@/components/ui/FitText';
 import { Collapsible } from '@/components/ui/Collapsible';
+import { ExpandableCard } from '@/components/ui/ExpandableCard';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
 import { billToTransactionDefaults, calcPaycheckDeposited, myBillShare, billParticipants, billOthersShare, detectSubscriptions } from '@/lib/calculations';
 import { buildSplitTx, groupSplits, isOneOffSplit, resolveSplit, splitRemaining } from '@/lib/splits';
@@ -35,15 +36,16 @@ function SubscriptionTracker({ transactions }: { transactions: Transaction[] }) 
   if (subs.length === 0) return null;
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between px-1">
-        <h2 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
-          <Repeat className="w-3.5 h-3.5" /> {t('bills.detectedSubscriptions')}
-        </h2>
+    <ExpandableCard
+      icon={<Repeat className="w-5 h-5" />}
+      iconWrapClass="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400"
+      title={t('bills.detectedSubscriptions')}
+      badge={(
         <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-2.5 py-1 rounded-lg">
           {formatCurrency(monthlyTotal)}/mo
         </span>
-      </div>
+      )}
+    >
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
         {subs.map((sub) => (
           <div key={sub.merchant} className={`flex items-center justify-between p-3.5 rounded-2xl bg-white dark:bg-slate-800 border transition-colors ${sub.isActive ? 'border-indigo-100 dark:border-indigo-800/50 hover:border-indigo-200' : 'border-slate-200 dark:border-slate-700 opacity-80'}`}>
@@ -73,7 +75,7 @@ function SubscriptionTracker({ transactions }: { transactions: Transaction[] }) 
           </div>
         ))}
       </div>
-    </div>
+    </ExpandableCard>
   );
 }
 
