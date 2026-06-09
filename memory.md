@@ -1536,3 +1536,26 @@ Reskinned the navigation surfaces to "float" (detached, rounded, elevated) inste
 
 ### Verification
 - `node_modules` is not installed in this fresh web session, so `tsc`/`eslint`/`build` cannot run here. Changes are pure Tailwind utility-class swaps (all standard utilities, no config or API changes), so no type/lint impact is expected.
+
+## 2026-06-09 — NovaFi enhancements (branch claude/novaifi-enhancements-gro8fr)
+
+Batch of enhancements requested from two dashboard screenshots. Decisions confirmed with the user up front (Funding model, Loans = enhance the existing `loan` account type, safe-to-spend = cash-on-hand basis, cash-back = statement credit).
+
+### Tier 1 — Safe-to-spend fix + dashboard/chart polish
+
+**Critical: safe-to-spend was wrong.** It was based on THIS month's income only (`income − cashSpending − billsDue`), so it read near-zero before payday and ignored carried-over cash.
+- `lib/calculations.ts`: new `calcSpendableCash(accounts)` = sum of **checking** balances (savings/credit/loan/investment excluded). Reworked `calcSafeToSpend(spendableCash, billsDue)` (was 3-arg `income, spending, bills`) → `spendableCash − billsDue`. Account balances already reflect every deposit/withdrawal so this is the correct point-in-time basis.
+- `app/(app)/dashboard/page.tsx`: computes `spendableCash`/`leftToSpend` from the new helpers (dropped the `calcMonthCashSpending` call for this KPI; the function itself stays for other uses).
+- Tests updated: `calcSafeToSpend` (2-arg) + new `calcSpendableCash` block.
+
+**Budget Progress legend color mismatch** (`DashboardCharts.tsx`, `BudgetVsActualChart`): the default recharts legend mis-rendered the "Spent" swatch (the bar is painted per-Cell so its series `fill` was unset → black). Replaced with a custom legend whose swatches match the bars: Budget = track color, Spent = indigo `#6366f1`, plus an "Over" = rose `#f43f5e` chip. Also set a default `fill="#6366f1"` on the Spent `<Bar>`.
+
+**Spending donut tooltip overlapped the center TOTAL** (`DashboardCharts.tsx`, `SpendingPieChart`): removed the floating recharts `<Tooltip>` (and the now-unused `CustomTooltip`). Added `activeIdx` state via Pie `onMouseEnter`/`onMouseLeave`; hovering a slice now swaps the center label to that category's name (in its color) + value instead of floating a box over the donut.
+
+**Projected month-end spend** (`dashboard/page.tsx`): the "Spending This Month" card's top-right number now shows `calcProjectedSpend(monthSpending, daysElapsed, daysInMonth)` (run-rate forecast) with a "Projected month-end" sub-label, since the donut already shows spent-so-far. New locale `dashboard.projectedSpend`.
+
+**Dashboard summaries (top-3 / stale savings):**
+- Bills forecast now renders only the 3 soonest bills (`.slice(0,3)`) with a "+N more upcoming" link; the remaining-monthly total headline is unchanged (still counts all).
+- Budget Progress keeps the full overview chart but trims the detailed `BudgetBars` cards to the top 3 by effective spend (`topBudgetData`), with a "View all N other categories" link to Planning.
+- New `calcLongestUntouchedSavings(accounts, transactions, today)` → `StaleSavings | null` (oldest last-deposit savings account; deposit = income to / transfer into the account; falls back to creation date). Dashboard shows an amber nudge in the Savings Goals card when `daysSince ≥ 45`. 3 tests.
+- New locales: `dashboard.moreUpcomingBills`, `moreBudgetCategories`, `staleSavingsTitle/Body/Never`.

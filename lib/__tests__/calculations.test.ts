@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
-  calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, calcSafeToSpendDaily, calcMonthCashSpending, pctChange,
+  calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, calcSafeToSpendDaily, calcSpendableCash, calcMonthCashSpending, pctChange,
   normalizeMonthlyBudget,
   calcRolloverDeficit, calcEffectiveSpent,
   calcProjectedSpend, calcSpendingPace,
@@ -14,7 +14,7 @@ import {
   reverseExpenseBalance, reverseIncomeBalance, reverseTransferFromBalance, reverseTransferToBalance,
   billToTransactionDefaults, calcSplitShares, calcLoanRemaining, myBillShare,
   calcOverdueBills, calcOverBudget,
-  calcNetWorthProjection, calcPaycheckTaxToSave,
+  calcNetWorthProjection, calcPaycheckTaxToSave, calcLongestUntouchedSavings,
   calcPaycheckDeposited,
   creditUtilization, creditUtilStatus, isOverCreditTarget, availableCredit,
   calcPaydownToTarget, buildCreditReport, calcCreditAlerts, allocateSmartPayment,
@@ -214,24 +214,69 @@ describe('calcSavingsRate', () => {
 });
 
 describe('calcSafeToSpend', () => {
-  it('income - spending - bills', () => {
-    expect(calcSafeToSpend(5000, 2000, 500)).toBe(2500);
+  it('spendable cash minus bills still due', () => {
+    expect(calcSafeToSpend(2500, 500)).toBe(2000);
   });
 
-  it('goes negative when spending exceeds income', () => {
-    expect(calcSafeToSpend(5000, 5500, 0)).toBe(-500);
+  it('goes negative when bills exceed cash on hand', () => {
+    expect(calcSafeToSpend(800, 1100)).toBe(-300);
   });
 
-  it('bills push result negative → surfaces the shortfall', () => {
-    expect(calcSafeToSpend(1000, 800, 300)).toBe(-100);
-  });
-
-  it('no bills', () => {
-    expect(calcSafeToSpend(3000, 1000, 0)).toBe(2000);
+  it('no bills due → full cash on hand', () => {
+    expect(calcSafeToSpend(3000, 0)).toBe(3000);
   });
 
   it('rounds float drift to cents', () => {
-    expect(calcSafeToSpend(1000.1, 0.2, 0)).toBe(999.9);
+    expect(calcSafeToSpend(1000.1, 0.2)).toBe(999.9);
+  });
+});
+
+describe('calcLongestUntouchedSavings', () => {
+  const today = new Date('2026-06-09T00:00:00');
+
+  it('returns null when there are no savings accounts', () => {
+    const accts = [makeAccount({ id: 'chk', type: 'checking', balance: 100 })];
+    expect(calcLongestUntouchedSavings(accts, [], today)).toBeNull();
+  });
+
+  it('picks the savings account with the oldest last deposit', () => {
+    const accts = [
+      makeAccount({ id: 's1', type: 'savings', balance: 1000, createdAt: '2026-01-01' }),
+      makeAccount({ id: 's2', type: 'savings', balance: 2000, createdAt: '2026-01-01' }),
+    ];
+    const txs = [
+      makeTx({ type: 'transfer', account: 'chk', toAccount: 's1', amount: 100, date: '2026-06-01' }),
+      makeTx({ type: 'transfer', account: 'chk', toAccount: 's2', amount: 100, date: '2026-03-01' }),
+    ];
+    const r = calcLongestUntouchedSavings(accts, txs, today);
+    expect(r?.account.id).toBe('s2');
+    expect(r?.lastDeposit).toBe('2026-03-01');
+    expect(r?.daysSince).toBe(100);
+  });
+
+  it('counts income deposits and falls back to creation date when never funded', () => {
+    const accts = [makeAccount({ id: 's1', type: 'savings', balance: 0, createdAt: '2026-05-10' })];
+    const r = calcLongestUntouchedSavings(accts, [], today);
+    expect(r?.lastDeposit).toBeNull();
+    expect(r?.daysSince).toBe(30);
+  });
+});
+
+describe('calcSpendableCash', () => {
+  it('sums only checking balances (savings/credit/loan/investment excluded)', () => {
+    const accts = [
+      makeAccount({ id: 'c1', type: 'checking', balance: 1200 }),
+      makeAccount({ id: 'c2', type: 'checking', balance: 300 }),
+      makeAccount({ id: 's1', type: 'savings', balance: 5000 }),
+      makeAccount({ id: 'cr', type: 'credit', balance: 400 }),
+      makeAccount({ id: 'l1', type: 'loan', balance: 9000 }),
+      makeAccount({ id: 'i1', type: 'investment', balance: 7000 }),
+    ];
+    expect(calcSpendableCash(accts)).toBe(1500);
+  });
+
+  it('returns 0 with no checking accounts', () => {
+    expect(calcSpendableCash([makeAccount({ type: 'savings', balance: 500 })])).toBe(0);
   });
 });
 

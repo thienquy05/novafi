@@ -53,13 +53,26 @@ export function calcSavingsRate(income: number, spending: number): number {
   return Math.max(0, ((income - spending) / income) * 100);
 }
 
-// Money left to spend for the REST of the month: this month's income minus the
-// cash already spent minus the bills still due. Can go negative when those
-// outflows exceed income — we surface that shortfall instead of flooring at 0 so
-// you see exactly how far under you are, not just "$0.00". Pair with
-// `calcSafeToSpendDaily` to turn this leftover into a per-day allowance.
-export function calcSafeToSpend(income: number, spending: number, bills: number): number {
-  return roundCents(income - spending - bills);
+// Spendable cash on hand RIGHT NOW: the liquid balance you can actually draw on
+// today. Only deposit accounts that hold spendable money count (checking). Savings
+// is treated as money set aside, and credit/loan/investment are never spendable
+// cash. Because account balances already reflect every deposit and withdrawal,
+// this is the correct, point-in-time basis for "safe to spend" — it doesn't matter
+// whether your paycheck landed yet or how much carried over from last month.
+export function calcSpendableCash(accounts: Account[]): number {
+  return accounts
+    .filter((a) => a.type === 'checking')
+    .reduce((s, a) => s + a.balance, 0);
+}
+
+// Money left to spend for the REST of the month: the spendable cash you have on
+// hand minus the bills still due before month-end. Basing this on the real
+// account balance (not just this month's income) fixes the old model, which read
+// near-zero early in the month before payday and ignored carried-over cash. Can
+// go negative when bills exceed your cash — we surface that shortfall instead of
+// flooring at 0. Pair with `calcSafeToSpendDaily` to turn it into a daily allowance.
+export function calcSafeToSpend(spendableCash: number, billsDue: number): number {
+  return roundCents(spendableCash - billsDue);
 }
 
 // Forward-looking daily allowance: spread the money left to spend evenly across
@@ -129,6 +142,53 @@ export function calcRolloverDeficit(baseBudget: number, prevMonthSpend: number):
 // month. The cap is unchanged; only the "used" side grows by the overspend.
 export function calcEffectiveSpent(spent: number, rolledOverDeficit: number): number {
   return spent + rolledOverDeficit;
+}
+
+// ── Stale Savings ─────────────────────────────────────────────────────────────
+// Finds the savings account that has gone longest without a deposit (money coming
+// IN). A "deposit" is an income transaction posted to the account, or a transfer
+// whose destination is the account. An account that has never received a deposit
+// falls back to its creation date, so a long-dormant account still surfaces. The
+// most stale account is returned so the dashboard can nudge "this hasn't grown in
+// a while". Returns null when there are no savings accounts.
+export interface StaleSavings {
+  account: Account;
+  lastDeposit: string | null; // YYYY-MM-DD of the last money-in, or null if never
+  daysSince: number;          // days since last deposit (or since account creation)
+}
+
+export function calcLongestUntouchedSavings(
+  accounts: Account[],
+  transactions: Transaction[],
+  today: Date = new Date(),
+): StaleSavings | null {
+  const savings = accounts.filter((a) => a.type === 'savings');
+  if (savings.length === 0) return null;
+
+  const lastDepositByAccount = new Map<string, string>();
+  for (const t of transactions) {
+    const into =
+      t.type === 'income' ? t.account :
+      t.type === 'transfer' && t.toAccount ? t.toAccount :
+      null;
+    if (!into) continue;
+    const prev = lastDepositByAccount.get(into);
+    if (!prev || t.date > prev) lastDepositByAccount.set(into, t.date);
+  }
+
+  const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  let worst: StaleSavings | null = null;
+  for (const account of savings) {
+    const lastDeposit = lastDepositByAccount.get(account.id) ?? null;
+    const since = lastDeposit ?? account.createdAt?.slice(0, 10) ?? null;
+    const daysSince = since
+      ? Math.max(0, Math.round((todayMid - new Date(since + 'T00:00:00').getTime()) / 86400000))
+      : 0;
+    if (!worst || daysSince > worst.daysSince) {
+      worst = { account, lastDeposit, daysSince };
+    }
+  }
+  return worst;
 }
 
 // ── Spending Pace / Velocity ──────────────────────────────────────────────────
