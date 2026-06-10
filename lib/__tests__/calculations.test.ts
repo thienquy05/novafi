@@ -15,7 +15,7 @@ import {
   billToTransactionDefaults, calcSplitShares, calcLoanRemaining, myBillShare,
   calcOverdueBills, calcOverBudget,
   calcNetWorthProjection, calcPaycheckTaxToSave, calcLongestUntouchedSavings,
-  calcLoanPayoff, calcLoanExtraPaymentImpact,
+  calcLoanPayoff, calcLoanExtraPaymentImpact, calcLoanPaymentSplit,
   calcPaycheckDeposited,
   creditUtilization, creditUtilStatus, isOverCreditTarget, availableCredit,
   calcPaydownToTarget, buildCreditReport, calcCreditAlerts, allocateSmartPayment,
@@ -309,6 +309,31 @@ describe('calcLoanExtraPaymentImpact', () => {
   it('returns null with no balance or no extra', () => {
     expect(calcLoanExtraPaymentImpact(0, 6, 200, 100, today)).toBeNull();
     expect(calcLoanExtraPaymentImpact(10000, 6, 200, 0, today)).toBeNull();
+  });
+});
+
+describe('calcLoanPaymentSplit', () => {
+  it('splits interest vs principal at the current balance', () => {
+    // 10000 @ 6% → monthly interest 50; a 200 payment is 50 interest + 150 principal.
+    expect(calcLoanPaymentSplit(10000, 6, 200)).toEqual({ interest: 50, principal: 150 });
+  });
+
+  it('0% APR → all principal', () => {
+    expect(calcLoanPaymentSplit(5000, 0, 300)).toEqual({ interest: 0, principal: 300 });
+  });
+
+  it('payment below interest → all interest, no principal', () => {
+    expect(calcLoanPaymentSplit(10000, 24, 100)).toEqual({ interest: 100, principal: 0 });
+  });
+
+  it('caps principal at the remaining balance (final payment)', () => {
+    const s = calcLoanPaymentSplit(100, 6, 200);
+    expect(s.interest).toBe(0.5);
+    expect(s.principal).toBe(100);
+  });
+
+  it('nothing owed → no interest, no principal', () => {
+    expect(calcLoanPaymentSplit(0, 6, 200)).toEqual({ interest: 0, principal: 0 });
   });
 });
 

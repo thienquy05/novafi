@@ -1625,3 +1625,22 @@ Brand-new section per the user: act as treasurer holding pooled group money. Dec
 **Locales**: new `nav.funding`, `funding.*` namespace (en/vi), and reusable `common.pullToRefresh/refreshing/releaseToRefresh` (en/vi).
 
 **Verification:** `tsc --noEmit` clean; `vitest` 454 passing; `eslint` 0 errors (warnings only, incl. the established load-effect setState pattern); `next build` compiled (routes `/funding` + `/api/funding` present).
+
+## 2026-06-10 — Link Bills to Loan accounts (bill-driven loan payments)
+
+User flow: a car loan is a `loan` account (tracks balance/payoff) but reminders are set as Bills; recording the bill payment should reduce the loan from the linked pay-from account — without double-counting.
+
+**Decision (explained to user):** a loan payment is split into **interest = expense** (the real cost, shows in spending/budgets) + **principal = transfer into the loan** (lowers balance). Cash leaves the pay-from account once (interest+principal = payment); the loan drops by principal only; net worth falls by just the interest. Counting the whole payment as an expense would double-count cash + inflate spending.
+
+**Calc** (`lib/calculations.ts`): `calcLoanPaymentSplit(balance, apr, payment)` → `{ interest, principal }` (interest = balance × APR/12; principal = payment − interest, capped at balance; payment-below-interest → all interest; 0% → all principal). 5 tests.
+
+**Shared builder** (`lib/loanPayments.ts` + 3 tests): `buildLoanPaymentTxs(payFrom, loanId, balance, apr, payment, description, category, date)` → up to two rows (interest `expense` from payFrom, principal `transfer` payFrom→loan). Reused by both the Accounts "Make payment" and the bill-driven payment so they behave identically.
+
+**Bill ↔ loan link** (mirrors how a bill already picks its account/category):
+- `types/index.ts`: `Bill.loanAccountId?`.
+- `lib/sheets.ts`: Bills tab extended A–L → **A–M** (col M = loan_account_id); `rowToBill`/`upsertBill` updated, `deleteRowById` 'L'→'M', all `Bills!A2:L200` → `A2:M200`.
+- `bills/page.tsx`: form gains a "Pays down loan" picker (loan-type accounts) that prefills amount (monthlyPayment) + pay-from (loan.paymentAccountId) and hides the split section (a loan payment isn't shared). `EMPTY_FORM`/`openEdit`/`handleSave` carry `loanAccountId`. `handleRecordPayment` branches on `loanAccountId`: builds the interest/principal rows via `buildLoanPaymentTxs`, posts them, advances the bill due date. New `bills.paysDownLoan`/`noLoanLink`/`paysDownLoanHint`/`loanMissing`/`loanNeedsAccount`/`loanPaymentRecorded` locales (en/vi).
+
+**Accounts page** (`accounts/page.tsx`): `makeLoanPayment` now uses `buildLoanPaymentTxs` (interest expense + principal transfer) instead of a single full-amount transfer, posting rows sequentially; pay-from drops by the full payment, loan by principal. Removed now-unused `Transaction` import.
+
+**Verification:** `tsc --noEmit` clean; `vitest` 462 passing; `eslint` 0 errors (pre-existing warnings only); `next build` compiled.

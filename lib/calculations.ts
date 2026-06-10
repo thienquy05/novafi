@@ -274,6 +274,27 @@ function addMonthsKey(from: Date, months: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+// Split a single loan payment into its interest and principal parts. Interest is
+// the real cost (this month's balance × monthly rate); the rest pays down the
+// balance. This is what lets a loan payment be booked as interest = expense +
+// principal = balance reduction. A payment that can't even cover the interest is
+// all interest (no principal). Principal never exceeds the remaining balance.
+export interface LoanPaymentSplit {
+  interest: number;
+  principal: number;
+}
+
+export function calcLoanPaymentSplit(balance: number, apr: number, payment: number): LoanPaymentSplit {
+  const owed = Math.max(0, balance);
+  const pay = roundCents(Math.max(0, payment));
+  if (pay === 0 || owed === 0) return { interest: 0, principal: roundCents(Math.min(pay, owed)) };
+  const r = (apr || 0) / 100 / 12;
+  const interest = r > 0 ? roundCents(owed * r) : 0;
+  if (interest >= pay) return { interest: pay, principal: 0 };
+  const principal = roundCents(Math.min(pay - interest, owed));
+  return { interest, principal };
+}
+
 // ── Spending Pace / Velocity ──────────────────────────────────────────────────
 // Extrapolates current spending rate to project end-of-month total.
 // Formula: projected = (spent / daysElapsed) × daysInMonth

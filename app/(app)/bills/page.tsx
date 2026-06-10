@@ -14,6 +14,7 @@ import { Collapsible } from '@/components/ui/Collapsible';
 import { ExpandableCard } from '@/components/ui/ExpandableCard';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
 import { billToTransactionDefaults, calcPaycheckDeposited, myBillShare, billParticipants, billOthersShare, detectSubscriptions } from '@/lib/calculations';
+import { buildLoanPaymentTxs } from '@/lib/loanPayments';
 import { buildSplitTx, groupSplits, isOneOffSplit, resolveSplit, splitRemaining } from '@/lib/splits';
 import type { Bill, Account, PaycheckEntry, Transaction, Contact, Split, BillSplitParticipant } from '@/types';
 import { useCategories } from '@/hooks/useCategories';
@@ -100,7 +101,7 @@ function nextDueAfter(currentDue: string, frequency: Bill['frequency']): string 
 const EMPTY_FORM = {
   name: '', amount: '', frequency: 'monthly' as Bill['frequency'],
   nextDue: today(), account: '', category: 'Bills', isActive: true,
-  splitEnabled: false, variable: false,
+  splitEnabled: false, variable: false, loanAccountId: '',
 };
 
 // Sentinel option value that opens the inline "add new contact" input.
@@ -397,6 +398,7 @@ export default function BillsPage() {
       name: bill.name, amount: String(bill.amount), frequency: bill.frequency,
       nextDue: bill.nextDue, account: bill.account ?? '', category: bill.category, isActive: bill.isActive,
       splitEnabled: parts.length > 0, variable: bill.variable === true,
+      loanAccountId: bill.loanAccountId ?? '',
     });
     setBillParticipantRows(parts.length > 0
       ? parts.map((p) => ({ key: generateId(), contactId: p.contactId, amount: String(p.amount), newName: '' }))
@@ -466,6 +468,8 @@ export default function BillsPage() {
       splitContactId: '',
       splitAmount: undefined,
       splitParticipants: splitParticipants.length > 0 ? splitParticipants : undefined,
+      // When linked, recording the payment pays down this loan account.
+      loanAccountId: form.loanAccountId || undefined,
     };
     // Optimistic update
     if (editingId) {
@@ -519,6 +523,35 @@ export default function BillsPage() {
 
   async function handleRecordPayment() {
     if (!payBill) return;
+
+    // Loan-linked bill → pay down the loan instead of logging a plain expense.
+    // The payment is split into interest (an expense) + principal (a transfer into
+    // the loan that lowers its balance). See buildLoanPaymentTxs.
+    if (payBill.loanAccountId) {
+      const loan = accounts.find((a) => a.id === payBill.loanAccountId);
+      const from = payForm.account || loan?.paymentAccountId || '';
+      const amount = parseFloat(payForm.amount) || 0;
+      if (!loan) { toast(t('bills.loanMissing'), 'error'); return; }
+      if (!from) { toast(t('bills.loanNeedsAccount'), 'error'); return; }
+      if (!(amount > 0)) return;
+      setPaying(true);
+      const txs = buildLoanPaymentTxs(from, loan.id, Math.max(0, loan.balance), loan.apr ?? 0, amount, payForm.description, payForm.category, payForm.date);
+      try {
+        for (const tx of txs) {
+          const res = await fetch('/api/transactions', { method: 'POST', body: JSON.stringify(tx), headers: { 'Content-Type': 'application/json' } });
+          if (!res.ok) throw new Error();
+        }
+        await advanceBillDue(payBill, amount);
+        toast(t('bills.loanPaymentRecorded', { name: payBill.name }), 'success');
+        closePayModal();
+      } catch {
+        toast(t('bills.toastFailedPayment'), 'error');
+      } finally {
+        setPaying(false);
+      }
+      return;
+    }
+
     setPaying(true);
     const tx: Transaction = {
       id: generateId(),
@@ -1052,7 +1085,32 @@ export default function BillsPage() {
             <Select label={t('bills.payFromOptional')} value={form.account} options={[{ value: '', label: t('common.selectPlaceholder') }, ...accounts.map((a) => ({ value: a.id, label: a.name }))]} onChange={(e) => setForm((f) => ({ ...f, account: e.target.value }))} />
           )}
 
-          {/* Split this bill with a contact */}
+          {/* Link to a loan account → paying this bill pays down that loan. */}
+          {accounts.some((a) => a.type === 'loan') && (
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4 space-y-2">
+              <Select
+                label={t('bills.paysDownLoan')}
+                value={form.loanAccountId}
+                options={[{ value: '', label: t('bills.noLoanLink') }, ...accounts.filter((a) => a.type === 'loan').map((a) => ({ value: a.id, label: a.name }))]}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  const loan = accounts.find((a) => a.id === id);
+                  setForm((f) => ({
+                    ...f,
+                    loanAccountId: id,
+                    // Prefill the scheduled payment + pay-from account from the loan.
+                    amount: id && loan?.monthlyPayment && !f.amount ? String(loan.monthlyPayment) : f.amount,
+                    account: id && loan?.paymentAccountId && !f.account ? loan.paymentAccountId : f.account,
+                    splitEnabled: id ? false : f.splitEnabled,
+                  }));
+                }}
+              />
+              {form.loanAccountId && <p className="text-xs text-slate-500 dark:text-slate-400">{t('bills.paysDownLoanHint')}</p>}
+            </div>
+          )}
+
+          {/* Split this bill with a contact (not applicable to loan payments) */}
+          {!form.loanAccountId && (
           <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
             <label className="flex items-center gap-3 cursor-pointer select-none">
               <input
@@ -1126,6 +1184,7 @@ export default function BillsPage() {
               </div>
             )}
           </div>
+          )}
         </div>
         <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">

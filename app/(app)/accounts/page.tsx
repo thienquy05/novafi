@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Plus, Trash2, CreditCard, Landmark, PiggyBank, TrendingUp, Pencil, CheckCircle2, RefreshCw, AlertCircle, Banknote } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { creditUtilization, creditUtilStatus, calcLoanPayoff, calcLoanExtraPaymentImpact } from '@/lib/calculations';
+import { buildLoanPaymentTxs } from '@/lib/loanPayments';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -17,7 +18,7 @@ import { FitText } from '@/components/ui/FitText';
 import { formatCurrency, generateId, today } from '@/lib/utils';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
-import type { Account, Transaction } from '@/types';
+import type { Account } from '@/types';
 import { useTranslation } from '@/lib/i18n/context';
 import { getBankBrand } from '@/lib/bankBrands';
 import { BankBadge } from '@/components/BankBadge';
@@ -195,42 +196,40 @@ export default function AccountsPage() {
     }
   }
 
-  // Make a loan payment: a `transfer` from the linked payment account INTO the
-  // loan reduces the owed balance (and counts as real cash leaving for safe-to-
-  // spend, since it's a debt payment). Pays the scheduled monthly amount, capped
-  // at the remaining balance. The POST returns authoritative post-write balances.
+  // Make a loan payment, split into interest (an expense) + principal (a transfer
+  // into the loan that lowers the balance) — see buildLoanPaymentTxs. Pays the
+  // scheduled monthly amount, capped at the remaining balance. Each row is posted
+  // sequentially (they mutate the same balances server-side); the last response
+  // carries the authoritative post-write balances.
   async function makeLoanPayment(account: Account) {
     const from = account.paymentAccountId;
     const owed = Math.max(0, account.balance);
     const amount = Math.min(account.monthlyPayment ?? 0, owed);
     if (!from || !(amount > 0)) return;
     if (!confirm(t('accounts.confirmPayment', { amount: formatCurrency(amount), card: account.name }))) return;
-    const tx: Transaction = {
-      id: generateId(),
-      date: today(),
-      description: t('accounts.loanPaymentDesc', { card: account.name }),
-      amount,
-      type: 'transfer',
-      category: 'Loan Payment',
-      account: from,
-      toAccount: account.id,
-      createdAt: new Date().toISOString(),
-    };
+    const txs = buildLoanPaymentTxs(from, account.id, owed, account.apr ?? 0, amount, t('accounts.loanPaymentDesc', { card: account.name }), 'Bills', today());
+    const principal = txs.filter((tx) => tx.type === 'transfer').reduce((s, tx) => s + tx.amount, 0);
+    const cashOut = txs.reduce((s, tx) => s + tx.amount, 0);
+    // Optimistic: pay-from drops by the full payment, the loan by principal only.
     setAccounts((prev) => prev.map((a) => {
-      if (a.id === account.id) return { ...a, balance: Math.round((a.balance - amount) * 100) / 100 };
-      if (a.id === from) return { ...a, balance: Math.round((a.balance - amount) * 100) / 100 };
+      if (a.id === account.id) return { ...a, balance: Math.round((a.balance - principal) * 100) / 100 };
+      if (a.id === from) return { ...a, balance: Math.round((a.balance - cashOut) * 100) / 100 };
       return a;
     }));
     try {
-      const res = await fetch('/api/transactions', {
-        method: 'POST',
-        body: JSON.stringify(tx),
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      if (data.accounts) setAccounts(data.accounts);
-      toast(t('accounts.paymentMade', { amount: formatCurrency(amount) }), 'success');
+      let latest: Account[] | null = null;
+      for (const tx of txs) {
+        const res = await fetch('/api/transactions', {
+          method: 'POST',
+          body: JSON.stringify(tx),
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        if (data.accounts) latest = data.accounts;
+      }
+      if (latest) setAccounts(latest);
+      toast(t('accounts.paymentMade', { amount: formatCurrency(cashOut) }), 'success');
     } catch {
       toast(t('accounts.paymentFailed'), 'error');
       await load(true);

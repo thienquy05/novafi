@@ -589,7 +589,7 @@ export async function getBills(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Bills!A2:L200',
+    range: 'Bills!A2:M200',
   });
   return (res.data.values ?? []).map(rowToBill);
 }
@@ -612,6 +612,7 @@ function rowToBill(r: string[]): Bill {
     splitAmount: splitContactId && r[9] !== undefined && r[9] !== '' ? Number(r[9]) : undefined,
     splitParticipants: parseBillParticipants(r[10]),
     variable: r[11] === 'true',
+    loanAccountId: r[12] || undefined,
   };
 }
 
@@ -636,7 +637,7 @@ export async function upsertBill(
   spreadsheetId: string,
   bill: Bill
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Bills', bill.id, 'L');
+  await deleteRowById(accessToken, spreadsheetId, 'Bills', bill.id, 'M');
   const sheets = getSheetsClient(accessToken);
   const participants = bill.splitParticipants && bill.splitParticipants.length > 0
     ? JSON.stringify(bill.splitParticipants)
@@ -651,7 +652,7 @@ export async function upsertBill(
         bill.id, bill.name, bill.amount, bill.frequency, bill.nextDue,
         bill.account, bill.category, String(bill.isActive),
         bill.splitContactId ?? '', bill.splitAmount ?? '', participants,
-        String(bill.variable ?? false),
+        String(bill.variable ?? false), bill.loanAccountId ?? '',
       ]],
     },
   });
@@ -1123,7 +1124,7 @@ export async function batchGetBadgesData(
 ): Promise<{ bills: Bill[]; budgets: Budget[]; transactions: Transaction[]; accounts: Account[] }> {
   const sheets = getSheetsClient(accessToken);
   const ranges = [
-    'Bills!A2:L200',
+    'Bills!A2:M200',
     'Budgets!A2:D200',
     'Transactions!A2:J',
     'Accounts!A2:O200',
@@ -1252,7 +1253,7 @@ const DASHBOARD_CORE_RANGES = [
   'Paychecks!A2:L',
   'Transactions!A2:J',
   'Accounts!A2:O200',
-  'Bills!A2:L200',
+  'Bills!A2:M200',
   'Budgets!A2:D200',
   'Goals!A2:G200',
   SETTINGS_RANGE,
@@ -1327,7 +1328,7 @@ const BATCHABLE_SHEETS: Record<
 > = {
   accounts:     { range: 'Accounts!A2:O200',  parse: (rows) => rows.map(rowToAccount) },
   transactions: { range: 'Transactions!A2:J', parse: (rows) => rows.map(rowToTransaction) },
-  bills:        { range: 'Bills!A2:L200',     parse: (rows) => rows.map(rowToBill) },
+  bills:        { range: 'Bills!A2:M200',     parse: (rows) => rows.map(rowToBill) },
   paychecks:    { range: 'Paychecks!A2:L',    parse: (rows) => rows.map(rowToPaycheck) },
   budgets:      { range: 'Budgets!A2:E200',   parse: parseBudgets },
   goals:        { range: 'Goals!A2:H200',     parse: parseGoals },

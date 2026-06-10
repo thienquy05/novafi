@@ -146,6 +146,11 @@ export interface Bill {
   // Multi-person split: each entry is one other person's share they owe you.
   // Your share is the remainder (amount − sum). Empty/absent = unsplit.
   splitParticipants?: BillSplitParticipant[];
+  // When set, this bill pays down a `loan`-type account: recording the payment
+  // books the interest portion as an expense and transfers the principal into the
+  // loan (reducing its balance) instead of logging a plain expense. Absent = a
+  // normal bill. The pay-from account is the bill's `account`.
+  loanAccountId?: string;
 }
 
 // A person you share bills with. Deliberately minimal & reusable across bills.
