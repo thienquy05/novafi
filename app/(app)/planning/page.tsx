@@ -15,7 +15,7 @@ import { PlanningSkeleton } from '@/components/ui/Skeleton';
 import { formatCurrency, formatDate, generateId } from '@/lib/utils';
 import {
   calcRolloverDeficit, calcEffectiveSpent,
-  suggestBudgetReallocations, denormalizeMonthlyBudget, type BudgetReallocation,
+  suggestBudgetReallocations, denormalizeMonthlyBudget, calcPredictionReadiness, type BudgetReallocation,
 } from '@/lib/calculations';
 import type { Budget, Goal, Transaction, Account } from '@/types';
 import { useCategories } from '@/hooks/useCategories';
@@ -326,7 +326,13 @@ export default function PlanningPage() {
 
   const savingsAccounts = accounts.filter((a) => a.type === 'savings');
   const budgetedCategories = useMemo(() => new Set(budgets.map((b) => b.category)), [budgets]);
-  const reallocations = useMemo(() => suggestBudgetReallocations(budgets, transactions, new Date()), [budgets, transactions]);
+  // Budget reallocation is a 3-month-average suggestion, so it stays hidden until
+  // there's enough history to be meaningful (same gate as the dashboard forecasts).
+  const predictionReady = useMemo(() => calcPredictionReadiness(transactions).ready, [transactions]);
+  const reallocations = useMemo(
+    () => (predictionReady ? suggestBudgetReallocations(budgets, transactions, new Date()) : []),
+    [predictionReady, budgets, transactions],
+  );
 
   // Reset a chronically over/under budget to match real spending, in its own period.
   async function applyReallocation(r: BudgetReallocation) {

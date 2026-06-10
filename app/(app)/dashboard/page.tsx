@@ -10,7 +10,7 @@ import {
   calcDebtToIncomeScore, calcDebtToIncomeRatio,
   calcNetWorthTrendScore, calcAvgMomPct,
   calcSpendingVolatilityScore, calcCoefficientOfVariation,
-  calcNetWorthProjection, myBillShare, calcRolloverDeficit, calcLongestUntouchedSavings,
+  calcNetWorthProjection, myBillShare, calcRolloverDeficit, calcLongestUntouchedSavings, calcPredictionReadiness,
   buildCreditReport, CREDIT_UTIL_TARGET, CREDIT_UTIL_IDEAL, composeHealthScore, daysUntilStatement,
 } from '@/lib/calculations';
 import { Card, CardHeader, CardTitle, CardIcon, type CardTone } from '@/components/ui/Card';
@@ -80,9 +80,15 @@ export default async function DashboardPage() {
   const daysElapsed = now.getDate();
   const daysLeft = daysInMonth - daysElapsed;
 
+  // Prediction readiness — forward-looking forecasts (projected spend, net-worth
+  // projection) stay hidden until there are enough months of history to be
+  // meaningful, replaced by a "gathering data" hint. See calcPredictionReadiness.
+  const readiness = calcPredictionReadiness(transactions);
+
   // Projected month-end spend — extrapolate the current run-rate across the whole
   // month. Shown on the "Spending This Month" card so the headline number is a
-  // forward-looking forecast (the donut already shows what's spent so far).
+  // forward-looking forecast (the donut already shows what's spent so far). Only
+  // surfaced once we have enough history.
   const projectedSpend = calcProjectedSpend(monthSpending, daysElapsed, daysInMonth);
 
   // Net worth
@@ -454,6 +460,18 @@ export default async function DashboardPage() {
         creditAlerts={creditReport.cardsOverTarget}
       />
 
+      {/* Predictions are gated until there's enough history to be meaningful. */}
+      {!readiness.ready && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
+          <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
+            <BarChart3 className="w-4 h-4" />
+          </div>
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            {t('dashboard.predictionsLocked', lang, { needed: readiness.monthsNeeded, have: readiness.months, required: readiness.required })}
+          </p>
+        </div>
+      )}
+
       {/* KPI Bento — Net Worth hero + Safe-to-Spend + Savings Rate (income &
           spending now live in the calendar's monthly summary below) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -578,8 +596,8 @@ export default async function DashboardPage() {
               <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">{t('dashboard.whereMoneyWent', lang)}</p>
             </div>
             <div className="text-right">
-              <span className="text-xl font-extrabold text-slate-900 dark:text-slate-100 font-display">{formatCurrency(projectedSpend)}</span>
-              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mt-0.5">{t('dashboard.projectedSpend', lang)}</p>
+              <span className="text-xl font-extrabold text-slate-900 dark:text-slate-100 font-display">{formatCurrency(readiness.ready ? projectedSpend : monthSpending)}</span>
+              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mt-0.5">{readiness.ready ? t('dashboard.projectedSpend', lang) : t('dashboard.spentSoFar', lang)}</p>
             </div>
           </CardHeader>
           <div className="flex-1 flex items-center justify-center">
@@ -708,7 +726,7 @@ export default async function DashboardPage() {
           </div>
         </CardHeader>
         <div className="mt-2">
-          <NetWorthTrendChart data={netWorthPoints} projection={netWorthProjection.length > 0 ? netWorthProjection : undefined} />
+          <NetWorthTrendChart data={netWorthPoints} projection={readiness.ready && netWorthProjection.length > 0 ? netWorthProjection : undefined} />
         </div>
       </Card>
 

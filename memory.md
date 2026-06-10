@@ -1644,3 +1644,17 @@ User flow: a car loan is a `loan` account (tracks balance/payoff) but reminders 
 **Accounts page** (`accounts/page.tsx`): `makeLoanPayment` now uses `buildLoanPaymentTxs` (interest expense + principal transfer) instead of a single full-amount transfer, posting rows sequentially; pay-from drops by the full payment, loan by principal. Removed now-unused `Transaction` import.
 
 **Verification:** `tsc --noEmit` clean; `vitest` 462 passing; `eslint` 0 errors (pre-existing warnings only); `next build` compiled.
+
+## 2026-06-10 — Prediction readiness gating (don't forecast on thin data)
+
+Forward-looking forecasts built on 1–2 months are noise, so they're now gated behind a minimum history and replaced with a "gathering data" state.
+
+**Calc** (`lib/calculations.ts`): `MIN_PREDICTION_MONTHS = 3`; `calcActivityMonths(transactions)` = distinct YYYY-MM with an income/expense tx (transfers ignored); `calcPredictionReadiness(transactions, minMonths?)` → `{ months, ready, monthsNeeded, required }`. 4 tests.
+
+**Gated surfaces:**
+- Dashboard (`dashboard/page.tsx`): net-worth projection dashed line only passed when `readiness.ready`; the "Spending This Month" headline shows the projected month-end figure only when ready, otherwise the actual spend with a "Spent so far" label; a subtle "Gathering data — forecasts unlock after 3 months ({have}/{required}, {needed} to go)" hint shows under the Health banner until ready.
+- Planning (`planning/page.tsx`): budget reallocation suggestions (a 3-month-average prediction) are suppressed until `calcPredictionReadiness(transactions).ready`, so the Budget Reality Check card stays hidden early.
+
+Surfaces that don't need history (safe-to-spend, loan payoff, the spending donut, current-month budget pace) are unchanged. New locales `dashboard.spentSoFar`, `dashboard.predictionsLocked` (en/vi).
+
+**Verification:** `tsc --noEmit` clean; `vitest` 466 passing; `next build` compiled.

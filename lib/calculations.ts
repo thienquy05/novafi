@@ -118,6 +118,39 @@ export function pctChange(current: number, prev: number): number | null {
   return ((current - prev) / prev) * 100;
 }
 
+// ── Prediction readiness ───────────────────────────────────────────────────────
+// Forward-looking features (net-worth projection, projected month-end spend,
+// budget reallocation) are only trustworthy once there's enough history — a
+// run-rate or trend built on 1–2 months is mostly noise. We gate those behind a
+// minimum number of DISTINCT calendar months that have real income/expense
+// activity, and surface a "gathering data" state until then.
+export const MIN_PREDICTION_MONTHS = 3;
+
+// Distinct YYYY-MM that have at least one income or expense transaction. Transfers
+// don't count (they move money around, they aren't earning/spending activity).
+export function calcActivityMonths(transactions: Transaction[]): number {
+  const months = new Set<string>();
+  for (const t of transactions) {
+    if ((t.type === 'income' || t.type === 'expense') && t.date) months.add(t.date.slice(0, 7));
+  }
+  return months.size;
+}
+
+export interface PredictionReadiness {
+  months: number;       // distinct active months of history so far
+  ready: boolean;       // months >= the required minimum
+  monthsNeeded: number; // months still needed before predictions unlock (0 when ready)
+  required: number;     // the threshold used
+}
+
+export function calcPredictionReadiness(
+  transactions: Transaction[],
+  minMonths: number = MIN_PREDICTION_MONTHS,
+): PredictionReadiness {
+  const months = calcActivityMonths(transactions);
+  return { months, ready: months >= minMonths, monthsNeeded: Math.max(0, minMonths - months), required: minMonths };
+}
+
 // ── Budget ────────────────────────────────────────────────────────────────────
 
 export function normalizeMonthlyBudget(amount: number, period: 'monthly' | 'weekly' | 'yearly'): number {

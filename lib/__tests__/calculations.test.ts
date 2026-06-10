@@ -16,6 +16,7 @@ import {
   calcOverdueBills, calcOverBudget,
   calcNetWorthProjection, calcPaycheckTaxToSave, calcLongestUntouchedSavings,
   calcLoanPayoff, calcLoanExtraPaymentImpact, calcLoanPaymentSplit,
+  calcActivityMonths, calcPredictionReadiness,
   calcPaycheckDeposited,
   creditUtilization, creditUtilStatus, isOverCreditTarget, availableCredit,
   calcPaydownToTarget, buildCreditReport, calcCreditAlerts, allocateSmartPayment,
@@ -309,6 +310,46 @@ describe('calcLoanExtraPaymentImpact', () => {
   it('returns null with no balance or no extra', () => {
     expect(calcLoanExtraPaymentImpact(0, 6, 200, 100, today)).toBeNull();
     expect(calcLoanExtraPaymentImpact(10000, 6, 200, 0, today)).toBeNull();
+  });
+});
+
+describe('calcPredictionReadiness', () => {
+  it('counts distinct income/expense months, ignoring transfers', () => {
+    const txs = [
+      makeTx({ type: 'income', date: '2026-01-05', amount: 100 }),
+      makeTx({ type: 'expense', date: '2026-01-20', amount: 50 }),
+      makeTx({ type: 'expense', date: '2026-02-10', amount: 30 }),
+      makeTx({ type: 'transfer', date: '2026-03-01', amount: 200 }), // ignored
+    ];
+    const r = calcPredictionReadiness(txs);
+    expect(r.months).toBe(2);
+    expect(r.ready).toBe(false);
+    expect(r.monthsNeeded).toBe(1);
+    expect(r.required).toBe(3);
+  });
+
+  it('is ready at 3+ distinct active months', () => {
+    const txs = [
+      makeTx({ type: 'expense', date: '2026-01-10', amount: 10 }),
+      makeTx({ type: 'expense', date: '2026-02-10', amount: 10 }),
+      makeTx({ type: 'income', date: '2026-03-10', amount: 10 }),
+    ];
+    const r = calcPredictionReadiness(txs);
+    expect(r.months).toBe(3);
+    expect(r.ready).toBe(true);
+    expect(r.monthsNeeded).toBe(0);
+  });
+
+  it('respects a custom threshold', () => {
+    expect(calcPredictionReadiness([], 2)).toEqual({ months: 0, ready: false, monthsNeeded: 2, required: 2 });
+  });
+
+  it('calcActivityMonths dedupes within a month', () => {
+    const txs = [
+      makeTx({ type: 'expense', date: '2026-01-03', amount: 5 }),
+      makeTx({ type: 'expense', date: '2026-01-28', amount: 5 }),
+    ];
+    expect(calcActivityMonths(txs)).toBe(1);
   });
 });
 

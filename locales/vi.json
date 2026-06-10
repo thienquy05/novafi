@@ -118,6 +118,8 @@
     "spendingThisMonth": "Chi tiêu tháng này",
     "whereMoneyWent": "Tiền của bạn đã đi đâu",
     "projectedSpend": "Dự kiến cuối tháng",
+    "spentSoFar": "Đã chi đến nay",
+    "predictionsLocked": "Đang thu thập dữ liệu — dự báo sẽ mở sau {required} tháng hoạt động ({have}/{required} hiện có, còn {needed}).",
     "cashFlow": "Dòng tiền",
     "cashFlowSubtitle": "Thu nhập và Chi tiêu — 6 tháng",
     "budgetProgress": "Tiến độ ngân sách",

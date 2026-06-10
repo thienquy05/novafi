@@ -118,6 +118,8 @@
     "spendingThisMonth": "Spending This Month",
     "whereMoneyWent": "Where your money went",
     "projectedSpend": "Projected month-end",
+    "spentSoFar": "Spent so far",
+    "predictionsLocked": "Gathering data — forecasts unlock after {required} months of activity ({have}/{required} so far, {needed} to go).",
     "cashFlow": "Cash Flow",
     "cashFlowSubtitle": "Income vs Expenses — 6 months",
     "budgetProgress": "Budget Progress",
