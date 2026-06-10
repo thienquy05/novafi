@@ -367,15 +367,15 @@ export default function SavingsPage() {
               <div className="grid grid-cols-3 gap-3">
                 <div className="rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 p-3 sm:p-4">
                   <p className="text-[11px] font-bold text-emerald-700/80 dark:text-emerald-400/80 uppercase tracking-wider">{t('savings.totalIn')}</p>
-                  <p className="text-base sm:text-lg font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">+{formatCurrency(historyTotals.in)}</p>
+                  <p className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5 whitespace-nowrap">+{formatCurrency(historyTotals.in)}</p>
                 </div>
                 <div className="rounded-2xl bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-800/40 p-3 sm:p-4">
                   <p className="text-[11px] font-bold text-rose-700/80 dark:text-rose-400/80 uppercase tracking-wider">{t('savings.totalOut')}</p>
-                  <p className="text-base sm:text-lg font-extrabold text-rose-600 dark:text-rose-400 mt-0.5">-{formatCurrency(historyTotals.out)}</p>
+                  <p className="text-sm font-extrabold text-rose-600 dark:text-rose-400 mt-0.5 whitespace-nowrap">-{formatCurrency(historyTotals.out)}</p>
                 </div>
                 <div className="rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-3 sm:p-4">
                   <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('savings.netChange')}</p>
-                  <p className={`text-base sm:text-lg font-extrabold mt-0.5 ${historyNet >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{historyNet >= 0 ? '+' : '-'}{formatCurrency(Math.abs(historyNet))}</p>
+                  <p className={`text-sm font-extrabold mt-0.5 whitespace-nowrap ${historyNet >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{historyNet >= 0 ? '+' : '-'}{formatCurrency(Math.abs(historyNet))}</p>
                 </div>
               </div>
               <div className="space-y-5">

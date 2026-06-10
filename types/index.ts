@@ -79,7 +79,7 @@ export interface Transaction {
 export interface Account {
   id: string;
   name: string;
-  type: 'checking' | 'savings' | 'credit' | 'investment' | 'loan';
+  type: 'checking' | 'savings' | 'credit' | 'investment' | 'loan' | 'cash';
   institution: string;
   balance: number;
   last4: string;

@@ -30,7 +30,7 @@ export function calcTotalDebt(accounts: Account[]): number {
 
 export function calcLiquidSavings(accounts: Account[]): number {
   return accounts
-    .filter((a) => a.type === 'checking' || a.type === 'savings')
+    .filter((a) => a.type === 'checking' || a.type === 'savings' || a.type === 'cash')
     .reduce((s, a) => s + a.balance, 0);
 }
 
