@@ -574,13 +574,46 @@ export default function BillsPage() {
       if (!(amount > 0)) return;
       setPaying(true);
       const txs = buildLoanPaymentTxs(from, loan.id, Math.max(0, loan.balance), loan.apr ?? 0, amount, payForm.description, payForm.category, payForm.date);
+      // Build split receivables — the loan txs already drain the full amount from
+      // the account, so no cashOut fronting transfer is needed; only owed-to-you records.
+      const loanSplits: Split[] = billParticipants(payBill).flatMap((part) => {
+        const contact = contacts.find((c) => c.id === part.contactId);
+        if (!contact || part.amount <= 0) return [];
+        return [{
+          id: generateId(),
+          billId: payBill.id,
+          billName: payBill.name,
+          contactId: contact.id,
+          contactName: contact.name,
+          amount: part.amount,
+          category: payForm.category,
+          account: payForm.account,
+          date: payForm.date,
+          settled: false,
+          settledDate: '',
+          repaidAmount: 0,
+          repaymentTxIds: [],
+          frontedTxId: '',
+          settleTxId: '',
+        }];
+      });
       try {
         for (const tx of txs) {
           const res = await fetch('/api/transactions', { method: 'POST', body: JSON.stringify(tx), headers: { 'Content-Type': 'application/json' } });
           if (!res.ok) throw new Error();
         }
         await advanceBillDue(payBill, amount);
-        toast(t('bills.loanPaymentRecorded', { name: payBill.name }), 'success');
+        for (const split of loanSplits) {
+          const sRes = await fetch('/api/splits', { method: 'POST', body: JSON.stringify(split), headers: { 'Content-Type': 'application/json' } });
+          if (!sRes.ok) throw new Error();
+        }
+        if (loanSplits.length > 0) {
+          setSplits((prev) => [...loanSplits, ...prev]);
+          const totalOwed = loanSplits.reduce((s, x) => s + x.amount, 0);
+          toast(t('bills.toastSplitPaid', { name: loanSplits.length === 1 ? loanSplits[0].contactName : t('bills.peopleCount', { n: loanSplits.length }), amount: formatCurrency(totalOwed) }), 'success');
+        } else {
+          toast(t('bills.loanPaymentRecorded', { name: payBill.name }), 'success');
+        }
         closePayModal();
       } catch {
         toast(t('bills.toastFailedPayment'), 'error');
@@ -1153,7 +1186,6 @@ export default function BillsPage() {
                         loanAccountId: id,
                         amount: id && loan?.monthlyPayment && !f.amount ? String(loan.monthlyPayment) : f.amount,
                         account: id && loan?.paymentAccountId && !f.account ? loan.paymentAccountId : f.account,
-                        splitEnabled: id ? false : f.splitEnabled,
                       }));
                     }}
                   />
@@ -1162,8 +1194,7 @@ export default function BillsPage() {
               )}
 
               {/* Split this bill with people */}
-              {!form.loanAccountId && (
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-3.5 space-y-3">
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-3.5 space-y-3">
                   <label className="flex items-center gap-3 cursor-pointer select-none">
                     <input
                       type="checkbox"
@@ -1236,7 +1267,6 @@ export default function BillsPage() {
                     </div>
                   )}
                 </div>
-              )}
             </div>
           </Collapsible>
         </div>

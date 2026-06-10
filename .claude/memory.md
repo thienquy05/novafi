@@ -6,7 +6,19 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ## Current Version — NovaFi Web App (Next.js + Google Sheets)
 
-**Last Updated:** June 8, 2026
+**Last Updated:** June 10, 2026
+
+---
+
+## 2026-06-10 — Recurring bills: allow split even when Loan payment option is chosen (branch claude/sharp-einstein-4al9tm)
+
+User reported that selecting the Loan payment option on a recurring bill blocked the split-with-someone UI entirely. Two gates enforced this unnecessarily:
+
+1. **Bill form (`app/(app)/bills/page.tsx`, loan onChange):** removed `splitEnabled: id ? false : f.splitEnabled` — selecting a loan account no longer clears the split toggle.
+2. **Bill form (split section visibility):** removed the `{!form.loanAccountId && (…)}` wrapper — the split section now shows regardless of whether a loan is linked.
+3. **`handleRecordPayment` (loan path):** after the loan payment txs succeed, also creates `Split` receivable records for each participant. No `cashOut` fronting transfer is created — the loan payment txs already drain the full amount from the account, so adding cashOut would double-count. The split records are plain owed-to-you receivables (`frontedTxId: ''`). If participants exist, shows the `bills.toastSplitPaid` toast; otherwise shows `bills.loanPaymentRecorded` as before.
+
+No schema changes needed — `Bill.loanAccountId` and `Bill.splitParticipants` were already independent fields that can coexist.
 
 ---
 
