@@ -28,11 +28,34 @@ import { useTranslation } from '@/lib/i18n/context';
 
 // ── Subscription Tracker component ────────────────────────────────────────────
 
+// Deterministic tinted avatar per merchant — a stable color picked from the
+// merchant name so each subscription reads as a distinct "brand" tile instead
+// of a row of identical repeat glyphs.
+const SUB_AVATAR_COLORS = [
+  'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300',
+  'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
+  'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+  'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
+  'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
+  'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+  'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',
+  'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300',
+];
+function subAvatar(merchant: string): { initial: string; color: string } {
+  let hash = 0;
+  for (let i = 0; i < merchant.length; i++) hash = (hash * 31 + merchant.charCodeAt(i)) | 0;
+  const initial = merchant.trim().charAt(0).toUpperCase() || '?';
+  return { initial, color: SUB_AVATAR_COLORS[Math.abs(hash) % SUB_AVATAR_COLORS.length] };
+}
+
 function SubscriptionTracker({ transactions }: { transactions: Transaction[] }) {
   const { t } = useTranslation();
   const subs = useMemo(() => detectSubscriptions(transactions, new Date()), [transactions]);
+  // Active first (then ghosts); each group keeps its by-spend ordering.
+  const ordered = useMemo(() => [...subs].sort((a, b) => Number(b.isActive) - Number(a.isActive)), [subs]);
   // Active subscriptions drive the "what you're burning monthly" headline.
-  const monthlyTotal = subs.filter((s) => s.isActive).reduce((s, sub) => s + sub.monthlyAmount, 0);
+  const activeSubs = subs.filter((s) => s.isActive);
+  const monthlyTotal = activeSubs.reduce((s, sub) => s + sub.monthlyAmount, 0);
 
   if (subs.length === 0) return null;
 
@@ -41,6 +64,7 @@ function SubscriptionTracker({ transactions }: { transactions: Transaction[] }) 
       icon={<Repeat className="w-5 h-5" />}
       iconWrapClass="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400"
       title={t('bills.detectedSubscriptions')}
+      subtitle={t('bills.subSummary', { count: activeSubs.length, amount: formatCurrency(monthlyTotal * 12) })}
       badge={(
         <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-2.5 py-1 rounded-lg">
           {formatCurrency(monthlyTotal)}/mo
@@ -48,33 +72,44 @@ function SubscriptionTracker({ transactions }: { transactions: Transaction[] }) 
       )}
     >
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-        {subs.map((sub) => (
-          <div key={sub.merchant} className={`flex items-center justify-between p-3.5 rounded-2xl bg-white dark:bg-slate-800 border transition-colors ${sub.isActive ? 'border-indigo-100 dark:border-indigo-800/50 hover:border-indigo-200' : 'border-slate-200 dark:border-slate-700 opacity-80'}`}>
-            <div className="flex items-center gap-3 min-w-0">
-              <div className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 ${sub.isActive ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-100 dark:border-indigo-800/50' : 'bg-slate-100 dark:bg-slate-700/60 border-slate-200 dark:border-slate-700'}`}>
-                <Repeat className={`w-4 h-4 ${sub.isActive ? 'text-indigo-500 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'}`} />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-bold text-slate-900 dark:text-slate-100 capitalize truncate">{sub.merchant}</p>
-                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">{sub.category} · {t('bills.moDetected', { n: sub.months })}</p>
-                <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                  {sub.hasPriceCreep && (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-bold px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
-                      <TrendingUp className="w-3 h-3" />
-                      {t('bills.subPriceCreep', { amount: formatCurrency(sub.priceIncrease), pct: sub.priceIncreasePct ?? 0 })}
-                    </span>
-                  )}
-                  {!sub.isActive && (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
-                      {t('bills.subGhost')}
+        {ordered.map((sub) => {
+          const { initial, color } = subAvatar(sub.merchant);
+          return (
+            <div key={sub.merchant} className={`group relative flex items-center justify-between gap-2 p-3.5 rounded-2xl bg-white dark:bg-slate-800 border transition-all ${sub.isActive ? 'border-slate-100 dark:border-slate-700/60 hover:border-indigo-200 dark:hover:border-indigo-700/60 hover:shadow-sm' : 'border-slate-200 dark:border-slate-700 opacity-75 hover:opacity-100'}`}>
+              <div className="flex items-center gap-3 min-w-0">
+                <div className={`relative w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-sm font-extrabold ${sub.isActive ? color : 'bg-slate-100 dark:bg-slate-700/60 text-slate-400 dark:text-slate-500'}`}>
+                  {initial}
+                  {sub.isActive && (
+                    <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-white dark:bg-slate-800 flex items-center justify-center">
+                      <Repeat className="w-2.5 h-2.5 text-indigo-500 dark:text-indigo-400" />
                     </span>
                   )}
                 </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-slate-900 dark:text-slate-100 capitalize truncate">{sub.merchant}</p>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">{sub.category} · {t('bills.moDetected', { n: sub.months })}</p>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                    {sub.hasPriceCreep && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+                        <TrendingUp className="w-3 h-3" />
+                        {t('bills.subPriceCreep', { amount: formatCurrency(sub.priceIncrease), pct: sub.priceIncreasePct ?? 0 })}
+                      </span>
+                    )}
+                    {!sub.isActive && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
+                        {t('bills.subGhost')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                <p className={`text-sm font-extrabold ${sub.isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'}`}>{formatCurrency(sub.monthlyAmount)}</p>
+                <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 mt-0.5">{t('bills.subPerYear', { amount: formatCurrency(sub.monthlyAmount * 12) })}</p>
               </div>
             </div>
-            <span className="text-sm font-extrabold text-indigo-600 dark:text-indigo-400 ml-2 shrink-0">{formatCurrency(sub.monthlyAmount)}</span>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </ExpandableCard>
   );

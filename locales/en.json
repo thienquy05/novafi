@@ -329,6 +329,8 @@
     "moDetected": "{n} mo detected",
     "subPriceCreep": "Up {amount} ({pct}%)",
     "subGhost": "Ghost? no charge in 45d+",
+    "subPerYear": "{amount}/yr",
+    "subSummary": "{count} active · {amount}/yr",
     "confirmDelete": "Delete this bill?",
     "toastUpdated": "Bill updated",
     "toastAdded": "Bill added",

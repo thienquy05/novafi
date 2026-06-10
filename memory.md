@@ -2,6 +2,41 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-10 — Hero net-worth sparkline: intra-month money flow + draw-in animation (branch claude/bills-ui-enhancement-h9aj4s)
+
+The dashboard hero "Liquid Net Worth" sparkline was static (last 6 **monthly** net-worth snapshots), so within a month the headline number moved but the line stayed frozen, and it never animated. Per request, the line now traces this month's daily money flow (income up / expense down), ends exactly at the live value, and reveals itself with a draw-in animation.
+
+### `components/ui/Sparkline.tsx`
+- New optional `animate` prop. When set, the `<svg>` gets the `spark-draw` class (left-to-right `clip-path` wipe). Chose a clip wipe over a stroke-dash draw-in because the existing comment notes `non-scaling-stroke` under `preserveAspectRatio="none"` distorts dashes — the clip reveals both line and fill cleanly. Updated the doc comment.
+
+### `app/globals.css`
+- Added `.spark-draw` (0.9s `clip-path: inset(0 100% 0 0)` → `inset(0 0 0 0)`) + `@keyframes spark-draw`, and a `prefers-reduced-motion` override (`animation: none; clip-path: none`).
+
+### `app/(app)/dashboard/page.tsx`
+- New `moneyFlowSpark`: walks days 1..`daysElapsed` of the current month accumulating `dailyIncome[date] − dailySpend[date]` (both already computed for the heatmap), anchors the month-start balance at `netWorth − runningFlow` so the series **ends at today's live net worth**, and prepends that start balance (so even early in the month there are ≥2 points). Returns `null` when there's been no income/expense movement yet.
+- `heroStat.spark` now prefers `moneyFlowSpark`, falling back to the old monthly `netWorthSpark` when there's no activity this month (a flat line would say nothing).
+- Hero `<Sparkline>` now passes `animate`.
+
+### Verification
+`npm run typecheck` clean · `npm run lint` 0 errors (28 pre-existing warnings only).
+
+## 2026-06-10 — Enhance "Detected Subscriptions" card UI in Bills (branch claude/bills-ui-enhancement-h9aj4s)
+
+Polished the `SubscriptionTracker` card on `/bills` (the "Detected Subscriptions" ExpandableCard) per a screenshot-driven request to enhance its UI.
+
+### `app/(app)/bills/page.tsx`
+- **Merchant avatars**: replaced the identical per-row `Repeat` glyph tiles with deterministic tinted initial avatars. New module-level `SUB_AVATAR_COLORS` palette (8 tints) + `subAvatar(merchant)` helper hashes the merchant name to a stable color and derives the initial letter, so each subscription reads as a distinct "brand" tile. Active rows keep a tiny `Repeat` badge in a white circle on the avatar's bottom-right corner; ghost rows fall back to a muted slate tile.
+- **Annual projection**: each row now shows `{amount}/yr` (monthlyAmount × 12) under the monthly figure, right-aligned. Ghost rows render the monthly amount in muted slate instead of indigo.
+- **Header subtitle**: added `subtitle` to the `ExpandableCard` summarizing `{count} active · {amount}/yr` (yearly = active monthlyTotal × 12); the `/mo` badge is unchanged.
+- **Ordering**: subs are now partitioned active-first (then ghosts) via `ordered` useMemo (`Number(b.isActive) - Number(a.isActive)`); each group keeps the existing by-spend sort from `detectSubscriptions`.
+- **Styling**: rows use softer `border-slate-100`/dark borders with indigo hover border + `hover:shadow-sm`; ghost rows are `opacity-75` and brighten on hover. Avatar tile bumped 9→10px square.
+
+### Locales (`en.json` + `vi.json`)
+- Added `bills.subPerYear` ("{amount}/yr" / "{amount}/năm") and `bills.subSummary` ("{count} active · {amount}/yr" / "{count} đang hoạt động · {amount}/năm").
+
+### Verification
+`npm run typecheck` clean · `npm run lint` 0 errors (pre-existing warnings only).
+
 ## 2026-06-10 — Enhance "Other people" rows in the New pool / Funding modal (branch claude/funding-modal-design-pb2bu3)
 
 Made the per-person rows in the New pool modal larger and more visual, per request to enhance "especially the icon and placeholder for name, make it bigger".

@@ -205,7 +205,18 @@
     50%      { box-shadow: 0 0 0 5px rgba(244, 63, 94, 0.12), 0 0 14px 2px rgba(244, 63, 94, 0.28); }
   }
 
-  /* Honor reduced-motion: hold static, no sweep / no pulse. */
+  /* Sparkline draw-in — a left-to-right clip wipe that reveals the trend line
+     (and its fill) on render. Used by the dashboard hero net-worth chart so the
+     money-flow line "draws" itself each time the page loads with fresh data. */
+  .spark-draw {
+    animation: spark-draw 0.9s cubic-bezier(0.4, 0, 0.2, 1) both;
+  }
+  @keyframes spark-draw {
+    from { clip-path: inset(0 100% 0 0); }
+    to   { clip-path: inset(0 0 0 0); }
+  }
+
+  /* Honor reduced-motion: hold static, no sweep / no pulse / no draw. */
   @media (prefers-reduced-motion: reduce) {
     .shimmer {
       animation: none;
@@ -213,6 +224,10 @@
     }
     .pulse-glow {
       animation: none;
+    }
+    .spark-draw {
+      animation: none;
+      clip-path: none;
     }
   }
 }

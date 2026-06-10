@@ -329,6 +329,8 @@
     "moDetected": "Phát hiện {n} tháng",
     "subPriceCreep": "Tăng {amount} ({pct}%)",
     "subGhost": "Bỏ quên? 45+ ngày chưa tính phí",
+    "subPerYear": "{amount}/năm",
+    "subSummary": "{count} đang hoạt động · {amount}/năm",
     "confirmDelete": "Xóa hóa đơn này?",
     "toastUpdated": "Đã cập nhật hóa đơn",
     "toastAdded": "Đã thêm hóa đơn",

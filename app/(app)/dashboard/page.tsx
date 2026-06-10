@@ -356,6 +356,29 @@ export default async function DashboardPage() {
     return { date, total: dailySpend[date] ?? 0, income: dailyIncome[date] ?? 0, bills: dailyBills[date] ?? [] };
   });
 
+  // ── Hero money-flow line: daily running net worth across THIS month ───────
+  // The hero number is the live net worth; rather than a frozen 6-month snapshot
+  // line, the sparkline reconstructs how today's value was reached by walking
+  // each day's income − expense — so the line climbs on pay days and dips on
+  // spend days and lands exactly on the current amount. We anchor the start of
+  // the month at (netWorth − net flow so far) so the curve ends at "now". Falls
+  // back to the monthly snapshot trend when there's been no movement yet (a flat
+  // line this early in the month would say nothing).
+  const moneyFlowSpark = (() => {
+    let running = 0;
+    let moved = false;
+    const cumulative: number[] = [];
+    for (let d = 1; d <= daysElapsed; d++) {
+      const date = `${thisMonth}-${String(d).padStart(2, '0')}`;
+      if (dailyIncome[date] || dailySpend[date]) moved = true;
+      running += (dailyIncome[date] ?? 0) - (dailySpend[date] ?? 0);
+      cumulative.push(running);
+    }
+    if (!moved) return null;
+    const startBalance = netWorth - running; // balance at the first of the month
+    return [startBalance, ...cumulative.map((c) => startBalance + c)];
+  })();
+
   // ── No-spend streak: consecutive days up to today with zero expense ───────
   const expenseDates = new Set(
     transactions.filter((tx) => tx.type === 'expense' && tx.amount > 0).map((tx) => tx.date),
@@ -386,7 +409,9 @@ export default async function DashboardPage() {
     delta: netWorthDelta,
     positiveIsGood: true,
     annotation: excludeLoans && totalLoanDebt > 0 ? t('dashboard.loansExcl', lang) : null,
-    spark: netWorthSpark.length >= 2 ? netWorthSpark : null,
+    // Prefer the live intra-month money-flow line; fall back to the monthly
+    // snapshot trend when this month has no income/expense activity yet.
+    spark: moneyFlowSpark ?? (netWorthSpark.length >= 2 ? netWorthSpark : null),
   };
   const HeroIcon = heroStat.icon;
 
@@ -513,7 +538,7 @@ export default async function DashboardPage() {
           />
           {heroStat.spark && (
             <div className={heroStat.valueColor}>
-              <Sparkline data={heroStat.spark} height={42} strokeWidth={2.5} />
+              <Sparkline data={heroStat.spark} height={42} strokeWidth={2.5} animate />
             </div>
           )}
         </Card>
