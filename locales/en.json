@@ -573,6 +573,7 @@
     "noteOptional": "Note (optional)",
     "notePlaceholder": "e.g. Dinner, supplies",
     "recordSpend": "Record spend",
+    "spendOverRemaining": "Only {remaining} left in this pool",
     "spendDefault": "Funding spend — {desc}",
     "spendRecorded": "Spend recorded",
     "confirmDelete": "Delete this pool? Its cash movements will be reversed.",

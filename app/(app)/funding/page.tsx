@@ -132,6 +132,11 @@ export default function FundingPage() {
     const amount = num(spendAmount);
     const mine = Math.min(num(spendMine), amount);
     if (!(amount > 0)) return;
+    // Can't disburse more than the pool is holding.
+    if (amount > poolRemaining(spendFor) + 0.005) {
+      toast(t('funding.spendOverRemaining', { remaining: formatCurrency(poolRemaining(spendFor)) }), 'error');
+      return;
+    }
     setSaving(true);
     const date = today();
     const txs = buildSpendTxs(spendFor.account, amount, mine, spendDesc.trim() || t('funding.spendDefault', { desc: spendFor.description }), date);
@@ -349,7 +354,12 @@ export default function FundingPage() {
           <>
             <div className="space-y-5 pb-4">
               <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{t('funding.spendingFrom', { desc: spendFor.description, remaining: formatCurrency(poolRemaining(spendFor)) })}</p>
-              <Input label={t('funding.amount')} type="text" inputMode="decimal" placeholder="0.00" value={spendAmount} onChange={(e) => setSpendAmount(e.target.value.replace(/[^0-9.]/g, ''))} />
+              <div>
+                <Input label={t('funding.amount')} type="text" inputMode="decimal" placeholder="0.00" value={spendAmount} onChange={(e) => setSpendAmount(e.target.value.replace(/[^0-9.]/g, ''))} />
+                {num(spendAmount) > poolRemaining(spendFor) + 0.005 && (
+                  <p className="text-xs font-bold text-rose-500 dark:text-rose-400 mt-1.5">{t('funding.spendOverRemaining', { remaining: formatCurrency(poolRemaining(spendFor)) })}</p>
+                )}
+              </div>
               <div>
                 <Input label={t('funding.myShare')} type="text" inputMode="decimal" placeholder="0.00" value={spendMine} onChange={(e) => setSpendMine(e.target.value.replace(/[^0-9.]/g, ''))} />
                 <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">{t('funding.myShareHint')}</p>
@@ -359,7 +369,7 @@ export default function FundingPage() {
             <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
               <div className="flex gap-3">
                 <Button variant="secondary" className="flex-1" onClick={() => setSpendFor(null)}>{t('common.cancel')}</Button>
-                <Button className="flex-1 shadow-sm" onClick={recordSpend} disabled={saving || num(spendAmount) <= 0}>{saving ? t('common.saving') : t('funding.recordSpend')}</Button>
+                <Button className="flex-1 shadow-sm" onClick={recordSpend} disabled={saving || num(spendAmount) <= 0 || num(spendAmount) > poolRemaining(spendFor) + 0.005}>{saving ? t('common.saving') : t('funding.recordSpend')}</Button>
               </div>
             </div>
           </>

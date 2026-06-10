@@ -573,6 +573,7 @@
     "noteOptional": "Ghi chú (tùy chọn)",
     "notePlaceholder": "vd. Bữa tối, vật dụng",
     "recordSpend": "Ghi nhận chi",
+    "spendOverRemaining": "Quỹ chỉ còn {remaining}",
     "spendDefault": "Chi từ quỹ — {desc}",
     "spendRecorded": "Đã ghi nhận chi",
     "confirmDelete": "Xóa quỹ này? Các giao dịch tiền sẽ được hoàn lại.",

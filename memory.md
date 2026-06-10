@@ -1658,3 +1658,7 @@ Forward-looking forecasts built on 1–2 months are noise, so they're now gated 
 Surfaces that don't need history (safe-to-spend, loan payoff, the spending donut, current-month budget pace) are unchanged. New locales `dashboard.spentSoFar`, `dashboard.predictionsLocked` (en/vi).
 
 **Verification:** `tsc --noEmit` clean; `vitest` 466 passing; `next build` compiled.
+
+## 2026-06-10 — Funding spend constraint + PR
+
+Added the one remaining real validation gap: a Funding pool spend can no longer exceed the pool's remaining balance. `recordSpend` blocks (toast) when `amount > poolRemaining`, the Spend modal shows an inline "Only {remaining} left" warning, and the Record button is disabled. New `funding.spendOverRemaining` locale (en/vi). (Other new inputs were already guarded: required-field disabled states, numeric-only regex, my-share clamped to spend, loan principal capped at balance, pay-from account required.)
