@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Vault, Plus, Trash2, Users, Wallet, RefreshCw, AlertCircle, MinusCircle, X } from 'lucide-react';
+import { HandCoins, Plus, Trash2, Users, Wallet, RefreshCw, AlertCircle, MinusCircle, UserPlus } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -195,7 +195,7 @@ export default function FundingPage() {
       )}
 
       <PageHeader
-        icon={Vault}
+        icon={HandCoins}
         tone="emerald"
         title={t('funding.title')}
         subtitle={t('funding.subtitle')}
@@ -231,7 +231,7 @@ export default function FundingPage() {
       ) : fundings.length === 0 ? (
         <Card className="text-center py-16 bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700/60">
           <div className="w-16 h-16 rounded-full bg-white dark:bg-slate-800 flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100 dark:border-slate-700/60">
-            <Vault className="w-8 h-8 text-slate-400 dark:text-slate-500" />
+            <HandCoins className="w-8 h-8 text-slate-400 dark:text-slate-500" />
           </div>
           <p className="text-slate-900 dark:text-slate-100 font-bold text-lg mb-1">{t('funding.emptyTitle')}</p>
           <p className="text-slate-500 dark:text-slate-400 font-medium mb-6 max-w-sm mx-auto">{t('funding.emptyDesc')}</p>
@@ -322,17 +322,17 @@ export default function FundingPage() {
           </div>
 
           {/* Other people */}
-          <div className="space-y-2">
+          <div className="space-y-3">
             <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{t('funding.otherPeople')}</p>
             {others.map((o, i) => (
-              <div key={o.key} className="flex items-center gap-2">
-                <Input className="flex-1" placeholder={t('funding.personName')} value={o.name} onChange={(e) => setOthers((prev) => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
-                <Input className="w-28" type="text" inputMode="decimal" placeholder="0.00" value={o.amount} onChange={(e) => setOthers((prev) => prev.map((x, j) => j === i ? { ...x, amount: e.target.value.replace(/[^0-9.]/g, '') } : x))} />
-                <button onClick={() => setOthers((prev) => prev.length > 1 ? prev.filter((_, j) => j !== i) : prev)} className="text-slate-400 hover:text-rose-500 shrink-0 p-1" aria-label="Remove"><X className="w-4 h-4" /></button>
+              <div key={o.key} className="flex items-center gap-2.5">
+                <Input className="h-14 flex-1 text-lg placeholder:text-lg placeholder:font-medium" placeholder={t('funding.personName')} value={o.name} onChange={(e) => setOthers((prev) => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
+                <Input className="h-14 w-24 text-lg" type="text" inputMode="decimal" placeholder="0.00" value={o.amount} onChange={(e) => setOthers((prev) => prev.map((x, j) => j === i ? { ...x, amount: e.target.value.replace(/[^0-9.]/g, '') } : x))} />
+                <button onClick={() => setOthers((prev) => prev.length > 1 ? prev.filter((_, j) => j !== i) : prev)} className="text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 shrink-0 p-2 rounded-xl transition-colors" aria-label="Remove"><Trash2 className="w-5 h-5" /></button>
               </div>
             ))}
-            <button onClick={() => setOthers((prev) => [...prev, emptyOther()])} className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1 mt-1">
-              <Plus className="w-3.5 h-3.5" />{t('funding.addPerson')}
+            <button onClick={() => setOthers((prev) => [...prev, emptyOther()])} className="text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 inline-flex items-center gap-2 mt-1 px-3 py-2 rounded-xl transition-colors">
+              <UserPlus className="w-5 h-5" />{t('funding.addPerson')}
             </button>
           </div>
 

@@ -2,6 +2,27 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-10 — Enhance "Other people" rows in the New pool / Funding modal (branch claude/funding-modal-design-pb2bu3)
+
+Made the per-person rows in the New pool modal larger and more visual, per request to enhance "especially the icon and placeholder for name, make it bigger".
+
+Two-part change: (1) enlarged the per-person name field in the New pool modal, and (2) swapped the Funding feature icon from `Vault` to `HandCoins` (the user clarified "the icon" meant the Funding icon, not a per-row avatar — an earlier user-avatar tile was added then removed at their request).
+
+### `app/(app)/funding/page.tsx`
+- **Funding icon `Vault` → `HandCoins`**: updated the `PageHeader` `icon` prop (line ~198) and the empty-state glyph (line ~234). `HandCoins` reads as pooling/contributing money, fitting the group-pool feature. (Note: `PiggyBank` was considered but it's already the Savings nav icon, so it would collide.)
+- **Other people name input enlarged**: `h-14 flex-1 text-lg placeholder:text-lg placeholder:font-medium` so the field and its "Person's name" placeholder are noticeably bigger (was default `h-12` / `text-base`).
+- **Amount input**: `h-14 text-lg`, narrowed `w-28 → w-24`.
+- **Remove button**: `<X w-4 h-4>` → `<Trash2 w-5 h-5>` with padding + rounded rose hover background (`p-2 rounded-xl hover:bg-rose-50 / dark:hover:bg-rose-900/20`).
+- **Add person button**: icon `Plus w-3.5` → `UserPlus w-5 h-5`, `text-xs → text-sm`, padded rounded indigo hover chip instead of underline.
+- Outer list spacing `space-y-2 → space-y-3`; row gap `gap-2 → gap-2.5`.
+- A per-row user-avatar tile (`UserRound` in an indigo square) was briefly added then removed per user feedback — no avatar remains.
+
+### `components/Sidebar.tsx`
+- Funding nav item icon `Vault → HandCoins` in both `NAV_GROUPS` (desktop, line ~100) and the mobile nav list (line ~247); updated the `lucide-react` import accordingly.
+
+### Imports (`app/(app)/funding/page.tsx`)
+- `lucide-react`: dropped `Vault`, `X`, `UserRound`; added `HandCoins`, `UserPlus`. `Plus` kept (New pool header/empty-state buttons).
+
 ## 2026-06-10 — Move Cash account section right under Checking in Accounts page (branch claude/cash-order-account-position-4azo7e)
 
 ### `app/(app)/accounts/page.tsx`
