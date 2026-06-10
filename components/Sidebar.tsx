@@ -19,7 +19,7 @@ import {
   ChevronUp,
   ChevronDown,
   Sliders,
-  HandCoins,
+  CircleDollarSign,
   type LucideIcon,
 } from 'lucide-react';
 import { signOut } from 'next-auth/react';
@@ -97,7 +97,7 @@ const NAV_GROUPS: { labelKey: string; items: NavItem[] }[] = [
       { href: '/accounts',     labelKey: 'nav.accounts',     icon: Landmark,       badgeKey: null },
       { href: '/transactions', labelKey: 'nav.transactions', icon: ArrowLeftRight, badgeKey: null },
       { href: '/credit',       labelKey: 'nav.credit',       icon: CreditCard,     badgeKey: 'creditAlerts' },
-      { href: '/funding',      labelKey: 'nav.funding',      icon: HandCoins,      badgeKey: null },
+      { href: '/funding',      labelKey: 'nav.funding',      icon: CircleDollarSign,      badgeKey: null },
       { href: '/paychecks',    labelKey: 'nav.paychecks',    icon: DollarSign,     badgeKey: null },
     ],
   },
@@ -244,7 +244,7 @@ const ALL_MOBILE_NAV: NavItem[] = [
   { href: '/planning',     labelKey: 'nav.planning',     icon: BarChart3,       badgeKey: 'overBudget' },
   { href: '/accounts',     labelKey: 'nav.accounts',     icon: Landmark,        badgeKey: null },
   { href: '/credit',       labelKey: 'nav.credit',       icon: CreditCard,      badgeKey: 'creditAlerts' },
-  { href: '/funding',      labelKey: 'nav.funding',      icon: HandCoins,       badgeKey: null },
+  { href: '/funding',      labelKey: 'nav.funding',      icon: CircleDollarSign,       badgeKey: null },
   { href: '/savings',      labelKey: 'nav.savings',      icon: PiggyBank,       badgeKey: null },
   { href: '/paychecks',    labelKey: 'nav.paychecks',    icon: DollarSign,      badgeKey: null },
   { href: '/reports',      labelKey: 'nav.reports',      icon: FileText,        badgeKey: null },
