@@ -6,16 +6,22 @@ A running log of changes made to the NovaFi codebase.
 
 Made the per-person rows in the New pool modal larger and more visual, per request to enhance "especially the icon and placeholder for name, make it bigger".
 
-### `app/(app)/funding/page.tsx` — Other people block (was lines ~324–337)
-- Each person row now leads with a **user avatar icon**: a `h-14 w-14` rounded-2xl indigo tile (`bg-indigo-100 / dark:bg-indigo-900/30`, indigo text) containing a `UserRound` icon at `h-7 w-7`. Replaces the previous icon-less row.
-- **Name input enlarged**: added `h-14 flex-1 text-lg placeholder:text-lg placeholder:font-medium` so both the field and its "Person's name" placeholder are noticeably bigger (was default `h-12` / `text-base`).
-- **Amount input**: bumped to `h-14 text-lg` and narrowed `w-28 → w-24` to make room for the new avatar tile.
-- **Remove button**: swapped the small `<X className="w-4 h-4" />` for `<Trash2 className="w-5 h-5" />`, added padding + rounded hover background (`p-2 rounded-xl hover:bg-rose-50 / dark:hover:bg-rose-900/20`, hover text rose-500).
-- **Add person button**: bigger icon (`Plus w-3.5` → `UserPlus w-5 h-5`), `text-xs → text-sm`, and replaced the underline-on-hover with a padded rounded indigo hover chip (`px-3 py-2 rounded-xl hover:bg-indigo-50 / dark:hover:bg-indigo-900/20`).
-- Outer list spacing `space-y-2 → space-y-3`; row gap `gap-2 → gap-2.5`.
+Two-part change: (1) enlarged the per-person name field in the New pool modal, and (2) swapped the Funding feature icon from `Vault` to `HandCoins` (the user clarified "the icon" meant the Funding icon, not a per-row avatar — an earlier user-avatar tile was added then removed at their request).
 
-### Imports
-- Added `UserRound`, `UserPlus` to the `lucide-react` import; removed now-unused `X` (the old remove icon). `Plus` is kept (still used by the New pool header/empty-state buttons).
+### `app/(app)/funding/page.tsx`
+- **Funding icon `Vault` → `HandCoins`**: updated the `PageHeader` `icon` prop (line ~198) and the empty-state glyph (line ~234). `HandCoins` reads as pooling/contributing money, fitting the group-pool feature. (Note: `PiggyBank` was considered but it's already the Savings nav icon, so it would collide.)
+- **Other people name input enlarged**: `h-14 flex-1 text-lg placeholder:text-lg placeholder:font-medium` so the field and its "Person's name" placeholder are noticeably bigger (was default `h-12` / `text-base`).
+- **Amount input**: `h-14 text-lg`, narrowed `w-28 → w-24`.
+- **Remove button**: `<X w-4 h-4>` → `<Trash2 w-5 h-5>` with padding + rounded rose hover background (`p-2 rounded-xl hover:bg-rose-50 / dark:hover:bg-rose-900/20`).
+- **Add person button**: icon `Plus w-3.5` → `UserPlus w-5 h-5`, `text-xs → text-sm`, padded rounded indigo hover chip instead of underline.
+- Outer list spacing `space-y-2 → space-y-3`; row gap `gap-2 → gap-2.5`.
+- A per-row user-avatar tile (`UserRound` in an indigo square) was briefly added then removed per user feedback — no avatar remains.
+
+### `components/Sidebar.tsx`
+- Funding nav item icon `Vault → HandCoins` in both `NAV_GROUPS` (desktop, line ~100) and the mobile nav list (line ~247); updated the `lucide-react` import accordingly.
+
+### Imports (`app/(app)/funding/page.tsx`)
+- `lucide-react`: dropped `Vault`, `X`, `UserRound`; added `HandCoins`, `UserPlus`. `Plus` kept (New pool header/empty-state buttons).
 
 ## 2026-06-10 — Move Cash account section right under Checking in Accounts page (branch claude/cash-order-account-position-4azo7e)
 
