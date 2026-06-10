@@ -1,5 +1,5 @@
 import type {
-  Account, Transaction, Bill, PaycheckEntry, Budget, Goal, Contact, Split, Loan, TaxSettings,
+  Account, Transaction, Bill, PaycheckEntry, Budget, Goal, Contact, Split, Loan, Funding, TaxSettings,
 } from '@/types';
 
 /**
@@ -23,6 +23,7 @@ export type BatchData = {
   contacts: Contact[];
   splits: Split[];
   loans: Loan[];
+  funding: Funding[];
   settings: TaxSettings;
 };
 

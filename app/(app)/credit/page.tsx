@@ -4,7 +4,7 @@ import Link from 'next/link';
 import {
   CreditCard, AlertCircle, AlertTriangle, CheckCircle2, ShieldCheck,
   TrendingUp, Pencil, Sparkles, Lightbulb, Target, CalendarClock,
-  History, ArrowUpCircle, Shuffle, Calculator,
+  History, ArrowUpCircle, Shuffle, Calculator, Gift,
 } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardIcon } from '@/components/ui/Card';
@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/Input';
 import { AccountsSkeleton } from '@/components/ui/Skeleton';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { peekCache, ensureResources } from '@/lib/client/store';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, generateId, today } from '@/lib/utils';
 import { useToast } from '@/lib/toast';
 import {
   buildCreditReport, CREDIT_UTIL_TARGET, CREDIT_UTIL_IDEAL, daysUntilStatement,
@@ -115,6 +115,42 @@ export default function CreditPage() {
     }
   }
 
+  // Redeem cash back as a statement credit: a `transfer` from an external (empty)
+  // source INTO the card lowers the owed balance WITHOUT debiting any account and
+  // without counting as income/expense (same pattern as loan/split fronting). The
+  // POST returns the authoritative post-write balances.
+  async function redeemCashBack(account: Account, amount: number) {
+    if (!(amount > 0)) return;
+    const tx: Transaction = {
+      id: generateId(),
+      date: today(),
+      description: t('credit.cashBackDesc', { card: account.name }),
+      amount,
+      type: 'transfer',
+      category: 'Cash Back',
+      account: '',
+      toAccount: account.id,
+      createdAt: new Date().toISOString(),
+    };
+    // Optimistic: drop the card balance + add the row locally.
+    setAccounts((prev) => prev.map((a) => (a.id === account.id ? { ...a, balance: Math.round((a.balance - amount) * 100) / 100 } : a)));
+    setTransactions((prev) => [tx, ...prev]);
+    try {
+      const res = await fetch('/api/transactions', {
+        method: 'POST',
+        body: JSON.stringify(tx),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      if (data.accounts) setAccounts(data.accounts);
+      toast(t('credit.cashBackSaved', { amount: formatCurrency(amount) }), 'success');
+    } catch {
+      toast(t('credit.cashBackFailed'), 'error');
+      await load(true);
+    }
+  }
+
   const overOrLimit = report.cardsOverTarget;
 
   return (
@@ -184,7 +220,7 @@ export default function CreditPage() {
           <div className="space-y-4">
             <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 px-1">{t('credit.yourCards')}</h2>
             {report.cards.map((c) => (
-              <CreditCardItem key={c.account.id} report={c} onSave={saveCard} />
+              <CreditCardItem key={c.account.id} report={c} onSave={saveCard} onRedeem={redeemCashBack} />
             ))}
           </div>
 
@@ -294,15 +330,19 @@ function UtilBar({ util, barClass }: { util: number; barClass: string }) {
 function CreditCardItem({
   report,
   onSave,
+  onRedeem,
 }: {
   report: CreditCardReport;
   onSave: (account: Account, patch: Partial<Pick<Account, 'creditLimit' | 'statementDay'>>) => void;
+  onRedeem: (account: Account, amount: number) => void;
 }) {
   const { t } = useTranslation();
   const { account, util, status, available, paydownToTarget, paydownToIdeal } = report;
   const [editing, setEditing] = useState(false);
   const [limitInput, setLimitInput] = useState(account.creditLimit ? String(account.creditLimit) : '');
   const [stmtInput, setStmtInput] = useState(account.statementDay ? String(account.statementDay) : '');
+  const [redeeming, setRedeeming] = useState(false);
+  const [redeemInput, setRedeemInput] = useState('');
   const style = status ? STATUS_STYLE[status] : null;
   const owed = Math.max(0, account.balance);
   const stmtDays = daysUntilStatement(account.statementDay, new Date());
@@ -319,6 +359,13 @@ function CreditCardItem({
   function submitFull() {
     onSave(account, { creditLimit: parseNum(limitInput), statementDay: parseStmt(stmtInput) });
     setEditing(false);
+  }
+  function submitRedeem() {
+    const amount = parseNum(redeemInput);
+    if (!(amount > 0)) return;
+    onRedeem(account, amount);
+    setRedeemInput('');
+    setRedeeming(false);
   }
 
   return (
@@ -452,6 +499,38 @@ function CreditCardItem({
           </div>
         </>
       )}
+
+      {/* Cash-back redemption → statement credit (not income). Available
+          regardless of whether a limit is set. */}
+      <div className="pt-1">
+        {redeeming ? (
+          <div className="rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 p-4 space-y-3">
+            <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+              <Gift className="w-4 h-4 shrink-0" />{t('credit.cashBackTitle')}
+            </p>
+            <p className="text-xs text-emerald-700/80 dark:text-emerald-400/80">{t('credit.cashBackHint')}</p>
+            <div className="flex gap-2">
+              <Input
+                type="text"
+                inputMode="decimal"
+                placeholder={t('credit.cashBackAmount')}
+                value={redeemInput}
+                onChange={(e) => setRedeemInput(e.target.value.replace(/[^0-9.]/g, ''))}
+                className="flex-1"
+              />
+              <Button size="sm" onClick={submitRedeem} disabled={!parseNum(redeemInput)} className="shrink-0">{t('credit.cashBackRedeem')}</Button>
+              <Button size="sm" variant="ghost" onClick={() => { setRedeeming(false); setRedeemInput(''); }}>{t('credit.cancel')}</Button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setRedeeming(true)}
+            className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-600 dark:text-emerald-400 hover:underline"
+          >
+            <Gift className="w-3.5 h-3.5" />{t('credit.cashBackCta')}
+          </button>
+        )}
+      </div>
     </Card>
   );
 }

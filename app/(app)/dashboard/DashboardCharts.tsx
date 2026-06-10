@@ -87,16 +87,6 @@ export type HealthScoreData = {
   };
 };
 
-function CustomTooltip({ active, payload }: { active?: boolean; payload?: { name: string; value: number }[] }) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm shadow-xl">
-      <p className="text-slate-500 dark:text-slate-400 font-bold mb-1">{payload[0].name}</p>
-      <p className="text-slate-900 dark:text-slate-100 font-extrabold text-lg">{formatCurrency(payload[0].value)}</p>
-    </div>
-  );
-}
-
 function BarTooltip({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number; fill: string }[]; label?: string }) {
   if (!active || !payload?.length) return null;
   return (
@@ -309,6 +299,10 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
   const anim = useChartAnim(700);
   const categoryTotal = data.reduce((s, d) => s + d.value, 0);
   const tCategory = (name: string) => { const k = `categories.${name}`; const r = t(k); return r === k ? name : r; };
+  // Hovering a slice swaps the center label to that category instead of floating a
+  // tooltip box over the donut's center (which used to cover the TOTAL readout).
+  const [activeIdx, setActiveIdx] = useState<number | null>(null);
+  const active = !isEmpty && activeIdx !== null ? cleanData[activeIdx] : null;
 
   return (
     <div className="flex flex-col md:flex-row items-center gap-8 w-full">
@@ -329,6 +323,8 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
               dataKey="value"
               stroke="none"
               cornerRadius={isEmpty ? 0 : 6}
+              onMouseEnter={isEmpty ? undefined : (_, i) => setActiveIdx(i)}
+              onMouseLeave={isEmpty ? undefined : () => setActiveIdx(null)}
               {...anim}
             >
               {displayData.map((entry) => (
@@ -339,7 +335,6 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
                 />
               ))}
             </Pie>
-            {!isEmpty && <Tooltip content={<CustomTooltip />} cursor={{ fill: 'transparent' }} />}
           </PieChart>
         </ResponsiveContainer>}
         {isEmpty ? (
@@ -347,9 +342,11 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
             <span className="text-slate-400 dark:text-slate-500 font-bold text-lg">{formatCurrency(0)}</span>
           </div>
         ) : (
-          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{t('charts.total')}</span>
-            <span className="text-lg font-extrabold text-slate-900 dark:text-slate-100 leading-tight">{formatCurrency(categoryTotal)}</span>
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-6 text-center">
+            <span className="text-[11px] font-bold uppercase tracking-wider truncate max-w-full" style={{ color: active ? (CATEGORY_COLORS[active.name] ?? DEFAULT_COLOR) : undefined }}>
+              <span className={active ? '' : 'text-slate-400 dark:text-slate-500'}>{active ? tCategory(active.name) : t('charts.total')}</span>
+            </span>
+            <span className="text-lg font-extrabold text-slate-900 dark:text-slate-100 leading-tight">{formatCurrency(active ? active.value : categoryTotal)}</span>
           </div>
         )}
       </div>
@@ -597,9 +594,31 @@ export function BudgetVsActualChart({ data }: { data: BudgetData[] }) {
               tickLine={false}
             />
             <Tooltip content={<BarTooltip />} cursor={{ fill: c.cursor }} />
-            <Legend wrapperStyle={{ fontSize: 12, fontWeight: 700, paddingTop: 8 }} />
+            {/* Custom legend so the swatch colors actually match the bars: the
+                Budget track (light) and the Spent indigo. The default recharts
+                legend mis-renders the Spent swatch because that bar is painted
+                per-Cell (indigo / rose-when-over), leaving its series fill unset. */}
+            <Legend
+              verticalAlign="bottom"
+              content={() => (
+                <div className="flex items-center justify-center gap-5 pt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-[3px]" style={{ backgroundColor: c.track }} />
+                    {t('charts.budget')}
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-[3px]" style={{ backgroundColor: '#6366f1' }} />
+                    {t('charts.spent')}
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-[3px]" style={{ backgroundColor: '#f43f5e' }} />
+                    {t('charts.over')}
+                  </span>
+                </div>
+              )}
+            />
             <Bar dataKey="budget" name={t('charts.budget')} fill={c.track} radius={[0, 5, 5, 0]} maxBarSize={13} isAnimationActive={!reduced} />
-            <Bar dataKey="spent" name={t('charts.spent')} radius={[0, 5, 5, 0]} maxBarSize={13} isAnimationActive={!reduced}>
+            <Bar dataKey="spent" name={t('charts.spent')} fill="#6366f1" radius={[0, 5, 5, 0]} maxBarSize={13} isAnimationActive={!reduced}>
               {chartData.map((d) => (
                 <Cell key={d.category} fill={d.spent > d.budget ? '#f43f5e' : '#6366f1'} />
               ))}

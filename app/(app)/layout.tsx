@@ -61,7 +61,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <div className="flex flex-col md:flex-row min-h-screen bg-slate-50 dark:bg-slate-900 pb-24 md:pb-0 relative overflow-hidden">
         <MobileHeader />
         <Sidebar />
-        <main className="flex-1 min-w-0 overflow-auto relative z-10">
+        {/* `relative` (no z-index) keeps a positioning context for page content
+            without creating a stacking context — otherwise the fixed pull-to-
+            refresh indicator (z-50) inside a page gets trapped beneath the
+            sticky mobile header (z-40). */}
+        <main className="flex-1 min-w-0 overflow-auto relative">
           {children}
         </main>
         <MobileNav />

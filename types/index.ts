@@ -94,10 +94,19 @@ export interface Account {
   // statement balance, so this drives "pay before your statement closes" nudges.
   // Absent = not set.
   statementDay?: number;
-  // Credit cards only: the purchase APR as a percent (e.g. 24.99). Powers the
-  // Balance-Transfer Optimizer (interest cost + savings from moving a balance to
-  // a 0%/low-APR card). Absent = not set; 0 is a real 0% APR.
+  // Credit cards AND loans: the APR as a percent (e.g. 24.99 / 6.5). For cards it
+  // powers the Balance-Transfer Optimizer; for loans it drives the amortization /
+  // payoff math. Absent = not set; 0 is a real 0% APR.
   apr?: number;
+  // Loan accounts only: the scheduled monthly payment. Drives payoff time, total
+  // interest and the "pay extra" advisor. Absent/0 = not set.
+  monthlyPayment?: number;
+  // Loan accounts only: the original loan term in months (e.g. 60). Informational
+  // (shown alongside the live payoff estimate). Absent/0 = not set.
+  termMonths?: number;
+  // Loan accounts only: id of the account the monthly payment is drawn FROM (a
+  // checking/savings/credit). Used by the in-app "Make payment" action. Absent = none.
+  paymentAccountId?: string;
 }
 
 export interface Budget {
@@ -137,6 +146,11 @@ export interface Bill {
   // Multi-person split: each entry is one other person's share they owe you.
   // Your share is the remainder (amount − sum). Empty/absent = unsplit.
   splitParticipants?: BillSplitParticipant[];
+  // When set, this bill pays down a `loan`-type account: recording the payment
+  // books the interest portion as an expense and transfers the principal into the
+  // loan (reducing its balance) instead of logging a plain expense. Absent = a
+  // normal bill. The pay-from account is the bill's `account`.
+  loanAccountId?: string;
 }
 
 // A person you share bills with. Deliberately minimal & reusable across bills.
@@ -203,6 +217,35 @@ export interface Loan {
   principalTxId: string;     // id of the cash transfer for the principal ('' if note only)
   repaymentTxIds: string[];  // ids of the cash transfers for each payback
   groupId?: string;          // shared id linking per-person loans created together (multi-person); absent = standalone
+}
+
+// A money pool the user (treasurer) holds on behalf of a group — e.g. everyone
+// chips in for a trip and the user keeps the cash. Modeled after Split but
+// INVERTED: the user collects contributions up front, then disburses. Key rules:
+//   • Contributions from OTHERS land in a real account but are NOT income — they're
+//     held on the group's behalf (recorded as a `transfer` from an empty source).
+//   • The user's own contribution is their existing money (no cash row) — just an
+//     earmark, tracked for the pool total.
+//   • When money is spent from the pool, only the user's OWN share counts as their
+//     expense; the rest leaves the account as a `transfer` (spending others' money).
+export interface FundingParticipant {
+  name: string;        // display name ('' allowed only for the "me" row, which sets isMe)
+  contributed: number; // amount this person put into the pool
+  isMe: boolean;       // true for the treasurer's own contribution
+}
+
+export interface Funding {
+  id: string;
+  description: string;
+  account: string;          // real account holding the pooled cash
+  date: string;             // YYYY-MM-DD created
+  participants: FundingParticipant[];
+  totalContributed: number; // sum of all participants' contributions (pool size)
+  spent: number;            // cumulative amount disbursed from the pool
+  // Cash rows this pool created, so deletion reverses them atomically:
+  contributionTxId: string; // the external→account transfer for OTHERS' contributions ('' = none)
+  spendTxIds: string[];     // ids of every spend row (my-share expenses + others transfers)
+  closed: boolean;          // user marked the pool wrapped up
 }
 
 export const EXPENSE_CATEGORIES = [

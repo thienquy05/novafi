@@ -54,7 +54,7 @@ const EMPTY_FORM: ActionForm = {
 const SAVINGS_PAGE_SIZE = 25;
 
 export default function SavingsPage() {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const [accounts, setAccounts] = useState<Account[]>(() => (peekCache(['accounts'])?.accounts ?? []).filter((a) => a.type === 'savings'));
   const [allAccounts, setAllAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
   const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
@@ -107,6 +107,36 @@ export default function SavingsPage() {
   const visibleTx = savingsTx.slice(0, visibleCount);
 
   const totalSaved = accounts.reduce((s, a) => s + a.balance, 0);
+
+  // Money INTO savings = a deposit (income) or a transfer whose destination is a
+  // savings account; otherwise it's money out.
+  const isIncomingTx = (tx: Transaction) =>
+    tx.type === 'transfer' ? savingsAccountIds.includes(tx.toAccount ?? '') : tx.type === 'income';
+
+  // History summary over the full filtered set (not just the visible page).
+  const historyTotals = savingsTx.reduce(
+    (acc, tx) => {
+      if (isIncomingTx(tx)) acc.in += tx.amount;
+      else acc.out += tx.amount;
+      return acc;
+    },
+    { in: 0, out: 0 },
+  );
+  const historyNet = historyTotals.in - historyTotals.out;
+
+  // Group the visible rows by month so the history reads as a statement, with a
+  // per-month net change header.
+  const txByMonth: { key: string; label: string; net: number; items: Transaction[] }[] = [];
+  for (const tx of visibleTx) {
+    const key = tx.date.slice(0, 7);
+    let g = txByMonth[txByMonth.length - 1];
+    if (!g || g.key !== key) {
+      g = { key, label: new Date(key + '-01T00:00:00').toLocaleDateString(lang === 'vi' ? 'vi-VN' : 'en-US', { month: 'long', year: 'numeric' }), net: 0, items: [] };
+      txByMonth.push(g);
+    }
+    g.items.push(tx);
+    g.net += isIncomingTx(tx) ? tx.amount : -tx.amount;
+  }
 
   async function handleAction() {
     if (!form.accountId || !form.amount) return;
@@ -333,44 +363,67 @@ export default function SavingsPage() {
               </Card>
             ) : (
               <>
-              <div className="space-y-3">
-                {visibleTx.map((tx) => {
-                  const fromName = accountMap[tx.account] ?? tx.account;
-                  const toName = tx.toAccount ? accountMap[tx.toAccount] : null;
-                  const isTransfer = tx.type === 'transfer';
-                  const isIncoming = isTransfer
-                    ? savingsAccountIds.includes(tx.toAccount ?? '')
-                    : tx.type === 'income';
-                  const displayDesc = tx.description || (isTransfer ? 'Transfer' : isIncoming ? 'Savings Deposit' : 'Savings Withdrawal');
-                  const subtitle = isTransfer && toName
-                    ? `${fromName} → ${toName} · ${formatDate(tx.date)}`
-                    : `${fromName} · ${formatDate(tx.date)}`;
-                  return (
-                    <div
-                      key={tx.id}
-                      className="flex items-center justify-between p-4 sm:p-5 rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 hover:shadow-sm transition-all duration-300"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className={`flex items-center justify-center w-12 h-12 rounded-2xl shrink-0 border ${
-                          isTransfer ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-100 dark:border-indigo-800/50' : isIncoming ? 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-100 dark:border-emerald-800/50' : 'bg-rose-50 dark:bg-rose-900/30 border-rose-100 dark:border-rose-800/50'
-                        }`}>
-                          {isTransfer
-                            ? <ArrowRightLeft className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-                            : isIncoming
-                            ? <ArrowDownLeft className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
-                            : <ArrowUpRight className="w-6 h-6 text-rose-600 dark:text-rose-400" />}
-                        </div>
-                        <div>
-                          <p className="text-base font-bold text-slate-900 dark:text-slate-100">{displayDesc}</p>
-                          <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>
-                        </div>
-                      </div>
-                      <span className={`text-lg font-extrabold ${isTransfer ? (isIncoming ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400') : isIncoming ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                        {isIncoming ? '+' : '-'}{formatCurrency(tx.amount)}
+              {/* Summary strip: total in / out / net across the filtered history. */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 p-3 sm:p-4">
+                  <p className="text-[11px] font-bold text-emerald-700/80 dark:text-emerald-400/80 uppercase tracking-wider">{t('savings.totalIn')}</p>
+                  <p className="text-base sm:text-lg font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">+{formatCurrency(historyTotals.in)}</p>
+                </div>
+                <div className="rounded-2xl bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-800/40 p-3 sm:p-4">
+                  <p className="text-[11px] font-bold text-rose-700/80 dark:text-rose-400/80 uppercase tracking-wider">{t('savings.totalOut')}</p>
+                  <p className="text-base sm:text-lg font-extrabold text-rose-600 dark:text-rose-400 mt-0.5">-{formatCurrency(historyTotals.out)}</p>
+                </div>
+                <div className="rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-3 sm:p-4">
+                  <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('savings.netChange')}</p>
+                  <p className={`text-base sm:text-lg font-extrabold mt-0.5 ${historyNet >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{historyNet >= 0 ? '+' : '-'}{formatCurrency(Math.abs(historyNet))}</p>
+                </div>
+              </div>
+              <div className="space-y-5">
+                {txByMonth.map((group) => (
+                  <div key={group.key} className="space-y-3">
+                    <div className="flex items-center justify-between px-1">
+                      <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{group.label}</h3>
+                      <span className={`text-xs font-bold ${group.net >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                        {group.net >= 0 ? '+' : '-'}{formatCurrency(Math.abs(group.net))}
                       </span>
                     </div>
-                  );
-                })}
+                    {group.items.map((tx) => {
+                      const fromName = accountMap[tx.account] ?? tx.account;
+                      const toName = tx.toAccount ? accountMap[tx.toAccount] : null;
+                      const isTransfer = tx.type === 'transfer';
+                      const isIncoming = isIncomingTx(tx);
+                      const displayDesc = tx.description || (isTransfer ? 'Transfer' : isIncoming ? 'Savings Deposit' : 'Savings Withdrawal');
+                      const subtitle = isTransfer && toName
+                        ? `${fromName} → ${toName} · ${formatDate(tx.date)}`
+                        : `${fromName} · ${formatDate(tx.date)}`;
+                      return (
+                        <div
+                          key={tx.id}
+                          className="flex items-center justify-between p-4 sm:p-5 rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 hover:shadow-sm transition-all duration-300"
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className={`flex items-center justify-center w-12 h-12 rounded-2xl shrink-0 border ${
+                              isTransfer ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-100 dark:border-indigo-800/50' : isIncoming ? 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-100 dark:border-emerald-800/50' : 'bg-rose-50 dark:bg-rose-900/30 border-rose-100 dark:border-rose-800/50'
+                            }`}>
+                              {isTransfer
+                                ? <ArrowRightLeft className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
+                                : isIncoming
+                                ? <ArrowDownLeft className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
+                                : <ArrowUpRight className="w-6 h-6 text-rose-600 dark:text-rose-400" />}
+                            </div>
+                            <div>
+                              <p className="text-base font-bold text-slate-900 dark:text-slate-100">{displayDesc}</p>
+                              <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>
+                            </div>
+                          </div>
+                          <span className={`text-lg font-extrabold ${isIncoming ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                            {isIncoming ? '+' : '-'}{formatCurrency(tx.amount)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
               {savingsTx.length > visibleCount && (
                 <div className="flex justify-center pt-2">

@@ -12,6 +12,7 @@ import type {
   Contact,
   Split,
   Loan,
+  Funding,
 } from '@/types';
 import { DEFAULT_TAX_SETTINGS } from './utils';
 import { withRetryProxy } from './retry';
@@ -92,6 +93,10 @@ const LOANS_HEADER = [
   'id', 'direction', 'contact_id', 'contact_name', 'account', 'principal',
   'repaid_amount', 'date', 'note', 'settled', 'settled_date',
   'principal_tx_id', 'repayment_tx_ids', 'category', 'group_id',
+];
+const FUNDING_HEADER = [
+  'id', 'description', 'account', 'date', 'participants_json',
+  'total_contributed', 'spent', 'contribution_tx_id', 'spend_tx_ids', 'closed',
 ];
 
 // A `values.get` against a tab that doesn't exist fails with HTTP 400 ("Unable
@@ -404,7 +409,7 @@ export async function getAccounts(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Accounts!A2:L200',
+    range: 'Accounts!A2:O200',
     // Raw cell value: a currency-formatted cell stays a number rather than
     // coming back as "$100.00" → NaN.
     valueRenderOption: 'UNFORMATTED_VALUE',
@@ -430,9 +435,14 @@ function rowToAccount(r: string[]): Account {
     creditLimit: r[9] === undefined || r[9] === '' ? undefined : Number(r[9]),
     // Column K is optional: statement closing day-of-month (1–31).
     statementDay: r[10] === undefined || r[10] === '' ? undefined : Number(r[10]),
-    // Column L is optional: a credit card's purchase APR % (Balance-Transfer
-    // Optimizer). Empty/blank → undefined (not 0, which means a real 0% APR).
+    // Column L is optional: a credit card's purchase APR %, OR a loan's APR
+    // (Balance-Transfer Optimizer / loan payoff). Blank → undefined (not 0 = real 0%).
     apr: r[11] === undefined || r[11] === '' ? undefined : Number(r[11]),
+    // Columns M/N/O are loan-only: scheduled monthly payment, original term in
+    // months, and the id of the account payments are drawn from. Blank → undefined.
+    monthlyPayment: r[12] === undefined || r[12] === '' ? undefined : Number(r[12]),
+    termMonths: r[13] === undefined || r[13] === '' ? undefined : Number(r[13]),
+    paymentAccountId: r[14] === undefined || r[14] === '' ? undefined : String(r[14]),
   };
 }
 
@@ -441,7 +451,7 @@ export async function upsertAccount(
   spreadsheetId: string,
   account: Account
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Accounts', account.id, 'L');
+  await deleteRowById(accessToken, spreadsheetId, 'Accounts', account.id, 'O');
   const sheets = getSheetsClient(accessToken);
   await sheets.spreadsheets.values.append({
     spreadsheetId,
@@ -449,7 +459,7 @@ export async function upsertAccount(
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
-      values: [[account.id, account.name, account.type, account.institution, account.balance, account.last4, account.color, account.createdAt, account.openingBalance ?? '', account.creditLimit ?? '', account.statementDay ?? '', account.apr ?? '']],
+      values: [[account.id, account.name, account.type, account.institution, account.balance, account.last4, account.color, account.createdAt, account.openingBalance ?? '', account.creditLimit ?? '', account.statementDay ?? '', account.apr ?? '', account.monthlyPayment ?? '', account.termMonths ?? '', account.paymentAccountId ?? '']],
     },
   });
 }
@@ -579,7 +589,7 @@ export async function getBills(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Bills!A2:L200',
+    range: 'Bills!A2:M200',
   });
   return (res.data.values ?? []).map(rowToBill);
 }
@@ -602,6 +612,7 @@ function rowToBill(r: string[]): Bill {
     splitAmount: splitContactId && r[9] !== undefined && r[9] !== '' ? Number(r[9]) : undefined,
     splitParticipants: parseBillParticipants(r[10]),
     variable: r[11] === 'true',
+    loanAccountId: r[12] || undefined,
   };
 }
 
@@ -626,7 +637,7 @@ export async function upsertBill(
   spreadsheetId: string,
   bill: Bill
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Bills', bill.id, 'L');
+  await deleteRowById(accessToken, spreadsheetId, 'Bills', bill.id, 'M');
   const sheets = getSheetsClient(accessToken);
   const participants = bill.splitParticipants && bill.splitParticipants.length > 0
     ? JSON.stringify(bill.splitParticipants)
@@ -641,7 +652,7 @@ export async function upsertBill(
         bill.id, bill.name, bill.amount, bill.frequency, bill.nextDue,
         bill.account, bill.category, String(bill.isActive),
         bill.splitContactId ?? '', bill.splitAmount ?? '', participants,
-        String(bill.variable ?? false),
+        String(bill.variable ?? false), bill.loanAccountId ?? '',
       ]],
     },
   });
@@ -862,6 +873,74 @@ export async function deleteSplit(
   await deleteRowById(accessToken, spreadsheetId, 'Splits', id, 'O');
 }
 
+// ── Funding (treasurer-held group money pools) ─────────────────────────────────
+
+export async function getFundings(
+  accessToken: string,
+  spreadsheetId: string
+): Promise<Funding[]> {
+  const sheets = getSheetsClient(accessToken);
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'Funding!A2:J1000',
+    });
+    return (res.data.values ?? []).map((r) => {
+      let participants: Funding['participants'] = [];
+      try { participants = JSON.parse(String(r[4] ?? '[]')); } catch { participants = []; }
+      return {
+        id: r[0] ?? '',
+        description: r[1] ?? '',
+        account: r[2] ?? '',
+        date: r[3] ?? '',
+        participants,
+        totalContributed: Number(r[5] ?? 0),
+        spent: Number(r[6] ?? 0),
+        contributionTxId: r[7] ?? '',
+        spendTxIds: String(r[8] ?? '').split('|').filter(Boolean),
+        closed: r[9] === 'true',
+      };
+    });
+  } catch (err) {
+    if (!isMissingTabError(err)) throw err;
+    await ensureSheet(sheets, spreadsheetId, 'Funding', FUNDING_HEADER);
+    return [];
+  }
+}
+
+export async function upsertFunding(
+  accessToken: string,
+  spreadsheetId: string,
+  funding: Funding
+): Promise<void> {
+  const sheets = getSheetsClient(accessToken);
+  await ensureSheet(sheets, spreadsheetId, 'Funding', FUNDING_HEADER);
+  await deleteRowById(accessToken, spreadsheetId, 'Funding', funding.id, 'J');
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: 'Funding!A1',
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: {
+      values: [[
+        funding.id, funding.description, funding.account, funding.date,
+        JSON.stringify(funding.participants ?? []),
+        funding.totalContributed, funding.spent,
+        funding.contributionTxId ?? '', (funding.spendTxIds ?? []).join('|'),
+        String(funding.closed),
+      ]],
+    },
+  });
+}
+
+export async function deleteFunding(
+  accessToken: string,
+  spreadsheetId: string,
+  id: string
+): Promise<void> {
+  await deleteRowById(accessToken, spreadsheetId, 'Funding', id, 'J');
+}
+
 // ── Loans (personal lend/borrow IOUs) ──────────────────────────────────────────
 
 export async function getLoans(
@@ -1045,10 +1124,10 @@ export async function batchGetBadgesData(
 ): Promise<{ bills: Bill[]; budgets: Budget[]; transactions: Transaction[]; accounts: Account[] }> {
   const sheets = getSheetsClient(accessToken);
   const ranges = [
-    'Bills!A2:L200',
+    'Bills!A2:M200',
     'Budgets!A2:D200',
     'Transactions!A2:J',
-    'Accounts!A2:L200',
+    'Accounts!A2:O200',
   ];
   const res = await sheets.spreadsheets.values.batchGet({
     spreadsheetId,
@@ -1135,6 +1214,10 @@ function parseDashboardCore(
     openingBalance: r[8] === undefined || r[8] === '' ? undefined : Number(r[8]),
     creditLimit: r[9] === undefined || r[9] === '' ? undefined : Number(r[9]),
     statementDay: r[10] === undefined || r[10] === '' ? undefined : Number(r[10]),
+    apr: r[11] === undefined || r[11] === '' ? undefined : Number(r[11]),
+    monthlyPayment: r[12] === undefined || r[12] === '' ? undefined : Number(r[12]),
+    termMonths: r[13] === undefined || r[13] === '' ? undefined : Number(r[13]),
+    paymentAccountId: r[14] === undefined || r[14] === '' ? undefined : String(r[14]),
   })) as Account[];
   const bills: Bill[] = (vr[3]?.values ?? []).map((r) => rowToBill(r as string[]));
   const budgets: Budget[] = (vr[4]?.values ?? []).map((r) => ({
@@ -1169,8 +1252,8 @@ function parseDashboardCore(
 const DASHBOARD_CORE_RANGES = [
   'Paychecks!A2:L',
   'Transactions!A2:J',
-  'Accounts!A2:L200',
-  'Bills!A2:L200',
+  'Accounts!A2:O200',
+  'Bills!A2:M200',
   'Budgets!A2:D200',
   'Goals!A2:G200',
   SETTINGS_RANGE,
@@ -1230,21 +1313,22 @@ type BatchResult = {
   contacts: Contact[];
   splits: Split[];
   loans: Loan[];
+  funding: Funding[];
   settings: TaxSettings;
 };
 
 // Keys fetched via their own getter (auto-create a missing tab, or non-array
 // shape) rather than the shared batchGet of always-present array sheets.
-type NonBatchableKey = 'contacts' | 'splits' | 'loans' | 'settings';
+type NonBatchableKey = 'contacts' | 'splits' | 'loans' | 'funding' | 'settings';
 
 // Sheets that always exist and carry no auto-create fallback — safe to batchGet.
 const BATCHABLE_SHEETS: Record<
   Exclude<BatchKey, NonBatchableKey>,
   { range: string; parse: (rows: string[][]) => unknown[] }
 > = {
-  accounts:     { range: 'Accounts!A2:L200',  parse: (rows) => rows.map(rowToAccount) },
+  accounts:     { range: 'Accounts!A2:O200',  parse: (rows) => rows.map(rowToAccount) },
   transactions: { range: 'Transactions!A2:J', parse: (rows) => rows.map(rowToTransaction) },
-  bills:        { range: 'Bills!A2:L200',     parse: (rows) => rows.map(rowToBill) },
+  bills:        { range: 'Bills!A2:M200',     parse: (rows) => rows.map(rowToBill) },
   paychecks:    { range: 'Paychecks!A2:L',    parse: (rows) => rows.map(rowToPaycheck) },
   budgets:      { range: 'Budgets!A2:E200',   parse: parseBudgets },
   goals:        { range: 'Goals!A2:H200',     parse: parseGoals },
@@ -1255,6 +1339,7 @@ export const BATCH_KEYS = [
   'contacts',
   'splits',
   'loans',
+  'funding',
   'settings',
 ] as BatchKey[];
 
@@ -1296,6 +1381,9 @@ export async function batchGetSheets(
   }
   if (keys.includes('loans')) {
     tasks.push(getLoans(accessToken, spreadsheetId).then((l) => { assign.loans = l; }));
+  }
+  if (keys.includes('funding')) {
+    tasks.push(getFundings(accessToken, spreadsheetId).then((f) => { assign.funding = f; }));
   }
   if (keys.includes('settings')) {
     tasks.push(getSettings(accessToken, spreadsheetId).then((s) => { assign.settings = s; }));

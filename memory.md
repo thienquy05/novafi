@@ -1564,3 +1564,129 @@ Reskinned the navigation surfaces to "float" (detached, rounded, elevated) inste
 
 ### Verification
 - `node_modules` is not installed in this fresh web session, so `tsc`/`eslint`/`build` cannot run here. Changes are pure Tailwind utility-class swaps (all standard utilities, no config or API changes), so no type/lint impact is expected.
+
+## 2026-06-09 — NovaFi enhancements (branch claude/novaifi-enhancements-gro8fr)
+
+Batch of enhancements requested from two dashboard screenshots. Decisions confirmed with the user up front (Funding model, Loans = enhance the existing `loan` account type, safe-to-spend = cash-on-hand basis, cash-back = statement credit).
+
+### Tier 1 — Safe-to-spend fix + dashboard/chart polish
+
+**Critical: safe-to-spend was wrong.** It was based on THIS month's income only (`income − cashSpending − billsDue`), so it read near-zero before payday and ignored carried-over cash.
+- `lib/calculations.ts`: new `calcSpendableCash(accounts)` = sum of **checking** balances (savings/credit/loan/investment excluded). Reworked `calcSafeToSpend(spendableCash, billsDue)` (was 3-arg `income, spending, bills`) → `spendableCash − billsDue`. Account balances already reflect every deposit/withdrawal so this is the correct point-in-time basis.
+- `app/(app)/dashboard/page.tsx`: computes `spendableCash`/`leftToSpend` from the new helpers (dropped the `calcMonthCashSpending` call for this KPI; the function itself stays for other uses).
+- Tests updated: `calcSafeToSpend` (2-arg) + new `calcSpendableCash` block.
+
+**Budget Progress legend color mismatch** (`DashboardCharts.tsx`, `BudgetVsActualChart`): the default recharts legend mis-rendered the "Spent" swatch (the bar is painted per-Cell so its series `fill` was unset → black). Replaced with a custom legend whose swatches match the bars: Budget = track color, Spent = indigo `#6366f1`, plus an "Over" = rose `#f43f5e` chip. Also set a default `fill="#6366f1"` on the Spent `<Bar>`.
+
+**Spending donut tooltip overlapped the center TOTAL** (`DashboardCharts.tsx`, `SpendingPieChart`): removed the floating recharts `<Tooltip>` (and the now-unused `CustomTooltip`). Added `activeIdx` state via Pie `onMouseEnter`/`onMouseLeave`; hovering a slice now swaps the center label to that category's name (in its color) + value instead of floating a box over the donut.
+
+**Projected month-end spend** (`dashboard/page.tsx`): the "Spending This Month" card's top-right number now shows `calcProjectedSpend(monthSpending, daysElapsed, daysInMonth)` (run-rate forecast) with a "Projected month-end" sub-label, since the donut already shows spent-so-far. New locale `dashboard.projectedSpend`.
+
+**Dashboard summaries (top-3 / stale savings):**
+- Bills forecast now renders only the 3 soonest bills (`.slice(0,3)`) with a "+N more upcoming" link; the remaining-monthly total headline is unchanged (still counts all).
+- Budget Progress keeps the full overview chart but trims the detailed `BudgetBars` cards to the top 3 by effective spend (`topBudgetData`), with a "View all N other categories" link to Planning.
+- New `calcLongestUntouchedSavings(accounts, transactions, today)` → `StaleSavings | null` (oldest last-deposit savings account; deposit = income to / transfer into the account; falls back to creation date). Dashboard shows an amber nudge in the Savings Goals card when `daysSince ≥ 45`. 3 tests.
+- New locales: `dashboard.moreUpcomingBills`, `moreBudgetCategories`, `staleSavingsTitle/Body/Never`.
+
+### Tier 1b — Expandable insight cards + pull-to-refresh stacking fix
+
+**New `components/ui/ExpandableCard.tsx`**: a `Card`-styled surface whose body collapses behind a clickable header (icon tile + title + subtitle + optional badge + chevron). Reuses `Collapsible` for the height animation; `defaultOpen` controls initial state (defaults collapsed).
+
+Applied to the three advisory sections the user asked to make expandable:
+- `planning/page.tsx` `BudgetRealityCard` → now an `ExpandableCard` (Zap/amber, badge = suggestion count).
+- `planning/page.tsx` **Unbudgeted spending** → new local `UnbudgetedSpendingSection` (lives inside the Budgets card, so it's a lightweight dashed collapsible inset rather than a full card; header has count badge + chevron, body via `Collapsible`).
+- `bills/page.tsx` `SubscriptionTracker` → now an `ExpandableCard` (Repeat/indigo, badge = $/mo total).
+
+**Pull-to-refresh stuck behind the header** (`app/(app)/layout.tsx`): `<main>` had `relative z-10`, which creates a stacking context that trapped the page's `fixed z-50` refresh indicator beneath the sticky mobile header (`z-40`) — the whole `main` sat at z-10. Changed to `relative` (no z-index): keeps the positioning context for page content but no longer creates a stacking context, so the indicator (and modals) escape to the root level and paint above the header.
+
+### Tier 2a — Card colors, bank brand icons, cash-back redemption
+
+**More card colors** (`accounts/page.tsx`): expanded `ACCOUNT_COLORS` from 7 to 16 swatches (full hue ramp + slate/near-black). The picker maps the array, so the new options appear automatically.
+
+**Bank brand icons** (new `lib/bankBrands.ts` + `components/BankBadge.tsx`): `getBankBrand(institution)` fuzzy-matches a free-text institution name (normalized) against ~18 known banks (Chase, AMEX, Huntington, Fifth Third, BoFA, Capital One, Citi, Discover, KeyBank, Wells Fargo, US Bank, PNC, TD, Ally, Chime, Truist, USAA, Navy Federal) → `{ label, short, color }`. We do NOT ship trademarked logos; `BankBadge` renders a tinted monogram tile in the brand color. The accounts list row shows the badge when a brand is recognized, else falls back to the type icon. 2 tests (`bankBrands.test.ts`).
+
+**Cash-back redemption** (`credit/page.tsx`): per-card "Redeem cash back" action (Gift/emerald) with an inline amount input. Records a `transfer` from external (`account: ''`) INTO the card → `applyTransactionToBalances` lowers the owed balance (statement credit) and, being a transfer, it never counts as income/expense (same fronting pattern as loans/splits). Optimistic update + authoritative balances from the POST response. Category `Cash Back`. New `credit.cashBack*` locale keys (en/vi).
+
+### Tier 2b — Loan account amortization + payoff advisor
+
+Per the user: enhance the existing `loan` **account type** (not the IOU `Loan`) with real-debt features.
+
+**Types** (`types/index.ts`): `Account` gains loan-only `monthlyPayment?`, `termMonths?`, `paymentAccountId?` (and APR is now documented as card-or-loan).
+
+**Sheets persistence** (`lib/sheets.ts`): Accounts tab extended from columns A–L to A–O (M=monthly_payment, N=term_months, O=payment_account_id). Updated both `rowToAccount` and the dashboard batch parse (which also now reads `apr` at r[11], previously omitted), `upsertAccount` row values, `deleteRowById` last-col 'L'→'O', and every `Accounts!A2:L200` range → `A2:O200`.
+
+**Calc** (`lib/calculations.ts`): `calcLoanPayoff(balance, apr, monthlyPayment, today)` → `LoanPayoff { months, totalInterest, monthlyInterest, amortizes, payoffMonth }` (standard fixed-payment amortization; flags loans whose payment can't cover first-month interest). `calcLoanExtraPaymentImpact(balance, apr, monthlyPayment, extra, today)` → `{ monthsSaved, interestSaved, newMonths }` for the "pay extra" advisor. `addMonthsKey` helper. 6 tests.
+
+**Accounts UI** (`accounts/page.tsx`):
+- Form shows a loan-only block (APR, monthly payment, term months, "Pay from" account select) when type=loan; `EMPTY_FORM`/`openEdit`/`handleSave` carry the three fields (cleared on non-loan).
+- Loan rows show a payoff insight line ("Paid off in ~X mo · $Y interest") plus a smart "+$extra/mo → debt-free N mo sooner, save $Z" tip (extra = 10% of the payment rounded to $25). Falls back to "add APR & payment" or "payment below interest" states.
+- New `makeLoanPayment(account)` action (Banknote button) records a `transfer` from the linked `paymentAccountId` INTO the loan for the scheduled amount (capped at balance) → lowers owed balance and counts as cash spending. Optimistic + authoritative balances from POST.
+- New `accounts.loan*`/`monthlyPayment`/`termMonths`/`paymentAccount*`/`makePayment`/`paymentMade` etc. locale keys (en/vi).
+
+### Tier 2c — Savings transaction history enhancement
+
+`savings/page.tsx`: the flat history list is now a mini statement.
+- Added an `isIncomingTx` helper (deposit/income or transfer INTO savings = in).
+- Summary strip above the list: Total in / Total out / Net change across the full filtered set.
+- Visible rows grouped by month (`txByMonth`) with a per-month header showing the month label (localized) + that month's net change.
+- `useTranslation()` now also destructures `lang` for month formatting. New `savings.totalIn/totalOut/netChange` locale keys (en/vi).
+
+### Tier 3 — Funding (new feature: treasurer-held group money pools)
+
+Brand-new section per the user: act as treasurer holding pooled group money. Decisions: held in a real account (NOT income); only my own share of a spend counts as my expense; separate page with per-person tracking.
+
+**Types** (`types/index.ts`): `Funding` + `FundingParticipant` ({ name, contributed, isMe }). A pool stores description, holding `account`, `participants`, `totalContributed`, `spent`, `contributionTxId`, `spendTxIds[]`, `closed`.
+
+**Cash model** (`lib/funding.ts`, pure + 7 tests): mirrors the *inverse* of a Split.
+- Others' contributions → one `transfer` from an empty source INTO the account (`buildContributionTx`): raises balance, never income.
+- My own contribution → no cash row (already my money), just tracked for the pool total.
+- A spend (`buildSpendTxs`) books my share as an `expense` from the account and the remainder as a `transfer` OUT to an empty destination (spending the group's money — not my expense). Helpers: `othersContribution`, `myContribution`, `totalContribution`, `poolRemaining`.
+
+**Persistence** (`lib/sheets.ts`): new `Funding` tab (cols A–J, participants stored as JSON in col E), `getFundings`/`upsertFunding`/`deleteFunding` (auto-creates the tab like Splits/Loans). Registered `funding` as a non-batchable batch key (`BatchResult`, `NonBatchableKey`, `BATCH_KEYS`, `batchGetSheets` task). Mirrored in `lib/client/api.ts` `BatchData` and `app/api/batch/route.ts` TTL map (SHORT). `store.test.ts` fixture updated.
+
+**API** (`app/api/funding/route.ts`): GET (cachedGet 'funding'); POST `{ funding, addTxs?, removeTxIds? }` applies/reverses cash rows then upserts the pool (used for create + spend), returns authoritative accounts; DELETE reverses the contribution + all spend rows then deletes (mirrors loan/split deletes).
+
+**UI** (`app/(app)/funding/page.tsx`): new page. Empty/no-deposit-account states; pool cards show pool/spent/remaining + participant chips (mine highlighted) + your stake; "Spend" modal (amount + my share + note) and delete (reverses cash). New-pool modal: description, hold-in account, "Include me" + my amount, dynamic other-people rows, live pool total. Optimistic updates + authoritative balances from POST.
+
+**Nav** (`components/Sidebar.tsx`): added Funding (HandCoins) to the Money group, the `GROUP_FOR` map, and the mobile flat list.
+
+**Locales**: new `nav.funding`, `funding.*` namespace (en/vi), and reusable `common.pullToRefresh/refreshing/releaseToRefresh` (en/vi).
+
+**Verification:** `tsc --noEmit` clean; `vitest` 454 passing; `eslint` 0 errors (warnings only, incl. the established load-effect setState pattern); `next build` compiled (routes `/funding` + `/api/funding` present).
+
+## 2026-06-10 — Link Bills to Loan accounts (bill-driven loan payments)
+
+User flow: a car loan is a `loan` account (tracks balance/payoff) but reminders are set as Bills; recording the bill payment should reduce the loan from the linked pay-from account — without double-counting.
+
+**Decision (explained to user):** a loan payment is split into **interest = expense** (the real cost, shows in spending/budgets) + **principal = transfer into the loan** (lowers balance). Cash leaves the pay-from account once (interest+principal = payment); the loan drops by principal only; net worth falls by just the interest. Counting the whole payment as an expense would double-count cash + inflate spending.
+
+**Calc** (`lib/calculations.ts`): `calcLoanPaymentSplit(balance, apr, payment)` → `{ interest, principal }` (interest = balance × APR/12; principal = payment − interest, capped at balance; payment-below-interest → all interest; 0% → all principal). 5 tests.
+
+**Shared builder** (`lib/loanPayments.ts` + 3 tests): `buildLoanPaymentTxs(payFrom, loanId, balance, apr, payment, description, category, date)` → up to two rows (interest `expense` from payFrom, principal `transfer` payFrom→loan). Reused by both the Accounts "Make payment" and the bill-driven payment so they behave identically.
+
+**Bill ↔ loan link** (mirrors how a bill already picks its account/category):
+- `types/index.ts`: `Bill.loanAccountId?`.
+- `lib/sheets.ts`: Bills tab extended A–L → **A–M** (col M = loan_account_id); `rowToBill`/`upsertBill` updated, `deleteRowById` 'L'→'M', all `Bills!A2:L200` → `A2:M200`.
+- `bills/page.tsx`: form gains a "Pays down loan" picker (loan-type accounts) that prefills amount (monthlyPayment) + pay-from (loan.paymentAccountId) and hides the split section (a loan payment isn't shared). `EMPTY_FORM`/`openEdit`/`handleSave` carry `loanAccountId`. `handleRecordPayment` branches on `loanAccountId`: builds the interest/principal rows via `buildLoanPaymentTxs`, posts them, advances the bill due date. New `bills.paysDownLoan`/`noLoanLink`/`paysDownLoanHint`/`loanMissing`/`loanNeedsAccount`/`loanPaymentRecorded` locales (en/vi).
+
+**Accounts page** (`accounts/page.tsx`): `makeLoanPayment` now uses `buildLoanPaymentTxs` (interest expense + principal transfer) instead of a single full-amount transfer, posting rows sequentially; pay-from drops by the full payment, loan by principal. Removed now-unused `Transaction` import.
+
+**Verification:** `tsc --noEmit` clean; `vitest` 462 passing; `eslint` 0 errors (pre-existing warnings only); `next build` compiled.
+
+## 2026-06-10 — Prediction readiness gating (don't forecast on thin data)
+
+Forward-looking forecasts built on 1–2 months are noise, so they're now gated behind a minimum history and replaced with a "gathering data" state.
+
+**Calc** (`lib/calculations.ts`): `MIN_PREDICTION_MONTHS = 3`; `calcActivityMonths(transactions)` = distinct YYYY-MM with an income/expense tx (transfers ignored); `calcPredictionReadiness(transactions, minMonths?)` → `{ months, ready, monthsNeeded, required }`. 4 tests.
+
+**Gated surfaces:**
+- Dashboard (`dashboard/page.tsx`): net-worth projection dashed line only passed when `readiness.ready`; the "Spending This Month" headline shows the projected month-end figure only when ready, otherwise the actual spend with a "Spent so far" label; a subtle "Gathering data — forecasts unlock after 3 months ({have}/{required}, {needed} to go)" hint shows under the Health banner until ready.
+- Planning (`planning/page.tsx`): budget reallocation suggestions (a 3-month-average prediction) are suppressed until `calcPredictionReadiness(transactions).ready`, so the Budget Reality Check card stays hidden early.
+
+Surfaces that don't need history (safe-to-spend, loan payoff, the spending donut, current-month budget pace) are unchanged. New locales `dashboard.spentSoFar`, `dashboard.predictionsLocked` (en/vi).
+
+**Verification:** `tsc --noEmit` clean; `vitest` 466 passing; `next build` compiled.
+
+## 2026-06-10 — Funding spend constraint + PR
+
+Added the one remaining real validation gap: a Funding pool spend can no longer exceed the pool's remaining balance. `recordSpend` blocks (toast) when `amount > poolRemaining`, the Spend modal shows an inline "Only {remaining} left" warning, and the Record button is disabled. New `funding.spendOverRemaining` locale (en/vi). (Other new inputs were already guarded: required-field disabled states, numeric-only regex, my-share clamped to spend, loan principal capped at balance, pay-from account required.)

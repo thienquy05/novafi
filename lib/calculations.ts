@@ -53,13 +53,26 @@ export function calcSavingsRate(income: number, spending: number): number {
   return Math.max(0, ((income - spending) / income) * 100);
 }
 
-// Money left to spend for the REST of the month: this month's income minus the
-// cash already spent minus the bills still due. Can go negative when those
-// outflows exceed income — we surface that shortfall instead of flooring at 0 so
-// you see exactly how far under you are, not just "$0.00". Pair with
-// `calcSafeToSpendDaily` to turn this leftover into a per-day allowance.
-export function calcSafeToSpend(income: number, spending: number, bills: number): number {
-  return roundCents(income - spending - bills);
+// Spendable cash on hand RIGHT NOW: the liquid balance you can actually draw on
+// today. Only deposit accounts that hold spendable money count (checking). Savings
+// is treated as money set aside, and credit/loan/investment are never spendable
+// cash. Because account balances already reflect every deposit and withdrawal,
+// this is the correct, point-in-time basis for "safe to spend" — it doesn't matter
+// whether your paycheck landed yet or how much carried over from last month.
+export function calcSpendableCash(accounts: Account[]): number {
+  return accounts
+    .filter((a) => a.type === 'checking')
+    .reduce((s, a) => s + a.balance, 0);
+}
+
+// Money left to spend for the REST of the month: the spendable cash you have on
+// hand minus the bills still due before month-end. Basing this on the real
+// account balance (not just this month's income) fixes the old model, which read
+// near-zero early in the month before payday and ignored carried-over cash. Can
+// go negative when bills exceed your cash — we surface that shortfall instead of
+// flooring at 0. Pair with `calcSafeToSpendDaily` to turn it into a daily allowance.
+export function calcSafeToSpend(spendableCash: number, billsDue: number): number {
+  return roundCents(spendableCash - billsDue);
 }
 
 // Forward-looking daily allowance: spread the money left to spend evenly across
@@ -105,6 +118,39 @@ export function pctChange(current: number, prev: number): number | null {
   return ((current - prev) / prev) * 100;
 }
 
+// ── Prediction readiness ───────────────────────────────────────────────────────
+// Forward-looking features (net-worth projection, projected month-end spend,
+// budget reallocation) are only trustworthy once there's enough history — a
+// run-rate or trend built on 1–2 months is mostly noise. We gate those behind a
+// minimum number of DISTINCT calendar months that have real income/expense
+// activity, and surface a "gathering data" state until then.
+export const MIN_PREDICTION_MONTHS = 3;
+
+// Distinct YYYY-MM that have at least one income or expense transaction. Transfers
+// don't count (they move money around, they aren't earning/spending activity).
+export function calcActivityMonths(transactions: Transaction[]): number {
+  const months = new Set<string>();
+  for (const t of transactions) {
+    if ((t.type === 'income' || t.type === 'expense') && t.date) months.add(t.date.slice(0, 7));
+  }
+  return months.size;
+}
+
+export interface PredictionReadiness {
+  months: number;       // distinct active months of history so far
+  ready: boolean;       // months >= the required minimum
+  monthsNeeded: number; // months still needed before predictions unlock (0 when ready)
+  required: number;     // the threshold used
+}
+
+export function calcPredictionReadiness(
+  transactions: Transaction[],
+  minMonths: number = MIN_PREDICTION_MONTHS,
+): PredictionReadiness {
+  const months = calcActivityMonths(transactions);
+  return { months, ready: months >= minMonths, monthsNeeded: Math.max(0, minMonths - months), required: minMonths };
+}
+
 // ── Budget ────────────────────────────────────────────────────────────────────
 
 export function normalizeMonthlyBudget(amount: number, period: 'monthly' | 'weekly' | 'yearly'): number {
@@ -129,6 +175,157 @@ export function calcRolloverDeficit(baseBudget: number, prevMonthSpend: number):
 // month. The cap is unchanged; only the "used" side grows by the overspend.
 export function calcEffectiveSpent(spent: number, rolledOverDeficit: number): number {
   return spent + rolledOverDeficit;
+}
+
+// ── Stale Savings ─────────────────────────────────────────────────────────────
+// Finds the savings account that has gone longest without a deposit (money coming
+// IN). A "deposit" is an income transaction posted to the account, or a transfer
+// whose destination is the account. An account that has never received a deposit
+// falls back to its creation date, so a long-dormant account still surfaces. The
+// most stale account is returned so the dashboard can nudge "this hasn't grown in
+// a while". Returns null when there are no savings accounts.
+export interface StaleSavings {
+  account: Account;
+  lastDeposit: string | null; // YYYY-MM-DD of the last money-in, or null if never
+  daysSince: number;          // days since last deposit (or since account creation)
+}
+
+export function calcLongestUntouchedSavings(
+  accounts: Account[],
+  transactions: Transaction[],
+  today: Date = new Date(),
+): StaleSavings | null {
+  const savings = accounts.filter((a) => a.type === 'savings');
+  if (savings.length === 0) return null;
+
+  const lastDepositByAccount = new Map<string, string>();
+  for (const t of transactions) {
+    const into =
+      t.type === 'income' ? t.account :
+      t.type === 'transfer' && t.toAccount ? t.toAccount :
+      null;
+    if (!into) continue;
+    const prev = lastDepositByAccount.get(into);
+    if (!prev || t.date > prev) lastDepositByAccount.set(into, t.date);
+  }
+
+  const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  let worst: StaleSavings | null = null;
+  for (const account of savings) {
+    const lastDeposit = lastDepositByAccount.get(account.id) ?? null;
+    const since = lastDeposit ?? account.createdAt?.slice(0, 10) ?? null;
+    const daysSince = since
+      ? Math.max(0, Math.round((todayMid - new Date(since + 'T00:00:00').getTime()) / 86400000))
+      : 0;
+    if (!worst || daysSince > worst.daysSince) {
+      worst = { account, lastDeposit, daysSince };
+    }
+  }
+  return worst;
+}
+
+// ── Loan amortization / payoff ────────────────────────────────────────────────
+// Standard fixed-payment amortization. Given the current balance, APR and the
+// scheduled monthly payment, derive how long until the loan is paid off and how
+// much interest that costs from today forward. The monthly rate is APR/12. A
+// payment that doesn't even cover the first month's interest never amortizes
+// (`amortizes=false`, `months=null`) — we surface that instead of pretending.
+export interface LoanPayoff {
+  /** Whole months until paid off, or null when the payment can't amortize it. */
+  months: number | null;
+  /** Total interest paid from now until payoff (estimate; 0 at 0% APR). */
+  totalInterest: number;
+  /** First-month interest = balance × monthly rate. The payment floor to amortize. */
+  monthlyInterest: number;
+  /** True when the scheduled payment is large enough to eventually clear the loan. */
+  amortizes: boolean;
+  /** Months added to `today` for the payoff month (YYYY-MM), or null. */
+  payoffMonth: string | null;
+}
+
+export function calcLoanPayoff(
+  balance: number,
+  apr: number,
+  monthlyPayment: number,
+  today: Date = new Date(),
+): LoanPayoff {
+  const owed = Math.max(0, balance);
+  const empty: LoanPayoff = { months: null, totalInterest: 0, monthlyInterest: 0, amortizes: false, payoffMonth: null };
+  if (owed === 0) return { months: 0, totalInterest: 0, monthlyInterest: 0, amortizes: true, payoffMonth: null };
+  if (!(monthlyPayment > 0)) return empty;
+
+  const r = (apr || 0) / 100 / 12;
+  if (r <= 0) {
+    const months = Math.ceil(owed / monthlyPayment);
+    return { months, totalInterest: 0, monthlyInterest: 0, amortizes: true, payoffMonth: addMonthsKey(today, months) };
+  }
+
+  const monthlyInterest = roundCents(owed * r);
+  if (monthlyPayment <= monthlyInterest) {
+    // Payment never dents principal — interest-only or worse.
+    return { ...empty, monthlyInterest };
+  }
+
+  const months = Math.ceil(-Math.log(1 - (owed * r) / monthlyPayment) / Math.log(1 + r));
+  // Interest = sum of payments − principal. The final payment is usually smaller,
+  // so this slightly over-estimates; close enough for guidance.
+  const totalInterest = roundCents(monthlyPayment * months - owed);
+  return { months, totalInterest, monthlyInterest, amortizes: true, payoffMonth: addMonthsKey(today, months) };
+}
+
+// Impact of paying `extra` more each month: how many months sooner the loan is
+// cleared and how much interest that saves vs the scheduled payment. Returns null
+// when there's nothing to compare (no balance, base payment can't amortize, or no
+// extra). Powers the "pay extra when…" advisor.
+export interface LoanExtraImpact {
+  monthsSaved: number;
+  interestSaved: number;
+  newMonths: number;
+}
+
+export function calcLoanExtraPaymentImpact(
+  balance: number,
+  apr: number,
+  monthlyPayment: number,
+  extra: number,
+  today: Date = new Date(),
+): LoanExtraImpact | null {
+  if (!(balance > 0) || !(extra > 0)) return null;
+  const base = calcLoanPayoff(balance, apr, monthlyPayment, today);
+  const boosted = calcLoanPayoff(balance, apr, monthlyPayment + extra, today);
+  if (!base.amortizes || base.months === null || !boosted.amortizes || boosted.months === null) return null;
+  return {
+    monthsSaved: base.months - boosted.months,
+    interestSaved: roundCents(base.totalInterest - boosted.totalInterest),
+    newMonths: boosted.months,
+  };
+}
+
+// Helper: YYYY-MM `months` after `from`.
+function addMonthsKey(from: Date, months: number): string {
+  const d = new Date(from.getFullYear(), from.getMonth() + months, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// Split a single loan payment into its interest and principal parts. Interest is
+// the real cost (this month's balance × monthly rate); the rest pays down the
+// balance. This is what lets a loan payment be booked as interest = expense +
+// principal = balance reduction. A payment that can't even cover the interest is
+// all interest (no principal). Principal never exceeds the remaining balance.
+export interface LoanPaymentSplit {
+  interest: number;
+  principal: number;
+}
+
+export function calcLoanPaymentSplit(balance: number, apr: number, payment: number): LoanPaymentSplit {
+  const owed = Math.max(0, balance);
+  const pay = roundCents(Math.max(0, payment));
+  if (pay === 0 || owed === 0) return { interest: 0, principal: roundCents(Math.min(pay, owed)) };
+  const r = (apr || 0) / 100 / 12;
+  const interest = r > 0 ? roundCents(owed * r) : 0;
+  if (interest >= pay) return { interest: pay, principal: 0 };
+  const principal = roundCents(Math.min(pay - interest, owed));
+  return { interest, principal };
 }
 
 // ── Spending Pace / Velocity ──────────────────────────────────────────────────

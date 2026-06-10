@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
-  calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, calcSafeToSpendDaily, calcMonthCashSpending, pctChange,
+  calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, calcSafeToSpendDaily, calcSpendableCash, calcMonthCashSpending, pctChange,
   normalizeMonthlyBudget,
   calcRolloverDeficit, calcEffectiveSpent,
   calcProjectedSpend, calcSpendingPace,
@@ -14,7 +14,9 @@ import {
   reverseExpenseBalance, reverseIncomeBalance, reverseTransferFromBalance, reverseTransferToBalance,
   billToTransactionDefaults, calcSplitShares, calcLoanRemaining, myBillShare,
   calcOverdueBills, calcOverBudget,
-  calcNetWorthProjection, calcPaycheckTaxToSave,
+  calcNetWorthProjection, calcPaycheckTaxToSave, calcLongestUntouchedSavings,
+  calcLoanPayoff, calcLoanExtraPaymentImpact, calcLoanPaymentSplit,
+  calcActivityMonths, calcPredictionReadiness,
   calcPaycheckDeposited,
   creditUtilization, creditUtilStatus, isOverCreditTarget, availableCredit,
   calcPaydownToTarget, buildCreditReport, calcCreditAlerts, allocateSmartPayment,
@@ -215,24 +217,183 @@ describe('calcSavingsRate', () => {
 });
 
 describe('calcSafeToSpend', () => {
-  it('income - spending - bills', () => {
-    expect(calcSafeToSpend(5000, 2000, 500)).toBe(2500);
+  it('spendable cash minus bills still due', () => {
+    expect(calcSafeToSpend(2500, 500)).toBe(2000);
   });
 
-  it('goes negative when spending exceeds income', () => {
-    expect(calcSafeToSpend(5000, 5500, 0)).toBe(-500);
+  it('goes negative when bills exceed cash on hand', () => {
+    expect(calcSafeToSpend(800, 1100)).toBe(-300);
   });
 
-  it('bills push result negative → surfaces the shortfall', () => {
-    expect(calcSafeToSpend(1000, 800, 300)).toBe(-100);
-  });
-
-  it('no bills', () => {
-    expect(calcSafeToSpend(3000, 1000, 0)).toBe(2000);
+  it('no bills due → full cash on hand', () => {
+    expect(calcSafeToSpend(3000, 0)).toBe(3000);
   });
 
   it('rounds float drift to cents', () => {
-    expect(calcSafeToSpend(1000.1, 0.2, 0)).toBe(999.9);
+    expect(calcSafeToSpend(1000.1, 0.2)).toBe(999.9);
+  });
+});
+
+describe('calcLongestUntouchedSavings', () => {
+  const today = new Date('2026-06-09T00:00:00');
+
+  it('returns null when there are no savings accounts', () => {
+    const accts = [makeAccount({ id: 'chk', type: 'checking', balance: 100 })];
+    expect(calcLongestUntouchedSavings(accts, [], today)).toBeNull();
+  });
+
+  it('picks the savings account with the oldest last deposit', () => {
+    const accts = [
+      makeAccount({ id: 's1', type: 'savings', balance: 1000, createdAt: '2026-01-01' }),
+      makeAccount({ id: 's2', type: 'savings', balance: 2000, createdAt: '2026-01-01' }),
+    ];
+    const txs = [
+      makeTx({ type: 'transfer', account: 'chk', toAccount: 's1', amount: 100, date: '2026-06-01' }),
+      makeTx({ type: 'transfer', account: 'chk', toAccount: 's2', amount: 100, date: '2026-03-01' }),
+    ];
+    const r = calcLongestUntouchedSavings(accts, txs, today);
+    expect(r?.account.id).toBe('s2');
+    expect(r?.lastDeposit).toBe('2026-03-01');
+    expect(r?.daysSince).toBe(100);
+  });
+
+  it('counts income deposits and falls back to creation date when never funded', () => {
+    const accts = [makeAccount({ id: 's1', type: 'savings', balance: 0, createdAt: '2026-05-10' })];
+    const r = calcLongestUntouchedSavings(accts, [], today);
+    expect(r?.lastDeposit).toBeNull();
+    expect(r?.daysSince).toBe(30);
+  });
+});
+
+describe('calcLoanPayoff', () => {
+  const today = new Date('2026-06-09T00:00:00');
+
+  it('paid-off loan → 0 months, no interest', () => {
+    const r = calcLoanPayoff(0, 6, 300, today);
+    expect(r.months).toBe(0);
+    expect(r.amortizes).toBe(true);
+  });
+
+  it('0% APR → simple division', () => {
+    const r = calcLoanPayoff(1200, 0, 100, today);
+    expect(r.months).toBe(12);
+    expect(r.totalInterest).toBe(0);
+    expect(r.payoffMonth).toBe('2027-06');
+  });
+
+  it('amortizes a typical loan and charges interest', () => {
+    // $10,000 at 6% APR, $200/mo → ~58 months, a few hundred in interest.
+    const r = calcLoanPayoff(10000, 6, 200, today);
+    expect(r.amortizes).toBe(true);
+    expect(r.months).toBe(58);
+    expect(r.monthlyInterest).toBe(50); // 10000 * 0.005
+    expect(r.totalInterest).toBeGreaterThan(1000);
+    expect(r.totalInterest).toBeLessThan(2000);
+  });
+
+  it('payment below first-month interest never amortizes', () => {
+    const r = calcLoanPayoff(10000, 24, 100, today); // monthly interest = 200 > 100
+    expect(r.amortizes).toBe(false);
+    expect(r.months).toBeNull();
+    expect(r.monthlyInterest).toBe(200);
+  });
+});
+
+describe('calcLoanExtraPaymentImpact', () => {
+  const today = new Date('2026-06-09T00:00:00');
+  it('paying extra shortens the term and saves interest', () => {
+    const r = calcLoanExtraPaymentImpact(10000, 6, 200, 100, today);
+    expect(r).not.toBeNull();
+    expect(r!.monthsSaved).toBeGreaterThan(0);
+    expect(r!.interestSaved).toBeGreaterThan(0);
+    expect(r!.newMonths).toBeLessThan(58);
+  });
+  it('returns null with no balance or no extra', () => {
+    expect(calcLoanExtraPaymentImpact(0, 6, 200, 100, today)).toBeNull();
+    expect(calcLoanExtraPaymentImpact(10000, 6, 200, 0, today)).toBeNull();
+  });
+});
+
+describe('calcPredictionReadiness', () => {
+  it('counts distinct income/expense months, ignoring transfers', () => {
+    const txs = [
+      makeTx({ type: 'income', date: '2026-01-05', amount: 100 }),
+      makeTx({ type: 'expense', date: '2026-01-20', amount: 50 }),
+      makeTx({ type: 'expense', date: '2026-02-10', amount: 30 }),
+      makeTx({ type: 'transfer', date: '2026-03-01', amount: 200 }), // ignored
+    ];
+    const r = calcPredictionReadiness(txs);
+    expect(r.months).toBe(2);
+    expect(r.ready).toBe(false);
+    expect(r.monthsNeeded).toBe(1);
+    expect(r.required).toBe(3);
+  });
+
+  it('is ready at 3+ distinct active months', () => {
+    const txs = [
+      makeTx({ type: 'expense', date: '2026-01-10', amount: 10 }),
+      makeTx({ type: 'expense', date: '2026-02-10', amount: 10 }),
+      makeTx({ type: 'income', date: '2026-03-10', amount: 10 }),
+    ];
+    const r = calcPredictionReadiness(txs);
+    expect(r.months).toBe(3);
+    expect(r.ready).toBe(true);
+    expect(r.monthsNeeded).toBe(0);
+  });
+
+  it('respects a custom threshold', () => {
+    expect(calcPredictionReadiness([], 2)).toEqual({ months: 0, ready: false, monthsNeeded: 2, required: 2 });
+  });
+
+  it('calcActivityMonths dedupes within a month', () => {
+    const txs = [
+      makeTx({ type: 'expense', date: '2026-01-03', amount: 5 }),
+      makeTx({ type: 'expense', date: '2026-01-28', amount: 5 }),
+    ];
+    expect(calcActivityMonths(txs)).toBe(1);
+  });
+});
+
+describe('calcLoanPaymentSplit', () => {
+  it('splits interest vs principal at the current balance', () => {
+    // 10000 @ 6% → monthly interest 50; a 200 payment is 50 interest + 150 principal.
+    expect(calcLoanPaymentSplit(10000, 6, 200)).toEqual({ interest: 50, principal: 150 });
+  });
+
+  it('0% APR → all principal', () => {
+    expect(calcLoanPaymentSplit(5000, 0, 300)).toEqual({ interest: 0, principal: 300 });
+  });
+
+  it('payment below interest → all interest, no principal', () => {
+    expect(calcLoanPaymentSplit(10000, 24, 100)).toEqual({ interest: 100, principal: 0 });
+  });
+
+  it('caps principal at the remaining balance (final payment)', () => {
+    const s = calcLoanPaymentSplit(100, 6, 200);
+    expect(s.interest).toBe(0.5);
+    expect(s.principal).toBe(100);
+  });
+
+  it('nothing owed → no interest, no principal', () => {
+    expect(calcLoanPaymentSplit(0, 6, 200)).toEqual({ interest: 0, principal: 0 });
+  });
+});
+
+describe('calcSpendableCash', () => {
+  it('sums only checking balances (savings/credit/loan/investment excluded)', () => {
+    const accts = [
+      makeAccount({ id: 'c1', type: 'checking', balance: 1200 }),
+      makeAccount({ id: 'c2', type: 'checking', balance: 300 }),
+      makeAccount({ id: 's1', type: 'savings', balance: 5000 }),
+      makeAccount({ id: 'cr', type: 'credit', balance: 400 }),
+      makeAccount({ id: 'l1', type: 'loan', balance: 9000 }),
+      makeAccount({ id: 'i1', type: 'investment', balance: 7000 }),
+    ];
+    expect(calcSpendableCash(accts)).toBe(1500);
+  });
+
+  it('returns 0 with no checking accounts', () => {
+    expect(calcSpendableCash([makeAccount({ type: 'savings', balance: 500 })])).toBe(0);
   });
 });
 
