@@ -1,9 +1,10 @@
 /**
  * Tiny inline trend line for KPI cards. Pure SVG — no recharts, no client JS —
  * so it renders straight from the Server Component and stays cheap on mobile.
- * The line paints in full on render: a stroke-dash draw-in was dropped because
+ * With `animate`, the chart reveals left-to-right via a CSS `clip-path` wipe
+ * (`.spark-draw`). A stroke-dash draw-in was deliberately avoided because
  * `non-scaling-stroke` under `preserveAspectRatio="none"` distorts the dash and
- * leaves visible gaps in the line.
+ * leaves visible gaps in the line — the clip wipe sidesteps that entirely.
  */
 export function Sparkline({
   data,
@@ -12,6 +13,7 @@ export function Sparkline({
   height = 28,
   strokeWidth = 2,
   fill = true,
+  animate = false,
   className = '',
 }: {
   data: number[];
@@ -20,6 +22,8 @@ export function Sparkline({
   height?: number;
   strokeWidth?: number;
   fill?: boolean;
+  /** Reveal the line left-to-right on render (and on every re-render). */
+  animate?: boolean;
   className?: string;
 }) {
   if (!data || data.length < 2) return null;
@@ -47,7 +51,7 @@ export function Sparkline({
       width="100%"
       height={height}
       preserveAspectRatio="none"
-      className={className}
+      className={`${animate ? 'spark-draw' : ''} ${className}`.trim()}
       style={{ color, display: 'block', overflow: 'visible' }}
       aria-hidden="true"
     >

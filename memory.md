@@ -2,6 +2,24 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-10 — Hero net-worth sparkline: intra-month money flow + draw-in animation (branch claude/bills-ui-enhancement-h9aj4s)
+
+The dashboard hero "Liquid Net Worth" sparkline was static (last 6 **monthly** net-worth snapshots), so within a month the headline number moved but the line stayed frozen, and it never animated. Per request, the line now traces this month's daily money flow (income up / expense down), ends exactly at the live value, and reveals itself with a draw-in animation.
+
+### `components/ui/Sparkline.tsx`
+- New optional `animate` prop. When set, the `<svg>` gets the `spark-draw` class (left-to-right `clip-path` wipe). Chose a clip wipe over a stroke-dash draw-in because the existing comment notes `non-scaling-stroke` under `preserveAspectRatio="none"` distorts dashes — the clip reveals both line and fill cleanly. Updated the doc comment.
+
+### `app/globals.css`
+- Added `.spark-draw` (0.9s `clip-path: inset(0 100% 0 0)` → `inset(0 0 0 0)`) + `@keyframes spark-draw`, and a `prefers-reduced-motion` override (`animation: none; clip-path: none`).
+
+### `app/(app)/dashboard/page.tsx`
+- New `moneyFlowSpark`: walks days 1..`daysElapsed` of the current month accumulating `dailyIncome[date] − dailySpend[date]` (both already computed for the heatmap), anchors the month-start balance at `netWorth − runningFlow` so the series **ends at today's live net worth**, and prepends that start balance (so even early in the month there are ≥2 points). Returns `null` when there's been no income/expense movement yet.
+- `heroStat.spark` now prefers `moneyFlowSpark`, falling back to the old monthly `netWorthSpark` when there's no activity this month (a flat line would say nothing).
+- Hero `<Sparkline>` now passes `animate`.
+
+### Verification
+`npm run typecheck` clean · `npm run lint` 0 errors (28 pre-existing warnings only).
+
 ## 2026-06-10 — Enhance "Detected Subscriptions" card UI in Bills (branch claude/bills-ui-enhancement-h9aj4s)
 
 Polished the `SubscriptionTracker` card on `/bills` (the "Detected Subscriptions" ExpandableCard) per a screenshot-driven request to enhance its UI.
