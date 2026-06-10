@@ -360,6 +360,8 @@
     "loanPaymentRecorded": "{name} paid — loan balance updated",
     "addBillBtn": "Add Bill",
     "saveChanges": "Save Changes",
+    "moreOptions": "More options",
+    "fewerOptions": "Fewer options",
     "cashflow": "Cashflow",
     "pay": "Pay",
     "bill": "Bill",

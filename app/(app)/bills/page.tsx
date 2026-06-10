@@ -356,6 +356,7 @@ export default function BillsPage() {
   const [recordingPayback, setRecordingPayback] = useState(false);
   const [sharingOpen, setSharingOpen] = useState(false);
   const [showSharingHistory, setShowSharingHistory] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const toast = useToast();
   const { expenseCategories } = useCategories();
 
@@ -390,10 +391,11 @@ export default function BillsPage() {
   const { pullY, refreshing } = usePullToRefresh(() => load(true));
 
   function resetSplitMode() { setBillMyShare(''); }
-  function openAdd() { setEditingId(null); setForm(EMPTY_FORM); setBillParticipantRows([emptyParticipant()]); resetSplitMode(); setOpen(true); }
+  function openAdd() { setEditingId(null); setForm(EMPTY_FORM); setBillParticipantRows([emptyParticipant()]); resetSplitMode(); setShowAdvanced(false); setOpen(true); }
   function openEdit(bill: Bill) {
     setEditingId(bill.id);
     const parts = billParticipants(bill); // normalizes legacy single-split → rows
+    const hasAdvanced = parts.length > 0 || bill.variable === true || !!bill.loanAccountId;
     setForm({
       name: bill.name, amount: String(bill.amount), frequency: bill.frequency,
       nextDue: bill.nextDue, account: bill.account ?? '', category: bill.category, isActive: bill.isActive,
@@ -404,9 +406,10 @@ export default function BillsPage() {
       ? parts.map((p) => ({ key: generateId(), contactId: p.contactId, amount: String(p.amount), newName: '' }))
       : [emptyParticipant()]);
     resetSplitMode(); // participants carry explicit amounts; the stored total drives the split
+    setShowAdvanced(hasAdvanced);
     setOpen(true);
   }
-  function closeModal() { setOpen(false); setEditingId(null); setForm(EMPTY_FORM); setBillParticipantRows([emptyParticipant()]); resetSplitMode(); }
+  function closeModal() { setOpen(false); setEditingId(null); setForm(EMPTY_FORM); setBillParticipantRows([emptyParticipant()]); resetSplitMode(); setShowAdvanced(false); }
 
   // ── Bill split participants ──
   function updateBillParticipant(key: string, patch: Partial<SplitParticipant>) {
@@ -1053,9 +1056,10 @@ export default function BillsPage() {
       </Modal>
 
       <Modal open={open} onClose={closeModal} title={editingId ? t('bills.editBill') : t('bills.addBill')}>
-        <div className="space-y-5 pb-4">
+        <div className="space-y-4 pb-4">
+          {/* ── Basic fields ─────────────────────────────────────────────── */}
           <Input label={t('bills.billName')} placeholder="e.g. Netflix, Rent, Car Insurance" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             <Input
               label={form.splitEnabled && !billHasTotal && billTotal > 0 ? t('bills.totalAmountAuto') : form.variable ? t('bills.estimatedAmount') : t('common.amountUsd')}
               type="number" min="0" step="0.01"
@@ -1065,126 +1069,141 @@ export default function BillsPage() {
             />
             <Select label={t('common.frequency')} value={form.frequency} options={Object.entries(FREQUENCY_LABELS).map(([value, label]) => ({ value, label }))} onChange={(e) => setForm((f) => ({ ...f, frequency: e.target.value as Bill['frequency'] }))} />
           </div>
-          {/* Variable (flexible) amount — e.g. energy/gas. The amount becomes an
-              estimate; recording a payment refreshes it to the actual charge. */}
-          <label className="flex items-start gap-3 cursor-pointer select-none rounded-2xl border border-slate-200 dark:border-slate-700 p-3.5">
-            <input
-              type="checkbox"
-              checked={form.variable}
-              onChange={(e) => setForm((f) => ({ ...f, variable: e.target.checked }))}
-              className="w-5 h-5 mt-0.5 rounded accent-indigo-600 shrink-0"
-            />
-            <span>
-              <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2"><Gauge className="w-4 h-4" />{t('bills.variableAmount')}</span>
-              <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">{t('bills.variableAmountDesc')}</span>
-            </span>
-          </label>
           <Input label={t('bills.nextDueDate')} type="date" value={form.nextDue} onChange={(e) => setForm((f) => ({ ...f, nextDue: e.target.value }))} />
           <Select label={t('common.category')} value={form.category} options={expenseCategories.map((c) => ({ value: c, label: c }))} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} />
           {accounts.length > 0 && (
             <Select label={t('bills.payFromOptional')} value={form.account} options={[{ value: '', label: t('common.selectPlaceholder') }, ...accounts.map((a) => ({ value: a.id, label: a.name }))]} onChange={(e) => setForm((f) => ({ ...f, account: e.target.value }))} />
           )}
 
-          {/* Link to a loan account → paying this bill pays down that loan. */}
-          {accounts.some((a) => a.type === 'loan') && (
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4 space-y-2">
-              <Select
-                label={t('bills.paysDownLoan')}
-                value={form.loanAccountId}
-                options={[{ value: '', label: t('bills.noLoanLink') }, ...accounts.filter((a) => a.type === 'loan').map((a) => ({ value: a.id, label: a.name }))]}
-                onChange={(e) => {
-                  const id = e.target.value;
-                  const loan = accounts.find((a) => a.id === id);
-                  setForm((f) => ({
-                    ...f,
-                    loanAccountId: id,
-                    // Prefill the scheduled payment + pay-from account from the loan.
-                    amount: id && loan?.monthlyPayment && !f.amount ? String(loan.monthlyPayment) : f.amount,
-                    account: id && loan?.paymentAccountId && !f.account ? loan.paymentAccountId : f.account,
-                    splitEnabled: id ? false : f.splitEnabled,
-                  }));
-                }}
-              />
-              {form.loanAccountId && <p className="text-xs text-slate-500 dark:text-slate-400">{t('bills.paysDownLoanHint')}</p>}
-            </div>
-          )}
+          {/* ── More options toggle ──────────────────────────────────────── */}
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((v) => !v)}
+            className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors pt-1"
+          >
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showAdvanced ? 'rotate-180' : ''}`} />
+            {showAdvanced ? t('bills.fewerOptions') : t('bills.moreOptions')}
+          </button>
 
-          {/* Split this bill with a contact (not applicable to loan payments) */}
-          {!form.loanAccountId && (
-          <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-            <label className="flex items-center gap-3 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={form.splitEnabled}
-                onChange={(e) => setForm((f) => ({ ...f, splitEnabled: e.target.checked }))}
-                className="w-5 h-5 rounded accent-indigo-600"
-              />
-              <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2"><Users className="w-4 h-4" />{t('bills.splitBill')}</span>
-            </label>
-            {form.splitEnabled && (
-              <div className="space-y-3 pt-1">
-                {billParticipantRows.map((row) => {
-                  const isNew = row.contactId === NEW_CONTACT;
-                  const blank = row.amount.trim() === '';
-                  const autoShare = billShareByKey.get(row.key);
-                  return (
-                    <div key={row.key} className="space-y-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 p-2.5">
-                      <div className="flex gap-2 items-end">
-                        <div className="flex-1">
-                          <Select
-                            label={t('bills.splitWith')}
-                            value={row.contactId}
-                            options={[
-                              { value: '', label: t('bills.selectContact') },
-                              ...contacts.map((c) => ({ value: c.id, label: c.name })),
-                              { value: NEW_CONTACT, label: t('bills.addNewContact') },
-                            ]}
-                            onChange={(e) => updateBillParticipant(row.key, { contactId: e.target.value })}
-                          />
-                        </div>
-                        {billParticipantRows.length > 1 && (
-                          <Button type="button" variant="secondary" className="shrink-0 px-2.5" onClick={() => removeBillParticipantRow(row.key)} title={t('common.delete')}><Trash2 className="w-4 h-4" /></Button>
+          {/* ── Advanced options (collapsible) ────────────────────────────── */}
+          <Collapsible open={showAdvanced}>
+            <div className="space-y-3 pt-1">
+              {/* Variable / flexible amount */}
+              <label className="flex items-start gap-3 cursor-pointer select-none rounded-2xl border border-slate-200 dark:border-slate-700 p-3.5">
+                <input
+                  type="checkbox"
+                  checked={form.variable}
+                  onChange={(e) => setForm((f) => ({ ...f, variable: e.target.checked }))}
+                  className="w-4 h-4 mt-0.5 rounded accent-indigo-600 shrink-0"
+                />
+                <span>
+                  <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2"><Gauge className="w-4 h-4" />{t('bills.variableAmount')}</span>
+                  <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">{t('bills.variableAmountDesc')}</span>
+                </span>
+              </label>
+
+              {/* Link to a loan account */}
+              {accounts.some((a) => a.type === 'loan') && (
+                <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-3.5 space-y-2">
+                  <Select
+                    label={t('bills.paysDownLoan')}
+                    value={form.loanAccountId}
+                    options={[{ value: '', label: t('bills.noLoanLink') }, ...accounts.filter((a) => a.type === 'loan').map((a) => ({ value: a.id, label: a.name })
+                    )]}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      const loan = accounts.find((a) => a.id === id);
+                      setForm((f) => ({
+                        ...f,
+                        loanAccountId: id,
+                        amount: id && loan?.monthlyPayment && !f.amount ? String(loan.monthlyPayment) : f.amount,
+                        account: id && loan?.paymentAccountId && !f.account ? loan.paymentAccountId : f.account,
+                        splitEnabled: id ? false : f.splitEnabled,
+                      }));
+                    }}
+                  />
+                  {form.loanAccountId && <p className="text-xs text-slate-500 dark:text-slate-400">{t('bills.paysDownLoanHint')}</p>}
+                </div>
+              )}
+
+              {/* Split this bill with people */}
+              {!form.loanAccountId && (
+                <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-3.5 space-y-3">
+                  <label className="flex items-center gap-3 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={form.splitEnabled}
+                      onChange={(e) => setForm((f) => ({ ...f, splitEnabled: e.target.checked }))}
+                      className="w-4 h-4 rounded accent-indigo-600"
+                    />
+                    <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2"><Users className="w-4 h-4" />{t('bills.splitBill')}</span>
+                  </label>
+                  {form.splitEnabled && (
+                    <div className="space-y-3 pt-1">
+                      {billParticipantRows.map((row) => {
+                        const isNew = row.contactId === NEW_CONTACT;
+                        const blank = row.amount.trim() === '';
+                        const autoShare = billShareByKey.get(row.key);
+                        return (
+                          <div key={row.key} className="space-y-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 p-2.5">
+                            <div className="flex gap-2 items-end">
+                              <div className="flex-1">
+                                <Select
+                                  label={t('bills.splitWith')}
+                                  value={row.contactId}
+                                  options={[
+                                    { value: '', label: t('bills.selectContact') },
+                                    ...contacts.map((c) => ({ value: c.id, label: c.name })),
+                                    { value: NEW_CONTACT, label: t('bills.addNewContact') },
+                                  ]}
+                                  onChange={(e) => updateBillParticipant(row.key, { contactId: e.target.value })}
+                                />
+                              </div>
+                              {billParticipantRows.length > 1 && (
+                                <Button type="button" variant="secondary" className="shrink-0 px-2.5" onClick={() => removeBillParticipantRow(row.key)} title={t('common.delete')}><Trash2 className="w-4 h-4" /></Button>
+                              )}
+                            </div>
+                            {isNew && (
+                              <div className="flex gap-2 items-end">
+                                <div className="flex-1"><Input label={t('bills.newContactName')} placeholder="e.g. Alex" value={row.newName} onChange={(e) => updateBillParticipant(row.key, { newName: e.target.value })} /></div>
+                                <Button type="button" variant="secondary" className="shrink-0" onClick={() => handleAddParticipantContact(row)} disabled={addingContact || !row.newName.trim()}><UserPlus className="w-4 h-4" />{t('bills.addContact')}</Button>
+                              </div>
+                            )}
+                            {!isNew && row.contactId && (
+                              <Input
+                                label={billHasTotal && blank && autoShare != null ? t('bills.shareAuto') : t('bills.theirShare')}
+                                type="number" min="0" step="0.01"
+                                placeholder={billHasTotal && autoShare != null ? autoShare.toFixed(2) : '0.00'}
+                                value={row.amount}
+                                onChange={(e) => updateBillParticipant(row.key, { amount: e.target.value })}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                      <div className="flex gap-2">
+                        <Button type="button" variant="secondary" className="flex-1" onClick={addBillParticipantRow}><UserPlus className="w-4 h-4" />{t('loans.addPerson')}</Button>
+                        {billIsGroup && billHasTotal && (
+                          <Button type="button" variant="secondary" className="flex-1" onClick={billSplitEqually}>{t('bills.splitEqually')}</Button>
                         )}
                       </div>
-                      {isNew && (
-                        <div className="flex gap-2 items-end">
-                          <div className="flex-1"><Input label={t('bills.newContactName')} placeholder="e.g. Alex" value={row.newName} onChange={(e) => updateBillParticipant(row.key, { newName: e.target.value })} /></div>
-                          <Button type="button" variant="secondary" className="shrink-0" onClick={() => handleAddParticipantContact(row)} disabled={addingContact || !row.newName.trim()}><UserPlus className="w-4 h-4" />{t('bills.addContact')}</Button>
+                      {!billHasTotal && (
+                        <Input label={t('bills.yourShareInput')} type="number" min="0" step="0.01" placeholder="0.00" value={billMyShare} onChange={(e) => setBillMyShare(e.target.value)} />
+                      )}
+                      {billTotal > 0 && billNamedRows.length > 0 && (
+                        <div className="flex justify-between text-xs font-bold px-1">
+                          <span className="text-slate-500 dark:text-slate-400">{t('bills.yourShare')}: <span className="text-slate-900 dark:text-slate-100">{formatCurrency(billMyShareNum)}</span></span>
+                          <span className="text-slate-500 dark:text-slate-400">{t('bills.theirShareShort')}: <span className="text-emerald-600 dark:text-emerald-400">{formatCurrency(billOthersTotal)}</span></span>
                         </div>
                       )}
-                      {!isNew && row.contactId && (
-                        <Input
-                          label={billHasTotal && blank && autoShare != null ? t('bills.shareAuto') : t('bills.theirShare')}
-                          type="number" min="0" step="0.01"
-                          placeholder={billHasTotal && autoShare != null ? autoShare.toFixed(2) : '0.00'}
-                          value={row.amount}
-                          onChange={(e) => updateBillParticipant(row.key, { amount: e.target.value })}
-                        />
-                      )}
+                      {billOver && <p className="text-xs font-bold text-rose-500 dark:text-rose-400 px-1">{t('bills.splitExpenseOverTotal')}</p>}
+                      <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{t('bills.splitSmartHint')}</p>
                     </div>
-                  );
-                })}
-                <div className="flex gap-2">
-                  <Button type="button" variant="secondary" className="flex-1" onClick={addBillParticipantRow}><UserPlus className="w-4 h-4" />{t('loans.addPerson')}</Button>
-                  {billIsGroup && billHasTotal && (
-                    <Button type="button" variant="secondary" className="flex-1" onClick={billSplitEqually}>{t('bills.splitEqually')}</Button>
                   )}
                 </div>
-                {!billHasTotal && (
-                  <Input label={t('bills.yourShareInput')} type="number" min="0" step="0.01" placeholder="0.00" value={billMyShare} onChange={(e) => setBillMyShare(e.target.value)} />
-                )}
-                {billTotal > 0 && billNamedRows.length > 0 && (
-                  <div className="flex justify-between text-xs font-bold px-1">
-                    <span className="text-slate-500 dark:text-slate-400">{t('bills.yourShare')}: <span className="text-slate-900 dark:text-slate-100">{formatCurrency(billMyShareNum)}</span></span>
-                    <span className="text-slate-500 dark:text-slate-400">{t('bills.theirShareShort')}: <span className="text-emerald-600 dark:text-emerald-400">{formatCurrency(billOthersTotal)}</span></span>
-                  </div>
-                )}
-                {billOver && <p className="text-xs font-bold text-rose-500 dark:text-rose-400 px-1">{t('bills.splitExpenseOverTotal')}</p>}
-                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{t('bills.splitSmartHint')}</p>
-              </div>
-            )}
-          </div>
-          )}
+              )}
+            </div>
+          </Collapsible>
         </div>
         <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">

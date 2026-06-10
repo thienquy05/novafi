@@ -360,6 +360,8 @@
     "loanPaymentRecorded": "Đã trả {name} — đã cập nhật dư nợ khoản vay",
     "addBillBtn": "Thêm hóa đơn",
     "saveChanges": "Lưu thay đổi",
+    "moreOptions": "Thêm tuỳ chọn",
+    "fewerOptions": "Thu gọn",
     "cashflow": "Dòng tiền",
     "pay": "Thanh toán",
     "bill": "Hóa đơn",

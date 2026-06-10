@@ -407,14 +407,14 @@ export default function AccountsPage() {
                           <div className="text-left sm:text-right">
                             {type === 'credit' || type === 'loan' ? (
                               account.balance < 0 ? (
-                                <><p className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400">+{formatCurrency(Math.abs(account.balance))}</p><p className="text-xs font-bold text-emerald-500 dark:text-emerald-400">{t('accounts.creditNote')}</p></>
+                                <><p className="text-base font-extrabold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">+{formatCurrency(Math.abs(account.balance))}</p><p className="text-xs font-bold text-emerald-500 dark:text-emerald-400">{t('accounts.creditNote')}</p></>
                               ) : account.balance === 0 ? (
                                 <PaidOffBadge accountId={account.id} paidOffLabel={t('accounts.paidOff')} />
                               ) : (
-                                <><p className="text-lg font-extrabold text-rose-600 dark:text-rose-400">-{formatCurrency(account.balance)}</p><p className="text-xs font-bold text-slate-400 dark:text-slate-500">{t('accounts.owed')}</p></>
+                                <><p className="text-base font-extrabold text-rose-600 dark:text-rose-400 whitespace-nowrap">-{formatCurrency(account.balance)}</p><p className="text-xs font-bold text-slate-400 dark:text-slate-500">{t('accounts.owed')}</p></>
                               )
                             ) : (
-                              <p className="text-lg font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(account.balance)}</p>
+                              <p className="text-base font-extrabold text-slate-900 dark:text-slate-100 whitespace-nowrap">{formatCurrency(account.balance)}</p>
                             )}
                           </div>
                           <div className="flex gap-2">
