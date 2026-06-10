@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
-import { Plus, Trash2, CreditCard, Landmark, PiggyBank, TrendingUp, Pencil, CheckCircle2, RefreshCw, AlertCircle, Banknote } from 'lucide-react';
+import { Plus, Trash2, CreditCard, Landmark, PiggyBank, TrendingUp, Pencil, CheckCircle2, RefreshCw, AlertCircle, Banknote, Coins } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { creditUtilization, creditUtilStatus, calcLoanPayoff, calcLoanExtraPaymentImpact } from '@/lib/calculations';
 import { buildLoanPaymentTxs } from '@/lib/loanPayments';
@@ -20,8 +20,6 @@ import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import type { Account } from '@/types';
 import { useTranslation } from '@/lib/i18n/context';
-import { getBankBrand } from '@/lib/bankBrands';
-import { BankBadge } from '@/components/BankBadge';
 
 const ACCOUNT_COLORS = [
   '#6366f1', '#3b82f6', '#0ea5e9', '#06b6d4', '#14b8a6', '#10b981', '#84cc16',
@@ -35,6 +33,7 @@ const ACCOUNT_TYPE_CONFIG = {
   credit: { icon: CreditCard, colorClass: 'text-rose-600 dark:text-rose-400', bgClass: 'bg-rose-50 dark:bg-rose-900/30' },
   investment: { icon: TrendingUp, colorClass: 'text-indigo-600 dark:text-indigo-400', bgClass: 'bg-indigo-50 dark:bg-indigo-900/30' },
   loan: { icon: CreditCard, colorClass: 'text-amber-600 dark:text-amber-400', bgClass: 'bg-amber-50 dark:bg-amber-900/30' },
+  cash: { icon: Coins, colorClass: 'text-green-600 dark:text-green-400', bgClass: 'bg-green-50 dark:bg-green-900/30' },
 };
 
 // Tolerate "1,000.50", "1.000,50", "$100", and currency symbols — strip
@@ -102,6 +101,7 @@ export default function AccountsPage() {
     credit: t('accounts.typeCredit'),
     investment: t('accounts.typeInvestment'),
     loan: t('accounts.typeLoan'),
+    cash: t('accounts.typeCash'),
   };
 
   // Section headers use a localized plural label rather than appending a literal
@@ -113,6 +113,7 @@ export default function AccountsPage() {
     credit: t('accounts.groupCredit'),
     investment: t('accounts.groupInvestment'),
     loan: t('accounts.groupLoan'),
+    cash: t('accounts.groupCash'),
   };
 
   const load = useCallback(async (force = false) => {
@@ -275,7 +276,7 @@ export default function AccountsPage() {
   }, [accounts]);
 
   const grouped = useMemo(() => {
-    const g: Record<Account['type'], Account[]> = { checking: [], savings: [], credit: [], investment: [], loan: [] };
+    const g: Record<Account['type'], Account[]> = { checking: [], savings: [], credit: [], investment: [], loan: [], cash: [] };
     for (const a of accounts) g[a.type].push(a);
     return g;
   }, [accounts]);
@@ -358,16 +359,9 @@ export default function AccountsPage() {
                     {list.map((account) => (
                       <div key={account.id} className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 hover:bg-white dark:hover:bg-slate-800 hover:shadow-sm transition-all duration-300 gap-4 sm:gap-0">
                         <div className="flex items-center gap-4">
-                          {(() => {
-                            const brand = getBankBrand(account.institution);
-                            return brand ? (
-                              <BankBadge brand={brand} size={48} />
-                            ) : (
-                              <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-sm border border-slate-100 dark:border-slate-700/60 bg-white dark:bg-slate-800">
-                                <Icon className="w-6 h-6" style={{ color: account.color }} />
-                              </div>
-                            );
-                          })()}
+                          <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-sm border border-slate-100 dark:border-slate-700/60 bg-white dark:bg-slate-800">
+                            <Icon className="w-6 h-6" style={{ color: account.color }} />
+                          </div>
                           <div>
                             <p className="text-base font-bold text-slate-900 dark:text-slate-100">{account.name}</p>
                             <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-0.5">{account.institution || label}{account.last4 ? ` ····${account.last4}` : ''}</p>
@@ -443,7 +437,7 @@ export default function AccountsPage() {
       <Modal open={open} onClose={() => { setOpen(false); setForm(EMPTY_FORM); setEditTarget(null); }} title={editTarget ? t('accounts.editAccount') : t('accounts.addAccount')}>
         <div className="space-y-5 pb-4">
           <Select label={t('accounts.accountType')} value={form.type} options={Object.entries(ACCOUNT_TYPE_CONFIG).map(([value]) => ({ value, label: ACCOUNT_TYPE_LABELS[value as Account['type']] }))} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as Account['type'] }))} />
-          <Input label={t('accounts.accountName')} placeholder={form.type === 'checking' ? 'e.g. Chase Checking' : form.type === 'credit' ? 'e.g. Chase Sapphire' : 'e.g. HYSA'} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+          <Input label={t('accounts.accountName')} placeholder={form.type === 'checking' ? 'e.g. Chase Checking' : form.type === 'credit' ? 'e.g. Chase Sapphire' : form.type === 'cash' ? 'e.g. Wallet' : 'e.g. HYSA'} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
           <Input label={t('accounts.institution')} placeholder="e.g. Chase, Bank of America" value={form.institution} onChange={(e) => setForm((f) => ({ ...f, institution: e.target.value }))} />
           <Input label={form.type === 'credit' || form.type === 'loan' ? `${t('accounts.balanceOwed')} — enter negative if bank owes you` : t('accounts.currentBalance')} type="text" inputMode="decimal" placeholder="0.00" value={form.balance} onChange={(e) => setForm((f) => ({ ...f, balance: e.target.value.replace(/[^0-9.,\-]/g, '') }))} />
           {form.type === 'credit' && (
@@ -478,8 +472,8 @@ export default function AccountsPage() {
             <p className="text-sm font-bold text-slate-700 dark:text-slate-300 ml-1 mb-2">{t('common.color')}</p>
             <div className="flex gap-3 flex-wrap">
               {ACCOUNT_COLORS.map((c) => (
-                <button key={c} onClick={() => setForm((f) => ({ ...f, color: c }))} className="w-10 h-10 rounded-full border-[3px] transition-all flex items-center justify-center shadow-sm hover:scale-110" style={{ backgroundColor: c, borderColor: form.color === c ? '#0f172a' : 'transparent' }}>
-                  {form.color === c && <CheckCircle2 className="w-5 h-5 text-white" />}
+                <button key={c} onClick={() => setForm((f) => ({ ...f, color: c }))} className="w-7 h-7 rounded-full border-[3px] transition-all flex items-center justify-center shadow-sm hover:scale-110" style={{ backgroundColor: c, borderColor: form.color === c ? '#0f172a' : 'transparent' }}>
+                  {form.color === c && <CheckCircle2 className="w-4 h-4 text-white" />}
                 </button>
               ))}
             </div>

@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { HandCoins, Plus, Trash2, Users, Wallet, RefreshCw, AlertCircle, MinusCircle, X } from 'lucide-react';
+import { Vault, Plus, Trash2, Users, Wallet, RefreshCw, AlertCircle, MinusCircle, X } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -65,7 +65,7 @@ export default function FundingPage() {
   const { pullY, refreshing } = usePullToRefresh(() => load(true));
 
   // Cash can be held in any deposit account.
-  const holdAccounts = useMemo(() => accounts.filter((a) => a.type === 'checking' || a.type === 'savings'), [accounts]);
+  const holdAccounts = useMemo(() => accounts.filter((a) => a.type === 'checking' || a.type === 'savings' || a.type === 'cash'), [accounts]);
   const accountName = (id: string) => accounts.find((a) => a.id === id)?.name ?? id;
 
   function openNew() {
@@ -195,7 +195,7 @@ export default function FundingPage() {
       )}
 
       <PageHeader
-        icon={HandCoins}
+        icon={Vault}
         tone="emerald"
         title={t('funding.title')}
         subtitle={t('funding.subtitle')}
@@ -231,7 +231,7 @@ export default function FundingPage() {
       ) : fundings.length === 0 ? (
         <Card className="text-center py-16 bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700/60">
           <div className="w-16 h-16 rounded-full bg-white dark:bg-slate-800 flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100 dark:border-slate-700/60">
-            <HandCoins className="w-8 h-8 text-slate-400 dark:text-slate-500" />
+            <Vault className="w-8 h-8 text-slate-400 dark:text-slate-500" />
           </div>
           <p className="text-slate-900 dark:text-slate-100 font-bold text-lg mb-1">{t('funding.emptyTitle')}</p>
           <p className="text-slate-500 dark:text-slate-400 font-medium mb-6 max-w-sm mx-auto">{t('funding.emptyDesc')}</p>

@@ -631,6 +631,17 @@ function SmartPaymentPlanner({
   const [input, setInput] = useState('');
   const [showBreakdown, setShowBreakdown] = useState(false);
 
+  // Require at least 3 distinct months of income/expense data for a reliable estimate.
+  const distinctDataMonths = useMemo(() => {
+    const months = new Set(
+      transactions
+        .filter((tx) => tx.type === 'income' || tx.type === 'expense')
+        .map((tx) => tx.date.slice(0, 7)),
+    );
+    return months.size;
+  }, [transactions]);
+  const hasEnoughData = distinctDataMonths >= 3;
+
   const suggestion = useMemo(
     () => suggestCardPaymentBudget({ accounts, transactions, bills, budgets, loans, splits }),
     [accounts, transactions, bills, budgets, loans, splits],
@@ -661,6 +672,14 @@ function SmartPaymentPlanner({
           <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('credit.simSub', { pct: CREDIT_UTIL_TARGET })}</p>
         </div>
       </div>
+
+      {/* Data constraint notice: planner estimates improve with 3+ months of history. */}
+      {!hasEnoughData && (
+        <div className="flex items-start gap-2 rounded-2xl p-3 mb-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
+          <p className="text-xs font-medium text-amber-700 dark:text-amber-300">{t('credit.simNotEnoughData', { months: distinctDataMonths })}</p>
+        </div>
+      )}
 
       {/* Income-based suggestion: prefilled estimate + a breakdown you can open. */}
       {suggestion.suggested > 0 && (
