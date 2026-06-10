@@ -276,7 +276,7 @@ export default function AccountsPage() {
   }, [accounts]);
 
   const grouped = useMemo(() => {
-    const g: Record<Account['type'], Account[]> = { checking: [], savings: [], credit: [], investment: [], loan: [], cash: [] };
+    const g: Record<Account['type'], Account[]> = { checking: [], cash: [], savings: [], credit: [], investment: [], loan: [] };
     for (const a of accounts) g[a.type].push(a);
     return g;
   }, [accounts]);

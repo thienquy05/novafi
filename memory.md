@@ -2,6 +2,11 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-10 — Move Cash account section right under Checking in Accounts page (branch claude/cash-order-account-position-4azo7e)
+
+### `app/(app)/accounts/page.tsx`
+- Changed the `grouped` object key order in the `useMemo` on line 279 so that `cash` appears immediately after `checking`. New order: `checking → cash → savings → credit → investment → loan`. The `Object.entries` iteration that drives the rendered section list respects insertion order, so this change alone repositions the Cash section in the UI.
+
 ## 2026-06-09 — Income-based credit-card payment suggestion (branch claude/predicted-income-card-payment)
 
 The Smart Payment Planner on `/credit` used to require the user to **type** a payment amount; it only decided how to split that amount across cards. Now NovaFi **estimates the amount itself** from the user's money picture (predicted income − obligations + what's owed to you), prefills it, and still lets the user override by typing. Per the user's request, the estimate factors in income (predicted, not just current), bills, budgets, loans, and splits — including ones tied to a specific card for accuracy.
