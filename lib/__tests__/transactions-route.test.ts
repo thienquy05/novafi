@@ -141,7 +141,7 @@ describe('funding pool reconciliation (linked cash rows edited/deleted here)', (
         { name: 'Alex', contributed: 200, isMe: false },
       ],
       totalContributed: 300, spent: 100,
-      contributionTxId: 'ctx1', spendTxIds: ['stx1'], closed: false,
+      contributionTxId: 'ctx1', spendTxIds: ['stx1'], repayments: [], closed: false,
       ...o,
     };
   }

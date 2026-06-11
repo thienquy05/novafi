@@ -58,8 +58,9 @@ export const POST = withSession(async ({ accessToken, spreadsheetId, req }) => {
   return NextResponse.json({ ok: true, accounts: updatedAccounts });
 });
 
-// Delete a pool and reverse every cash row it created (contribution + spends) so
-// the holding account returns to exactly where it was. Mirrors loan/split deletes.
+// Delete a pool and reverse every cash row it created (contribution + spends +
+// repayments) so all touched accounts return exactly where they were. Mirrors
+// loan/split deletes.
 export const DELETE = withSession(async ({ accessToken, spreadsheetId, req }) => {
   const { id }: { id: string } = await req.json();
 
@@ -69,7 +70,11 @@ export const DELETE = withSession(async ({ accessToken, spreadsheetId, req }) =>
   await deleteFunding(accessToken, spreadsheetId, id);
 
   const txIds = funding
-    ? [funding.contributionTxId, ...(funding.spendTxIds ?? [])].filter(Boolean) as string[]
+    ? [
+        funding.contributionTxId,
+        ...(funding.spendTxIds ?? []),
+        ...(funding.repayments ?? []).map((r) => r.id),
+      ].filter(Boolean) as string[]
     : [];
   let updatedAccounts: Account[] | null = null;
   if (txIds.length) {

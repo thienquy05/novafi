@@ -1,13 +1,18 @@
-import type { Funding, FundingParticipant, Transaction } from '@/types';
+import type { Funding, FundingParticipant, FundingRepayment, Transaction } from '@/types';
 import { generateId } from './utils';
 
-// Pure helpers for the Funding (treasurer-held money pool) feature. The cash
-// mechanics mirror the inverse of a Split:
-//   • Contributions from OTHERS raise the holding account but aren't income — a
-//     `transfer` from an empty source INTO the account.
-//   • The user's own contribution is existing money, so it creates no cash row.
-//   • A spend books only the user's share as an `expense`; the rest leaves the
-//     account as a `transfer` to an empty destination (spending others' money).
+// Pure helpers for the Funding (virtual group money pool) feature.
+//   • The pool is virtual: a budget number, not cash parked in an account.
+//   • A spend is charged to a real account you pick. Only the user's share is an
+//     `expense`; the rest leaves that account as a `transfer` to an empty
+//     destination (fronting the group's money) so it isn't counted as spending.
+//   • A repayment is a participant paying you back: a `transfer` INTO one of your
+//     accounts tagged 'FundingRepay', so it lands as neither income nor debt.
+//   • The user's own pledge is existing money, so it creates no cash row.
+
+// Repayment rows carry their own category so they're excluded from the
+// "funding held for others" net-worth adjustment (which only looks at 'Funding').
+export const FUNDING_REPAY_CATEGORY = 'FundingRepay';
 
 function round(n: number): number {
   return Math.round(n * 100) / 100;
@@ -27,6 +32,29 @@ export function totalContribution(participants: FundingParticipant[]): number {
 
 export function poolRemaining(f: Pick<Funding, 'totalContributed' | 'spent'>): number {
   return round(f.totalContributed - f.spent);
+}
+
+// ── Repayment / settle-up math ────────────────────────────────────────────────
+// Each NON-me participant pledged `contributed`; what they still owe you is that
+// pledge minus everything they've paid back. The "me" row is the user's own money
+// and is never owed. Numbers can't go below 0 (an over-payment just settles them).
+
+export function participantRepaid(repayments: FundingRepayment[], name: string): number {
+  return round(repayments.filter((r) => r.participant === name).reduce((s, r) => s + (r.amount || 0), 0));
+}
+
+export function participantOwed(p: FundingParticipant, repayments: FundingRepayment[]): number {
+  if (p.isMe) return 0;
+  return Math.max(0, round((p.contributed || 0) - participantRepaid(repayments, p.name)));
+}
+
+export function totalRepaid(repayments: FundingRepayment[]): number {
+  return round(repayments.reduce((s, r) => s + (r.amount || 0), 0));
+}
+
+// What the group still owes you across everyone (0 once fully settled).
+export function totalOwed(f: Pick<Funding, 'participants' | 'repayments'>): number {
+  return round(f.participants.reduce((s, p) => s + participantOwed(p, f.repayments), 0));
 }
 
 // The transfer that brings OTHERS' cash into the holding account (not income).
@@ -96,11 +124,14 @@ export function syncFundingTxRemoval(f: Funding, tx: Transaction): Funding | nul
   return null;
 }
 
-// The cash rows for a spend from the pool. `myShare` (≤ amount) becomes the
-// user's own expense; the remainder leaves the account as a transfer (others'
-// money). Either row is omitted when its portion is 0.
+// The cash rows for a spend from the pool, charged to `chargedAccount` — the real
+// account (cash/card) you actually paid with, which need NOT be where any money is
+// held. `myShare` (≤ amount) becomes the user's own expense; the remainder leaves
+// that account as a transfer (fronting the group's money). Both rows share one
+// `createdAt` so they can be regrouped back into a single spend for edit/delete.
+// Either row is omitted when its portion is 0.
 export function buildSpendTxs(
-  account: string,
+  chargedAccount: string,
   amount: number,
   myShare: number,
   description: string,
@@ -114,14 +145,83 @@ export function buildSpendTxs(
   if (mine > 0) {
     txs.push({
       id: generateId(), date, description, amount: mine,
-      type: 'expense', category: 'Funding', account, createdAt: now,
+      type: 'expense', category: 'Funding', account: chargedAccount, createdAt: now,
     });
   }
   if (others > 0) {
     txs.push({
       id: generateId(), date, description, amount: others,
-      type: 'transfer', category: 'Funding', account, toAccount: '', createdAt: now,
+      type: 'transfer', category: 'Funding', account: chargedAccount, toAccount: '', createdAt: now,
     });
   }
   return txs;
+}
+
+// The cash row for a participant paying you back: money INTO one of your accounts
+// from an empty source, so it's not income. Tagged 'FundingRepay' so it never
+// counts as your spending and is excluded from the "held for others" net-worth
+// adjustment. Returns the row plus the FundingRepayment record to store on the pool.
+export function buildRepayTx(
+  account: string,
+  amount: number,
+  participant: string,
+  description: string,
+  date: string,
+): { tx: Transaction; repayment: FundingRepayment } {
+  const amt = round(amount);
+  const id = generateId();
+  return {
+    tx: {
+      id, date, description, amount: amt,
+      type: 'transfer', category: FUNDING_REPAY_CATEGORY, account: '', toAccount: account,
+      createdAt: new Date().toISOString(),
+    },
+    repayment: { id, participant, amount: amt, account, date },
+  };
+}
+
+// ── Regrouping spend rows ─────────────────────────────────────────────────────
+// A spend can be 1–2 ledger rows (my-share expense + others transfer) that share a
+// `createdAt`, charged account, description and date. Regroup them so the pool UI
+// can list, edit and delete a spend as one unit. Rows without a createdAt (legacy
+// or hand-entered) each stand alone, keyed by their own id.
+export interface FundingSpend {
+  key: string;          // grouping key (shared createdAt, or the row id as a fallback)
+  txIds: string[];      // the 1–2 rows that make up this spend
+  amount: number;       // total spent (mine + others)
+  myShare: number;      // the user's own portion (the expense row)
+  chargedAccount: string;
+  description: string;
+  date: string;
+}
+
+export function groupFundingSpends(spendTxIds: string[], transactions: Transaction[]): FundingSpend[] {
+  const linked = new Set(spendTxIds);
+  const rows = transactions.filter((t) => linked.has(t.id));
+  const groups = new Map<string, Transaction[]>();
+  for (const t of rows) {
+    const key = t.createdAt || t.id;
+    const arr = groups.get(key);
+    if (arr) arr.push(t);
+    else groups.set(key, [t]);
+  }
+  const spends: FundingSpend[] = [];
+  for (const [key, arr] of groups) {
+    const expense = arr.find((t) => t.type === 'expense');
+    const transfer = arr.find((t) => t.type === 'transfer');
+    const myShare = round(expense?.amount ?? 0);
+    const others = round(transfer?.amount ?? 0);
+    const sample = expense ?? transfer ?? arr[0];
+    spends.push({
+      key,
+      txIds: arr.map((t) => t.id),
+      amount: round(myShare + others),
+      myShare,
+      chargedAccount: sample.account,
+      description: sample.description,
+      date: sample.date,
+    });
+  }
+  // Newest first (by date, then key which embeds the createdAt timestamp).
+  return spends.sort((a, b) => (b.date.localeCompare(a.date)) || b.key.localeCompare(a.key));
 }

@@ -2,9 +2,11 @@ import { describe, it, expect } from 'vitest';
 import {
   othersContribution, myContribution, totalContribution, poolRemaining,
   buildContributionTx, buildSpendTxs, syncFundingTxAmount, syncFundingTxRemoval,
+  buildRepayTx, groupFundingSpends, participantOwed, participantRepaid, totalOwed,
+  FUNDING_REPAY_CATEGORY,
 } from '@/lib/funding';
 import { calcFundingHeld, calcFundingHeldByAccount } from '@/lib/calculations';
-import type { Funding, FundingParticipant, Transaction } from '@/types';
+import type { Funding, FundingParticipant, FundingRepayment, Transaction } from '@/types';
 
 const PEOPLE: FundingParticipant[] = [
   { name: 'Me', contributed: 100, isMe: true },
@@ -72,7 +74,7 @@ function makePool(o: Partial<Funding> = {}): Funding {
     id: 'f1', description: 'Beach trip', account: 'acc1', date: '2026-06-09',
     participants: PEOPLE.map((p) => ({ ...p })),
     totalContributed: 300, spent: 120,
-    contributionTxId: 'ctx1', spendTxIds: ['stx1', 'stx2'], closed: false,
+    contributionTxId: 'ctx1', spendTxIds: ['stx1', 'stx2'], repayments: [], closed: false,
     ...o,
   };
 }
@@ -171,5 +173,72 @@ describe('calcFundingHeldByAccount / calcFundingHeld', () => {
     ];
     expect(calcFundingHeldByAccount(txs)).toEqual({ acc1: 200, acc2: 50 });
     expect(calcFundingHeld(txs)).toBe(250);
+  });
+});
+
+// ── Virtual pool: charged account, repayments, settle-up ──────────────────────
+
+describe('buildSpendTxs charges the chosen account', () => {
+  it('books both rows against the charged account, not where money is held', () => {
+    const txs = buildSpendTxs('card1', 300, 100, 'Hotel', '2026-06-10');
+    expect(txs.every((t) => t.account === 'card1')).toBe(true);
+    expect(txs.find((t) => t.type === 'expense')!.amount).toBe(100);
+    expect(txs.find((t) => t.type === 'transfer')!.amount).toBe(200);
+  });
+});
+
+describe('buildRepayTx', () => {
+  it('records money INTO an account as a non-income, non-held transfer', () => {
+    const { tx, repayment } = buildRepayTx('cash1', 120, 'Alex', 'Alex paid back', '2026-06-20');
+    expect(tx.type).toBe('transfer');
+    expect(tx.category).toBe(FUNDING_REPAY_CATEGORY);
+    expect(tx.account).toBe('');        // from the participant (external), not income
+    expect(tx.toAccount).toBe('cash1'); // lands in your account
+    expect(tx.amount).toBe(120);
+    expect(repayment).toEqual({ id: tx.id, participant: 'Alex', amount: 120, account: 'cash1', date: '2026-06-20' });
+  });
+
+  it('a repayment is excluded from the funding-held net-worth adjustment', () => {
+    // Only category 'Funding' transfers count as held; a 'FundingRepay' must not.
+    const { tx } = buildRepayTx('cash1', 200, 'Alex', 'x', '2026-06-20');
+    expect(calcFundingHeld([tx])).toBe(0);
+    expect(calcFundingHeldByAccount([tx])).toEqual({});
+  });
+});
+
+describe('settle-up math', () => {
+  const repayments: FundingRepayment[] = [
+    { id: 'r1', participant: 'Alex', amount: 60, account: 'cash1', date: '2026-06-20' },
+    { id: 'r2', participant: 'Alex', amount: 40, account: 'cash1', date: '2026-06-21' },
+  ];
+  it('sums a participant repayments and nets against their pledge', () => {
+    expect(participantRepaid(repayments, 'Alex')).toBe(100);     // 60 + 40
+    expect(participantOwed({ name: 'Alex', contributed: 100, isMe: false }, repayments)).toBe(0); // fully paid
+    expect(participantOwed({ name: 'Sam', contributed: 100, isMe: false }, repayments)).toBe(100); // hasn't paid
+  });
+  it('the me row never owes', () => {
+    expect(participantOwed({ name: 'Me', contributed: 100, isMe: true }, repayments)).toBe(0);
+  });
+  it('totalOwed is the sum still outstanding across everyone', () => {
+    const pool = makePool({ repayments });
+    expect(totalOwed(pool)).toBe(100); // Alex settled, Sam still owes 100, me owes 0
+  });
+});
+
+describe('groupFundingSpends', () => {
+  it('regroups the 1–2 rows of a spend by shared createdAt', () => {
+    const spendTxs = buildSpendTxs('card1', 300, 100, 'Hotel', '2026-06-10'); // 2 rows, same createdAt
+    const standalone: Transaction = { id: 'solo', date: '2026-06-11', description: 'Cab', amount: 40, type: 'transfer', category: 'Funding', account: 'cash1', toAccount: '', createdAt: '2026-06-11T00:00:00.000Z' };
+    const f = makePool({ spendTxIds: [...spendTxs.map((t) => t.id), 'solo'] });
+    const groups = groupFundingSpends(f.spendTxIds, [...spendTxs, standalone]);
+    expect(groups).toHaveLength(2);
+    const hotel = groups.find((g) => g.description === 'Hotel')!;
+    expect(hotel.amount).toBe(300);
+    expect(hotel.myShare).toBe(100);
+    expect(hotel.chargedAccount).toBe('card1');
+    expect(hotel.txIds).toHaveLength(2);
+    const cab = groups.find((g) => g.description === 'Cab')!;
+    expect(cab.amount).toBe(40);
+    expect(cab.myShare).toBe(0);
   });
 });
