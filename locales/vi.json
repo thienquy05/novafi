@@ -144,6 +144,7 @@
     "emergency": "Khẩn cấp",
     "creditUtil": "Mức sử dụng tín dụng",
     "loansExcl": "Không tính khoản vay · xem Nợ phải trả",
+    "fundingExcluded": "Không tính {amount} giữ hộ người khác (quỹ chung)",
     "vsLastMonth": "% so tháng trước",
     "spendingPace": "Tốc độ chi tiêu",
     "spendingPaceSubtitle": "Dự báo chi tiêu cuối tháng theo danh mục",
@@ -158,7 +159,12 @@
     "savingsRateKPINote": "thu nhập tiết kiệm tháng này",
     "noSpendStreak": "chuỗi {n} ngày không chi tiêu",
     "spendingCalendar": "Lịch tài chính",
-    "spendingCalendarSub": "Chi tiêu, thu nhập & hóa đơn theo ngày"
+    "spendingCalendarSub": "Chi tiêu, thu nhập & hóa đơn theo ngày",
+    "overdraftTitle": "{n} tài khoản có thể không đủ cho hóa đơn sắp tới",
+    "overdraftSubtitle": "Nạp thêm tiền hoặc hoãn một khoản chi trước khi các tài khoản này thiếu hụt.",
+    "overdraftAccountNegative": "{balance} hiện có − {bills} hóa đơn = {projected} dự báo",
+    "overdraftAccountBuffer": "Dự báo còn {projected} sau hóa đơn · dưới mức đệm {buffer} của bạn",
+    "overdraftShort": "Thiếu"
   },
   "heatmap": {
     "noSpend": "Không chi tiêu",
@@ -230,12 +236,7 @@
     "projected": "Dự báo",
     "total": "Tổng",
     "budget": "Ngân sách",
-    "spent": "Đã chi",
-    "overdraftTitle": "{n} tài khoản có thể không đủ cho hóa đơn sắp tới",
-    "overdraftSubtitle": "Nạp thêm tiền hoặc hoãn một khoản chi trước khi các tài khoản này thiếu hụt.",
-    "overdraftAccountNegative": "{balance} hiện có − {bills} hóa đơn = {projected} dự báo",
-    "overdraftAccountBuffer": "Dự báo còn {projected} sau hóa đơn · dưới mức đệm {buffer} của bạn",
-    "overdraftShort": "Thiếu"
+    "spent": "Đã chi"
   },
   "quickAdd": {
     "title": "Giao dịch mới",
@@ -952,5 +953,26 @@
     "install": "Cài đặt",
     "later": "Để sau",
     "iosHint": "Chạm nút Chia sẻ, rồi chọn \"Thêm vào MH chính\" để cài NovaFi."
+  },
+  "notifications": {
+    "title": "Thông báo",
+    "empty": "Bạn đã xem hết",
+    "emptyHint": "Các cảnh báo về tài khoản và hóa đơn sẽ hiện ở đây.",
+    "markAllRead": "Đánh dấu đã đọc",
+    "clearAll": "Xóa tất cả",
+    "markRead": "Đánh dấu đã đọc",
+    "delete": "Bỏ qua",
+    "overdraftTitle": "{name} có thể không đủ cho hóa đơn sắp tới",
+    "overdraftNegativeBody": "{balance} hiện có − {bills} hóa đơn = {projected} dự báo",
+    "overdraftBufferBody": "Dự báo còn {projected} sau hóa đơn · dưới mức đệm {buffer} của bạn",
+    "billTitle": "{name} đã quá hạn",
+    "billBody": "{amount} đến hạn ngày {date}",
+    "budgetTitle": "Vượt ngân sách: {category}",
+    "budgetBody": "Đã chi {spent} trên {budget} tháng này",
+    "creditTitle": "{name} vượt mức sử dụng 30%",
+    "creditBody": "Đã dùng {util}% — nên giữ dưới {target}%",
+    "savingsTitle": "{name} chưa tăng gần đây",
+    "savingsBody": "Không có khoản nạp trong {days} ngày — cân nhắc nạp thêm.",
+    "savingsNeverBody": "Chưa có khoản nạp nào — bắt đầu tài khoản này bằng một lần chuyển."
   }
 }

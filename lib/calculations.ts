@@ -34,6 +34,36 @@ export function calcLiquidSavings(accounts: Account[]): number {
     .reduce((s, a) => s + a.balance, 0);
 }
 
+// ── Funding pools held for others ───────────────────────────────────────────────
+// Money that a Funding (treasurer-held) pool parked in a real account on behalf of
+// OTHER people is NOT the user's asset — they're just holding it. The cash arrives
+// as a `transfer` tagged category 'Funding' INTO an account (toAccount set, empty
+// source) and leaves as a `transfer` OUT (account set, empty destination) when the
+// others' share is disbursed. The user's own contribution never creates a row, and
+// their own spend is an `expense`, so neither shows up here. The net per account is
+// therefore exactly the others' cash still sitting in it — which we subtract from
+// net worth / assets so the pool only ever influences money flow, never wealth.
+export function calcFundingHeldByAccount(transactions: Transaction[]): Record<string, number> {
+  const held: Record<string, number> = {};
+  for (const tx of transactions) {
+    if (tx.category !== 'Funding' || tx.type !== 'transfer') continue;
+    if (tx.toAccount) {
+      held[tx.toAccount] = roundCents((held[tx.toAccount] ?? 0) + tx.amount); // others' cash in
+    } else if (tx.account) {
+      held[tx.account] = roundCents((held[tx.account] ?? 0) - tx.amount);     // others' cash out
+    }
+  }
+  // Never let a stray edit turn into a net worth *boost* — floor each account at 0.
+  for (const id of Object.keys(held)) {
+    if (held[id] <= 0) delete held[id];
+  }
+  return held;
+}
+
+export function calcFundingHeld(transactions: Transaction[]): number {
+  return Object.values(calcFundingHeldByAccount(transactions)).reduce((s, n) => s + n, 0);
+}
+
 // ── Cash Flow ─────────────────────────────────────────────────────────────────
 
 export function calcMonthIncome(transactions: Transaction[], monthKey: string): number {

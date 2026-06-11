@@ -12,7 +12,7 @@ import {
   calcSpendingVolatilityScore, calcCoefficientOfVariation,
   calcNetWorthProjection, myBillShare, calcRolloverDeficit, calcLongestUntouchedSavings, calcPredictionReadiness,
   buildCreditReport, CREDIT_UTIL_TARGET, CREDIT_UTIL_IDEAL, composeHealthScore, daysUntilStatement,
-  detectOverdraftRisks,
+  detectOverdraftRisks, calcFundingHeldByAccount,
 } from '@/lib/calculations';
 import { Card, CardHeader, CardTitle, CardIcon, type CardTone } from '@/components/ui/Card';
 import { TrendingUp, TrendingDown, Calendar, PiggyBank, Wallet, BarChart3, ArrowLeftRight, Flame, CalendarDays, CreditCard, Target } from 'lucide-react';
@@ -92,15 +92,22 @@ export default async function DashboardPage() {
   // surfaced once we have enough history.
   const projectedSpend = calcProjectedSpend(monthSpending, daysElapsed, daysInMonth);
 
-  // Net worth
-  const traditionalNetWorth = calcTraditionalNetWorth(accounts);
-  const liquidNetWorth = calcLiquidNetWorth(accounts);
+  // Net worth — funding pools hold OTHER people's cash in real accounts, so that
+  // money inflates the raw balances but isn't the user's. Subtract the per-account
+  // "held for others" amounts everywhere wealth is summed (net worth, assets,
+  // savings) so a pool only ever shows up as money flow, never as net worth.
+  const fundingHeldByAccount = calcFundingHeldByAccount(transactions);
+  const fundingHeld = Object.values(fundingHeldByAccount).reduce((s, n) => s + n, 0);
+  const traditionalNetWorth = calcTraditionalNetWorth(accounts) - fundingHeld;
+  const liquidNetWorth = calcLiquidNetWorth(accounts) - fundingHeld;
   const excludeLoans = settings.excludeLoansFromNetWorth;
   const netWorth = excludeLoans ? liquidNetWorth : traditionalNetWorth;
-  const totalAssets = calcTotalAssets(accounts);
+  const totalAssets = calcTotalAssets(accounts) - fundingHeld;
   const totalDebt = calcTotalDebt(accounts);
   const totalLoanDebt = accounts.filter((a) => a.type === 'loan' && a.balance > 0).reduce((s, a) => s + a.balance, 0);
-  const totalSaved = accounts.filter((a) => a.type === 'savings').reduce((s, a) => s + a.balance, 0);
+  const totalSaved = accounts
+    .filter((a) => a.type === 'savings')
+    .reduce((s, a) => s + a.balance - (fundingHeldByAccount[a.id] ?? 0), 0);
 
   // Smart Credit Report (dashboard surface): overall utilization + the single
   // worst over-target card, so the dashboard can show an actionable next step.
@@ -413,7 +420,10 @@ export default async function DashboardPage() {
     valueColor: netWorth >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400',
     delta: netWorthDelta,
     positiveIsGood: true,
-    annotation: excludeLoans && totalLoanDebt > 0 ? t('dashboard.loansExcl', lang) : null,
+    annotation: [
+      excludeLoans && totalLoanDebt > 0 ? t('dashboard.loansExcl', lang) : null,
+      fundingHeld > 0 ? t('dashboard.fundingExcluded', lang, { amount: formatCurrency(fundingHeld) }) : null,
+    ].filter(Boolean).join(' · ') || null,
     // Prefer the live intra-month money-flow line; fall back to the monthly
     // snapshot trend when this month has no income/expense activity yet.
     spark: moneyFlowSpark ?? (netWorthSpark.length >= 2 ? netWorthSpark : null),
