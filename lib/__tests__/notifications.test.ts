@@ -32,15 +32,32 @@ describe('buildNotifications', () => {
     expect(buildNotifications({ accounts, bills: [], budgets: [], transactions: [] }, ctx)).toEqual([]);
   });
 
-  it('flags an account that will overdraft on upcoming bills', () => {
+  it('flags an account that WILL overdraft once upcoming bills are drawn', () => {
     const accounts = [acc({ id: 'a1', name: 'Checking', balance: 50 })];
     const bills = [bill({ id: 'b1', account: 'a1', amount: 200, nextDue: '2026-06-15' })];
     const out = buildNotifications({ accounts, bills, budgets: [], transactions: [] }, ctx);
     const od = out.find((n) => n.type === 'overdraft');
     expect(od).toBeDefined();
     expect(od!.id).toBe('overdraft:a1');
-    expect(od!.severity).toBe('critical'); // projected goes negative
+    expect(od!.severity).toBe('critical'); // positive now, but bills push it negative
+    expect(od!.title).toContain('overdraftWillTitle'); // not the "already overdrawn" wording
     expect(od!.href).toBe('/accounts');
+  });
+
+  it('describes an ALREADY-overdrawn account in plain terms (no phantom bills)', () => {
+    // The screenshot case: balance is already −$178 with $0 of bills. The old
+    // wording read "−$178 on hand − $0 in bills = −$178 projected", which was
+    // confusing. Now it's framed as already overdrawn.
+    const accounts = [acc({ id: 'a1', name: 'Me', balance: -178 })];
+    const out = buildNotifications({ accounts, bills: [], budgets: [], transactions: [] }, ctx);
+    const od = out.find((n) => n.type === 'overdraft');
+    expect(od).toBeDefined();
+    expect(od!.severity).toBe('critical');
+    expect(od!.title).toContain('overdrawnTitle');
+    // No bills → the simple "add {short} to get back to $0" body, short = $178.
+    expect(od!.body).toContain('overdrawnBody');
+    expect(od!.body).toContain('$178.00');
+    expect(od!.body).not.toContain('overdrawnBodyBills');
   });
 
   it('flags overdue bills one item each, skipping future/inactive ones', () => {

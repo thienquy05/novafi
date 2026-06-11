@@ -2,6 +2,35 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-11 — Notification panel positioning · overdraft banners removed · clearer overdraft wording (branch claude/notification-overdraft-fixes-3784)
+
+Follow-up to the notification center. Three fixes from feedback (screenshot showed the dropdown clipping off the left edge with "otifications", and a confusing "−$178 on hand − $0 in bills = −$178 projected" overdraft message).
+
+### Notification dropdown positioning (`components/NotificationBell.tsx`)
+The panel was `absolute right-0` anchored to the bell, so on mobile it overflowed the left viewport edge and on desktop (bell near the sidebar's right edge) it would too. Split positioning onto a wrapper `<div>` so framer-motion's transform animation no longer fights the centering:
+- Mobile: `fixed left-1/2 -translate-x-1/2 top-[76px]` — horizontally centered under the header, `w-[92vw] max-w-[380px]`, never clips.
+- Desktop (`md:`): `absolute left-0 top-full mt-2` — anchored to the bell, opening down-and-right (stays on-screen since the bell sits at the sidebar's right edge).
+- The inner `motion.div` keeps the opacity/scale/y animation (no x-translate, so no conflict). `panelRef` moved to the wrapper (click-outside still works).
+
+### Overdraft banners removed (now only in the notification center)
+Per request — the bell already carries overdraft warnings, so the standalone banners are redundant:
+- `app/(app)/dashboard/page.tsx`: removed the rose overdraft card; dropped the `overdraftRisks`/`detectOverdraftRisks` computation + import (`Wallet` stays — used by the hero KPI icon).
+- `app/(app)/bills/page.tsx`: removed the overdraft banner; dropped the `overdraftRisks` memo + `detectOverdraftRisks` import (`Banknote` stays — used elsewhere).
+- Removed now-orphaned locale keys `dashboard.overdraft*` and `bills.overdraft*` (en + vi). `detectOverdraftRisks` itself is unchanged — still used by `lib/notifications.ts` and the Quick-Add inline payment-safety warning (a different surface, kept).
+
+### Clearer overdraft wording / math (`lib/notifications.ts` + locales)
+The confusing message came from an already-negative balance (−$178) with $0 bills being phrased as a projection. Split into three plain-language cases keyed on the account's *current* balance vs the bills drawn from it (the bills figure is the sum of YOUR share of active bills whose pay-from account is this account):
+- **already overdrawn** (`currentBalance < 0`): title `notifications.overdrawnTitle` ("{name} is overdrawn"); body `overdrawnBody` ("Balance is {balance} — add {short} to get back to $0") when no bills, or `overdrawnBodyBills` when bills also loom. severity critical.
+- **will overdraft** (positive now, projected < 0): `overdraftWillTitle` / `overdraftWillBody` ("{balance} on hand − {bills} in bills = {projected} projected"). critical.
+- **below buffer** (stays ≥ 0 but under the user's buffer): `overdraftBufferTitle` / `overdraftBufferBody`. warning.
+- Replaced the old `notifications.overdraftTitle/overdraftNegativeBody/overdraftBufferBody` keys with the seven above (en + vi).
+
+### Tests (`lib/__tests__/notifications.test.ts`)
+- Updated the will-overdraft case to assert the new `overdraftWillTitle` wording.
+- Added an already-overdrawn case (the −$178/$0-bills screenshot scenario) asserting `overdrawnTitle` + `overdrawnBody` (not the bills variant) and that the shortfall reads "$178.00".
+
+**Verification:** `tsc --noEmit` clean; `vitest` 537 passing; `eslint` 0 errors (pre-existing warnings only); `next build` compiled.
+
 ## 2026-06-11 — Funding excluded from net worth · notification center · overdraft i18n fix (branch claude/funding-tracking-notifications-9pliij)
 
 Three related enhancements from a single request (screenshot showed the overdraft card rendering raw `dashboard.overdraft*` keys).
