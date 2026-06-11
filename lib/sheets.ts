@@ -97,6 +97,7 @@ const LOANS_HEADER = [
 const FUNDING_HEADER = [
   'id', 'description', 'account', 'date', 'participants_json',
   'total_contributed', 'spent', 'contribution_tx_id', 'spend_tx_ids', 'closed',
+  'repayments_json',
 ];
 
 // A `values.get` against a tab that doesn't exist fails with HTTP 400 ("Unable
@@ -886,11 +887,13 @@ export async function getFundings(
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'Funding!A2:J1000',
+      range: 'Funding!A2:K1000',
     });
     return (res.data.values ?? []).map((r) => {
       let participants: Funding['participants'] = [];
       try { participants = JSON.parse(String(r[4] ?? '[]')); } catch { participants = []; }
+      let repayments: Funding['repayments'] = [];
+      try { repayments = JSON.parse(String(r[10] ?? '[]')); } catch { repayments = []; }
       return {
         id: r[0] ?? '',
         description: r[1] ?? '',
@@ -902,6 +905,7 @@ export async function getFundings(
         contributionTxId: r[7] ?? '',
         spendTxIds: String(r[8] ?? '').split('|').filter(Boolean),
         closed: r[9] === 'true',
+        repayments,
       };
     });
   } catch (err) {
@@ -918,7 +922,7 @@ export async function upsertFunding(
 ): Promise<void> {
   const sheets = getSheetsClient(accessToken);
   await ensureSheet(sheets, spreadsheetId, 'Funding', FUNDING_HEADER);
-  await deleteRowById(accessToken, spreadsheetId, 'Funding', funding.id, 'J');
+  await deleteRowById(accessToken, spreadsheetId, 'Funding', funding.id, 'K');
   await sheets.spreadsheets.values.append({
     spreadsheetId,
     range: 'Funding!A1',
@@ -931,6 +935,7 @@ export async function upsertFunding(
         funding.totalContributed, funding.spent,
         funding.contributionTxId ?? '', (funding.spendTxIds ?? []).join('|'),
         String(funding.closed),
+        JSON.stringify(funding.repayments ?? []),
       ]],
     },
   });
@@ -941,7 +946,7 @@ export async function deleteFunding(
   spreadsheetId: string,
   id: string
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Funding', id, 'J');
+  await deleteRowById(accessToken, spreadsheetId, 'Funding', id, 'K');
 }
 
 // ── Loans (personal lend/borrow IOUs) ──────────────────────────────────────────

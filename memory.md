@@ -1903,3 +1903,41 @@ Surfaces that don't need history (safe-to-spend, loan payoff, the spending donut
 ## 2026-06-10 — Funding spend constraint + PR
 
 Added the one remaining real validation gap: a Funding pool spend can no longer exceed the pool's remaining balance. `recordSpend` blocks (toast) when `amount > poolRemaining`, the Spend modal shows an inline "Only {remaining} left" warning, and the Record button is disabled. New `funding.spendOverRemaining` locale (en/vi). (Other new inputs were already guarded: required-field disabled states, numeric-only regex, my-share clamped to spend, loan principal capped at balance, pay-from account required.)
+
+## 2026-06-11 — Funding pools become VIRTUAL: per-spend charged account + settle-up paybacks
+
+**Problem the user raised:** the old model conflated two things in `Funding.account` — *where the pooled money is held* and *what gets charged on a spend*. In reality the pool money (e.g. $1000) can't pay anyone; real charges hit cash or a card. They also asked: if I charge my own account and people pay me back later, how is that recorded so it isn't mistaken for my income/expense?
+
+**Decision (explained to user, design settled over several questions):** the pool is now **virtual money** — the group's agreed budget, no cash parked anywhere at creation. Real balances move only on two events:
+- **Spend** — charged to a real account you pick (cash/card/deposit). Split as before: my-share = `expense`, the rest = `transfer` out to ∅ (fronting the group's money, so it never counts as my spending). The charged account need not be where any money is "held."
+- **Payback** — a participant settling up: a `transfer` INTO one of your deposit accounts from an empty source, tagged a NEW category **`FundingRepay`** so it's neither income nor debt, and is excluded from the funding-held net-worth adjustment. A contribution and a payback are the same primitive (others' money arriving), just dated before vs. after the spend.
+"Remaining" is now signed (negative = overspent); per-person owed = pledge − paid back.
+
+**Types** (`types/index.ts`):
+- `FundingParticipant.contributed` re-documented as a *pledge* (virtual share). 
+- New `FundingRepayment { id, participant, amount, account, date }` — self-contained so a single payback can be edited/deleted and "who owes what" re-derived without parsing the ledger.
+- `Funding` gains `repayments: FundingRepayment[]`; `account` is now just a default charge/receive suggestion; `contributionTxId` is `''` for virtual pools (legacy upfront-contribution field kept for old rows).
+
+**Logic** (`lib/funding.ts`):
+- `FUNDING_REPAY_CATEGORY = 'FundingRepay'` exported.
+- `buildSpendTxs(chargedAccount, …)` — param renamed (was `account`); both rows now booked against the chosen charged account, sharing one `createdAt` for regrouping. Behavior otherwise unchanged.
+- `buildRepayTx(account, amount, participant, desc, date)` → `{ tx, repayment }` (a `FundingRepay` transfer in + the record to store).
+- `groupFundingSpends(spendTxIds, transactions)` → `FundingSpend[]` — regroups the 1–2 ledger rows of each spend by shared `createdAt` (falls back to row id) so the UI can list/edit/delete a spend as one unit.
+- Settle-up math: `participantRepaid`, `participantOwed` (me row never owes; floored at 0), `totalRepaid`, `totalOwed`.
+
+**Persistence** (`lib/sheets.ts`): Funding tab extended **A2:J → A2:K** (col K = `repayments_json`); `FUNDING_HEADER` gains `repayments_json`; `getFundings` parses col K (old rows → `[]`), `upsertFunding` writes it, `deleteRowById`/`upsertFunding` ranges 'J'→'K'. No migration needed — missing col K reads as empty.
+
+**API** (`app/api/funding/route.ts`): POST already bundles `addTxs`/`removeTxIds` generically (reused for spends AND paybacks, incl. edits). DELETE now also reverses `repayments.map(r => r.id)` so paybacks unwind with the pool.
+
+**UI** (`app/(app)/funding/page.tsx`): rewritten.
+- Loads `transactions` too (needed to regroup spends). Optimistic balance updates now go through `applyTransactionToBalances` (correct for cards vs deposits) via an `applyRows` helper; one `persist()` path posts `{funding, addTxs, removeTxIds}` then reloads so spend/payback lists stay in lockstep.
+- New-pool modal reframed as a virtual budget (pledges, no cash row created; `defaultAccount` picker over deposit+credit; virtualHint banner). Empty-state now only needs ≥1 account of any type.
+- Pool card: signed Remaining/Overspent tile; per-participant row showing pledge + owed/settled with a per-person "pay back" tap; a **Spends** list (charged-to account + your-share, edit/delete) and a **Paybacks** list (into-account, edit/delete).
+- Spend modal gains a **Charge from** account select (deposit + credit) and doubles as the edit form; removed the hard over-remaining block (a virtual budget can be overspent on purpose). New **Record payback** modal (who paid / amount / paid-into deposit account), also the edit form.
+- Charged account is read off the transaction (`tx.account`); paybacks tracked structurally on the pool. Generic-ledger reconcile still syncs spend rows (category 'Funding'); paybacks (`FundingRepay`) are managed on the funding page (same documented precedent as a split's myShareTxId).
+
+**Locales** (`en.json`/`vi.json`): `funding.*` extended — `defaultAccount`, `virtualHint`, `virtualBadge`, `overspent`, `yourPledge`, `owesYou`, `settledUp`, `nothingOwed`, `chargeFrom`, `chargedTo`, `yourShareOf`, `spendsTitle`, `editSpend`, `spendUpdated`, `spendDeleted`, `confirmDeleteSpend`, `edit`, `recordPayment`, `editPayment`, `paymentHint`, `paymentDesc`, `whoPaid`, `payInto`, `paidInto`, `paymentsTitle`, `paymentRecorded/Updated/Deleted`, `confirmDeletePayment`; pledge-oriented wording for `subtitle/includeMe/myContribution/empty*`. (vi must match `typeof en`.)
+
+**Tests** (`lib/__tests__/funding.test.ts`, +`transactions-route.test.ts` makePool): added coverage for charged-account spends, `buildRepayTx` (tagging + excluded from funding-held), settle-up math, and `groupFundingSpends`. Both `makePool` helpers carry `repayments`.
+
+**Verification:** `tsc --noEmit` clean; `vitest` **544 passing**; `eslint` **0 errors** (pre-existing warnings only, incl. the established load-effect setState pattern).
