@@ -2,6 +2,60 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-11 — Loans & Splits ↔ transactions sync: server-side reconciliation + UI gap fixes (branch claude/funding-transaction-sync-c7c99t)
+
+Follow-up to the Funding sync below, after a full audit of every record type that links transactions. Audit verdicts: Accounts (balances), Bills, Budgets, Goals, net-worth history, contacts, settings — all derive from the ledger or hold no tx-derived cache → already correct. Loans and Splits cached `principal`/`amount`, `repaidAmount`, `settled` (+ linked tx ids) and were protected only client-side (transactions page `managedTxIds` locks + `syncOwnerAmount`); no server backstop existed, so a mid-flight client failure or any non-UI API call could desync them. Paychecks: deposit row deletion leaves the payroll log entry — deliberately NOT auto-cascaded, since a paycheck without a deposit tx is a valid designed state (logged without a deposit account).
+
+### `lib/loans.ts` (new) — pure loan reconciliation helpers
+- `syncLoanTxAmount(l, original, updated)` → corrected `Loan` or `null`. Principal row (`principalTxId`): `principal = updated.amount`. Payback row (∈ `repaymentTxIds`): `repaidAmount += delta` (clamped ≥ 0). Both re-derive `settled`/`settledDate` via `recomputeSettlement` (`principal > 0 && repaid >= principal − 0.005`; keeps an existing settledDate, clears it on un-settle).
+- `syncLoanTxRemoval(l, tx)` → principal deleted: `principalTxId = ''`, principal kept (loan becomes note-only — an existing valid state). Payback deleted: id unlinked, `repaidAmount −= tx.amount` (clamped), settlement re-derived.
+
+### `lib/splits.ts` — pure split reconciliation helpers (same section style)
+- `syncSplitTxAmount(s, original, updated)` → payback row: `repaidAmount += delta`. Fronted/legacy-settle row: `amount = updated.amount`. Settlement re-derived via `recomputeSettlement`, where a **legacy row stays settled while its `settleTxId` transfer exists** (`settled = !!settleTxId || repaid >= amount − 0.005`).
+- `syncSplitTxRemoval(s, tx)` → payback: unlink + back out of `repaidAmount` (can un-settle). Fronted deleted: `frontedTxId = ''` (note-only IOU, amount kept). Legacy settle deleted: `settleTxId = ''` + settlement re-derived (their payback never happened). `myShareTxId` deleted: just unlinked (no cached number depends on it).
+
+### `app/api/transactions/route.ts` — generalized owner reconciliation
+- `reconcileFundingPools` → **`reconcileLinkedRecords`** + generic `reconcileRecords<T>` fold. Gated per category: 'Funding' → fundings, 'Loan' → loans, 'Split' → splits (each only fetched/upserted when a touched tx carries that category; `funding`/`loans`/`splits` caches invalidated only when written). Same three call sites: PUT, DELETE, POST split-replace (replaced rows = removals).
+- Known accepted edge: a split's `myShareTxId` row is a normal user-categorized expense, so the category gate can't see it server-side — covered by the new UI lock below; group-edit already tolerates a dead id by recreating the row.
+
+### `app/(app)/transactions/page.tsx` — two gap fixes
+- `managedTxIds` now also includes `sp.myShareTxId` → your own share expense of a split group gets the managed-row treatment (delete/swipe blocked, type/account locked, category-split hidden). Comment updated.
+- `syncOwnerAmount` fronted/settle branch now re-derives `settled`/`settledDate` with the same rule as `lib/splits` `recomputeSettlement` (was: amount only), so client + server sync agree.
+
+### Tests (486 → 510)
+- **`lib/__tests__/loans.test.ts` (new, 9)**: principal edit re-derives settlement, payback delta, un-settle on shrink, clamp at 0, principal removal → note-only, payback removal unlink, nulls for unlinked/unchanged.
+- **`lib/__tests__/splits.test.ts` (+11)**: payback delta, settle on cover, fronted edit changes share (and can settle), legacy stays settled while settle-tx exists, removal cases (payback/un-settle/fronted→note-only/legacy-settle→unsettled/myShare unlink), nulls.
+- **`lib/__tests__/transactions-route.test.ts` (+4, mock gains getLoans/upsertLoan/getSplits/upsertSplit)**: PUT payback → loan repaid+settled + `loans:` cache invalidated; DELETE principal → note-only loan; PUT fronted → split share + settled + `splits:` cache invalidated; DELETE payback → split unlinked + backed out. The "ordinary rows" test now asserts loans/splits are never read/written either.
+
+### Verification
+`npm run typecheck` clean · `npm test` 510/510 · `npm run lint` 0 errors (28 pre-existing warnings) · `npm run build` succeeds.
+
+## 2026-06-11 — Funding ↔ transactions sync: editing/deleting a pool's cash row now reconciles the pool (branch claude/funding-transaction-sync-c7c99t)
+
+User request: "funding should sync with transactions — changing a transaction's amount or removing it must update funding." Root cause: a `Funding` pool caches totals (`totalContributed`, `spent`) and links (`contributionTxId`, `spendTxIds`) derived from the cash rows it creates, but those rows could be edited/deleted via the generic `/api/transactions` route (the `/transactions` page), which fixed account balances but left the pool record stale — wrong `spent`/`totalContributed`, orphaned ids in `spendTxIds`, and a wrong "remaining" on the funding page. (Edits made through `/api/funding` were already in lockstep; pool create/spend/delete were fine.)
+
+### `lib/funding.ts` — two new pure reconciliation helpers
+- **`syncFundingTxAmount(f, original, updated)`** → corrected `Funding` or `null` (not linked / amount unchanged).
+  - Spend row (`id ∈ spendTxIds`): `spent += (updated − original)`, clamped ≥ 0. Each of the up-to-two spend rows (my-share expense + others transfer) adjusts independently.
+  - Contribution row (`id === contributionTxId`): the row's amount IS the others' total, so each non-me participant share is rescaled proportionally (`ratio = updated.amount / othersContribution`) and `totalContributed = myContribution + updated.amount`.
+- **`syncFundingTxRemoval(f, tx)`** → corrected `Funding` or `null`.
+  - Spend row: id removed from `spendTxIds`, `spent −= tx.amount` (clamped ≥ 0).
+  - Contribution row: non-me shares zeroed (their cash never entered), `contributionTxId = ''`, `totalContributed = myContribution`.
+
+### `app/api/transactions/route.ts` — reconcile pools on ledger mutations
+- New local **`reconcileFundingPools(accessToken, spreadsheetId, edits, removals)`**: gated on any touched tx having `category === 'Funding'` (the only category pool-created rows carry — avoids an extra Sheets read for normal edits); fetches fundings, folds the helpers over every pool, `upsertFunding`s each changed pool, and invalidates the `funding` cache only if something changed.
+- **PUT** (edit): after balances persist, reconciles with `[{ original, updated }]`.
+- **DELETE** (single id or split group): after balances persist, reconciles with the deleted targets as removals.
+- **POST split branch** (`replaceId`/`replaceGroupId`): replaced rows are treated as pool removals (splitting a funding-linked row replaces it with new, unlinked rows).
+- Known accepted edges: a pool's `account` field is not retargeted if a linked row's account is edited (balances/totals stay correct); recategorizing a linked row away from 'Funding' and then editing it again escapes the category gate (contrived — the UI never produces it).
+
+### Tests (476 → 486)
+- **`lib/__tests__/funding.test.ts`** (+7): spend-delta mirror, contribution rescale (participants + total), null for unlinked/unchanged, spent clamped at 0, spend unlink on removal, contribution removal zeroes others, null for unlinked removal. New `makePool`/`makeTx` fixtures.
+- **`lib/__tests__/transactions-route.test.ts`** (+6): PUT spend row → pool `spent` updated + `funding:` cache invalidated; PUT contribution row → participants rescaled; DELETE spend row → unlinked + backed out; POST split-replace of a pool row → removal; non-funding edits never call `getFundings`; funding-category-but-unlinked rows read but don't write. Mock gains `addTransactions`, `getFundings` (default `[]`), `upsertFunding`.
+
+### Verification
+`npm run typecheck` clean · `npm test` 486/486 · `npm run lint` 0 errors (28 pre-existing warnings) · `npm run build` succeeds.
+
 ## 2026-06-10 — Hero net-worth sparkline: intra-month money flow + draw-in animation (branch claude/bills-ui-enhancement-h9aj4s)
 
 The dashboard hero "Liquid Net Worth" sparkline was static (last 6 **monthly** net-worth snapshots), so within a month the headline number moved but the line stayed frozen, and it never animated. Per request, the line now traces this month's daily money flow (income up / expense down), ends exactly at the live value, and reveals itself with a draw-in animation.
