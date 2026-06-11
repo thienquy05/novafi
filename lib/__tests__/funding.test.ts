@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   othersContribution, myContribution, totalContribution, poolRemaining,
-  buildContributionTx, buildSpendTxs,
+  buildContributionTx, buildSpendTxs, syncFundingTxAmount, syncFundingTxRemoval,
 } from '@/lib/funding';
-import type { FundingParticipant } from '@/types';
+import type { Funding, FundingParticipant, Transaction } from '@/types';
 
 const PEOPLE: FundingParticipant[] = [
   { name: 'Me', contributed: 100, isMe: true },
@@ -61,5 +61,68 @@ describe('buildSpendTxs', () => {
     const txs = buildSpendTxs('acc1', 50, 0, 'Group gift', '2026-06-09');
     expect(txs).toHaveLength(1);
     expect(txs[0].type).toBe('transfer');
+  });
+});
+
+// ── Ledger → pool reconciliation ──────────────────────────────────────────────
+
+function makePool(o: Partial<Funding> = {}): Funding {
+  return {
+    id: 'f1', description: 'Beach trip', account: 'acc1', date: '2026-06-09',
+    participants: PEOPLE.map((p) => ({ ...p })),
+    totalContributed: 300, spent: 120,
+    contributionTxId: 'ctx1', spendTxIds: ['stx1', 'stx2'], closed: false,
+    ...o,
+  };
+}
+function makeTx(o: Partial<Transaction> & { id: string }): Transaction {
+  return { date: '2026-06-09', description: '', amount: 0, type: 'expense', category: 'Funding', account: 'acc1', ...o };
+}
+
+describe('syncFundingTxAmount', () => {
+  it('mirrors a spend-row amount change into spent', () => {
+    const next = syncFundingTxAmount(makePool(), makeTx({ id: 'stx1', amount: 100 }), makeTx({ id: 'stx1', amount: 80 }));
+    expect(next!.spent).toBe(100); // 120 − 20
+    expect(next!.spendTxIds).toEqual(['stx1', 'stx2']); // still linked
+  });
+
+  it('rescales others shares when the contribution row changes', () => {
+    // Others total 200 → 150: each non-me share scales by 0.75; mine untouched.
+    const next = syncFundingTxAmount(makePool(), makeTx({ id: 'ctx1', amount: 200, type: 'transfer' }), makeTx({ id: 'ctx1', amount: 150, type: 'transfer' }));
+    expect(next!.totalContributed).toBe(250); // my 100 + others 150
+    expect(next!.participants).toEqual([
+      { name: 'Me', contributed: 100, isMe: true },
+      { name: 'Alex', contributed: 75, isMe: false },
+      { name: 'Sam', contributed: 75, isMe: false },
+    ]);
+  });
+
+  it('returns null for unlinked rows and unchanged amounts', () => {
+    expect(syncFundingTxAmount(makePool(), makeTx({ id: 'other', amount: 10 }), makeTx({ id: 'other', amount: 99 }))).toBeNull();
+    expect(syncFundingTxAmount(makePool(), makeTx({ id: 'stx1', amount: 50 }), makeTx({ id: 'stx1', amount: 50 }))).toBeNull();
+  });
+
+  it('never drives spent negative', () => {
+    const next = syncFundingTxAmount(makePool({ spent: 10 }), makeTx({ id: 'stx1', amount: 100 }), makeTx({ id: 'stx1', amount: 50 }));
+    expect(next!.spent).toBe(0);
+  });
+});
+
+describe('syncFundingTxRemoval', () => {
+  it('unlinks a deleted spend row and backs its amount out of spent', () => {
+    const next = syncFundingTxRemoval(makePool(), makeTx({ id: 'stx2', amount: 70 }));
+    expect(next!.spent).toBe(50); // 120 − 70
+    expect(next!.spendTxIds).toEqual(['stx1']);
+  });
+
+  it('zeroes others shares when the contribution row is deleted', () => {
+    const next = syncFundingTxRemoval(makePool(), makeTx({ id: 'ctx1', amount: 200, type: 'transfer' }));
+    expect(next!.contributionTxId).toBe('');
+    expect(next!.totalContributed).toBe(100); // only my earmark remains
+    expect(next!.participants.filter((p) => !p.isMe).every((p) => p.contributed === 0)).toBe(true);
+  });
+
+  it('returns null for unlinked rows', () => {
+    expect(syncFundingTxRemoval(makePool(), makeTx({ id: 'other', amount: 10 }))).toBeNull();
   });
 });
