@@ -159,12 +159,7 @@
     "savingsRateKPINote": "of income saved this month",
     "noSpendStreak": "{n}-day no-spend streak",
     "spendingCalendar": "Money Calendar",
-    "spendingCalendarSub": "Spending, income & bills by day",
-    "overdraftTitle": "{n} account(s) may not cover upcoming bills",
-    "overdraftSubtitle": "Add cash or hold off on a payment before these run short.",
-    "overdraftAccountNegative": "{balance} on hand − {bills} in bills = {projected} projected",
-    "overdraftAccountBuffer": "{projected} projected after bills · below your {buffer} buffer",
-    "overdraftShort": "Short"
+    "spendingCalendarSub": "Spending, income & bills by day"
   },
   "heatmap": {
     "noSpend": "No spend",
@@ -441,11 +436,7 @@
     "recordSplit": "Record Split",
     "splitExpenseNeedPeople": "Add at least one person with a share.",
     "splitExpenseOverTotal": "Everyone's shares add up to more than the total.",
-    "toastSplitExpense": "Split recorded · {n} people owe you {amount}",
-    "overdraftTitle": "{n} account(s) short for upcoming bills",
-    "overdraftSubtitle": "These accounts won't cover the bills drawn from them.",
-    "overdraftDetail": "{balance} balance − {bills} in bills = {projected} projected",
-    "overdraftShort": "Short"
+    "toastSplitExpense": "Split recorded · {n} people owe you {amount}"
   },
   "splits": {
     "tab": "Splits",
@@ -962,9 +953,13 @@
     "clearAll": "Clear all",
     "markRead": "Mark as read",
     "delete": "Dismiss",
-    "overdraftTitle": "{name} may not cover upcoming bills",
-    "overdraftNegativeBody": "{balance} on hand − {bills} in bills = {projected} projected",
-    "overdraftBufferBody": "{projected} projected after bills · below your {buffer} buffer",
+    "overdrawnTitle": "{name} is overdrawn",
+    "overdrawnBody": "Balance is {balance} — add {short} to get back to $0",
+    "overdrawnBodyBills": "{balance} balance, {bills} in bills due → {projected} projected",
+    "overdraftWillTitle": "{name} won't cover upcoming bills",
+    "overdraftWillBody": "{balance} on hand − {bills} in bills = {projected} projected",
+    "overdraftBufferTitle": "{name} will dip below your buffer",
+    "overdraftBufferBody": "{projected} left after {bills} in bills · below your {buffer} buffer",
     "billTitle": "{name} is overdue",
     "billBody": "{amount} was due {date}",
     "budgetTitle": "Over budget: {category}",

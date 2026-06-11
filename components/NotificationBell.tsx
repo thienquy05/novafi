@@ -213,13 +213,22 @@ export function NotificationBell({ className }: { className?: string }) {
 
       <AnimatePresence>
         {open && (
-          <motion.div
+          // Positioning lives on this wrapper so framer-motion's transform
+          // animation (below) doesn't clobber the mobile -translate-x centering.
+          // Mobile: fixed + horizontally centered under the header so the panel
+          // never clips the viewport edge. Desktop: anchored to the bell, opening
+          // down and to the right (the bell sits near the sidebar's right edge,
+          // so opening rightward keeps it fully on-screen).
+          <div
             ref={panelRef}
+            className="fixed left-1/2 -translate-x-1/2 top-[76px] w-[92vw] max-w-[380px] z-[60] md:absolute md:left-0 md:right-auto md:translate-x-0 md:top-full md:mt-2 md:w-[380px]"
+          >
+          <motion.div
             initial={{ opacity: 0, y: -8, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.98 }}
             transition={{ duration: 0.16 }}
-            className="absolute right-0 mt-2 w-[min(92vw,360px)] max-h-[70vh] flex flex-col bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl shadow-slate-400/20 dark:shadow-black/40 z-[60] overflow-hidden"
+            className="max-h-[70vh] flex flex-col bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl shadow-slate-400/20 dark:shadow-black/40 overflow-hidden"
           >
             <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-slate-100 dark:border-slate-700/60">
               <p className="text-sm font-bold text-slate-900 dark:text-slate-100">
@@ -314,6 +323,7 @@ export function NotificationBell({ className }: { className?: string }) {
               )}
             </div>
           </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>

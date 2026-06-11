@@ -159,12 +159,7 @@
     "savingsRateKPINote": "thu nhập tiết kiệm tháng này",
     "noSpendStreak": "chuỗi {n} ngày không chi tiêu",
     "spendingCalendar": "Lịch tài chính",
-    "spendingCalendarSub": "Chi tiêu, thu nhập & hóa đơn theo ngày",
-    "overdraftTitle": "{n} tài khoản có thể không đủ cho hóa đơn sắp tới",
-    "overdraftSubtitle": "Nạp thêm tiền hoặc hoãn một khoản chi trước khi các tài khoản này thiếu hụt.",
-    "overdraftAccountNegative": "{balance} hiện có − {bills} hóa đơn = {projected} dự báo",
-    "overdraftAccountBuffer": "Dự báo còn {projected} sau hóa đơn · dưới mức đệm {buffer} của bạn",
-    "overdraftShort": "Thiếu"
+    "spendingCalendarSub": "Chi tiêu, thu nhập & hóa đơn theo ngày"
   },
   "heatmap": {
     "noSpend": "Không chi tiêu",
@@ -441,11 +436,7 @@
     "recordSplit": "Ghi khoản chia",
     "splitExpenseNeedPeople": "Thêm ít nhất một người có phần chia.",
     "splitExpenseOverTotal": "Tổng các phần chia vượt quá tổng số tiền.",
-    "toastSplitExpense": "Đã ghi khoản chia · {n} người nợ bạn {amount}",
-    "overdraftTitle": "{n} tài khoản thiếu cho hóa đơn sắp tới",
-    "overdraftSubtitle": "Các tài khoản này không đủ trả những hóa đơn được rút từ chúng.",
-    "overdraftDetail": "{balance} số dư − {bills} hóa đơn = {projected} dự báo",
-    "overdraftShort": "Thiếu"
+    "toastSplitExpense": "Đã ghi khoản chia · {n} người nợ bạn {amount}"
   },
   "splits": {
     "tab": "Chia",
@@ -962,9 +953,13 @@
     "clearAll": "Xóa tất cả",
     "markRead": "Đánh dấu đã đọc",
     "delete": "Bỏ qua",
-    "overdraftTitle": "{name} có thể không đủ cho hóa đơn sắp tới",
-    "overdraftNegativeBody": "{balance} hiện có − {bills} hóa đơn = {projected} dự báo",
-    "overdraftBufferBody": "Dự báo còn {projected} sau hóa đơn · dưới mức đệm {buffer} của bạn",
+    "overdrawnTitle": "{name} đang âm số dư",
+    "overdrawnBody": "Số dư là {balance} — nạp thêm {short} để về $0",
+    "overdrawnBodyBills": "Số dư {balance}, {bills} hóa đơn sắp đến → còn {projected}",
+    "overdraftWillTitle": "{name} không đủ cho hóa đơn sắp tới",
+    "overdraftWillBody": "{balance} hiện có − {bills} hóa đơn = {projected} dự báo",
+    "overdraftBufferTitle": "{name} sẽ xuống dưới mức đệm",
+    "overdraftBufferBody": "Còn {projected} sau {bills} hóa đơn · dưới mức đệm {buffer}",
     "billTitle": "{name} đã quá hạn",
     "billBody": "{amount} đến hạn ngày {date}",
     "budgetTitle": "Vượt ngân sách: {category}",

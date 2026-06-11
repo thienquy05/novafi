@@ -47,25 +47,54 @@ export function buildNotifications(
   const { now, monthKey, tr, fmt } = ctx;
   const items: NotificationItem[] = [];
 
-  // 1. Account overdraft risks (the dashboard's overdraft safeguard card).
+  // 1. Account overdraft risks. The wording is split into three plain-language
+  //    cases so the numbers make sense at a glance:
+  //      • already overdrawn — the balance itself is below $0 right now (the bills
+  //        drawn from it are beside the point);
+  //      • will overdraft — positive today, but the bills drawn from this account
+  //        push the projected balance below $0;
+  //      • below buffer — stays positive but dips under the cushion the user set.
+  //    "Bills" is specifically the sum of YOUR share of the active bills whose
+  //    pay-from account is this account (see assessAccountOverdraft).
   for (const risk of detectOverdraftRisks(accounts, bills, now)) {
-    items.push({
-      id: `overdraft:${risk.account.id}`,
-      type: 'overdraft',
-      severity: risk.willOverdraft ? 'critical' : 'warning',
-      title: tr('notifications.overdraftTitle', { name: risk.account.name }),
-      body: risk.willOverdraft
-        ? tr('notifications.overdraftNegativeBody', {
-            balance: fmt(risk.currentBalance),
-            bills: fmt(risk.upcomingTotal),
-            projected: fmt(risk.projectedBalance),
-          })
-        : tr('notifications.overdraftBufferBody', {
-            projected: fmt(risk.projectedBalance),
-            buffer: fmt(risk.threshold),
-          }),
-      href: '/accounts',
-    });
+    const name = risk.account.name;
+    let severity: NotificationItem['severity'];
+    let title: string;
+    let body: string;
+
+    if (risk.currentBalance < 0) {
+      severity = 'critical';
+      title = tr('notifications.overdrawnTitle', { name });
+      body =
+        risk.upcomingTotal > 0
+          ? tr('notifications.overdrawnBodyBills', {
+              balance: fmt(risk.currentBalance),
+              bills: fmt(risk.upcomingTotal),
+              projected: fmt(risk.projectedBalance),
+            })
+          : tr('notifications.overdrawnBody', {
+              balance: fmt(risk.currentBalance),
+              short: fmt(risk.shortfall),
+            });
+    } else if (risk.willOverdraft) {
+      severity = 'critical';
+      title = tr('notifications.overdraftWillTitle', { name });
+      body = tr('notifications.overdraftWillBody', {
+        balance: fmt(risk.currentBalance),
+        bills: fmt(risk.upcomingTotal),
+        projected: fmt(risk.projectedBalance),
+      });
+    } else {
+      severity = 'warning';
+      title = tr('notifications.overdraftBufferTitle', { name });
+      body = tr('notifications.overdraftBufferBody', {
+        projected: fmt(risk.projectedBalance),
+        bills: fmt(risk.upcomingTotal),
+        buffer: fmt(risk.threshold),
+      });
+    }
+
+    items.push({ id: `overdraft:${risk.account.id}`, type: 'overdraft', severity, title, body, href: '/accounts' });
   }
 
   // 2. Overdue bills (sidebar "overdueBills" badge, expanded to one item each).
