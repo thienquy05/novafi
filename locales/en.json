@@ -144,6 +144,7 @@
     "emergency": "Emergency",
     "creditUtil": "Credit Utilization",
     "loansExcl": "Loans excl. · see Liabilities",
+    "fundingExcluded": "Excl. {amount} held for others (funding)",
     "vsLastMonth": "% vs last mo",
     "spendingPace": "Spending Pace",
     "spendingPaceSubtitle": "Projected end-of-month by category",
@@ -158,7 +159,12 @@
     "savingsRateKPINote": "of income saved this month",
     "noSpendStreak": "{n}-day no-spend streak",
     "spendingCalendar": "Money Calendar",
-    "spendingCalendarSub": "Spending, income & bills by day"
+    "spendingCalendarSub": "Spending, income & bills by day",
+    "overdraftTitle": "{n} account(s) may not cover upcoming bills",
+    "overdraftSubtitle": "Add cash or hold off on a payment before these run short.",
+    "overdraftAccountNegative": "{balance} on hand − {bills} in bills = {projected} projected",
+    "overdraftAccountBuffer": "{projected} projected after bills · below your {buffer} buffer",
+    "overdraftShort": "Short"
   },
   "heatmap": {
     "noSpend": "No spend",
@@ -230,12 +236,7 @@
     "projected": "Projected",
     "total": "Total",
     "budget": "Budget",
-    "spent": "Spent",
-    "overdraftTitle": "{n} account(s) may not cover upcoming bills",
-    "overdraftSubtitle": "Add cash or hold off on a payment before these run short.",
-    "overdraftAccountNegative": "{balance} on hand − {bills} in bills = {projected} projected",
-    "overdraftAccountBuffer": "{projected} projected after bills · below your {buffer} buffer",
-    "overdraftShort": "Short"
+    "spent": "Spent"
   },
   "quickAdd": {
     "title": "New Transaction",
@@ -952,5 +953,26 @@
     "install": "Install",
     "later": "Not now",
     "iosHint": "Tap the Share button, then \"Add to Home Screen\" to install NovaFi."
+  },
+  "notifications": {
+    "title": "Notifications",
+    "empty": "You're all caught up",
+    "emptyHint": "Warnings about your accounts and bills show up here.",
+    "markAllRead": "Mark all read",
+    "clearAll": "Clear all",
+    "markRead": "Mark as read",
+    "delete": "Dismiss",
+    "overdraftTitle": "{name} may not cover upcoming bills",
+    "overdraftNegativeBody": "{balance} on hand − {bills} in bills = {projected} projected",
+    "overdraftBufferBody": "{projected} projected after bills · below your {buffer} buffer",
+    "billTitle": "{name} is overdue",
+    "billBody": "{amount} was due {date}",
+    "budgetTitle": "Over budget: {category}",
+    "budgetBody": "Spent {spent} of {budget} this month",
+    "creditTitle": "{name} is over 30% utilization",
+    "creditBody": "{util}% used — aim to stay under {target}%",
+    "savingsTitle": "{name} hasn't grown lately",
+    "savingsBody": "No deposit in {days} days — consider topping it up.",
+    "savingsNeverBody": "No deposits yet — kick off this account with a transfer."
   }
 }

@@ -3,6 +3,7 @@ import {
   othersContribution, myContribution, totalContribution, poolRemaining,
   buildContributionTx, buildSpendTxs, syncFundingTxAmount, syncFundingTxRemoval,
 } from '@/lib/funding';
+import { calcFundingHeld, calcFundingHeldByAccount } from '@/lib/calculations';
 import type { Funding, FundingParticipant, Transaction } from '@/types';
 
 const PEOPLE: FundingParticipant[] = [
@@ -124,5 +125,51 @@ describe('syncFundingTxRemoval', () => {
 
   it('returns null for unlinked rows', () => {
     expect(syncFundingTxRemoval(makePool(), makeTx({ id: 'other', amount: 10 }))).toBeNull();
+  });
+});
+
+// ── Funding held for others → excluded from net worth ─────────────────────────
+
+describe('calcFundingHeldByAccount / calcFundingHeld', () => {
+  it('treats an others-contribution transfer as money held in that account', () => {
+    const txs = [buildContributionTx('acc1', 200, 'Beach trip', '2026-06-09')!];
+    expect(calcFundingHeldByAccount(txs)).toEqual({ acc1: 200 });
+    expect(calcFundingHeld(txs)).toBe(200);
+  });
+
+  it('spending others share draws the held amount back down, my expense does not', () => {
+    // 200 in from others, then a 300 spend with my 100 share: only the 200 others
+    // portion leaves the account (transfer), so nothing is left held.
+    const txs = [
+      buildContributionTx('acc1', 200, 'Beach trip', '2026-06-09')!,
+      ...buildSpendTxs('acc1', 300, 100, 'Dinner', '2026-06-10'),
+    ];
+    expect(calcFundingHeld(txs)).toBe(0);
+  });
+
+  it('keeps the unspent others portion held', () => {
+    const txs = [
+      buildContributionTx('acc1', 200, 'Beach trip', '2026-06-09')!,
+      ...buildSpendTxs('acc1', 80, 30, 'Snacks', '2026-06-10'), // 50 of others spent
+    ];
+    expect(calcFundingHeld(txs)).toBe(150); // 200 − 50
+  });
+
+  it('ignores non-Funding transfers and never goes negative', () => {
+    const txs: Transaction[] = [
+      { id: 't1', date: '2026-06-09', description: 'move', amount: 500, type: 'transfer', category: 'Transfer', account: '', toAccount: 'acc1' },
+      { id: 't2', date: '2026-06-09', description: 'spend', amount: 75, type: 'transfer', category: 'Funding', account: 'acc1', toAccount: '' },
+    ];
+    expect(calcFundingHeldByAccount(txs)).toEqual({}); // funding out with no funding in → floored away
+    expect(calcFundingHeld(txs)).toBe(0);
+  });
+
+  it('tracks held money per account independently', () => {
+    const txs = [
+      buildContributionTx('acc1', 200, 'Trip', '2026-06-09')!,
+      buildContributionTx('acc2', 50, 'Gift', '2026-06-09')!,
+    ];
+    expect(calcFundingHeldByAccount(txs)).toEqual({ acc1: 200, acc2: 50 });
+    expect(calcFundingHeld(txs)).toBe(250);
   });
 });

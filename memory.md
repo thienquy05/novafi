@@ -2,6 +2,34 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-11 — Funding excluded from net worth · notification center · overdraft i18n fix (branch claude/funding-tracking-notifications-9pliij)
+
+Three related enhancements from a single request (screenshot showed the overdraft card rendering raw `dashboard.overdraft*` keys).
+
+### 1. Overdraft warning i18n bug (the image error)
+The dashboard overdraft card calls `t('dashboard.overdraft*')` but the five keys (`overdraftTitle`, `overdraftSubtitle`, `overdraftAccountNegative`, `overdraftAccountBuffer`, `overdraftShort`) had been placed under the **`charts`** section instead of **`dashboard`**, so they fell through `t()` and showed the literal key path. Moved all five from `charts` → `dashboard` in `locales/en.json` and `locales/vi.json` (the `charts` copies were orphaned — referenced nowhere). The Bills page's separate `bills.overdraft*` keys were already correct and untouched.
+
+### 2. Funding is not the user's asset (exclude held money from net worth)
+A Funding pool parks OTHER people's cash in a real account, which inflated account balances and therefore net worth. Per decision, only the **others' unspent** money is netted out (the user's own contribution stays theirs; their own spend stays an expense — pools now affect money flow only, never wealth).
+- `lib/calculations.ts` (new "Funding pools held for others" section): `calcFundingHeldByAccount(transactions)` → `{ accountId: heldAmount }`, computed purely from the ledger: Funding-category `transfer` rows INTO an account (toAccount set = others' cash in) minus Funding `transfer` rows OUT (toAccount empty = others' share spent). The user's own contribution creates no row and their spend is an `expense`, so neither is counted. Per-account result floored at 0 (a stray edit can never *boost* net worth). `calcFundingHeld(transactions)` sums it.
+- `app/(app)/dashboard/page.tsx`: subtracts `fundingHeld` from `traditionalNetWorth`, `liquidNetWorth`, `totalAssets`, and per-account from `totalSaved` (savings). Hero net-worth card annotation now appends `dashboard.fundingExcluded` ("Excl. {amount} held for others (funding)") when any is held, joined with the existing loans-excluded note via " · ".
+- `app/(app)/accounts/page.tsx`: now also loads `transactions` (via `ensureResources(['accounts','transactions'])`, peeked from cache) and nets `calcFundingHeldByAccount` out of the page's own net-worth/total-assets `useMemo`, so the Accounts summary matches the dashboard.
+- New locale `dashboard.fundingExcluded` (en/vi).
+
+### 3. Notification center (bell, top-right)
+A bell beside the theme toggle in both the desktop `Sidebar` header and the `MobileHeader`. Aggregates every existing warning into one place; items can be marked read or dismissed; an unread count shows on the bell AND on the installed-PWA app icon (Badging API).
+- `lib/notifications.ts` (new): `NotificationItem` ({ id, type, severity, title, body, href }) + `buildNotifications(data, ctx)`. Sources: account overdraft risks (`detectOverdraftRisks`), overdue bills (per bill), over-budget categories (per budget), credit cards over 30% (`buildCreditReport`), and the worst stale-savings account (≥45 days, mirrors the dashboard). Each item has a STABLE id (`overdraft:<acctId>`, `bill:<id>`, `budget:<id>`, `credit:<acctId>`, `savings:<acctId>`) so read/dismiss state survives reloads and a resolved warning's id simply stops being produced. Text is localized server-side via an injected `tr`/`fmt`.
+- `app/api/notifications/route.ts` (new): auth-guarded GET; reads the cookie `nf_lang`; reuses `batchGetBadgesData` (same four sheets as `/api/badges`) cached under `badgesData:<id>` (60s) so the bell adds no extra Sheets round trip; returns `{ notifications }` localized.
+- `components/NotificationBell.tsx` (new, client): sessionStorage-throttled fetch (`nf_notifications_cache_v1`, 2min) like `useBadges`; read/dismissed id sets persisted in **localStorage** (`nf_notif_read` / `nf_notif_deleted`) — device-local by design since these are ephemeral derived warnings. Prunes persisted ids no longer present. Dropdown panel (framer-motion, click-outside close) lists items with per-item mark-read (check) / dismiss (x) plus header "Mark all read" / "Clear all". Drives the PWA app-icon badge via `navigator.setAppBadge(unread)` / `clearAppBadge()`. A `nf-notif-change` window event + `storage` listener keep the mobile + desktop bell instances in sync.
+- `components/Sidebar.tsx`: imports + renders `<NotificationBell />` before `ThemeToggle` in both the desktop sidebar logo row and `MobileHeader`.
+- New locale section `notifications.*` (en/vi): panel chrome (`title`, `empty`, `emptyHint`, `markAllRead`, `clearAll`, `markRead`, `delete`) + content templates for all five notification types.
+
+### Tests
+- `lib/__tests__/funding.test.ts`: 5 new cases for `calcFundingHeld`/`calcFundingHeldByAccount` (contribution held, spend draws others' portion down, unspent remainder kept, non-Funding transfers ignored + floored at 0, per-account independence) — exercised through the real `buildContributionTx`/`buildSpendTxs`.
+- `lib/__tests__/notifications.test.ts` (new): 8 cases covering each source, skipping of future/inactive bills, severity, hrefs, and stable-id reproducibility.
+
+**Verification:** `tsc --noEmit` clean; `vitest` 536 passing (was 524, +12); `eslint` 0 errors (pre-existing warnings only); `next build` compiled (`/api/notifications` registered).
+
 ## 2026-06-11 — Payment overdraft / low-balance safeguard (branch claude/payment-overdraft-safeguard-tmydjc)
 
 Added a per-account safeguard that warns before a payment (or the bills already scheduled) drains a spendable account negative or below a buffer the user chooses. Example: Checking holds $100, $60 of bills are due → $40 projected; if you set a $60 "keep ready" buffer, you're already short. Surfaced in three places per request: a dashboard alert card, the Bills page, and a live warning inside the Quick-Add form before saving.

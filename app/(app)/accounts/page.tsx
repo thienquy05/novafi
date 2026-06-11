@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { Plus, Trash2, CreditCard, Landmark, PiggyBank, TrendingUp, Pencil, CheckCircle2, RefreshCw, AlertCircle, Banknote, Coins } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { creditUtilization, creditUtilStatus, calcLoanPayoff, calcLoanExtraPaymentImpact } from '@/lib/calculations';
+import { creditUtilization, creditUtilStatus, calcLoanPayoff, calcLoanExtraPaymentImpact, calcFundingHeldByAccount } from '@/lib/calculations';
 import { buildLoanPaymentTxs } from '@/lib/loanPayments';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card } from '@/components/ui/Card';
@@ -18,7 +18,7 @@ import { FitText } from '@/components/ui/FitText';
 import { formatCurrency, generateId, today } from '@/lib/utils';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
-import type { Account } from '@/types';
+import type { Account, Transaction } from '@/types';
 import { useTranslation } from '@/lib/i18n/context';
 
 const ACCOUNT_COLORS = [
@@ -92,6 +92,9 @@ const UTIL_TEXT: Record<string, string> = {
 export default function AccountsPage() {
   const { t } = useTranslation();
   const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
+  // Transactions are needed only to net out funding pools — money those pools hold
+  // in real accounts on behalf of OTHERS, which isn't the user's wealth.
+  const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
   const [open, setOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Account | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -123,8 +126,9 @@ export default function AccountsPage() {
 
   const load = useCallback(async (force = false) => {
     try {
-      const { accounts } = await ensureResources(['accounts'], { force });
+      const { accounts, transactions } = await ensureResources(['accounts', 'transactions'], { force });
       setAccounts(accounts);
+      setTransactions(transactions);
       setError(false);
     } catch {
       setError(true);
@@ -270,18 +274,22 @@ export default function AccountsPage() {
   }
 
   const { netWorth, totalAssets, totalDebt } = useMemo(() => {
+    // Funding pools park OTHER people's cash in real accounts — it shows up in the
+    // raw balance but isn't the user's wealth, so net it out of net worth/assets.
+    const fundingHeld = calcFundingHeldByAccount(transactions);
     let nw = 0, assets = 0, debt = 0;
     for (const a of accounts) {
       if (a.type === 'credit' || a.type === 'loan') {
         nw -= a.balance;
         if (a.balance > 0) debt += a.balance;
       } else {
-        nw += a.balance;
-        assets += a.balance;
+        const own = a.balance - (fundingHeld[a.id] ?? 0);
+        nw += own;
+        assets += own;
       }
     }
     return { netWorth: nw, totalAssets: assets, totalDebt: debt };
-  }, [accounts]);
+  }, [accounts, transactions]);
 
   const grouped = useMemo(() => {
     const g: Record<Account['type'], Account[]> = { checking: [], cash: [], savings: [], credit: [], investment: [], loan: [] };
