@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
-import { getTransactions, addTransaction, addTransactions, deleteTransaction, updateTransaction, getAccounts, persistChangedAccounts, getFundings, upsertFunding } from '@/lib/sheets';
+import { getTransactions, addTransaction, addTransactions, deleteTransaction, updateTransaction, getAccounts, persistChangedAccounts, getFundings, upsertFunding, getLoans, upsertLoan, getSplits, upsertSplit } from '@/lib/sheets';
 import { invalidateMany, CACHE_TTL, TX_CACHES } from '@/lib/cache';
 import { cachedGet, withSession } from '@/lib/apiRoute';
 import { applyTransactionToBalances } from '@/lib/calculations';
 import { syncFundingTxAmount, syncFundingTxRemoval } from '@/lib/funding';
+import { syncLoanTxAmount, syncLoanTxRemoval } from '@/lib/loans';
+import { syncSplitTxAmount, syncSplitTxRemoval } from '@/lib/splits';
 import type { Account, Transaction } from '@/types';
 
 export const GET = cachedGet({
@@ -12,39 +14,75 @@ export const GET = cachedGet({
   fetch: ({ accessToken, spreadsheetId }) => getTransactions(accessToken, spreadsheetId),
 });
 
-// Funding pools cache totals (`spent`, `totalContributed`) derived from cash
-// rows they created. Editing or deleting such a row HERE — the generic ledger
-// route, which the funding feature does not go through — must reconcile the
-// linked pool, or the funding page would keep showing stale figures. Pool rows
-// always carry category 'Funding', so anything else skips the extra Sheets read.
-async function reconcileFundingPools(
-  accessToken: string,
-  spreadsheetId: string,
-  edits: { original: Transaction; updated: Transaction }[],
-  removals: Transaction[],
-): Promise<void> {
-  const touched = [...edits.flatMap((e) => [e.original, e.updated]), ...removals];
-  if (!touched.some((t) => t.category === 'Funding')) return;
+type TxEdit = { original: Transaction; updated: Transaction };
 
-  const fundings = await getFundings(accessToken, spreadsheetId);
+// Fold the sync helpers over every record of one kind, persisting each record
+// a linked mutation actually changed. Returns whether anything was written.
+async function reconcileRecords<T>(
+  records: T[],
+  edits: TxEdit[],
+  removals: Transaction[],
+  syncAmount: (record: T, original: Transaction, updated: Transaction) => T | null,
+  syncRemoval: (record: T, tx: Transaction) => T | null,
+  persist: (record: T) => Promise<void>,
+): Promise<boolean> {
   let changedAny = false;
-  for (const funding of fundings) {
-    let current = funding;
+  for (const record of records) {
+    let current = record;
     let changed = false;
     for (const { original, updated } of edits) {
-      const next = syncFundingTxAmount(current, original, updated);
+      const next = syncAmount(current, original, updated);
       if (next) { current = next; changed = true; }
     }
     for (const tx of removals) {
-      const next = syncFundingTxRemoval(current, tx);
+      const next = syncRemoval(current, tx);
       if (next) { current = next; changed = true; }
     }
     if (changed) {
-      await upsertFunding(accessToken, spreadsheetId, current);
+      await persist(current);
       changedAny = true;
     }
   }
-  if (changedAny) invalidateMany(spreadsheetId, ['funding']);
+  return changedAny;
+}
+
+// Funding pools, loans, and splits cache numbers (spent/contributed, principal/
+// repaid, share/repaid + settled) derived from cash rows they created. Editing
+// or deleting such a row HERE — the generic ledger route, which those features'
+// own APIs do not go through — must reconcile the owning record, or its page
+// would keep showing stale figures. Owned cash rows always carry their
+// feature's category ('Funding' / 'Loan' / 'Split'), so anything else skips the
+// extra Sheets reads. (A split's `myShareTxId` row is a normal user-categorized
+// expense and is not caught here; the transactions UI locks it instead, and
+// group-edit tolerates a missing row.)
+async function reconcileLinkedRecords(
+  accessToken: string,
+  spreadsheetId: string,
+  edits: TxEdit[],
+  removals: Transaction[],
+): Promise<void> {
+  const categories = new Set(
+    [...edits.flatMap((e) => [e.original, e.updated]), ...removals].map((t) => t.category),
+  );
+  const stale: string[] = [];
+
+  if (categories.has('Funding')) {
+    const fundings = await getFundings(accessToken, spreadsheetId);
+    if (await reconcileRecords(fundings, edits, removals, syncFundingTxAmount, syncFundingTxRemoval,
+      (f) => upsertFunding(accessToken, spreadsheetId, f))) stale.push('funding');
+  }
+  if (categories.has('Loan')) {
+    const loans = await getLoans(accessToken, spreadsheetId);
+    if (await reconcileRecords(loans, edits, removals, syncLoanTxAmount, syncLoanTxRemoval,
+      (l) => upsertLoan(accessToken, spreadsheetId, l))) stale.push('loans');
+  }
+  if (categories.has('Split')) {
+    const splits = await getSplits(accessToken, spreadsheetId);
+    if (await reconcileRecords(splits, edits, removals, syncSplitTxAmount, syncSplitTxRemoval,
+      (s) => upsertSplit(accessToken, spreadsheetId, s))) stale.push('splits');
+  }
+
+  if (stale.length) invalidateMany(spreadsheetId, stale);
 }
 
 // A split-group write: append `splits` (rows sharing a splitGroupId), optionally
@@ -75,9 +113,9 @@ export const POST = withSession(async ({ accessToken, spreadsheetId, req }) => {
         await deleteTransaction(accessToken, spreadsheetId, tx.id);
         working = applyTransactionToBalances(working, tx, 'reverse');
       }
-      // Splitting a funding-linked row replaces it with NEW (unlinked) rows, so
-      // for the pool it is a removal.
-      await reconcileFundingPools(accessToken, spreadsheetId, [], removed);
+      // Splitting an owned row replaces it with NEW (unlinked) rows, so for the
+      // owning funding/loan/split record it is a removal.
+      await reconcileLinkedRecords(accessToken, spreadsheetId, [], removed);
     }
 
     // Append the new rows in one call, then apply each to balances.
@@ -116,7 +154,7 @@ export const PUT = withSession(async ({ accessToken, spreadsheetId, req }) => {
   const reapplied = applyTransactionToBalances(reversed, updated, 'apply');
   await persistChangedAccounts(accessToken, spreadsheetId, accounts, reapplied);
 
-  await reconcileFundingPools(accessToken, spreadsheetId, [{ original, updated }], []);
+  await reconcileLinkedRecords(accessToken, spreadsheetId, [{ original, updated }], []);
 
   invalidateMany(spreadsheetId, TX_CACHES);
   return NextResponse.json({ ok: true, accounts: reapplied });
@@ -141,7 +179,7 @@ export const DELETE = withSession(async ({ accessToken, spreadsheetId, req }) =>
   }
   if (targets.length > 0) {
     await persistChangedAccounts(accessToken, spreadsheetId, accounts, nextAccounts);
-    await reconcileFundingPools(accessToken, spreadsheetId, [], targets);
+    await reconcileLinkedRecords(accessToken, spreadsheetId, [], targets);
   }
 
   invalidateMany(spreadsheetId, TX_CACHES);

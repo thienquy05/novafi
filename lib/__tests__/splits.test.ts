@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { computeSplitShares, sumPerPersonShares, resolveSplit, isOneOffSplit, newOneOffGroupId, groupSplits } from '@/lib/splits';
-import type { Split } from '@/types';
+import { computeSplitShares, sumPerPersonShares, resolveSplit, isOneOffSplit, newOneOffGroupId, groupSplits, syncSplitTxAmount, syncSplitTxRemoval } from '@/lib/splits';
+import type { Split, Transaction } from '@/types';
 
 describe('sumPerPersonShares', () => {
   it('sums typed amounts into the total (you excluded)', () => {
@@ -146,5 +146,92 @@ describe('groupSplits', () => {
   it('keeps different dates of the same bill separate', () => {
     const groups = groupSplits([mk('1', 'g1', '2026-06-01', 50), mk('2', 'g1', '2026-07-01', 50)]);
     expect(groups).toHaveLength(2);
+  });
+});
+
+// ── Ledger → split reconciliation ──────────────────────────────────────────────
+
+function makeSplit(o: Partial<Split> = {}): Split {
+  return {
+    id: 'sp1', billId: 'oneoff:g1', billName: 'Dinner', contactId: 'c1', contactName: 'Alex',
+    amount: 100, category: 'Food', account: 'a1', date: '2026-06-01',
+    settled: false, settledDate: '', repaidAmount: 40,
+    repaymentTxIds: ['rp1'], frontedTxId: 'fr1', settleTxId: '', myShareTxId: 'my1',
+    ...o,
+  };
+}
+function makeTx(o: Partial<Transaction> & { id: string }): Transaction {
+  return { date: '2026-06-01', description: '', amount: 0, type: 'transfer', category: 'Split', account: 'a1', ...o };
+}
+
+describe('syncSplitTxAmount', () => {
+  it('mirrors a payback amount change into repaidAmount', () => {
+    const next = syncSplitTxAmount(makeSplit(), makeTx({ id: 'rp1', amount: 40 }), makeTx({ id: 'rp1', amount: 70 }));
+    expect(next!.repaidAmount).toBe(70); // 40 − 40 + 70
+    expect(next!.settled).toBe(false);
+  });
+
+  it('settles the split when paybacks now cover the share', () => {
+    const next = syncSplitTxAmount(makeSplit(), makeTx({ id: 'rp1', amount: 40 }), makeTx({ id: 'rp1', amount: 100 }));
+    expect(next!.settled).toBe(true);
+    expect(next!.settledDate).toBeTruthy();
+  });
+
+  it('changing the fronted transfer changes the owed share (and can settle it)', () => {
+    const next = syncSplitTxAmount(makeSplit(), makeTx({ id: 'fr1', amount: 100 }), makeTx({ id: 'fr1', amount: 40 }));
+    expect(next!.amount).toBe(40);
+    expect(next!.settled).toBe(true); // repaid 40 now covers the smaller share
+  });
+
+  it('a legacy row stays settled while its settle transfer exists', () => {
+    const legacy = makeSplit({ settleTxId: 'st1', settled: true, settledDate: '2026-06-02', repaidAmount: 0, repaymentTxIds: [] });
+    const next = syncSplitTxAmount(legacy, makeTx({ id: 'st1', amount: 100 }), makeTx({ id: 'st1', amount: 80 }));
+    expect(next!.amount).toBe(80);
+    expect(next!.settled).toBe(true);
+  });
+
+  it('returns null for unlinked rows and unchanged amounts', () => {
+    expect(syncSplitTxAmount(makeSplit(), makeTx({ id: 'other', amount: 1 }), makeTx({ id: 'other', amount: 2 }))).toBeNull();
+    expect(syncSplitTxAmount(makeSplit(), makeTx({ id: 'rp1', amount: 40 }), makeTx({ id: 'rp1', amount: 40 }))).toBeNull();
+  });
+});
+
+describe('syncSplitTxRemoval', () => {
+  it('unlinks a deleted payback and backs its amount out', () => {
+    const next = syncSplitTxRemoval(makeSplit(), makeTx({ id: 'rp1', amount: 40 }));
+    expect(next!.repaidAmount).toBe(0);
+    expect(next!.repaymentTxIds).toEqual([]);
+    expect(next!.settled).toBe(false);
+  });
+
+  it('un-settles a settled split when its covering payback is deleted', () => {
+    const settled = makeSplit({ repaidAmount: 100, settled: true, settledDate: '2026-06-03' });
+    const next = syncSplitTxRemoval(settled, makeTx({ id: 'rp1', amount: 100 }));
+    expect(next!.settled).toBe(false);
+    expect(next!.settledDate).toBe('');
+  });
+
+  it('deleting the fronted transfer leaves a note-only split', () => {
+    const next = syncSplitTxRemoval(makeSplit(), makeTx({ id: 'fr1', amount: 100 }));
+    expect(next!.frontedTxId).toBe('');
+    expect(next!.amount).toBe(100); // the IOU stands
+  });
+
+  it('deleting the legacy settle transfer un-settles the row', () => {
+    const legacy = makeSplit({ settleTxId: 'st1', settled: true, settledDate: '2026-06-02', repaidAmount: 0, repaymentTxIds: [] });
+    const next = syncSplitTxRemoval(legacy, makeTx({ id: 'st1', amount: 100 }));
+    expect(next!.settleTxId).toBe('');
+    expect(next!.settled).toBe(false);
+  });
+
+  it('deleting your own share expense just unlinks it', () => {
+    const next = syncSplitTxRemoval(makeSplit(), makeTx({ id: 'my1', amount: 25, type: 'expense', category: 'Food' }));
+    expect(next!.myShareTxId).toBe('');
+    expect(next!.amount).toBe(100);
+    expect(next!.repaidAmount).toBe(40);
+  });
+
+  it('returns null for unlinked rows', () => {
+    expect(syncSplitTxRemoval(makeSplit(), makeTx({ id: 'other', amount: 5 }))).toBeNull();
   });
 });

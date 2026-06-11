@@ -314,10 +314,11 @@ export default function TransactionsPage() {
     return m;
   }, [accounts]);
 
-  // Transfers OWNED by a loan or split (its principal/payback or fronted/settle
-  // cash rows). Their amount & accounts are reconciled by the loans/splits APIs,
-  // so editing those fields — or deleting the row — from the generic ledger would
-  // desync the owning record. We let the date/note be edited but lock the rest.
+  // Rows OWNED by a loan or split (its principal/payback or fronted/settle
+  // cash transfers, plus your own share expense of a split group). Their amount
+  // & accounts are reconciled by the loans/splits APIs, so editing those fields
+  // — or deleting the row — from the generic ledger would desync the owning
+  // record. We let the date/note be edited but lock the rest.
   const managedTxIds = useMemo(() => {
     const s = new Set<string>();
     for (const l of loans) {
@@ -327,6 +328,9 @@ export default function TransactionsPage() {
     for (const sp of splits) {
       if (sp.frontedTxId) s.add(sp.frontedTxId);
       if (sp.settleTxId) s.add(sp.settleTxId);
+      // Your own share expense too: deleting it here would orphan the group's
+      // myShareTxId link — it's managed from the split group editor.
+      if (sp.myShareTxId) s.add(sp.myShareTxId);
       for (const id of sp.repaymentTxIds ?? []) if (id) s.add(id);
     }
     return s;
@@ -422,7 +426,11 @@ export default function TransactionsPage() {
     }
     const split = splits.find((s) => s.frontedTxId === original.id || s.settleTxId === original.id);
     if (split) {
-      const next: Split = { ...split, amount: newAmount };
+      // Same settlement rule as lib/splits' reconciliation: a legacy row stays
+      // settled while its full-settle transfer exists; otherwise re-derive from
+      // what's been repaid against the new share.
+      const fullyPaid = !!split.settleTxId || (newAmount > 0 && roundCents(split.repaidAmount || 0) >= roundCents(newAmount) - 0.005);
+      const next: Split = { ...split, amount: newAmount, settled: fullyPaid, settledDate: fullyPaid ? (split.settledDate || today()) : '' };
       setSplits((prev) => prev.map((s) => s.id === next.id ? next : s));
       const r = await fetch('/api/splits', { method: 'POST', body: JSON.stringify(next), headers: { 'Content-Type': 'application/json' } });
       if (!r.ok) throw new Error();
