@@ -230,14 +230,24 @@
     "projected": "Dự báo",
     "total": "Tổng",
     "budget": "Ngân sách",
-    "spent": "Đã chi"
+    "spent": "Đã chi",
+    "overdraftTitle": "{n} tài khoản có thể không đủ cho hóa đơn sắp tới",
+    "overdraftSubtitle": "Nạp thêm tiền hoặc hoãn một khoản chi trước khi các tài khoản này thiếu hụt.",
+    "overdraftAccountNegative": "{balance} hiện có − {bills} hóa đơn = {projected} dự báo",
+    "overdraftAccountBuffer": "Dự báo còn {projected} sau hóa đơn · dưới mức đệm {buffer} của bạn",
+    "overdraftShort": "Thiếu"
   },
   "quickAdd": {
     "title": "Giao dịch mới",
     "amountLabel": "Số tiền ($)",
     "quickAddBtn": "Thêm nhanh",
     "expenseLabel": "Chi tiêu",
-    "incomeLabel": "Thu nhập"
+    "incomeLabel": "Thu nhập",
+    "safeguardOverdraftTitle": "Khoản chi này làm tài khoản âm",
+    "safeguardBufferTitle": "Khoản chi này tụt xuống dưới mức đệm của bạn",
+    "safeguardDetail": "Số dư dự báo: {projected}",
+    "safeguardDetailWithBills": "Số dư dự báo: {projected} (sau {bills} hóa đơn sắp tới)",
+    "safeguardBufferNote": "Bạn muốn giữ mức đệm {buffer} ở đây."
   },
   "transactions": {
     "title": "Giao dịch",
@@ -430,7 +440,11 @@
     "recordSplit": "Ghi khoản chia",
     "splitExpenseNeedPeople": "Thêm ít nhất một người có phần chia.",
     "splitExpenseOverTotal": "Tổng các phần chia vượt quá tổng số tiền.",
-    "toastSplitExpense": "Đã ghi khoản chia · {n} người nợ bạn {amount}"
+    "toastSplitExpense": "Đã ghi khoản chia · {n} người nợ bạn {amount}",
+    "overdraftTitle": "{n} tài khoản thiếu cho hóa đơn sắp tới",
+    "overdraftSubtitle": "Các tài khoản này không đủ trả những hóa đơn được rút từ chúng.",
+    "overdraftDetail": "{balance} số dư − {bills} hóa đơn = {projected} dự báo",
+    "overdraftShort": "Thiếu"
   },
   "splits": {
     "tab": "Chia",
@@ -540,7 +554,10 @@
     "confirmPayment": "Trả {amount} cho {card}?",
     "loanPaymentDesc": "Trả khoản vay — {card}",
     "paymentMade": "Đã trả {amount} cho khoản vay",
-    "paymentFailed": "Không thể ghi nhận thanh toán"
+    "paymentFailed": "Không thể ghi nhận thanh toán",
+    "minBalance": "Mức đệm số dư tối thiểu ($)",
+    "minBalanceHint": "Chúng tôi sẽ cảnh báo trước khi một khoản chi làm tài khoản này tụt dưới mức này (sau hóa đơn sắp tới). Để trống để chỉ cảnh báo khi thực sự âm.",
+    "minBalanceBadge": "Giữ {amount}"
   },
   "funding": {
     "title": "Quỹ chung",

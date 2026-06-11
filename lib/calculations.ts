@@ -1680,6 +1680,149 @@ export function calcLoanRemaining(principal: number, repaidAmount: number): numb
   return Math.max(0, roundCents((principal || 0) - (repaidAmount || 0)));
 }
 
+// ── Overdraft / Low-Balance Safeguard ─────────────────────────────────────────
+// Warns BEFORE a payment (or the bills already scheduled) drains a spendable
+// account below the buffer you want to keep there. Concretely: if Checking holds
+// $100 and $60 of bills are due soon, the projected balance is $40 — and if you
+// also want to keep a $60 cushion, the account is already short. The buffer is
+// per-account (`account.minBalance`); 0/absent means "just don't go negative".
+// Only spendable deposit accounts are guarded — checking, savings and cash —
+// since credit/loan/investment aren't day-to-day spending accounts.
+
+export const OVERDRAFT_HORIZON_DAYS = 30; // how far ahead to count upcoming bills
+
+const SPENDABLE_TYPES: Account['type'][] = ['checking', 'savings', 'cash'];
+
+// True for the deposit accounts the safeguard watches (the ones real bills get
+// paid from). Credit/loan/investment are intentionally excluded.
+export function isSpendableAccount(account: Account): boolean {
+  return SPENDABLE_TYPES.includes(account.type);
+}
+
+// YYYY-MM-DD `days` after `today` (local-midnight basis, matching bill dates).
+function isoDaysFromToday(today: Date, days: number): string {
+  const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export type UpcomingBill = { bill: Bill; share: number; dueDate: string };
+
+// Active bills drawn FROM `accountId` that are due on/before the horizon. Overdue
+// bills (nextDue already past) still count — they remain owed and still need the
+// cash. Each row carries YOUR share after splits, sorted soonest-due first.
+export function accountUpcomingBills(
+  accountId: string,
+  bills: Bill[],
+  today: Date = new Date(),
+  horizonDays: number = OVERDRAFT_HORIZON_DAYS,
+): UpcomingBill[] {
+  const horizon = isoDaysFromToday(today, horizonDays);
+  const out: UpcomingBill[] = [];
+  for (const b of bills) {
+    if (!b.isActive || b.account !== accountId || !b.nextDue) continue;
+    if (b.nextDue > horizon) continue; // beyond the look-ahead window
+    const share = myBillShare(b);
+    if (share <= 0) continue; // fully covered by other people → no cash leaves here
+    out.push({ bill: b, share, dueDate: b.nextDue });
+  }
+  return out.sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+}
+
+export type AccountOverdraftRisk = {
+  account: Account;
+  currentBalance: number;
+  threshold: number;         // the account's minBalance buffer (0 when unset)
+  upcoming: UpcomingBill[];  // upcoming bills drawn from this account (your share)
+  upcomingTotal: number;     // sum of your shares of those bills
+  projectedBalance: number;  // currentBalance − upcomingTotal
+  shortfall: number;         // max(0, threshold − projectedBalance): cash to add to be safe
+  belowThreshold: boolean;   // projected < threshold (the warn trigger)
+  willOverdraft: boolean;    // projected < 0 (the hard, money-goes-negative trigger)
+};
+
+// Project one account's balance forward over its upcoming bills and compare to
+// its buffer. Pure: callers decide how to surface the result.
+export function assessAccountOverdraft(
+  account: Account,
+  bills: Bill[],
+  today: Date = new Date(),
+  horizonDays: number = OVERDRAFT_HORIZON_DAYS,
+): AccountOverdraftRisk {
+  const upcoming = accountUpcomingBills(account.id, bills, today, horizonDays);
+  const upcomingTotal = roundCents(upcoming.reduce((s, u) => s + u.share, 0));
+  const projectedBalance = roundCents(account.balance - upcomingTotal);
+  const threshold = Math.max(0, account.minBalance ?? 0);
+  const shortfall = Math.max(0, roundCents(threshold - projectedBalance));
+  return {
+    account,
+    currentBalance: account.balance,
+    threshold,
+    upcoming,
+    upcomingTotal,
+    projectedBalance,
+    shortfall,
+    belowThreshold: projectedBalance < threshold,
+    willOverdraft: projectedBalance < 0,
+  };
+}
+
+// Every guarded account whose projected balance (after upcoming bills) breaches
+// its buffer, worst shortfall first. A buffer of 0 still flags a real overdraft
+// (projected below zero). Accounts comfortably in the black are omitted, so an
+// empty array means "all clear".
+export function detectOverdraftRisks(
+  accounts: Account[],
+  bills: Bill[],
+  today: Date = new Date(),
+  horizonDays: number = OVERDRAFT_HORIZON_DAYS,
+): AccountOverdraftRisk[] {
+  return accounts
+    .filter(isSpendableAccount)
+    .map((a) => assessAccountOverdraft(a, bills, today, horizonDays))
+    .filter((r) => r.belowThreshold)
+    .sort((a, b) => b.shortfall - a.shortfall);
+}
+
+export type PaymentSafety = {
+  account: Account;
+  amount: number;                // the prospective payment (floored at 0)
+  upcomingTotal: number;         // upcoming bills drawn from this account (your share)
+  balanceAfterPayment: number;   // currentBalance − amount
+  projectedBalance: number;      // currentBalance − amount − upcomingTotal
+  threshold: number;             // the account's minBalance buffer
+  shortfall: number;             // max(0, threshold − projectedBalance)
+  status: 'ok' | 'belowBuffer' | 'overdraft';
+};
+
+// Evaluate a prospective payment (an expense or a transfer OUT) against the
+// account's buffer and its upcoming bills — what the Quick-Add form checks before
+// you save. 'overdraft' = the money itself goes negative; 'belowBuffer' = it
+// stays positive but dips under the cushion you set; 'ok' = safe.
+export function evaluatePaymentSafety(input: {
+  account: Account;
+  amount: number;
+  bills: Bill[];
+  today?: Date;
+  horizonDays?: number;
+}): PaymentSafety {
+  const { account, bills } = input;
+  const today = input.today ?? new Date();
+  const horizonDays = input.horizonDays ?? OVERDRAFT_HORIZON_DAYS;
+  const upcomingTotal = roundCents(
+    accountUpcomingBills(account.id, bills, today, horizonDays).reduce((s, u) => s + u.share, 0),
+  );
+  const pay = Math.max(0, roundCents(input.amount || 0));
+  const balanceAfterPayment = roundCents(account.balance - pay);
+  const projectedBalance = roundCents(balanceAfterPayment - upcomingTotal);
+  const threshold = Math.max(0, account.minBalance ?? 0);
+  const shortfall = Math.max(0, roundCents(threshold - projectedBalance));
+  const status: PaymentSafety['status'] =
+    projectedBalance < 0 ? 'overdraft' :
+    projectedBalance < threshold ? 'belowBuffer' :
+    'ok';
+  return { account, amount: pay, upcomingTotal, balanceAfterPayment, projectedBalance, threshold, shortfall, status };
+}
+
 // ── Net Worth Projection ──────────────────────────────────────────────────────
 // Extends historical net worth series N months forward using avg MoM growth rate.
 // Each projected point = previous × (1 + avgMoMRate).

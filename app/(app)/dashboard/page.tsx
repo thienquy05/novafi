@@ -12,6 +12,7 @@ import {
   calcSpendingVolatilityScore, calcCoefficientOfVariation,
   calcNetWorthProjection, myBillShare, calcRolloverDeficit, calcLongestUntouchedSavings, calcPredictionReadiness,
   buildCreditReport, CREDIT_UTIL_TARGET, CREDIT_UTIL_IDEAL, composeHealthScore, daysUntilStatement,
+  detectOverdraftRisks,
 } from '@/lib/calculations';
 import { Card, CardHeader, CardTitle, CardIcon, type CardTone } from '@/components/ui/Card';
 import { TrendingUp, TrendingDown, Calendar, PiggyBank, Wallet, BarChart3, ArrowLeftRight, Flame, CalendarDays, CreditCard, Target } from 'lucide-react';
@@ -188,6 +189,10 @@ export default async function DashboardPage() {
   const daysRemaining = daysLeft + 1; // include today, so it's never 0
   const dailySafeToSpend = calcSafeToSpendDaily(leftToSpend, daysRemaining);
   const overspent = leftToSpend < 0;
+
+  // Overdraft safeguard — per-account: any spendable account whose balance won't
+  // cover its upcoming bills (or dips under the buffer the user set on it).
+  const overdraftRisks = detectOverdraftRisks(accounts, bills, now);
 
   // Recent transactions (last 6)
   const recentTx = [...transactions]
@@ -484,6 +489,47 @@ export default async function DashboardPage() {
         overBudgetCount={overBudgetCount}
         creditAlerts={creditReport.cardsOverTarget}
       />
+
+      {/* Overdraft safeguard — flags accounts that can't cover upcoming bills, or
+          that dip below the buffer you set on them. */}
+      {overdraftRisks.length > 0 && (
+        <div className="rounded-3xl bg-rose-50 dark:bg-rose-900/30 border border-rose-200 dark:border-rose-800/50 p-5 space-y-3">
+          <div className="flex items-start gap-4">
+            <div className="p-2 bg-white dark:bg-slate-800 rounded-xl shrink-0 shadow-sm">
+              <Wallet className="w-5 h-5 text-rose-500 dark:text-rose-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-extrabold text-rose-700 dark:text-rose-300">
+                {t('dashboard.overdraftTitle', lang, { n: overdraftRisks.length })}
+              </p>
+              <p className="text-xs text-rose-600 dark:text-rose-400 mt-0.5 font-medium">
+                {t('dashboard.overdraftSubtitle', lang)}
+              </p>
+            </div>
+          </div>
+          <ul className="space-y-2 list-none">
+            {overdraftRisks.map((risk) => (
+              <li key={risk.account.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white dark:bg-slate-800 px-4 py-3 border border-rose-100 dark:border-rose-800/40">
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{risk.account.name}</p>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
+                    {t(risk.willOverdraft ? 'dashboard.overdraftAccountNegative' : 'dashboard.overdraftAccountBuffer', lang, {
+                      balance: formatCurrency(risk.currentBalance),
+                      bills: formatCurrency(risk.upcomingTotal),
+                      projected: formatCurrency(risk.projectedBalance),
+                      buffer: formatCurrency(risk.threshold),
+                    })}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-xs font-bold text-slate-400 dark:text-slate-500">{t('dashboard.overdraftShort', lang)}</p>
+                  <p className="text-base font-extrabold text-rose-600 dark:text-rose-400 whitespace-nowrap">{formatCurrency(risk.shortfall)}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Predictions are gated until there's enough history to be meaningful. */}
       {!readiness.ready && (

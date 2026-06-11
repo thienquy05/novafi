@@ -230,14 +230,24 @@
     "projected": "Projected",
     "total": "Total",
     "budget": "Budget",
-    "spent": "Spent"
+    "spent": "Spent",
+    "overdraftTitle": "{n} account(s) may not cover upcoming bills",
+    "overdraftSubtitle": "Add cash or hold off on a payment before these run short.",
+    "overdraftAccountNegative": "{balance} on hand − {bills} in bills = {projected} projected",
+    "overdraftAccountBuffer": "{projected} projected after bills · below your {buffer} buffer",
+    "overdraftShort": "Short"
   },
   "quickAdd": {
     "title": "New Transaction",
     "amountLabel": "Amount ($)",
     "quickAddBtn": "Quick Add",
     "expenseLabel": "Expense",
-    "incomeLabel": "Income"
+    "incomeLabel": "Income",
+    "safeguardOverdraftTitle": "This payment overdraws the account",
+    "safeguardBufferTitle": "This payment dips below your buffer",
+    "safeguardDetail": "Projected balance: {projected}",
+    "safeguardDetailWithBills": "Projected balance: {projected} (after {bills} of upcoming bills)",
+    "safeguardBufferNote": "You asked to keep a {buffer} buffer here."
   },
   "transactions": {
     "title": "Transactions",
@@ -430,7 +440,11 @@
     "recordSplit": "Record Split",
     "splitExpenseNeedPeople": "Add at least one person with a share.",
     "splitExpenseOverTotal": "Everyone's shares add up to more than the total.",
-    "toastSplitExpense": "Split recorded · {n} people owe you {amount}"
+    "toastSplitExpense": "Split recorded · {n} people owe you {amount}",
+    "overdraftTitle": "{n} account(s) short for upcoming bills",
+    "overdraftSubtitle": "These accounts won't cover the bills drawn from them.",
+    "overdraftDetail": "{balance} balance − {bills} in bills = {projected} projected",
+    "overdraftShort": "Short"
   },
   "splits": {
     "tab": "Splits",
@@ -540,7 +554,10 @@
     "confirmPayment": "Pay {amount} toward {card}?",
     "loanPaymentDesc": "Loan payment — {card}",
     "paymentMade": "Paid {amount} toward your loan",
-    "paymentFailed": "Couldn't record the payment"
+    "paymentFailed": "Couldn't record the payment",
+    "minBalance": "Low-balance buffer ($)",
+    "minBalanceHint": "We'll warn you before a payment drops this account below this amount (after upcoming bills). Leave blank to only warn on a real overdraft.",
+    "minBalanceBadge": "Keep {amount}"
   },
   "funding": {
     "title": "Funding",

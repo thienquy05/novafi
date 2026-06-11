@@ -13,7 +13,7 @@ import { FitText } from '@/components/ui/FitText';
 import { Collapsible } from '@/components/ui/Collapsible';
 import { ExpandableCard } from '@/components/ui/ExpandableCard';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
-import { billToTransactionDefaults, calcPaycheckDeposited, myBillShare, billParticipants, billOthersShare, detectSubscriptions } from '@/lib/calculations';
+import { billToTransactionDefaults, calcPaycheckDeposited, myBillShare, billParticipants, billOthersShare, detectSubscriptions, detectOverdraftRisks } from '@/lib/calculations';
 import { buildLoanPaymentTxs } from '@/lib/loanPayments';
 import { buildSplitTx, groupSplits, isOneOffSplit, resolveSplit, splitRemaining } from '@/lib/splits';
 import type { Bill, Account, PaycheckEntry, Transaction, Contact, Split, BillSplitParticipant } from '@/types';
@@ -875,6 +875,10 @@ export default function BillsPage() {
   const overdueBills = activeBills.filter((b) => parseLocalDate(b.nextDue) < todayMidnight);
   const upcomingCount = activeBills.filter((b) => { const diff = Math.ceil((parseLocalDate(b.nextDue).getTime() - todayMidnight.getTime()) / 86400000); return diff >= 0 && diff <= 14; }).length;
 
+  // Low-balance safeguard: which spendable accounts can't cover the bills drawn
+  // from them (or dip below the buffer set on them).
+  const overdraftRisks = useMemo(() => detectOverdraftRisks(accounts, bills), [accounts, bills]);
+
   const contactName = useCallback((id: string) => contacts.find((c) => c.id === id)?.name ?? '', [contacts]);
 
   // "Owed to you" derived views. Only recurring shared-bill splits live here;
@@ -954,6 +958,32 @@ export default function BillsPage() {
             <p className="text-xs text-rose-600 dark:text-rose-400 mt-0.5 font-medium truncate">{overdueBills.map((b) => b.name).join(' · ')}</p>
           </div>
           <button onClick={openAdd} className="text-xs font-bold text-rose-600 dark:text-rose-400 bg-white dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-rose-200 dark:border-rose-800/50 shrink-0">Mark Paid</button>
+        </div>
+      )}
+
+      {overdraftRisks.length > 0 && (
+        <div className="rounded-3xl bg-rose-50 dark:bg-rose-900/30 border border-rose-200 dark:border-rose-800/50 p-4 sm:p-5 space-y-3">
+          <div className="flex items-start gap-4">
+            <div className="p-2 bg-white dark:bg-slate-800 rounded-xl shrink-0 shadow-sm"><Banknote className="w-5 h-5 text-rose-500 dark:text-rose-400" /></div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-extrabold text-rose-700 dark:text-rose-300">{t('bills.overdraftTitle', { n: overdraftRisks.length })}</p>
+              <p className="text-xs text-rose-600 dark:text-rose-400 mt-0.5 font-medium">{t('bills.overdraftSubtitle')}</p>
+            </div>
+          </div>
+          <ul className="space-y-2 list-none">
+            {overdraftRisks.map((risk) => (
+              <li key={risk.account.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white dark:bg-slate-800 px-4 py-3 border border-rose-100 dark:border-rose-800/40">
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{risk.account.name}</p>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('bills.overdraftDetail', { balance: formatCurrency(risk.currentBalance), bills: formatCurrency(risk.upcomingTotal), projected: formatCurrency(risk.projectedBalance) })}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-xs font-bold text-slate-400 dark:text-slate-500">{t('bills.overdraftShort')}</p>
+                  <p className="text-base font-extrabold text-rose-600 dark:text-rose-400 whitespace-nowrap">{formatCurrency(risk.shortfall)}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
