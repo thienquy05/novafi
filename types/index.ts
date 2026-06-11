@@ -107,6 +107,13 @@ export interface Account {
   // Loan accounts only: id of the account the monthly payment is drawn FROM (a
   // checking/savings/credit). Used by the in-app "Make payment" action. Absent = none.
   paymentAccountId?: string;
+  // Spendable deposit accounts only (checking/savings/cash): the low-balance
+  // safeguard buffer. The minimum you want to keep in this account AFTER the bills
+  // drawn from it are paid. When the projected balance (current − upcoming bills)
+  // falls below this, the overdraft safeguard flags it — and the Quick-Add form
+  // warns before a payment would breach it. Absent/0 = guard at $0 (warn only on a
+  // real overdraft, i.e. projected below zero).
+  minBalance?: number;
 }
 
 export interface Budget {

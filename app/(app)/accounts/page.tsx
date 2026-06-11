@@ -72,7 +72,12 @@ const EMPTY_FORM = {
   monthlyPayment: '',
   termMonths: '',
   paymentAccountId: '',
+  minBalance: '',
 };
+
+// Deposit accounts that the low-balance safeguard watches (where real bills get
+// paid from). Mirrors isSpendableAccount in lib/calculations.
+const SPENDABLE_ACCOUNT_TYPES: Account['type'][] = ['checking', 'savings', 'cash'];
 
 // Status → text color for the inline utilization readout on credit rows.
 const UTIL_TEXT: Record<string, string> = {
@@ -136,7 +141,7 @@ export default function AccountsPage() {
   function openAdd() { setEditTarget(null); setForm(EMPTY_FORM); setOpen(true); }
   function openEdit(account: Account) {
     setEditTarget(account);
-    setForm({ name: account.name, type: account.type, institution: account.institution, balance: String(account.balance), last4: account.last4, color: account.color, creditLimit: account.creditLimit != null ? String(account.creditLimit) : '', apr: account.apr != null ? String(account.apr) : '', monthlyPayment: account.monthlyPayment != null ? String(account.monthlyPayment) : '', termMonths: account.termMonths != null ? String(account.termMonths) : '', paymentAccountId: account.paymentAccountId ?? '' });
+    setForm({ name: account.name, type: account.type, institution: account.institution, balance: String(account.balance), last4: account.last4, color: account.color, creditLimit: account.creditLimit != null ? String(account.creditLimit) : '', apr: account.apr != null ? String(account.apr) : '', monthlyPayment: account.monthlyPayment != null ? String(account.monthlyPayment) : '', termMonths: account.termMonths != null ? String(account.termMonths) : '', paymentAccountId: account.paymentAccountId ?? '', minBalance: account.minBalance != null ? String(account.minBalance) : '' });
     setOpen(true);
   }
 
@@ -167,6 +172,9 @@ export default function AccountsPage() {
       monthlyPayment: form.type === 'loan' && form.monthlyPayment !== '' ? Math.max(0, parseBalance(form.monthlyPayment)) : undefined,
       termMonths: form.type === 'loan' && form.termMonths !== '' ? Math.max(0, Math.round(parseFloat(form.termMonths))) : undefined,
       paymentAccountId: form.type === 'loan' && form.paymentAccountId ? form.paymentAccountId : undefined,
+      // Low-balance safeguard buffer — only meaningful on spendable deposit
+      // accounts (where bills are paid from). Cleared when switched off those types.
+      minBalance: SPENDABLE_ACCOUNT_TYPES.includes(form.type) && form.minBalance !== '' ? Math.max(0, parseBalance(form.minBalance)) : undefined,
     };
 
     // Optimistic update
@@ -365,6 +373,9 @@ export default function AccountsPage() {
                           <div>
                             <p className="text-base font-bold text-slate-900 dark:text-slate-100">{account.name}</p>
                             <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-0.5">{account.institution || label}{account.last4 ? ` ····${account.last4}` : ''}</p>
+                            {SPENDABLE_ACCOUNT_TYPES.includes(type) && (account.minBalance ?? 0) > 0 && (
+                              <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 mt-1">{t('accounts.minBalanceBadge', { amount: formatCurrency(account.minBalance ?? 0) })}</p>
+                            )}
                             {type === 'credit' && (() => {
                               const util = creditUtilization(account.balance, account.creditLimit ?? 0);
                               if (util === null) {
@@ -465,6 +476,12 @@ export default function AccountsPage() {
                   onChange={(e) => setForm((f) => ({ ...f, paymentAccountId: e.target.value }))}
                 />
               </div>
+            </div>
+          )}
+          {SPENDABLE_ACCOUNT_TYPES.includes(form.type) && (
+            <div>
+              <Input label={t('accounts.minBalance')} type="text" inputMode="decimal" placeholder="0.00" value={form.minBalance} onChange={(e) => setForm((f) => ({ ...f, minBalance: e.target.value.replace(/[^0-9.,]/g, '') }))} />
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 ml-1">{t('accounts.minBalanceHint')}</p>
             </div>
           )}
           <Input label={t('accounts.last4')} placeholder="1234" maxLength={4} value={form.last4} onChange={(e) => setForm((f) => ({ ...f, last4: e.target.value.replace(/\D/g, '').slice(0, 4) }))} />

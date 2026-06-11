@@ -2,6 +2,47 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-11 — Payment overdraft / low-balance safeguard (branch claude/payment-overdraft-safeguard-tmydjc)
+
+Added a per-account safeguard that warns before a payment (or the bills already scheduled) drains a spendable account negative or below a buffer the user chooses. Example: Checking holds $100, $60 of bills are due → $40 projected; if you set a $60 "keep ready" buffer, you're already short. Surfaced in three places per request: a dashboard alert card, the Bills page, and a live warning inside the Quick-Add form before saving.
+
+### `types/index.ts`
+- New optional `Account.minBalance` — the low-balance buffer for spendable deposit accounts (checking/savings/cash). Absent/0 = guard only against a real overdraft (projected below zero).
+
+### `lib/calculations.ts` (new "Overdraft / Low-Balance Safeguard" section)
+- `OVERDRAFT_HORIZON_DAYS = 30`, `isSpendableAccount(account)` (checking/savings/cash only).
+- `accountUpcomingBills(accountId, bills, today?, horizonDays?)` → active bills drawn from the account due on/before the horizon (overdue included — still owed), each carrying YOUR share after splits, soonest-due first. Bills others fully cover are skipped.
+- `assessAccountOverdraft(account, bills, …)` → `AccountOverdraftRisk` with `projectedBalance = balance − upcomingTotal`, `threshold` (minBalance, floored at 0), `shortfall`, `belowThreshold`, `willOverdraft`.
+- `detectOverdraftRisks(accounts, bills, …)` → only guarded accounts breaching their buffer, worst shortfall first (empty = all clear).
+- `evaluatePaymentSafety({ account, amount, bills, … })` → `PaymentSafety` with `status` `'ok' | 'belowBuffer' | 'overdraft'` for a prospective payment leaving the account (used by Quick-Add).
+
+### `lib/sheets.ts`
+- Accounts gain column **P** = `min_balance`. Updated both `rowToAccount` parsers (index 15, blank→undefined), `upsertAccount` append (+ `deleteRowById` range `O`→`P`), and bumped the four `Accounts!A2:O200` ranges to `:P200`.
+
+### `lib/auth.ts`
+- Provisioning header for Accounts brought fully in sync (was stopping at `apr`): now `…, monthly_payment, term_months, payment_account_id, min_balance`.
+
+### `app/(app)/accounts/page.tsx`
+- Form gains a `minBalance` field shown only for checking/savings/cash (`SPENDABLE_ACCOUNT_TYPES`), persisted via handleSave (cleared off non-spendable types). Account rows show a `Keep {amount}` badge when a buffer is set.
+
+### `app/(app)/dashboard/page.tsx`
+- Computes `detectOverdraftRisks(accounts, bills, now)`; renders a rose alert card (after the Health Banner) listing each at-risk account with current balance, upcoming bills, projected balance and shortfall.
+
+### `app/(app)/dashboard/QuickAddTransaction.tsx`
+- Now accepts an optional `bills` prop and lazily fetches `/api/bills` when the modal opens (mirrors the existing accounts lazy-fetch — the nav-mounted instances get no props). For an expense or the FROM side of a transfer leaving a spendable account, computes `evaluatePaymentSafety` and shows an amber (below-buffer) / rose (overdraft) warning banner before save.
+
+### `app/(app)/bills/page.tsx`
+- Computes `detectOverdraftRisks(accounts, bills)` (memoized) and renders a rose banner under the overdue-bills banner listing accounts that can't cover the bills drawn from them.
+
+### Locales (`locales/en.json`, `locales/vi.json`)
+- `accounts.minBalance` / `minBalanceHint` / `minBalanceBadge`; `dashboard.overdraft*`; `quickAdd.safeguard*`; `bills.overdraft*`.
+
+### Tests (`lib/__tests__/calculations.test.ts`)
+- New `overdraft safeguard` describe block (isSpendableAccount, accountUpcomingBills incl. horizon/split/overdue, assessAccountOverdraft, detectOverdraftRisks ordering/filtering, evaluatePaymentSafety statuses).
+
+### Verification
+`tsc --noEmit` clean · full vitest suite 487 passed (17 files) · eslint 0 errors on touched files (only pre-existing set-state-in-effect warnings, matching the prop-sync pattern already in the file).
+
 ## 2026-06-10 — Hero net-worth sparkline: intra-month money flow + draw-in animation (branch claude/bills-ui-enhancement-h9aj4s)
 
 The dashboard hero "Liquid Net Worth" sparkline was static (last 6 **monthly** net-worth snapshots), so within a month the headline number moved but the line stayed frozen, and it never animated. Per request, the line now traces this month's daily money flow (income up / expense down), ends exactly at the live value, and reveals itself with a draw-in animation.

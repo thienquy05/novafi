@@ -1,13 +1,14 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus } from 'lucide-react';
+import { Plus, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
-import { generateId, today } from '@/lib/utils';
-import type { Account, Transaction } from '@/types';
+import { generateId, today, formatCurrency } from '@/lib/utils';
+import { evaluatePaymentSafety, isSpendableAccount } from '@/lib/calculations';
+import type { Account, Bill, Transaction } from '@/types';
 import { useCategories } from '@/hooks/useCategories';
 import { useTranslation } from '@/lib/i18n/context';
 import { Haptics } from '@/lib/haptics';
@@ -24,21 +25,24 @@ const EMPTY_FORM = {
 
 type QuickAddVariant = 'header' | 'fab' | 'sidebar' | 'navFab';
 
-export function QuickAddTransaction({ accounts: accountsProp, variant = 'header' }: { accounts?: Account[]; variant?: QuickAddVariant }) {
+export function QuickAddTransaction({ accounts: accountsProp, bills: billsProp, variant = 'header' }: { accounts?: Account[]; bills?: Bill[]; variant?: QuickAddVariant }) {
   const router = useRouter();
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>(accountsProp ?? []);
+  const [bills, setBills] = useState<Bill[]>(billsProp ?? []);
   const { expenseCategories, incomeCategories } = useCategories();
 
   // Keep in sync when a parent supplies accounts (e.g. dashboard server data).
   useEffect(() => { if (accountsProp) setAccounts(accountsProp); }, [accountsProp]);
+  useEffect(() => { if (billsProp) setBills(billsProp); }, [billsProp]);
 
   // Persistent nav usage (sidebar / bottom bar) gets no accounts prop — fetch
   // them lazily the first time the modal is opened. The nav stays mounted across
-  // navigations, so this runs at most once per session (like useBadges).
+  // navigations, so this runs at most once per session (like useBadges). Bills are
+  // fetched alongside so the low-balance safeguard can warn before a payment.
   useEffect(() => {
     if (!open || accountsProp || accounts.length > 0) return;
     fetch('/api/accounts')
@@ -47,7 +51,28 @@ export function QuickAddTransaction({ accounts: accountsProp, variant = 'header'
       .catch(() => {});
   }, [open, accountsProp, accounts.length]);
 
+  useEffect(() => {
+    if (!open || billsProp || bills.length > 0) return;
+    fetch('/api/bills')
+      .then((r) => r.json())
+      .then((data: Bill[]) => setBills(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, [open, billsProp, bills.length]);
+
   const categories = form.type === 'expense' ? expenseCategories : incomeCategories;
+
+  // Low-balance safeguard: for a payment leaving a spendable account (an expense,
+  // or the FROM side of a transfer), check whether it would push that account
+  // negative or below its buffer once upcoming bills are accounted for.
+  const safety = (() => {
+    if (form.type === 'income') return null;
+    const amount = parseFloat(form.amount) || 0;
+    if (!form.account || amount <= 0) return null;
+    const account = accounts.find((a) => a.id === form.account);
+    if (!account || !isSpendableAccount(account)) return null;
+    const result = evaluatePaymentSafety({ account, amount, bills });
+    return result.status === 'ok' ? null : result;
+  })();
 
   function handleTypeChange(type: Transaction['type']) {
     if (type === 'transfer') {
@@ -214,6 +239,29 @@ export function QuickAddTransaction({ accounts: accountsProp, variant = 'header'
               />
             )}
           </div>
+
+          {/* Low-balance safeguard — warns before the payment overdraws the
+              account or eats into the buffer you set on it. */}
+          {safety && (
+            <div className={`flex items-start gap-3 px-4 py-3 rounded-2xl border ${
+              safety.status === 'overdraft'
+                ? 'bg-rose-50 dark:bg-rose-900/30 border-rose-200 dark:border-rose-800/50'
+                : 'bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800/50'
+            }`}>
+              <AlertTriangle className={`w-5 h-5 shrink-0 mt-0.5 ${safety.status === 'overdraft' ? 'text-rose-500 dark:text-rose-400' : 'text-amber-500 dark:text-amber-400'}`} />
+              <div className="min-w-0">
+                <p className={`text-sm font-bold ${safety.status === 'overdraft' ? 'text-rose-700 dark:text-rose-300' : 'text-amber-700 dark:text-amber-300'}`}>
+                  {safety.status === 'overdraft' ? t('quickAdd.safeguardOverdraftTitle') : t('quickAdd.safeguardBufferTitle')}
+                </p>
+                <p className={`text-xs font-medium mt-0.5 ${safety.status === 'overdraft' ? 'text-rose-600 dark:text-rose-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                  {safety.upcomingTotal > 0
+                    ? t('quickAdd.safeguardDetailWithBills', { projected: formatCurrency(safety.projectedBalance), bills: formatCurrency(safety.upcomingTotal) })
+                    : t('quickAdd.safeguardDetail', { projected: formatCurrency(safety.projectedBalance) })}
+                  {safety.status === 'belowBuffer' ? ` ${t('quickAdd.safeguardBufferNote', { buffer: formatCurrency(safety.threshold) })}` : ''}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">

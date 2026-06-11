@@ -26,6 +26,8 @@ import {
   calcCreditUtilizationScore, composeHealthScore, daysUntilStatement, HEALTH_WEIGHTS,
   CREDIT_UTIL_TARGET,
   predictMonthlyIncome, suggestCardPaymentBudget,
+  accountUpcomingBills, assessAccountOverdraft, detectOverdraftRisks, evaluatePaymentSafety,
+  isSpendableAccount, OVERDRAFT_HORIZON_DAYS,
 } from '@/lib/calculations';
 import type { Account, Transaction, Bill, Budget, Loan, Split } from '@/types';
 
@@ -2036,5 +2038,144 @@ describe('suggestCardPaymentBudget', () => {
       today,
     });
     expect(r.bills).toBe(200); // July bill excluded
+  });
+});
+
+// ── Overdraft / Low-Balance Safeguard ─────────────────────────────────────────
+
+describe('overdraft safeguard', () => {
+  const today = new Date('2026-06-11T12:00:00');
+
+  describe('isSpendableAccount', () => {
+    it('guards checking, savings and cash; not credit/loan/investment', () => {
+      expect(isSpendableAccount(makeAccount({ type: 'checking' }))).toBe(true);
+      expect(isSpendableAccount(makeAccount({ type: 'savings' }))).toBe(true);
+      expect(isSpendableAccount(makeAccount({ type: 'cash' }))).toBe(true);
+      expect(isSpendableAccount(makeAccount({ type: 'credit' }))).toBe(false);
+      expect(isSpendableAccount(makeAccount({ type: 'loan' }))).toBe(false);
+      expect(isSpendableAccount(makeAccount({ type: 'investment' }))).toBe(false);
+    });
+  });
+
+  describe('accountUpcomingBills', () => {
+    const bills = [
+      makeBill({ id: 'b1', account: 'chk', amount: 60, nextDue: '2026-06-15' }),
+      makeBill({ id: 'b2', account: 'chk', amount: 40, nextDue: '2026-06-20' }),
+      makeBill({ id: 'b3', account: 'sav', amount: 99, nextDue: '2026-06-18' }), // other account
+      makeBill({ id: 'b4', account: 'chk', amount: 30, nextDue: '2026-08-01' }), // beyond horizon
+      makeBill({ id: 'b5', account: 'chk', amount: 25, nextDue: '2026-06-25', isActive: false }), // inactive
+    ];
+
+    it('returns only active bills from this account within the horizon, soonest first', () => {
+      const out = accountUpcomingBills('chk', bills, today);
+      expect(out.map((u) => u.bill.id)).toEqual(['b1', 'b2']);
+      expect(out[0].share).toBe(60);
+    });
+
+    it('counts overdue (already-past) bills — they still need the cash', () => {
+      const overdue = [makeBill({ id: 'od', account: 'chk', amount: 50, nextDue: '2026-06-01' })];
+      expect(accountUpcomingBills('chk', overdue, today)).toHaveLength(1);
+    });
+
+    it('uses YOUR share of a split bill, and skips bills others fully cover', () => {
+      const split = [
+        makeBill({ id: 's1', account: 'chk', amount: 100, nextDue: '2026-06-15', splitContactId: 'c1', splitAmount: 30 }),
+        makeBill({ id: 's2', account: 'chk', amount: 80, nextDue: '2026-06-16', splitContactId: 'c1', splitAmount: 80 }),
+      ];
+      const out = accountUpcomingBills('chk', split, today);
+      expect(out).toHaveLength(1);
+      expect(out[0].bill.id).toBe('s1');
+      expect(out[0].share).toBe(70); // 100 − 30
+    });
+
+    it('respects a custom horizon', () => {
+      const out = accountUpcomingBills('chk', bills, today, 5); // only through 06-16
+      expect(out.map((u) => u.bill.id)).toEqual(['b1']);
+    });
+  });
+
+  describe('assessAccountOverdraft', () => {
+    it('projects balance after upcoming bills and flags a real overdraft (buffer 0)', () => {
+      const acc = makeAccount({ id: 'chk', type: 'checking', balance: 100 });
+      const bills = [makeBill({ account: 'chk', amount: 120, nextDue: '2026-06-15' })];
+      const r = assessAccountOverdraft(acc, bills, today);
+      expect(r.upcomingTotal).toBe(120);
+      expect(r.projectedBalance).toBe(-20);
+      expect(r.willOverdraft).toBe(true);
+      expect(r.belowThreshold).toBe(true);
+      expect(r.shortfall).toBe(20);
+    });
+
+    it('flags dipping below the buffer even when still positive', () => {
+      // $100 on hand, $60 of bills → $40 projected, but a $60 buffer is set.
+      const acc = makeAccount({ id: 'chk', type: 'checking', balance: 100, minBalance: 60 });
+      const bills = [makeBill({ account: 'chk', amount: 60, nextDue: '2026-06-15' })];
+      const r = assessAccountOverdraft(acc, bills, today);
+      expect(r.projectedBalance).toBe(40);
+      expect(r.willOverdraft).toBe(false);
+      expect(r.belowThreshold).toBe(true);
+      expect(r.shortfall).toBe(20); // 60 buffer − 40 projected
+    });
+
+    it('is clear when the balance comfortably covers bills + buffer', () => {
+      const acc = makeAccount({ id: 'chk', type: 'checking', balance: 500, minBalance: 100 });
+      const bills = [makeBill({ account: 'chk', amount: 60, nextDue: '2026-06-15' })];
+      const r = assessAccountOverdraft(acc, bills, today);
+      expect(r.belowThreshold).toBe(false);
+      expect(r.shortfall).toBe(0);
+    });
+  });
+
+  describe('detectOverdraftRisks', () => {
+    it('returns only spendable accounts at risk, worst shortfall first', () => {
+      const accounts = [
+        makeAccount({ id: 'chk', type: 'checking', balance: 100 }),       // short by 50
+        makeAccount({ id: 'sav', type: 'savings', balance: 200, minBalance: 300 }), // short by 100
+        makeAccount({ id: 'safe', type: 'checking', balance: 9999 }),     // fine
+        makeAccount({ id: 'card', type: 'credit', balance: 0 }),          // not guarded
+      ];
+      const bills = [
+        makeBill({ id: 'b1', account: 'chk', amount: 150, nextDue: '2026-06-15' }),
+        makeBill({ id: 'b2', account: 'card', amount: 500, nextDue: '2026-06-15' }),
+      ];
+      const risks = detectOverdraftRisks(accounts, bills, today);
+      expect(risks.map((r) => r.account.id)).toEqual(['sav', 'chk']);
+    });
+
+    it('returns an empty array when everything is covered', () => {
+      const accounts = [makeAccount({ id: 'chk', type: 'checking', balance: 1000 })];
+      expect(detectOverdraftRisks(accounts, [], today)).toEqual([]);
+    });
+  });
+
+  describe('evaluatePaymentSafety', () => {
+    const acc = makeAccount({ id: 'chk', type: 'checking', balance: 100, minBalance: 60 });
+    const bills = [makeBill({ account: 'chk', amount: 60, nextDue: '2026-06-15' })];
+
+    it('flags overdraft when the payment plus bills exceed the balance', () => {
+      const r = evaluatePaymentSafety({ account: acc, amount: 50, bills, today });
+      // 100 − 50 payment − 60 bills = −10
+      expect(r.projectedBalance).toBe(-10);
+      expect(r.status).toBe('overdraft');
+    });
+
+    it('flags below-buffer when still positive but under the cushion', () => {
+      const noBills = makeAccount({ id: 'chk', type: 'checking', balance: 100, minBalance: 60 });
+      const r = evaluatePaymentSafety({ account: noBills, amount: 50, bills: [], today });
+      // 100 − 50 = 50 projected, under the 60 buffer
+      expect(r.projectedBalance).toBe(50);
+      expect(r.status).toBe('belowBuffer');
+      expect(r.shortfall).toBe(10);
+    });
+
+    it('is ok when the payment leaves enough for bills and buffer', () => {
+      const rich = makeAccount({ id: 'chk', type: 'checking', balance: 500, minBalance: 60 });
+      const r = evaluatePaymentSafety({ account: rich, amount: 50, bills, today });
+      expect(r.status).toBe('ok');
+    });
+  });
+
+  it('exposes a sane default horizon', () => {
+    expect(OVERDRAFT_HORIZON_DAYS).toBeGreaterThan(0);
   });
 });

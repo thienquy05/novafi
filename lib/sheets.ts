@@ -409,7 +409,7 @@ export async function getAccounts(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Accounts!A2:O200',
+    range: 'Accounts!A2:P200',
     // Raw cell value: a currency-formatted cell stays a number rather than
     // coming back as "$100.00" → NaN.
     valueRenderOption: 'UNFORMATTED_VALUE',
@@ -443,6 +443,9 @@ function rowToAccount(r: string[]): Account {
     monthlyPayment: r[12] === undefined || r[12] === '' ? undefined : Number(r[12]),
     termMonths: r[13] === undefined || r[13] === '' ? undefined : Number(r[13]),
     paymentAccountId: r[14] === undefined || r[14] === '' ? undefined : String(r[14]),
+    // Column P is optional: the low-balance safeguard buffer (checking/savings/
+    // cash). Blank → undefined (not 0 = a real $0 guard the user explicitly set).
+    minBalance: r[15] === undefined || r[15] === '' ? undefined : Number(r[15]),
   };
 }
 
@@ -451,7 +454,7 @@ export async function upsertAccount(
   spreadsheetId: string,
   account: Account
 ): Promise<void> {
-  await deleteRowById(accessToken, spreadsheetId, 'Accounts', account.id, 'O');
+  await deleteRowById(accessToken, spreadsheetId, 'Accounts', account.id, 'P');
   const sheets = getSheetsClient(accessToken);
   await sheets.spreadsheets.values.append({
     spreadsheetId,
@@ -459,7 +462,7 @@ export async function upsertAccount(
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
-      values: [[account.id, account.name, account.type, account.institution, account.balance, account.last4, account.color, account.createdAt, account.openingBalance ?? '', account.creditLimit ?? '', account.statementDay ?? '', account.apr ?? '', account.monthlyPayment ?? '', account.termMonths ?? '', account.paymentAccountId ?? '']],
+      values: [[account.id, account.name, account.type, account.institution, account.balance, account.last4, account.color, account.createdAt, account.openingBalance ?? '', account.creditLimit ?? '', account.statementDay ?? '', account.apr ?? '', account.monthlyPayment ?? '', account.termMonths ?? '', account.paymentAccountId ?? '', account.minBalance ?? '']],
     },
   });
 }
@@ -1127,7 +1130,7 @@ export async function batchGetBadgesData(
     'Bills!A2:M200',
     'Budgets!A2:D200',
     'Transactions!A2:J',
-    'Accounts!A2:O200',
+    'Accounts!A2:P200',
   ];
   const res = await sheets.spreadsheets.values.batchGet({
     spreadsheetId,
@@ -1218,6 +1221,7 @@ function parseDashboardCore(
     monthlyPayment: r[12] === undefined || r[12] === '' ? undefined : Number(r[12]),
     termMonths: r[13] === undefined || r[13] === '' ? undefined : Number(r[13]),
     paymentAccountId: r[14] === undefined || r[14] === '' ? undefined : String(r[14]),
+    minBalance: r[15] === undefined || r[15] === '' ? undefined : Number(r[15]),
   })) as Account[];
   const bills: Bill[] = (vr[3]?.values ?? []).map((r) => rowToBill(r as string[]));
   const budgets: Budget[] = (vr[4]?.values ?? []).map((r) => ({
@@ -1252,7 +1256,7 @@ function parseDashboardCore(
 const DASHBOARD_CORE_RANGES = [
   'Paychecks!A2:L',
   'Transactions!A2:J',
-  'Accounts!A2:O200',
+  'Accounts!A2:P200',
   'Bills!A2:M200',
   'Budgets!A2:D200',
   'Goals!A2:G200',
@@ -1326,7 +1330,7 @@ const BATCHABLE_SHEETS: Record<
   Exclude<BatchKey, NonBatchableKey>,
   { range: string; parse: (rows: string[][]) => unknown[] }
 > = {
-  accounts:     { range: 'Accounts!A2:O200',  parse: (rows) => rows.map(rowToAccount) },
+  accounts:     { range: 'Accounts!A2:P200',  parse: (rows) => rows.map(rowToAccount) },
   transactions: { range: 'Transactions!A2:J', parse: (rows) => rows.map(rowToTransaction) },
   bills:        { range: 'Bills!A2:M200',     parse: (rows) => rows.map(rowToBill) },
   paychecks:    { range: 'Paychecks!A2:L',    parse: (rows) => rows.map(rowToPaycheck) },
