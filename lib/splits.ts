@@ -2,7 +2,7 @@
 // (recurring shared bills) and the Transactions page (one-time expense splits).
 // Both flows persist to the same `Split` sheet/API; they're told apart by the
 // `oneoff:` prefix on a one-time split's `billId` (see isOneOffSplit).
-import { generateId } from '@/lib/utils';
+import { generateId, today } from '@/lib/utils';
 import { roundCents } from '@/lib/calculations';
 import type { Split, Transaction } from '@/types';
 
@@ -47,6 +47,63 @@ export function buildSplitTx(
     toAccount: out ? '' : account,
     createdAt: new Date().toISOString(),
   };
+}
+
+// ── Ledger → split reconciliation ─────────────────────────────────────────────
+// A split caches numbers (`amount`, `repaidAmount`, `settled`) derived from the
+// cash rows it created (frontedTxId / settleTxId / repaymentTxIds). Those rows
+// can also be edited or deleted from the generic ledger (/api/transactions),
+// which doesn't go through /api/splits — so that route reconciles the split
+// with these helpers. Each returns the corrected Split, or null when the
+// transaction isn't linked to this split / nothing changed.
+
+// Re-derive the settled flag/date from the (possibly new) amount + repaid. A
+// legacy row stays settled as long as its full-settle transfer still exists.
+function recomputeSettlement(s: Split, amount: number, repaidAmount: number): Split {
+  const settled = !!s.settleTxId || (amount > 0 && repaidAmount >= roundCents(amount) - 0.005);
+  return {
+    ...s,
+    amount,
+    repaidAmount,
+    settled,
+    settledDate: settled ? (s.settledDate || today()) : '',
+  };
+}
+
+// A linked row's amount changed: mirror the change into the split.
+export function syncSplitTxAmount(s: Split, original: Transaction, updated: Transaction): Split | null {
+  const delta = roundCents(updated.amount - original.amount);
+  if (delta === 0) return null;
+  if ((s.repaymentTxIds ?? []).includes(updated.id)) {
+    return recomputeSettlement(s, s.amount, Math.max(0, roundCents((s.repaidAmount || 0) + delta)));
+  }
+  // The fronted (or legacy settle) transfer IS the other person's share.
+  if ((s.frontedTxId && s.frontedTxId === updated.id) || (s.settleTxId && s.settleTxId === updated.id)) {
+    return recomputeSettlement(s, roundCents(updated.amount), s.repaidAmount || 0);
+  }
+  return null;
+}
+
+// A linked row was deleted: back its amount out of the split and unlink it.
+export function syncSplitTxRemoval(s: Split, tx: Transaction): Split | null {
+  if ((s.repaymentTxIds ?? []).includes(tx.id)) {
+    const next = recomputeSettlement(s, s.amount, Math.max(0, roundCents((s.repaidAmount || 0) - tx.amount)));
+    return { ...next, repaymentTxIds: (s.repaymentTxIds ?? []).filter((id) => id !== tx.id) };
+  }
+  if (s.frontedTxId && s.frontedTxId === tx.id) {
+    // The fronted cash row is gone but the IOU stands — note-only split.
+    return { ...s, frontedTxId: '' };
+  }
+  if (s.settleTxId && s.settleTxId === tx.id) {
+    // The legacy full-settle transfer is gone: their payback never happened.
+    return recomputeSettlement({ ...s, settleTxId: '' }, s.amount, s.repaidAmount || 0);
+  }
+  if (s.myShareTxId && s.myShareTxId === tx.id) {
+    // Your own share expense was deleted — unlink it so group-edit doesn't
+    // chase a dead row. (No cached number depends on its amount.)
+    return { ...s, myShareTxId: '' };
+  }
+  return null;
 }
 
 // "Per-person" entry mode (the inverse of computeSplitShares' divide mode): each
