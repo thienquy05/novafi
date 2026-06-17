@@ -241,8 +241,11 @@
     "incomeLabel": "Thu nhập",
     "safeguardOverdraftTitle": "Khoản chi này làm tài khoản âm",
     "safeguardBufferTitle": "Khoản chi này tụt xuống dưới mức đệm của bạn",
+    "safeguardOverLimitTitle": "Khoản chi này vượt hạn mức tín dụng của bạn",
     "safeguardDetail": "Số dư dự báo: {projected}",
     "safeguardDetailWithBills": "Số dư dự báo: {projected} (sau {bills} hóa đơn sắp tới)",
+    "safeguardCreditDetail": "Dư nợ dự báo: {projected} trên hạn mức {limit}",
+    "safeguardCreditDetailWithBills": "Dư nợ dự báo: {projected} trên hạn mức {limit} (sau {bills} khoản chi sắp tới)",
     "safeguardBufferNote": "Bạn muốn giữ mức đệm {buffer} ở đây."
   },
   "transactions": {
