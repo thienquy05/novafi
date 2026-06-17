@@ -989,6 +989,8 @@
     "overdraftWillBody": "{balance} hiện có − {bills} hóa đơn = {projected} dự báo",
     "overdraftBufferTitle": "{name} sẽ xuống dưới mức đệm",
     "overdraftBufferBody": "Còn {projected} sau {bills} hóa đơn · dưới mức đệm {buffer}",
+    "creditLimitTitle": "{name} không đủ cho hóa đơn sắp tới",
+    "creditLimitBody": "{available} hạn mức còn lại − {bills} hóa đơn · vượt hạn mức {over}",
     "billTitle": "{name} đã quá hạn",
     "billBody": "{amount} đến hạn ngày {date}",
     "budgetTitle": "Vượt ngân sách: {category}",

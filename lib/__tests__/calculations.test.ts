@@ -2124,6 +2124,38 @@ describe('overdraft safeguard', () => {
       expect(r.belowThreshold).toBe(false);
       expect(r.shortfall).toBe(0);
     });
+
+    it('credit card: flags when upcoming bills push the balance past the limit', () => {
+      // $900 owed on a $1,000 limit ($100 available), $300 of bills charged to it.
+      const card = makeAccount({ id: 'crd', type: 'credit', balance: 900, creditLimit: 1000 });
+      const bills = [makeBill({ account: 'crd', amount: 300, nextDue: '2026-06-15' })];
+      const r = assessAccountOverdraft(card, bills, today);
+      expect(r.kind).toBe('credit');
+      expect(r.availableCredit).toBe(100);
+      expect(r.projectedBalance).toBe(1200); // projected debt
+      expect(r.belowThreshold).toBe(true);
+      expect(r.willOverdraft).toBe(true);
+      expect(r.shortfall).toBe(200); // 1200 − 1000 limit
+    });
+
+    it('credit card: clear when the charges fit under the limit', () => {
+      const card = makeAccount({ id: 'crd', type: 'credit', balance: 200, creditLimit: 1000 });
+      const bills = [makeBill({ account: 'crd', amount: 300, nextDue: '2026-06-15' })];
+      const r = assessAccountOverdraft(card, bills, today);
+      expect(r.kind).toBe('credit');
+      expect(r.belowThreshold).toBe(false);
+      expect(r.shortfall).toBe(0);
+    });
+
+    it('credit card: never warns when there are no upcoming charges', () => {
+      // Already over the limit, but with nothing due there is nothing to pay —
+      // the upcoming-bills alert stays quiet (utilization is a separate nudge).
+      const card = makeAccount({ id: 'crd', type: 'credit', balance: 1200, creditLimit: 1000 });
+      const r = assessAccountOverdraft(card, [], today);
+      expect(r.upcomingTotal).toBe(0);
+      expect(r.belowThreshold).toBe(false);
+      expect(r.willOverdraft).toBe(false);
+    });
   });
 
   describe('detectOverdraftRisks', () => {
@@ -2140,6 +2172,21 @@ describe('overdraft safeguard', () => {
       ];
       const risks = detectOverdraftRisks(accounts, bills, today);
       expect(risks.map((r) => r.account.id)).toEqual(['sav', 'chk']);
+    });
+
+    it('includes credit cards with a limit, sorted in by shortfall', () => {
+      const accounts = [
+        makeAccount({ id: 'chk', type: 'checking', balance: 100 }),                    // short by 50
+        makeAccount({ id: 'card', type: 'credit', balance: 900, creditLimit: 1000 }),  // over by 200
+        makeAccount({ id: 'nolimit', type: 'credit', balance: 5000 }),                 // no limit → skipped
+      ];
+      const bills = [
+        makeBill({ id: 'b1', account: 'chk', amount: 150, nextDue: '2026-06-15' }),
+        makeBill({ id: 'b2', account: 'card', amount: 300, nextDue: '2026-06-15' }),
+        makeBill({ id: 'b3', account: 'nolimit', amount: 9999, nextDue: '2026-06-15' }),
+      ];
+      const risks = detectOverdraftRisks(accounts, bills, today);
+      expect(risks.map((r) => r.account.id)).toEqual(['card', 'chk']); // 200 over, then 50 short
     });
 
     it('returns an empty array when everything is covered', () => {

@@ -85,6 +85,25 @@ describe('buildNotifications', () => {
     expect(b!.id).toBe('budget:bud1');
   });
 
+  it('flags a credit card whose upcoming bills would run it past its limit', () => {
+    // $900 owed on a $1,000 limit, with $300 of bills charged to the card.
+    const accounts = [acc({ id: 'c1', name: 'Visa', type: 'credit', balance: 900, creditLimit: 1000 })];
+    const bills = [bill({ id: 'b1', account: 'c1', amount: 300, nextDue: '2026-06-15' })];
+    const out = buildNotifications({ accounts, bills, budgets: [], transactions: [] }, ctx);
+    const od = out.find((n) => n.type === 'overdraft');
+    expect(od).toBeDefined();
+    expect(od!.id).toBe('overdraft:c1');
+    expect(od!.severity).toBe('critical');
+    expect(od!.title).toContain('creditLimitTitle');
+    expect(od!.href).toBe('/credit');
+  });
+
+  it('does not raise a credit-limit alert when the card has no upcoming bills', () => {
+    const accounts = [acc({ id: 'c1', name: 'Visa', type: 'credit', balance: 800, creditLimit: 1000 })];
+    const out = buildNotifications({ accounts, bills: [], budgets: [], transactions: [] }, ctx);
+    expect(out.find((n) => n.type === 'overdraft')).toBeUndefined();
+  });
+
   it('flags a credit card over 30% utilization', () => {
     const accounts = [acc({ id: 'c1', name: 'Visa', type: 'credit', balance: 800, creditLimit: 1000 })];
     const out = buildNotifications({ accounts, bills: [], budgets: [], transactions: [] }, ctx);
