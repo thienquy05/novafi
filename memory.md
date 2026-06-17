@@ -1986,3 +1986,18 @@ Added `transactions.cardUsed` (section label) — en "Card", vi "Thẻ".
 
 ### Verification
 `tsc --noEmit` clean (no errors in transactions/page.tsx or elsewhere).
+
+## 2026-06-17 — Compact, searchable "Card" filter (branch claude/transaction-filter-tags-28km5g)
+
+The Transactions filter popup rendered every account as a flat flex-wrap of chips under "Card used". That grows unbounded and gets unwieldy as more cards are added, so the section is now searchable + height-capped once the card count is large.
+
+### `app/(app)/transactions/page.tsx`
+- New state `cardFilterQuery` (type-to-filter the card picker; empty = show all). Reset to '' whenever the filter popup is opened (the filter button's onClick).
+- New `CARD_SEARCH_THRESHOLD = 6` and a `visibleCards` useMemo: filters accounts by name/last4 against the query, then **sorts selected cards first** so an active selection is never hidden by a query. Deps `[accounts, cardFilterQuery, accountFilters]`.
+- Card section UI: when `accounts.length > CARD_SEARCH_THRESHOLD`, a small search input (reusing the `Search` icon + an `X` clear button) appears above the chips, and the chip container becomes `max-h-36 overflow-y-auto overscroll-contain`. Below the threshold it renders exactly as before (no search, no scroll cap). Chips now map over `visibleCards` instead of `accounts`; an empty result shows a `noCardsMatch` placeholder. Selection/toggle, styling, and the "Clear (n)" link are unchanged.
+
+### Locales (`locales/en.json`, `locales/vi.json`)
+Added `transactions.searchCards` (en "Search cards…", vi "Tìm thẻ…") and `transactions.noCardsMatch` (en "No cards match", vi "Không có thẻ phù hợp"). vi mirrors en's shape.
+
+### Verification
+`tsc --noEmit` clean; `eslint` 0 errors (only the pre-existing documented warnings); `vitest` 550 passing.

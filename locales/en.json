@@ -295,6 +295,8 @@
     "clearFilters": "Clear Filters",
     "filters": "Filters",
     "cardUsed": "Card",
+    "searchCards": "Search cards…",
+    "noCardsMatch": "No cards match",
     "allTime": "All time",
     "prevMonth": "Previous month",
     "nextMonth": "Next month"

@@ -295,6 +295,8 @@
     "clearFilters": "Xóa bộ lọc",
     "filters": "Bộ lọc",
     "cardUsed": "Thẻ",
+    "searchCards": "Tìm thẻ…",
+    "noCardsMatch": "Không có thẻ phù hợp",
     "allTime": "Tất cả",
     "prevMonth": "Tháng trước",
     "nextMonth": "Tháng sau"
