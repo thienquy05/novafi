@@ -318,6 +318,13 @@ export default function PlanningPage() {
     (b) => calcEffectiveSpent(spentForCategory(b.category), rolledOverDeficit(b)) > monthlyAmount(b)
   ).length;
 
+  // Total effective usage = this month's real spend + every category's rolled-over
+  // deficit. Used as the denominator for each category's "% of spend" share so the
+  // chip is measured against the same effective usage its amount/bar already show —
+  // otherwise the share ignored rollover while the amount beside it included it.
+  const totalRolledOver = budgets.reduce((s, b) => s + rolledOverDeficit(b), 0);
+  const totalUsage = totalMonthSpend + totalRolledOver;
+
   const totalGoalTarget = goals.reduce((s, g) => s + g.targetAmount, 0);
   const totalGoalSaved = goals.reduce((s, g) => {
     const linked = g.linkedAccountId ? accounts.find((a) => a.id === g.linkedAccountId) : null;
@@ -457,7 +464,7 @@ export default function PlanningPage() {
                   const usage = calcEffectiveSpent(spent, rolledOver); // bar usage incl. rolled-over deficit
                   const prevSpent = prevSpentForCategory(budget.category);
                   const rollingAvg = rolling3AvgForCategory(budget.category);
-                  const categoryPct = totalMonthSpend > 0 && spent > 0 ? (spent / totalMonthSpend) * 100 : 0;
+                  const categoryPct = totalUsage > 0 && usage > 0 ? (usage / totalUsage) * 100 : 0;
                   // Compare last month against this month's effective usage — the
                   // rolled-over deficit counts as current-month usage, so the
                   // "vs last mo" figure reflects the bar the user actually sees.

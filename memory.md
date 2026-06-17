@@ -2,6 +2,19 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-17 — Budget "% of spend" chip now includes rolled-over deficit (branch claude/progress-bar-rollover-display-qudeeu)
+
+**Bug (user):** with Budget Rollover on, a category card shows its amount/bar *with* the rolled-over overspend included (e.g. `$150 / $100`), but the small "% of spend" chip beside the category name was computed from this month's real spend only (`$100`), so the percentage "did not count up the roll-over amount, just the current expenses." The progress-bar fill %, the SpendingPaceWidget %, and all amounts were already correct — only this share chip was inconsistent.
+
+**Fix — make the chip's numerator AND denominator effective usage (spend + rollover):**
+- `app/(app)/planning/page.tsx` — added derived `totalRolledOver` (sum of every budget's `rolledOverDeficit()`) and `totalUsage = totalMonthSpend + totalRolledOver`. The per-category `categoryPct` now uses `usage / totalUsage` (was `spent / totalMonthSpend`) and its guard switched `spent > 0` → `usage > 0` so a category whose usage is entirely carried-over still shows a share.
+- `app/(app)/dashboard/page.tsx` — `totalMonthSpend` (passed to `BudgetBars` as `totalSpend`, only used for that chip) now adds `budgetData.reduce(b => b.rolledOver)` on top of the summed `categorySpend`.
+- `app/(app)/dashboard/DashboardCharts.tsx` `BudgetBars` — the chip now divides `usage` (already `b.spent + rolledOver`) by `totalSpend`; guard switched `b.spent > 0` → `usage > 0`.
+
+Denominator includes the rollover too so shares stay meaningful (a single category can't spuriously exceed 100% of "spend"). The budget cap/bar-% model is unchanged.
+
+**Verification:** `tsc --noEmit` clean; `vitest` calculations suite **342 passing**; `eslint` 0 errors (only the pre-existing load-effect setState warning).
+
 ## 2026-06-17 — Quick-Add payment safeguard now covers credit cards too, not just deposit accounts (branch claude/quick-add-payment-safety-0dfoj5)
 
 Follow-up to the prediction-alert change below. The Quick-Add inline safeguard only checked *spendable* deposit accounts (it gated on `isSpendableAccount`), so charging a purchase to a credit card never warned even when it would push the card past its limit — the dashboard prediction alert covered cards but the form didn't. Per the user ("the payment-safety warning should work for all existing accounts … regardless which way to input"), extended the safeguard to every assessable account so the warning fires the same way however a spend is entered.
