@@ -2,6 +2,29 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-17 — Funding pools: auto-archive on full settle-up + manual archive/reopen, and collapsible spend/payback history (branch claude/funding-archive-payment-history-il91t4)
+
+User feedback: "will Funding automatically turn to archive when I receive all the payment from people? If yes that's fine, otherwise add that option plus a manual archive. Also the payment history from a pool should be cleaner instead of showing all transactions at once."
+
+Answer to the question: it did NOT auto-archive. The `closed` flag already existed on `Funding` (persisted in `sheets.ts`, read at `r[9]`), but nothing ever set it — its only effect was hiding the "Spend" button (`!f.closed`). There was no auto-archive and no manual control. Added both, plus collapsed the history lists.
+
+### `lib/funding.ts`
+- New pure helper `isFullySettled(f)`: true only when at least one NON-me participant actually pledged (`contributed > 0`) AND `totalOwed(f) === 0`. The first clause is the guard that keeps a solo "me-only" pool (which owes nothing from the start) from auto-archiving — auto-archive is meant for the moment the group finishes paying you back.
+
+### `app/(app)/funding/page.tsx`
+- **Auto-archive:** `recordPayment` now builds the updated pool, then `justSettled = !base.closed && isFullySettled(base)`; if so it sets `closed: true` and shows the `funding.poolSettledArchived` toast instead of the normal recorded/updated toast. Only fires on the transition (skips if already closed); manual controls below override it. Editing/deleting a payback does NOT auto-reopen — that's left to the manual button so the state is predictable.
+- **Manual archive/reopen:** new `setArchived(f, closed)` flips only the `closed` flag (no cash rows move) via the existing `persist(updated, [], [], key)` path; toasts `funding.poolArchived` / `funding.poolReopened`. Surfaced as a ghost icon button (lucide `Archive` / `ArchiveRestore`) in each card's top-right action group, next to Spend and Delete.
+- **Card rendering extracted** into a `renderPool(f)` closure (was an inline `fundings.map`) so active and archived pools share one renderer. Closed pools render at `opacity-75` with an "Archived" pill (Archive icon) beside the description.
+- **Archived section:** pools split into `activePools` / `archivedPools`. Active ones render first; archived ones live under a collapsible toggle ("Archived (n)") at the bottom, closed by default, using the shared `Collapsible` component. (Empty-state still keyed on `fundings.length === 0`, so an all-archived account shows only the archived section, not the empty card.)
+- **Cleaner history:** the Spends and Paybacks lists are now each a collapsible section (default collapsed). The header became a button showing the section title + a summary `funding.itemsTotal` ("{n} · {amount}" — spend count & `f.spent`, payback count & `totalRepaid`) with a rotating chevron; rows live inside `<Collapsible>`. Per-pool open state tracked in `openSpends` / `openPays` Sets via a `toggle()` helper; archived-section open state in `showArchived`. Imported `totalRepaid`, `isFullySettled`, `Collapsible`, and icons `Archive`/`ArchiveRestore`/`ChevronDown`.
+
+### Locales (`locales/en.json`, `locales/vi.json`)
+- Added `funding.itemsTotal` ("{n} · {amount}"), `archive`, `reopen`, `archivedBadge`, `archivedSection` ("Archived ({n})"), `poolArchived`, `poolReopened`, `poolSettledArchived` ("Everyone's settled up — pool archived"), with Vietnamese equivalents.
+
+### Tests
+- `lib/__tests__/funding.test.ts`: new `isFullySettled` suite — false while anyone still owes (partial payback), true once every other participant is paid in full, and false for a solo me-only pool (nothing to settle).
+- Full suite green (553 tests); `tsc --noEmit` clean; eslint clean on the changed files (the one remaining warning, `set-state-in-effect` on the pre-existing `useEffect(() => { load(); })`, is not from this change).
+
 ## 2026-06-17 — "Won't cover upcoming bills" alert now spans credit cards, not just deposit accounts (branch claude/payment-alert-all-accounts-rid066)
 
 The upcoming-bills overdraft prediction only assessed *spendable* accounts (checking/savings/cash via `isSpendableAccount`), so a bill assigned to a credit card never produced a "won't have enough" alert. A bill's pay-from `account` can be any account type, so this missed cards that real bills are charged to. Extended the alert to credit cards using an available-credit model (per user decision: credit cards = check available credit; loan/investment stay excluded).

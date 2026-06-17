@@ -622,7 +622,15 @@
     "paymentDeleted": "Đã xóa hoàn tiền",
     "confirmDeletePayment": "Xóa khoản hoàn này? Dòng sổ của nó sẽ được hoàn lại.",
     "confirmDelete": "Xóa quỹ này? Các giao dịch tiền sẽ được hoàn lại.",
-    "poolDeleted": "Đã xóa quỹ"
+    "poolDeleted": "Đã xóa quỹ",
+    "itemsTotal": "{n} · {amount}",
+    "archive": "Lưu trữ",
+    "reopen": "Mở lại",
+    "archivedBadge": "Đã lưu trữ",
+    "archivedSection": "Đã lưu trữ ({n})",
+    "poolArchived": "Đã lưu trữ quỹ",
+    "poolReopened": "Đã mở lại quỹ",
+    "poolSettledArchived": "Mọi người đã quyết toán xong — đã lưu trữ quỹ"
   },
   "credit": {
     "title": "Báo cáo tín dụng thông minh",
