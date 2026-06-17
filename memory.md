@@ -1963,3 +1963,26 @@ Added the one remaining real validation gap: a Funding pool spend can no longer 
 **Tests** (`lib/__tests__/funding.test.ts`, +`transactions-route.test.ts` makePool): added coverage for charged-account spends, `buildRepayTx` (tagging + excluded from funding-held), settle-up math, and `groupFundingSpends`. Both `makePool` helpers carry `repayments`.
 
 **Verification:** `tsc --noEmit` clean; `vitest` **544 passing**; `eslint` **0 errors** (pre-existing warnings only, incl. the established load-effect setState pattern).
+
+## 2026-06-17 — Transaction filter redesign: centered popup + filter by card used (branch claude/transaction-filter-redesign-j04v5c)
+
+Reworked how the Transactions filter opens and added a new "card used" (account) filter. The filter *values and UI styling* were kept as-is per request — only the container presentation changed (bottom sheet → centered modal) and a new account section + state were added.
+
+### Centered popup instead of bottom sheet (`app/(app)/transactions/page.tsx`)
+The filter previously slid up from the bottom as a sheet (`fixed bottom-[72px] left-0 right-0 … rounded-t-3xl`, drag-handle, "Done" link, z-40/z-50). Replaced with a centered dialog so it "appears in the middle of the screen":
+- Backdrop: `fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[200]` (raised to `z-[200]` to clear the sticky header z-40 and bottom nav, matching the shared `Modal` component's stacking).
+- Panel: wrapped in a `fixed inset-0 z-[200] flex items-center justify-center p-4 pointer-events-none` container (with safe-area top/bottom padding); the panel itself is `pointer-events-auto w-full max-w-md … rounded-3xl … max-h-[85vh] overflow-y-auto`, entering with an `opacity/scale/y` spring (was a `y:'100%'` slide).
+- Header now matches the `Modal` look: title + a round `X` close button (replaced the drag handle + "Done" text link). `onClick` stopPropagation on the panel; backdrop click still closes.
+
+### New "Card Used" filter (filter by account)
+- State: `accountFilters: string[]` (empty = all cards), plus `toggleAccount(id)`.
+- `filtered` useMemo: added `matchAccount` — `accountFilters.length === 0 || accountFilters.includes(tx.account) || (tx.toAccount && accountFilters.includes(tx.toAccount))`. Matching *either* leg means transfers between cards surface under both. Added `accountFilters` to the memo deps.
+- `filterKey` (paging reset) and `activeFilterCount` now include `accountFilters`.
+- New "Card Used" section in the popup (between Type and Category), shown only when `accounts.length > 0`: one toggle button per account labelled `name ••last4` (last4 omitted when absent), with a per-section "Clear (n)" link — same pill styling as the category buttons.
+- Active-filter chip row gained account chips (`accountName(id)` label, tap to remove). All three "clear" affordances now also reset `accountFilters`: the chip-row clear-all, the empty-state "Clear Filters" button, and the popup's bottom clear button.
+
+### Locales (`locales/en.json`, `locales/vi.json`)
+Added `transactions.cardUsed` (section label) — en "Card", vi "Thẻ".
+
+### Verification
+`tsc --noEmit` clean (no errors in transactions/page.tsx or elsewhere).
