@@ -3,7 +3,7 @@ import {
   othersContribution, myContribution, totalContribution, poolRemaining,
   buildContributionTx, buildSpendTxs, syncFundingTxAmount, syncFundingTxRemoval,
   buildRepayTx, groupFundingSpends, participantOwed, participantRepaid, totalOwed,
-  FUNDING_REPAY_CATEGORY,
+  isFullySettled, FUNDING_REPAY_CATEGORY,
 } from '@/lib/funding';
 import { calcFundingHeld, calcFundingHeldByAccount } from '@/lib/calculations';
 import type { Funding, FundingParticipant, FundingRepayment, Transaction } from '@/types';
@@ -222,6 +222,26 @@ describe('settle-up math', () => {
   it('totalOwed is the sum still outstanding across everyone', () => {
     const pool = makePool({ repayments });
     expect(totalOwed(pool)).toBe(100); // Alex settled, Sam still owes 100, me owes 0
+  });
+});
+
+describe('isFullySettled (auto-archive trigger)', () => {
+  it('false while anyone still owes you', () => {
+    const pool = makePool({ repayments: [{ id: 'r1', participant: 'Alex', amount: 60, account: 'cash1', date: '2026-06-20' }] });
+    expect(isFullySettled(pool)).toBe(false); // Alex partial, Sam unpaid
+  });
+
+  it('true once every other participant has paid you back', () => {
+    const repayments: FundingRepayment[] = [
+      { id: 'r1', participant: 'Alex', amount: 100, account: 'cash1', date: '2026-06-20' },
+      { id: 'r2', participant: 'Sam', amount: 100, account: 'cash1', date: '2026-06-21' },
+    ];
+    expect(isFullySettled(makePool({ repayments }))).toBe(true);
+  });
+
+  it('false for a solo pool where only "me" pledged (nothing to settle)', () => {
+    const solo = makePool({ participants: [{ name: 'Me', contributed: 100, isMe: true }], repayments: [] });
+    expect(isFullySettled(solo)).toBe(false); // nobody else owed → not an auto-archive case
   });
 });
 

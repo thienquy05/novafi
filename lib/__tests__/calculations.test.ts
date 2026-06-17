@@ -2219,6 +2219,34 @@ describe('overdraft safeguard', () => {
       const rich = makeAccount({ id: 'chk', type: 'checking', balance: 500, minBalance: 60 });
       const r = evaluatePaymentSafety({ account: rich, amount: 50, bills, today });
       expect(r.status).toBe('ok');
+      expect(r.kind).toBe('deposit');
+    });
+
+    it('flags over-limit when a charge plus upcoming charges pass a card limit', () => {
+      const card = makeAccount({ id: 'cc', type: 'credit', balance: 800, creditLimit: 1000 });
+      const cardBills = [makeBill({ account: 'cc', amount: 150, nextDue: '2026-06-15' })];
+      const r = evaluatePaymentSafety({ account: card, amount: 100, bills: cardBills, today });
+      // 800 owed + 100 charge + 150 upcoming = 1050 projected debt, over the 1000 limit
+      expect(r.kind).toBe('credit');
+      expect(r.projectedBalance).toBe(1050);
+      expect(r.status).toBe('overLimit');
+      expect(r.shortfall).toBe(50);
+      expect(r.availableCredit).toBe(200);
+    });
+
+    it('is ok on a card when the charge stays within the limit', () => {
+      const card = makeAccount({ id: 'cc', type: 'credit', balance: 200, creditLimit: 1000 });
+      const r = evaluatePaymentSafety({ account: card, amount: 100, bills: [], today });
+      expect(r.kind).toBe('credit');
+      expect(r.projectedBalance).toBe(300);
+      expect(r.status).toBe('ok');
+    });
+
+    it('never warns on a card with no limit set (no ceiling to draw)', () => {
+      const card = makeAccount({ id: 'cc', type: 'credit', balance: 9000 });
+      const r = evaluatePaymentSafety({ account: card, amount: 5000, bills: [], today });
+      expect(r.kind).toBe('credit');
+      expect(r.status).toBe('ok');
     });
   });
 

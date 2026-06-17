@@ -1837,7 +1837,7 @@ export function assessAccountOverdraft(
 // accounts (checking/savings/cash) plus credit cards that have a credit limit
 // set (the ceiling we project the charges against). Loan/investment and
 // limit-less cards are skipped — there's no meaningful line to draw.
-function isOverdraftAssessable(account: Account): boolean {
+export function isOverdraftAssessable(account: Account): boolean {
   if (isSpendableAccount(account)) return true;
   return account.type === 'credit' && (account.creditLimit ?? 0) > 0;
 }
@@ -1861,19 +1861,30 @@ export function detectOverdraftRisks(
 
 export type PaymentSafety = {
   account: Account;
-  amount: number;                // the prospective payment (floored at 0)
+  // 'deposit' = cash-drawdown model (checking/savings/cash): the payment spends a
+  // real balance down toward the minBalance buffer. 'credit' = available-credit
+  // model (credit cards): the charge adds to the debt and the ceiling is the limit.
+  kind: 'deposit' | 'credit';
+  amount: number;                // the prospective payment/charge (floored at 0)
   upcomingTotal: number;         // upcoming bills drawn from this account (your share)
-  balanceAfterPayment: number;   // currentBalance − amount
-  projectedBalance: number;      // currentBalance − amount − upcomingTotal
-  threshold: number;             // the account's minBalance buffer
-  shortfall: number;             // max(0, threshold − projectedBalance)
-  status: 'ok' | 'belowBuffer' | 'overdraft';
+  balanceAfterPayment: number;   // deposit: balance − amount; credit: debt after the charge (balance + amount)
+  projectedBalance: number;      // deposit: balanceAfter − upcomingTotal; credit: projected debt = balanceAfter + upcomingTotal
+  threshold: number;             // deposit: the minBalance buffer; credit: the credit limit
+  shortfall: number;             // deposit: max(0, threshold − projected); credit: max(0, projected debt − limit)
+  status: 'ok' | 'belowBuffer' | 'overdraft' | 'overLimit';
+  // Credit cards only — the headroom before this charge lands (limit − balance).
+  availableCredit?: number;
 };
 
 // Evaluate a prospective payment (an expense or a transfer OUT) against the
-// account's buffer and its upcoming bills — what the Quick-Add form checks before
-// you save. 'overdraft' = the money itself goes negative; 'belowBuffer' = it
-// stays positive but dips under the cushion you set; 'ok' = safe.
+// account's safety line and its upcoming bills — what the Quick-Add form checks
+// before you save. Mirrors assessAccountOverdraft so both the prediction alert
+// and the inline form warn on the same accounts, however the spend is entered.
+// Deposit accounts (checking/savings/cash) spend a real balance down toward the
+// minBalance buffer: 'overdraft' = the money itself goes negative; 'belowBuffer'
+// = it stays positive but dips under the cushion you set. Credit cards charge the
+// spend as new debt toward the credit limit: 'overLimit' = the charge (plus
+// upcoming charges) would run past the limit. 'ok' = safe.
 export function evaluatePaymentSafety(input: {
   account: Account;
   amount: number;
@@ -1888,6 +1899,31 @@ export function evaluatePaymentSafety(input: {
     accountUpcomingBills(account.id, bills, today, horizonDays).reduce((s, u) => s + u.share, 0),
   );
   const pay = Math.max(0, roundCents(input.amount || 0));
+
+  if (account.type === 'credit') {
+    // Available-credit model: this charge plus the upcoming charges push the debt
+    // toward the card's limit. With no limit set we can't draw the line, so we
+    // never warn (caller's isOverdraftAssessable filters those cards out too).
+    const creditLimit = Math.max(0, account.creditLimit ?? 0);
+    const balanceAfterPayment = roundCents(account.balance + pay);
+    const projectedBalance = roundCents(balanceAfterPayment + upcomingTotal);
+    const availableCredit = roundCents(creditLimit - account.balance);
+    const overLimit = creditLimit > 0 && projectedBalance > creditLimit;
+    const shortfall = Math.max(0, roundCents(projectedBalance - creditLimit));
+    return {
+      account,
+      kind: 'credit',
+      amount: pay,
+      upcomingTotal,
+      balanceAfterPayment,
+      projectedBalance,
+      threshold: creditLimit,
+      shortfall,
+      status: overLimit ? 'overLimit' : 'ok',
+      availableCredit,
+    };
+  }
+
   const balanceAfterPayment = roundCents(account.balance - pay);
   const projectedBalance = roundCents(balanceAfterPayment - upcomingTotal);
   const threshold = Math.max(0, account.minBalance ?? 0);
@@ -1896,7 +1932,7 @@ export function evaluatePaymentSafety(input: {
     projectedBalance < 0 ? 'overdraft' :
     projectedBalance < threshold ? 'belowBuffer' :
     'ok';
-  return { account, amount: pay, upcomingTotal, balanceAfterPayment, projectedBalance, threshold, shortfall, status };
+  return { account, kind: 'deposit', amount: pay, upcomingTotal, balanceAfterPayment, projectedBalance, threshold, shortfall, status };
 }
 
 // ── Net Worth Projection ──────────────────────────────────────────────────────

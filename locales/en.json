@@ -241,8 +241,11 @@
     "incomeLabel": "Income",
     "safeguardOverdraftTitle": "This payment overdraws the account",
     "safeguardBufferTitle": "This payment dips below your buffer",
+    "safeguardOverLimitTitle": "This charge exceeds your credit limit",
     "safeguardDetail": "Projected balance: {projected}",
     "safeguardDetailWithBills": "Projected balance: {projected} (after {bills} of upcoming bills)",
+    "safeguardCreditDetail": "Projected balance owed: {projected} of your {limit} limit",
+    "safeguardCreditDetailWithBills": "Projected balance owed: {projected} of your {limit} limit (after {bills} of upcoming charges)",
     "safeguardBufferNote": "You asked to keep a {buffer} buffer here."
   },
   "transactions": {
@@ -624,7 +627,15 @@
     "paymentDeleted": "Payback deleted",
     "confirmDeletePayment": "Delete this payback? Its ledger row will be reversed.",
     "confirmDelete": "Delete this pool? Its cash movements will be reversed.",
-    "poolDeleted": "Pool deleted"
+    "poolDeleted": "Pool deleted",
+    "itemsTotal": "{n} · {amount}",
+    "archive": "Archive",
+    "reopen": "Reopen",
+    "archivedBadge": "Archived",
+    "archivedSection": "Archived ({n})",
+    "poolArchived": "Pool archived",
+    "poolReopened": "Pool reopened",
+    "poolSettledArchived": "Everyone's settled up — pool archived"
   },
   "credit": {
     "title": "Smart Credit Report",

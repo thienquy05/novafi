@@ -241,8 +241,11 @@
     "incomeLabel": "Thu nhập",
     "safeguardOverdraftTitle": "Khoản chi này làm tài khoản âm",
     "safeguardBufferTitle": "Khoản chi này tụt xuống dưới mức đệm của bạn",
+    "safeguardOverLimitTitle": "Khoản chi này vượt hạn mức tín dụng của bạn",
     "safeguardDetail": "Số dư dự báo: {projected}",
     "safeguardDetailWithBills": "Số dư dự báo: {projected} (sau {bills} hóa đơn sắp tới)",
+    "safeguardCreditDetail": "Dư nợ dự báo: {projected} trên hạn mức {limit}",
+    "safeguardCreditDetailWithBills": "Dư nợ dự báo: {projected} trên hạn mức {limit} (sau {bills} khoản chi sắp tới)",
     "safeguardBufferNote": "Bạn muốn giữ mức đệm {buffer} ở đây."
   },
   "transactions": {
@@ -624,7 +627,15 @@
     "paymentDeleted": "Đã xóa hoàn tiền",
     "confirmDeletePayment": "Xóa khoản hoàn này? Dòng sổ của nó sẽ được hoàn lại.",
     "confirmDelete": "Xóa quỹ này? Các giao dịch tiền sẽ được hoàn lại.",
-    "poolDeleted": "Đã xóa quỹ"
+    "poolDeleted": "Đã xóa quỹ",
+    "itemsTotal": "{n} · {amount}",
+    "archive": "Lưu trữ",
+    "reopen": "Mở lại",
+    "archivedBadge": "Đã lưu trữ",
+    "archivedSection": "Đã lưu trữ ({n})",
+    "poolArchived": "Đã lưu trữ quỹ",
+    "poolReopened": "Đã mở lại quỹ",
+    "poolSettledArchived": "Mọi người đã quyết toán xong — đã lưu trữ quỹ"
   },
   "credit": {
     "title": "Báo cáo tín dụng thông minh",

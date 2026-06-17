@@ -57,6 +57,15 @@ export function totalOwed(f: Pick<Funding, 'participants' | 'repayments'>): numb
   return round(f.participants.reduce((s, p) => s + participantOwed(p, f.repayments), 0));
 }
 
+// A pool is "fully settled" once at least one OTHER person actually pledged money
+// and nobody owes you anything anymore. The first clause matters: a solo pool (only
+// the "me" row) owes nothing from the start, and we don't want to auto-archive that.
+// Used to auto-archive on the final payback.
+export function isFullySettled(f: Pick<Funding, 'participants' | 'repayments'>): boolean {
+  const someoneOwedYou = f.participants.some((p) => !p.isMe && (p.contributed || 0) > 0);
+  return someoneOwedYou && totalOwed(f) === 0;
+}
+
 // The transfer that brings OTHERS' cash into the holding account (not income).
 // Returns null when nobody else contributed (nothing to move).
 export function buildContributionTx(

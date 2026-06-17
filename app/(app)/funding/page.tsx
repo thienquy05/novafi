@@ -1,12 +1,13 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { CircleDollarSign, Plus, Trash2, Users, Wallet, RefreshCw, AlertCircle, MinusCircle, UserPlus, Pencil, HandCoins } from 'lucide-react';
+import { CircleDollarSign, Plus, Trash2, Users, Wallet, RefreshCw, AlertCircle, MinusCircle, UserPlus, Pencil, HandCoins, Archive, ArchiveRestore, ChevronDown } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
+import { Collapsible } from '@/components/ui/Collapsible';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
@@ -17,6 +18,7 @@ import type { Account, Funding, FundingParticipant, FundingRepayment, Transactio
 import {
   myContribution, totalContribution, poolRemaining,
   buildSpendTxs, buildRepayTx, groupFundingSpends, participantOwed, participantRepaid, totalOwed,
+  totalRepaid, isFullySettled,
   type FundingSpend,
 } from '@/lib/funding';
 import { applyTransactionToBalances } from '@/lib/calculations';
@@ -52,6 +54,18 @@ export default function FundingPage() {
   const [spendMine, setSpendMine] = useState('');
   const [spendDesc, setSpendDesc] = useState('');
   const [spendAccount, setSpendAccount] = useState('');
+
+  // Which pools' spend / payback history is expanded (collapsed by default to keep
+  // the card tidy), plus whether the archived-pools section is open.
+  const [openSpends, setOpenSpends] = useState<Set<string>>(new Set());
+  const [openPays, setOpenPays] = useState<Set<string>>(new Set());
+  const [showArchived, setShowArchived] = useState(false);
+  const toggle = (set: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) =>
+    set((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
 
   // Settle-up / record-payment modal (also serves editing a payment)
   const [payFor, setPayFor] = useState<Funding | null>(null);
@@ -227,13 +241,18 @@ export default function FundingPage() {
     const note = t('funding.paymentDesc', { name: payWho, desc: payFor.description });
     const { tx, repayment } = buildRepayTx(payAccount, amount, payWho, note, date);
     const removeTxIds = editingPay ? [editingPay.id] : [];
-    const updated: Funding = {
+    const base: Funding = {
       ...payFor,
       repayments: [...payFor.repayments.filter((r) => r.id !== editingPay?.id), repayment],
     };
+    // Auto-archive the moment this payback settles everyone up (only if it wasn't
+    // already wrapped up). Manual archive/reopen below can always override.
+    const justSettled = !base.closed && isFullySettled(base);
+    const updated: Funding = justSettled ? { ...base, closed: true } : base;
     setFundings((prev) => prev.map((f) => f.id === updated.id ? updated : f));
     setPayFor(null); setEditingPay(null);
-    await persist(updated, [tx], removeTxIds, editingPay ? 'funding.paymentUpdated' : 'funding.paymentRecorded');
+    const successKey = justSettled ? 'funding.poolSettledArchived' : editingPay ? 'funding.paymentUpdated' : 'funding.paymentRecorded';
+    await persist(updated, [tx], removeTxIds, successKey);
   }
 
   async function deletePayment(f: Funding, r: FundingRepayment) {
@@ -241,6 +260,14 @@ export default function FundingPage() {
     const updated: Funding = { ...f, repayments: f.repayments.filter((x) => x.id !== r.id) };
     setFundings((prev) => prev.map((x) => x.id === updated.id ? updated : x));
     await persist(updated, [], [r.id], 'funding.paymentDeleted');
+  }
+
+  // Manual wrap-up: archive a pool (e.g. you're done even if not fully settled) or
+  // reopen one. No cash rows move — this only flips the pool's `closed` flag.
+  async function setArchived(f: Funding, closed: boolean) {
+    const updated: Funding = { ...f, closed };
+    setFundings((prev) => prev.map((x) => x.id === f.id ? updated : x));
+    await persist(updated, [], [], closed ? 'funding.poolArchived' : 'funding.poolReopened');
   }
 
   async function deletePool(f: Funding) {
@@ -261,6 +288,179 @@ export default function FundingPage() {
 
   const draftTotal = totalContribution(draftParticipants());
   const hasAccounts = accounts.length > 0;
+  const activePools = fundings.filter((f) => !f.closed);
+  const archivedPools = fundings.filter((f) => f.closed);
+
+  function renderPool(f: Funding) {
+    const remaining = poolRemaining(f);
+    const myShare = myContribution(f.participants);
+    const owed = totalOwed(f);
+    const spends = groupFundingSpends(f.spendTxIds, transactions);
+    const spendsOpen = openSpends.has(f.id);
+    const paysOpen = openPays.has(f.id);
+    return (
+      <Card key={f.id} className={`space-y-4 ${f.closed ? 'opacity-75' : ''}`}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-bold text-slate-900 dark:text-slate-100 truncate flex items-center gap-2">
+              {f.description}
+              {f.closed && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full">
+                  <Archive className="w-3 h-3" />{t('funding.archivedBadge')}
+                </span>
+              )}
+            </p>
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
+              {t('funding.virtualBadge')} · {formatDate(f.date)}
+            </p>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            {!f.closed && (
+              <Button variant="secondary" size="sm" onClick={() => openSpend(f)}>
+                <MinusCircle className="w-4 h-4" />{t('funding.spend')}
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 h-9 w-9 rounded-xl"
+              onClick={() => setArchived(f, !f.closed)}
+              aria-label={f.closed ? t('funding.reopen') : t('funding.archive')}
+              title={f.closed ? t('funding.reopen') : t('funding.archive')}
+            >
+              {f.closed ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
+            </Button>
+            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 h-9 w-9 rounded-xl" onClick={() => deletePool(f)}><Trash2 className="w-4 h-4" /></Button>
+          </div>
+        </div>
+
+        {/* Pool figures */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-3">
+            <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('funding.pool')}</p>
+            <p className="text-base font-extrabold text-slate-900 dark:text-slate-100 mt-0.5">{formatCurrency(f.totalContributed)}</p>
+          </div>
+          <div className="rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-3">
+            <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('funding.spent')}</p>
+            <p className="text-base font-extrabold text-rose-600 dark:text-rose-400 mt-0.5">{formatCurrency(f.spent)}</p>
+          </div>
+          <div className={`rounded-2xl p-3 border ${remaining < 0 ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-100 dark:border-amber-800/40' : 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800/40'}`}>
+            <p className={`text-[11px] font-bold uppercase tracking-wider ${remaining < 0 ? 'text-amber-700/80 dark:text-amber-400/80' : 'text-emerald-700/80 dark:text-emerald-400/80'}`}>{remaining < 0 ? t('funding.overspent') : t('funding.remaining')}</p>
+            <p className={`text-base font-extrabold mt-0.5 ${remaining < 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{formatCurrency(Math.abs(remaining))}</p>
+          </div>
+        </div>
+
+        {/* Participants — pledge, paid back, and what's still owed */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Users className="w-3.5 h-3.5" />{t('funding.contributors', { n: f.participants.length })}
+            </p>
+            {owed > 0 && (
+              <Button variant="ghost" size="sm" className="text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 h-8" onClick={() => openPay(f)}>
+                <HandCoins className="w-4 h-4" />{t('funding.recordPayment')}
+              </Button>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            {f.participants.map((p, i) => {
+              const owe = participantOwed(p, f.repayments);
+              const paid = participantRepaid(f.repayments, p.name);
+              return (
+                <div key={i} className="flex items-center justify-between gap-2 text-sm">
+                  <span className={`inline-flex items-center gap-1.5 font-bold px-2.5 py-1 rounded-lg ${p.isMe ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
+                    {p.name}<span className="opacity-70">{formatCurrency(p.contributed)}</span>
+                  </span>
+                  {p.isMe ? (
+                    <span className="text-xs font-medium text-slate-400 dark:text-slate-500">{t('funding.yourPledge')}</span>
+                  ) : owe > 0 ? (
+                    <button onClick={() => openPay(f, p)} className="text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline">
+                      {t('funding.owesYou', { amount: formatCurrency(owe) })}
+                    </button>
+                  ) : (
+                    <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">{paid > 0 ? t('funding.settledUp') : t('funding.nothingOwed')}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {myShare > 0 && (
+            <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 mt-2">{t('funding.yourStake', { amount: formatCurrency(myShare) })}</p>
+          )}
+        </div>
+
+        {/* Spends — collapsed to a summary row; expand to see/edit each one */}
+        {spends.length > 0 && (
+          <div>
+            <button
+              onClick={() => toggle(setOpenSpends, f.id)}
+              className="w-full flex items-center justify-between gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+              aria-expanded={spendsOpen}
+            >
+              <span className="flex items-center gap-1.5">
+                {t('funding.spendsTitle')}
+                <span className="normal-case tracking-normal text-slate-400 dark:text-slate-500">· {t('funding.itemsTotal', { n: spends.length, amount: formatCurrency(f.spent) })}</span>
+              </span>
+              <ChevronDown className={`w-4 h-4 transition-transform ${spendsOpen ? 'rotate-180' : ''}`} />
+            </button>
+            <Collapsible open={spendsOpen}>
+              <div className="space-y-1.5">
+                {spends.map((s) => (
+                  <div key={s.key} className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{s.description}</p>
+                      <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
+                        {t('funding.chargedTo', { account: accountName(s.chargedAccount) })}{s.myShare > 0 ? ` · ${t('funding.yourShareOf', { amount: formatCurrency(s.myShare) })}` : ''} · {formatDate(s.date)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-sm font-extrabold text-rose-600 dark:text-rose-400">{formatCurrency(s.amount)}</span>
+                      <button onClick={() => openEditSpend(f, s)} className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1.5 rounded-lg" aria-label={t('funding.edit')}><Pencil className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => deleteSpend(f, s)} className="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-1.5 rounded-lg" aria-label={t('common.delete')}><Trash2 className="w-3.5 h-3.5" /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Collapsible>
+          </div>
+        )}
+
+        {/* Repayments — collapsed to a summary row; expand to see/edit each one */}
+        {f.repayments.length > 0 && (
+          <div>
+            <button
+              onClick={() => toggle(setOpenPays, f.id)}
+              className="w-full flex items-center justify-between gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+              aria-expanded={paysOpen}
+            >
+              <span className="flex items-center gap-1.5">
+                {t('funding.paymentsTitle')}
+                <span className="normal-case tracking-normal text-slate-400 dark:text-slate-500">· {t('funding.itemsTotal', { n: f.repayments.length, amount: formatCurrency(totalRepaid(f.repayments)) })}</span>
+              </span>
+              <ChevronDown className={`w-4 h-4 transition-transform ${paysOpen ? 'rotate-180' : ''}`} />
+            </button>
+            <Collapsible open={paysOpen}>
+              <div className="space-y-1.5">
+                {f.repayments.map((r) => (
+                  <div key={r.id} className="flex items-center justify-between gap-2 rounded-xl bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-800/40 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{r.participant}</p>
+                      <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">{t('funding.paidInto', { account: accountName(r.account) })} · {formatDate(r.date)}</p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">{formatCurrency(r.amount)}</span>
+                      <button onClick={() => openEditPay(f, r)} className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1.5 rounded-lg" aria-label={t('funding.edit')}><Pencil className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => deletePayment(f, r)} className="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-1.5 rounded-lg" aria-label={t('common.delete')}><Trash2 className="w-3.5 h-3.5" /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Collapsible>
+          </div>
+        )}
+      </Card>
+    );
+  }
 
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto space-y-6 sm:space-y-7 pb-24 md:pb-8">
@@ -318,133 +518,28 @@ export default function FundingPage() {
         </Card>
       ) : (
         <div className="space-y-4">
-          {fundings.map((f) => {
-            const remaining = poolRemaining(f);
-            const myShare = myContribution(f.participants);
-            const owed = totalOwed(f);
-            const spends = groupFundingSpends(f.spendTxIds, transactions);
-            return (
-              <Card key={f.id} className="space-y-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-bold text-slate-900 dark:text-slate-100 truncate">{f.description}</p>
-                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
-                      {t('funding.virtualBadge')} · {formatDate(f.date)}
-                    </p>
-                  </div>
-                  <div className="flex gap-2 shrink-0">
-                    {!f.closed && (
-                      <Button variant="secondary" size="sm" onClick={() => openSpend(f)}>
-                        <MinusCircle className="w-4 h-4" />{t('funding.spend')}
-                      </Button>
-                    )}
-                    <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 h-9 w-9 rounded-xl" onClick={() => deletePool(f)}><Trash2 className="w-4 h-4" /></Button>
-                  </div>
+          {activePools.map((f) => renderPool(f))}
+
+          {/* Archived pools — wrapped-up / fully-settled, tucked behind a toggle */}
+          {archivedPools.length > 0 && (
+            <div className="pt-2">
+              <button
+                onClick={() => setShowArchived((v) => !v)}
+                className="w-full flex items-center justify-between gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider px-1 py-2 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+                aria-expanded={showArchived}
+              >
+                <span className="flex items-center gap-1.5">
+                  <Archive className="w-3.5 h-3.5" />{t('funding.archivedSection', { n: archivedPools.length })}
+                </span>
+                <ChevronDown className={`w-4 h-4 transition-transform ${showArchived ? 'rotate-180' : ''}`} />
+              </button>
+              <Collapsible open={showArchived}>
+                <div className="space-y-4 pt-2">
+                  {archivedPools.map((f) => renderPool(f))}
                 </div>
-
-                {/* Pool figures */}
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-3">
-                    <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('funding.pool')}</p>
-                    <p className="text-base font-extrabold text-slate-900 dark:text-slate-100 mt-0.5">{formatCurrency(f.totalContributed)}</p>
-                  </div>
-                  <div className="rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-3">
-                    <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('funding.spent')}</p>
-                    <p className="text-base font-extrabold text-rose-600 dark:text-rose-400 mt-0.5">{formatCurrency(f.spent)}</p>
-                  </div>
-                  <div className={`rounded-2xl p-3 border ${remaining < 0 ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-100 dark:border-amber-800/40' : 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800/40'}`}>
-                    <p className={`text-[11px] font-bold uppercase tracking-wider ${remaining < 0 ? 'text-amber-700/80 dark:text-amber-400/80' : 'text-emerald-700/80 dark:text-emerald-400/80'}`}>{remaining < 0 ? t('funding.overspent') : t('funding.remaining')}</p>
-                    <p className={`text-base font-extrabold mt-0.5 ${remaining < 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{formatCurrency(Math.abs(remaining))}</p>
-                  </div>
-                </div>
-
-                {/* Participants — pledge, paid back, and what's still owed */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <Users className="w-3.5 h-3.5" />{t('funding.contributors', { n: f.participants.length })}
-                    </p>
-                    {owed > 0 && (
-                      <Button variant="ghost" size="sm" className="text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 h-8" onClick={() => openPay(f)}>
-                        <HandCoins className="w-4 h-4" />{t('funding.recordPayment')}
-                      </Button>
-                    )}
-                  </div>
-                  <div className="space-y-1.5">
-                    {f.participants.map((p, i) => {
-                      const owe = participantOwed(p, f.repayments);
-                      const paid = participantRepaid(f.repayments, p.name);
-                      return (
-                        <div key={i} className="flex items-center justify-between gap-2 text-sm">
-                          <span className={`inline-flex items-center gap-1.5 font-bold px-2.5 py-1 rounded-lg ${p.isMe ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
-                            {p.name}<span className="opacity-70">{formatCurrency(p.contributed)}</span>
-                          </span>
-                          {p.isMe ? (
-                            <span className="text-xs font-medium text-slate-400 dark:text-slate-500">{t('funding.yourPledge')}</span>
-                          ) : owe > 0 ? (
-                            <button onClick={() => openPay(f, p)} className="text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline">
-                              {t('funding.owesYou', { amount: formatCurrency(owe) })}
-                            </button>
-                          ) : (
-                            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">{paid > 0 ? t('funding.settledUp') : t('funding.nothingOwed')}</span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {myShare > 0 && (
-                    <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 mt-2">{t('funding.yourStake', { amount: formatCurrency(myShare) })}</p>
-                  )}
-                </div>
-
-                {/* Spends — each charged to a real account, editable */}
-                {spends.length > 0 && (
-                  <div>
-                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">{t('funding.spendsTitle')}</p>
-                    <div className="space-y-1.5">
-                      {spends.map((s) => (
-                        <div key={s.key} className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 px-3 py-2">
-                          <div className="min-w-0">
-                            <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{s.description}</p>
-                            <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
-                              {t('funding.chargedTo', { account: accountName(s.chargedAccount) })}{s.myShare > 0 ? ` · ${t('funding.yourShareOf', { amount: formatCurrency(s.myShare) })}` : ''} · {formatDate(s.date)}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <span className="text-sm font-extrabold text-rose-600 dark:text-rose-400">{formatCurrency(s.amount)}</span>
-                            <button onClick={() => openEditSpend(f, s)} className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1.5 rounded-lg" aria-label={t('funding.edit')}><Pencil className="w-3.5 h-3.5" /></button>
-                            <button onClick={() => deleteSpend(f, s)} className="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-1.5 rounded-lg" aria-label={t('common.delete')}><Trash2 className="w-3.5 h-3.5" /></button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Repayments — who paid you back, editable */}
-                {f.repayments.length > 0 && (
-                  <div>
-                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">{t('funding.paymentsTitle')}</p>
-                    <div className="space-y-1.5">
-                      {f.repayments.map((r) => (
-                        <div key={r.id} className="flex items-center justify-between gap-2 rounded-xl bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-800/40 px-3 py-2">
-                          <div className="min-w-0">
-                            <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{r.participant}</p>
-                            <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">{t('funding.paidInto', { account: accountName(r.account) })} · {formatDate(r.date)}</p>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">{formatCurrency(r.amount)}</span>
-                            <button onClick={() => openEditPay(f, r)} className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1.5 rounded-lg" aria-label={t('funding.edit')}><Pencil className="w-3.5 h-3.5" /></button>
-                            <button onClick={() => deletePayment(f, r)} className="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-1.5 rounded-lg" aria-label={t('common.delete')}><Trash2 className="w-3.5 h-3.5" /></button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </Card>
-            );
-          })}
+              </Collapsible>
+            </div>
+          )}
         </div>
       )}
 
