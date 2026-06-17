@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { generateId, today, formatCurrency } from '@/lib/utils';
-import { evaluatePaymentSafety, isSpendableAccount } from '@/lib/calculations';
+import { evaluatePaymentSafety, isOverdraftAssessable } from '@/lib/calculations';
 import type { Account, Bill, Transaction } from '@/types';
 import { useCategories } from '@/hooks/useCategories';
 import { useTranslation } from '@/lib/i18n/context';
@@ -61,15 +61,18 @@ export function QuickAddTransaction({ accounts: accountsProp, bills: billsProp, 
 
   const categories = form.type === 'expense' ? expenseCategories : incomeCategories;
 
-  // Low-balance safeguard: for a payment leaving a spendable account (an expense,
-  // or the FROM side of a transfer), check whether it would push that account
-  // negative or below its buffer once upcoming bills are accounted for.
+  // Payment safeguard: for a spend leaving the selected account (an expense, or
+  // the FROM side of a transfer), check whether it would breach that account's
+  // safety line once upcoming bills are accounted for. Covers every assessable
+  // account — deposit accounts (overdraft / below buffer) and credit cards with a
+  // limit (over the credit limit) — so the warning fires however the spend is
+  // entered, matching the dashboard prediction alert.
   const safety = (() => {
     if (form.type === 'income') return null;
     const amount = parseFloat(form.amount) || 0;
     if (!form.account || amount <= 0) return null;
     const account = accounts.find((a) => a.id === form.account);
-    if (!account || !isSpendableAccount(account)) return null;
+    if (!account || !isOverdraftAssessable(account)) return null;
     const result = evaluatePaymentSafety({ account, amount, bills });
     return result.status === 'ok' ? null : result;
   })();
@@ -240,28 +243,42 @@ export function QuickAddTransaction({ accounts: accountsProp, bills: billsProp, 
             )}
           </div>
 
-          {/* Low-balance safeguard — warns before the payment overdraws the
-              account or eats into the buffer you set on it. */}
-          {safety && (
-            <div className={`flex items-start gap-3 px-4 py-3 rounded-2xl border ${
-              safety.status === 'overdraft'
-                ? 'bg-rose-50 dark:bg-rose-900/30 border-rose-200 dark:border-rose-800/50'
-                : 'bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800/50'
-            }`}>
-              <AlertTriangle className={`w-5 h-5 shrink-0 mt-0.5 ${safety.status === 'overdraft' ? 'text-rose-500 dark:text-rose-400' : 'text-amber-500 dark:text-amber-400'}`} />
-              <div className="min-w-0">
-                <p className={`text-sm font-bold ${safety.status === 'overdraft' ? 'text-rose-700 dark:text-rose-300' : 'text-amber-700 dark:text-amber-300'}`}>
-                  {safety.status === 'overdraft' ? t('quickAdd.safeguardOverdraftTitle') : t('quickAdd.safeguardBufferTitle')}
-                </p>
-                <p className={`text-xs font-medium mt-0.5 ${safety.status === 'overdraft' ? 'text-rose-600 dark:text-rose-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                  {safety.upcomingTotal > 0
-                    ? t('quickAdd.safeguardDetailWithBills', { projected: formatCurrency(safety.projectedBalance), bills: formatCurrency(safety.upcomingTotal) })
-                    : t('quickAdd.safeguardDetail', { projected: formatCurrency(safety.projectedBalance) })}
-                  {safety.status === 'belowBuffer' ? ` ${t('quickAdd.safeguardBufferNote', { buffer: formatCurrency(safety.threshold) })}` : ''}
-                </p>
+          {/* Payment safeguard — warns before the spend overdraws a deposit
+              account, eats into the buffer you set, or runs a credit card past
+              its limit. `severe` (overdraft / over-limit) shows red, a buffer dip
+              shows amber. */}
+          {safety && (() => {
+            const severe = safety.status === 'overdraft' || safety.status === 'overLimit';
+            const title =
+              safety.status === 'overdraft' ? t('quickAdd.safeguardOverdraftTitle')
+              : safety.status === 'overLimit' ? t('quickAdd.safeguardOverLimitTitle')
+              : t('quickAdd.safeguardBufferTitle');
+            const detail = safety.kind === 'credit'
+              ? (safety.upcomingTotal > 0
+                  ? t('quickAdd.safeguardCreditDetailWithBills', { projected: formatCurrency(safety.projectedBalance), limit: formatCurrency(safety.threshold), bills: formatCurrency(safety.upcomingTotal) })
+                  : t('quickAdd.safeguardCreditDetail', { projected: formatCurrency(safety.projectedBalance), limit: formatCurrency(safety.threshold) }))
+              : (safety.upcomingTotal > 0
+                  ? t('quickAdd.safeguardDetailWithBills', { projected: formatCurrency(safety.projectedBalance), bills: formatCurrency(safety.upcomingTotal) })
+                  : t('quickAdd.safeguardDetail', { projected: formatCurrency(safety.projectedBalance) }));
+            return (
+              <div className={`flex items-start gap-3 px-4 py-3 rounded-2xl border ${
+                severe
+                  ? 'bg-rose-50 dark:bg-rose-900/30 border-rose-200 dark:border-rose-800/50'
+                  : 'bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800/50'
+              }`}>
+                <AlertTriangle className={`w-5 h-5 shrink-0 mt-0.5 ${severe ? 'text-rose-500 dark:text-rose-400' : 'text-amber-500 dark:text-amber-400'}`} />
+                <div className="min-w-0">
+                  <p className={`text-sm font-bold ${severe ? 'text-rose-700 dark:text-rose-300' : 'text-amber-700 dark:text-amber-300'}`}>
+                    {title}
+                  </p>
+                  <p className={`text-xs font-medium mt-0.5 ${severe ? 'text-rose-600 dark:text-rose-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                    {detail}
+                    {safety.status === 'belowBuffer' ? ` ${t('quickAdd.safeguardBufferNote', { buffer: formatCurrency(safety.threshold) })}` : ''}
+                  </p>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
 
         <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
