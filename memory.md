@@ -2,6 +2,26 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-17 — Quick-Add payment safeguard now covers credit cards too, not just deposit accounts (branch claude/quick-add-payment-safety-0dfoj5)
+
+Follow-up to the prediction-alert change below. The Quick-Add inline safeguard only checked *spendable* deposit accounts (it gated on `isSpendableAccount`), so charging a purchase to a credit card never warned even when it would push the card past its limit — the dashboard prediction alert covered cards but the form didn't. Per the user ("the payment-safety warning should work for all existing accounts … regardless which way to input"), extended the safeguard to every assessable account so the warning fires the same way however a spend is entered.
+
+### `lib/calculations.ts`
+- `evaluatePaymentSafety` now branches on `account.type === 'credit'`, mirroring `assessAccountOverdraft`'s credit model. Credit path: `balanceAfterPayment = balance + amount` (the charge grows the debt), `projectedBalance = balanceAfter + upcomingTotal` (projected debt owed), `threshold = creditLimit`, `shortfall = max(0, projectedDebt − limit)`, and a new `status: 'overLimit'` when the charge + upcoming charges run past a set limit. Limit-less cards never warn (no ceiling). Deposit path is unchanged.
+- `PaymentSafety` gained a `kind: 'deposit' | 'credit'` discriminator, an optional `availableCredit` (credit only = `creditLimit − balance`), and the `'overLimit'` status. Field doc-comments now branch by `kind`.
+- Exported `isOverdraftAssessable` (was private) so the form can reuse the exact filter the prediction alert uses (`isSpendableAccount(a) || credit-with-limit`).
+
+### `app/(app)/dashboard/QuickAddTransaction.tsx`
+- Swapped the `isSpendableAccount` gate for `isOverdraftAssessable`, so credit cards with a limit are evaluated alongside deposit accounts (loan/investment and limit-less cards still skipped — no meaningful line).
+- The inline warning now renders credit-card messaging: a `severe` flag (overdraft **or** over-limit) drives the red styling, the title picks `safeguardOverLimitTitle` for cards, and the detail uses `safeguardCreditDetail` / `safeguardCreditDetailWithBills` (projected debt vs limit) for `kind === 'credit'`, keeping the deposit projected-balance / buffer copy for the rest.
+
+### Locales (`locales/en.json`, `locales/vi.json`)
+- Added `quickAdd.safeguardOverLimitTitle`, `quickAdd.safeguardCreditDetail`, and `quickAdd.safeguardCreditDetailWithBills` (+ Vietnamese equivalents).
+
+### Tests
+- `lib/__tests__/calculations.test.ts`: added credit-card `evaluatePaymentSafety` cases (over-limit flagged with correct shortfall/availableCredit, within-limit clear, limit-less card never warns) and asserted `kind` on the existing deposit case.
+- Full suite green (553 tests); `tsc --noEmit` and `eslint` clean (no new warnings).
+
 ## 2026-06-17 — "Won't cover upcoming bills" alert now spans credit cards, not just deposit accounts (branch claude/payment-alert-all-accounts-rid066)
 
 The upcoming-bills overdraft prediction only assessed *spendable* accounts (checking/savings/cash via `isSpendableAccount`), so a bill assigned to a credit card never produced a "won't have enough" alert. A bill's pay-from `account` can be any account type, so this missed cards that real bills are charged to. Extended the alert to credit cards using an available-credit model (per user decision: credit cards = check available credit; loan/investment stay excluded).

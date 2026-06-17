@@ -241,8 +241,11 @@
     "incomeLabel": "Income",
     "safeguardOverdraftTitle": "This payment overdraws the account",
     "safeguardBufferTitle": "This payment dips below your buffer",
+    "safeguardOverLimitTitle": "This charge exceeds your credit limit",
     "safeguardDetail": "Projected balance: {projected}",
     "safeguardDetailWithBills": "Projected balance: {projected} (after {bills} of upcoming bills)",
+    "safeguardCreditDetail": "Projected balance owed: {projected} of your {limit} limit",
+    "safeguardCreditDetailWithBills": "Projected balance owed: {projected} of your {limit} limit (after {bills} of upcoming charges)",
     "safeguardBufferNote": "You asked to keep a {buffer} buffer here."
   },
   "transactions": {
