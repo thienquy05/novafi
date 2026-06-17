@@ -1960,7 +1960,7 @@ The filter previously slid up from the bottom as a sheet (`fixed bottom-[72px] l
 - Active-filter chip row gained account chips (`accountName(id)` label, tap to remove). All three "clear" affordances now also reset `accountFilters`: the chip-row clear-all, the empty-state "Clear Filters" button, and the popup's bottom clear button.
 
 ### Locales (`locales/en.json`, `locales/vi.json`)
-Added `transactions.cardUsed` — en "Card Used", vi "Thẻ sử dụng".
+Added `transactions.cardUsed` (section label) — en "Card", vi "Thẻ".
 
 ### Verification
 `tsc --noEmit` clean (no errors in transactions/page.tsx or elsewhere).
