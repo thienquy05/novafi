@@ -197,6 +197,9 @@ export default function TransactionsPage() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'income' | 'expense' | 'transfer'>('all');
   const [categoryFilters, setCategoryFilters] = useState<string[]>([]);
+  // Account ("card used") filter — matches a transaction's source or destination
+  // account. Empty = all cards.
+  const [accountFilters, setAccountFilters] = useState<string[]>([]);
   // YYYY-MM string scopes totals + ledger to one month; null = all time.
   const [selectedMonth, setSelectedMonth] = useState<string | null>(currentMonth());
   const [open, setOpen] = useState(false);
@@ -341,12 +344,17 @@ export default function TransactionsPage() {
     const matchSearch = !search || tx.description.toLowerCase().includes(search.toLowerCase()) || tx.category.toLowerCase().includes(search.toLowerCase());
     const matchFilter = filter === 'all' || tx.type === filter;
     const matchCategory = categoryFilters.length === 0 || categoryFilters.includes(tx.category);
+    // "Card used": match either leg so transfers between cards surface under both.
+    const matchAccount = accountFilters.length === 0 || accountFilters.includes(tx.account) || (!!tx.toAccount && accountFilters.includes(tx.toAccount));
     const matchMonth = selectedMonth === null || tx.date.slice(0, 7) === selectedMonth;
-    return matchSearch && matchFilter && matchCategory && matchMonth;
-  }), [transactions, search, filter, categoryFilters, selectedMonth]);
+    return matchSearch && matchFilter && matchCategory && matchAccount && matchMonth;
+  }), [transactions, search, filter, categoryFilters, accountFilters, selectedMonth]);
 
   function toggleCategory(c: string) {
     setCategoryFilters((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
+  }
+  function toggleAccount(id: string) {
+    setAccountFilters((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   }
 
   function openAdd() { setEditTarget(null); setForm(EMPTY_FORM); setOpen(true); }
@@ -1607,7 +1615,7 @@ export default function TransactionsPage() {
   const merchantRows = useMemo(() => buildMerchantRows(filtered), [filtered]);
   // Reset paging whenever the active filters change. Adjusting state during
   // render (rather than in an effect) avoids a cascading re-render.
-  const filterKey = `${search}|${filter}|${categoryFilters.join(',')}|${selectedMonth ?? 'all'}`;
+  const filterKey = `${search}|${filter}|${categoryFilters.join(',')}|${accountFilters.join(',')}|${selectedMonth ?? 'all'}`;
   if (filterKey !== prevFilterKey) {
     setPrevFilterKey(filterKey);
     setVisibleCount(PAGE_SIZE);
@@ -1623,7 +1631,7 @@ export default function TransactionsPage() {
     }
     return groups;
   }, [visibleTransactions]);
-  const activeFilterCount = (filter !== 'all' ? 1 : 0) + categoryFilters.length;
+  const activeFilterCount = (filter !== 'all' ? 1 : 0) + categoryFilters.length + accountFilters.length;
 
   const filterLabels: Record<string, string> = {
     all: t('common.all'),
@@ -1796,8 +1804,13 @@ export default function TransactionsPage() {
                 {c} <X className="w-3 h-3" />
               </button>
             ))}
+            {accountFilters.map((id) => (
+              <button key={`chip-acct-${id}`} onClick={() => toggleAccount(id)} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold border border-indigo-100 dark:border-indigo-800/50">
+                {accountName(id)} <X className="w-3 h-3" />
+              </button>
+            ))}
             {activeFilterCount > 1 && (
-              <button onClick={() => { setFilter('all'); setCategoryFilters([]); }} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 text-xs font-bold border border-rose-100 dark:border-rose-800/50">
+              <button onClick={() => { setFilter('all'); setCategoryFilters([]); setAccountFilters([]); }} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 text-xs font-bold border border-rose-100 dark:border-rose-800/50">
                 {t('transactions.clearFilters')} <X className="w-3 h-3" />
               </button>
             )}
@@ -1831,7 +1844,7 @@ export default function TransactionsPage() {
             </div>
             <h3 className="text-slate-800 dark:text-slate-200 font-bold text-lg mb-1">{t('transactions.noResultsTitle')}</h3>
             <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">{t('transactions.noResultsBody')}</p>
-            <Button variant="secondary" onClick={() => { setSearch(''); setFilter('all'); setCategoryFilters([]); }}>
+            <Button variant="secondary" onClick={() => { setSearch(''); setFilter('all'); setCategoryFilters([]); setAccountFilters([]); }}>
               {t('transactions.clearFilters')}
             </Button>
           </div>
@@ -2360,7 +2373,7 @@ export default function TransactionsPage() {
         </div>
       </Modal>
 
-      {/* ── Filter Sheet ─────────────────────────────────────────────────── */}
+      {/* ── Filter Popup (centered dialog) ───────────────────────────────── */}
       <AnimatePresence>
         {filterSheetOpen && (
           <>
@@ -2370,21 +2383,30 @@ export default function TransactionsPage() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="fixed inset-0 bg-black/30 backdrop-blur-sm z-40"
+              className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[200]"
               onClick={() => setFilterSheetOpen(false)}
             />
-            <motion.div
-              key="filter-sheet"
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', bounce: 0.1, duration: 0.38 }}
-              className="fixed bottom-[72px] left-0 right-0 z-50 bg-white dark:bg-slate-800 rounded-t-3xl border-t border-slate-200 dark:border-slate-700 shadow-[0_-20px_60px_rgba(0,0,0,0.12)] px-4 pt-5 pb-6 max-h-[70vh] overflow-y-auto"
+            <div
+              className="fixed inset-0 z-[200] flex items-center justify-center p-4 pointer-events-none"
+              style={{
+                paddingTop: 'env(safe-area-inset-top, 0px)',
+                paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+              }}
             >
-              <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full mx-auto mb-4" />
+              <motion.div
+                key="filter-popup"
+                initial={{ opacity: 0, scale: 0.96, y: 8 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.96, y: 8 }}
+                transition={{ type: 'spring', bounce: 0.15, duration: 0.3 }}
+                onClick={(e) => e.stopPropagation()}
+                className="pointer-events-auto w-full max-w-md bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-2xl px-5 pt-5 pb-6 max-h-[85vh] overflow-y-auto overscroll-contain"
+              >
               <div className="flex items-center justify-between mb-5">
-                <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('transactions.filters')}</h2>
-                <button onClick={() => setFilterSheetOpen(false)} className="text-sm font-semibold text-indigo-600 dark:text-indigo-400 tap-highlight-none px-1">{t('nav.done')}</button>
+                <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 tracking-tight">{t('transactions.filters')}</h2>
+                <button onClick={() => setFilterSheetOpen(false)} className="h-8 w-8 rounded-full flex items-center justify-center text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors duration-150 tap-highlight-none shrink-0">
+                  <X className="w-4.5 h-4.5" />
+                </button>
               </div>
               <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">{t('common.type')}</p>
               <div className="flex gap-2 flex-wrap mb-5">
@@ -2394,6 +2416,25 @@ export default function TransactionsPage() {
                   </button>
                 ))}
               </div>
+              {accounts.length > 0 && (
+                <>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{t('transactions.cardUsed')}</p>
+                    {accountFilters.length > 0 && (
+                      <button onClick={() => setAccountFilters([])} className="text-[11px] font-bold text-rose-500 dark:text-rose-400 hover:text-rose-600 dark:hover:text-rose-400 tap-highlight-none flex items-center gap-1">
+                        <X className="w-3 h-3" />{t('transactions.clearFilters')} ({accountFilters.length})
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex gap-2 flex-wrap mb-5">
+                    {accounts.map((a) => (
+                      <button key={`acct-${a.id}`} onClick={() => toggleAccount(a.id)} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${accountFilters.includes(a.id) ? 'bg-indigo-600 text-white' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>
+                        {a.name}{a.last4 ? ` ••${a.last4}` : ''}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{t('common.category')}</p>
                 {categoryFilters.length > 0 && (
@@ -2433,11 +2474,12 @@ export default function TransactionsPage() {
                 </>
               )}
               {activeFilterCount > 0 && (
-                <button onClick={() => { setFilter('all'); setCategoryFilters([]); }} className="mt-5 w-full py-2.5 text-sm font-semibold text-rose-500 dark:text-rose-400 hover:text-rose-600 dark:hover:text-rose-400 tap-highlight-none">
+                <button onClick={() => { setFilter('all'); setCategoryFilters([]); setAccountFilters([]); }} className="mt-5 w-full py-2.5 text-sm font-semibold text-rose-500 dark:text-rose-400 hover:text-rose-600 dark:hover:text-rose-400 tap-highlight-none">
                   {t('transactions.clearFilters')}
                 </button>
               )}
-            </motion.div>
+              </motion.div>
+            </div>
           </>
         )}
       </AnimatePresence>
