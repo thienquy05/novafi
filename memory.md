@@ -2,6 +2,19 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-17 — Budget "% of spend" chip now includes rolled-over deficit (branch claude/progress-bar-rollover-display-qudeeu)
+
+**Bug (user):** with Budget Rollover on, a category card shows its amount/bar *with* the rolled-over overspend included (e.g. `$150 / $100`), but the small "% of spend" chip beside the category name was computed from this month's real spend only (`$100`), so the percentage "did not count up the roll-over amount, just the current expenses." The progress-bar fill %, the SpendingPaceWidget %, and all amounts were already correct — only this share chip was inconsistent.
+
+**Fix — make the chip's numerator AND denominator effective usage (spend + rollover):**
+- `app/(app)/planning/page.tsx` — added derived `totalRolledOver` (sum of every budget's `rolledOverDeficit()`) and `totalUsage = totalMonthSpend + totalRolledOver`. The per-category `categoryPct` now uses `usage / totalUsage` (was `spent / totalMonthSpend`) and its guard switched `spent > 0` → `usage > 0` so a category whose usage is entirely carried-over still shows a share.
+- `app/(app)/dashboard/page.tsx` — `totalMonthSpend` (passed to `BudgetBars` as `totalSpend`, only used for that chip) now adds `budgetData.reduce(b => b.rolledOver)` on top of the summed `categorySpend`.
+- `app/(app)/dashboard/DashboardCharts.tsx` `BudgetBars` — the chip now divides `usage` (already `b.spent + rolledOver`) by `totalSpend`; guard switched `b.spent > 0` → `usage > 0`.
+
+Denominator includes the rollover too so shares stay meaningful (a single category can't spuriously exceed 100% of "spend"). The budget cap/bar-% model is unchanged.
+
+**Verification:** `tsc --noEmit` clean; `vitest` calculations suite **342 passing**; `eslint` 0 errors (only the pre-existing load-effect setState warning).
+
 ## 2026-06-17 — Funding pools: auto-archive on full settle-up + manual archive/reopen, and collapsible spend/payback history (branch claude/funding-archive-payment-history-il91t4)
 
 User feedback: "will Funding automatically turn to archive when I receive all the payment from people? If yes that's fine, otherwise add that option plus a manual archive. Also the payment history from a pool should be cleaner instead of showing all transactions at once."

@@ -276,8 +276,12 @@ export default async function DashboardPage() {
     };
   });
 
-  // Total spend this month for category %
-  const totalMonthSpend = Object.values(categorySpend).reduce((s, v) => s + v, 0);
+  // Total spend this month for category %. Includes every category's rolled-over
+  // deficit so each category's "% of spend" share is measured against the same
+  // effective usage its amount/bar reflect (matches the Planning page).
+  const totalMonthSpend =
+    Object.values(categorySpend).reduce((s, v) => s + v, 0) +
+    budgetData.reduce((s, b) => s + b.rolledOver, 0);
 
   // Emergency fund — pull from precomputed monthlyTotals instead of rescanning
   const liquidSavings = calcLiquidSavings(accounts);
