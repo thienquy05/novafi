@@ -2,6 +2,19 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-17 — Over-budget nav badge now matches the Planning card (branch claude/cat-budget-discrepancy-gzuybd)
+
+**Bug (user):** the Planning page's "OVER BUDGET" card showed **2 cats** while the Plan nav-item badge showed **1**. The two counts disagreed because they used different rules: the Planning card (`app/(app)/planning/page.tsx:317`) and Dashboard (`app/(app)/dashboard/page.tsx:254`) count a category over budget when `spent + rolledOverDeficit > cap` (rollover-aware), but the badge's `calcOverBudget` only compared raw `spent > cap`, ignoring Budget Rollover. With rollover on, a category pushed over solely by last month's carried-over overspend counted in Planning but not in the badge.
+
+**Fix — make `calcOverBudget` rollover-aware so all three views agree:**
+- `lib/calculations.ts` — `calcOverBudget` gained an optional 4th param `rolloverEnabled = false`. When true it adds each category's `calcRolloverDeficit(cap, prevMonthSpend)` to this month's spend via `calcEffectiveSpent` before comparing to the cap — mirroring the Planning/Dashboard logic exactly. Also normalized the cap via `normalizeMonthlyBudget` (was an inline duplicate). Added private helper `prevMonthKeyOf(monthKey)`. Default `false` keeps the signature backward-compatible (existing callers/tests unaffected).
+- `lib/sheets.ts` — `batchGetBadgesData` now also reads `SETTINGS_RANGE` (5th range) and returns `settings: TaxSettings` (parsed via `parseSettingsRows`), so the badge endpoint knows whether rollover is on without an extra Sheets round trip.
+- `app/api/badges/route.ts` — destructures `settings` and passes `settings.budgetRollover` to `calcOverBudget`.
+
+**Tests:** added 5 cases to the `calcOverBudget` suite in `lib/__tests__/calculations.test.ts` covering rollover off (no carry), rollover on (deficit carries over / underspend carries nothing), and the exact 1-vs-2 mismatch scenario from the bug report.
+
+**Verification:** `tsc --noEmit` clean; `vitest` calculations + sheets-parse suites **351 passing**.
+
 ## 2026-06-17 — Budget "% of spend" chip now includes rolled-over deficit (branch claude/progress-bar-rollover-display-qudeeu)
 
 **Bug (user):** with Budget Rollover on, a category card shows its amount/bar *with* the rolled-over overspend included (e.g. `$150 / $100`), but the small "% of spend" chip beside the category name was computed from this month's real spend only (`$100`), so the percentage "did not count up the roll-over amount, just the current expenses." The progress-bar fill %, the SpendingPaceWidget %, and all amounts were already correct — only this share chip was inconsistent.
