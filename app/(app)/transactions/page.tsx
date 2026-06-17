@@ -213,6 +213,9 @@ export default function TransactionsPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [showTemplates, setShowTemplates] = useState(false);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  // Type-to-filter query for the "Card used" picker so the list stays short and
+  // searchable once many cards exist (empty = show all cards).
+  const [cardFilterQuery, setCardFilterQuery] = useState('');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [prevFilterKey, setPrevFilterKey] = useState('');
   // Loans / IOUs
@@ -356,6 +359,22 @@ export default function TransactionsPage() {
   function toggleAccount(id: string) {
     setAccountFilters((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   }
+
+  // Past this many cards the flat chip list gets unwieldy, so the picker switches
+  // to a searchable, height-capped list. Selected cards are pinned to the top so a
+  // search query never hides what's already active.
+  const CARD_SEARCH_THRESHOLD = 6;
+  const visibleCards = useMemo(() => {
+    const q = cardFilterQuery.trim().toLowerCase();
+    const matches = q
+      ? accounts.filter((a) => a.name.toLowerCase().includes(q) || (a.last4 ?? '').includes(q))
+      : accounts;
+    return [...matches].sort((a, b) => {
+      const aSel = accountFilters.includes(a.id) ? 0 : 1;
+      const bSel = accountFilters.includes(b.id) ? 0 : 1;
+      return aSel - bSel;
+    });
+  }, [accounts, cardFilterQuery, accountFilters]);
 
   function openAdd() { setEditTarget(null); setForm(EMPTY_FORM); setOpen(true); }
   function openEdit(tx: Transaction) {
@@ -1776,7 +1795,7 @@ export default function TransactionsPage() {
             <input className="w-full h-11 pl-10 pr-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all duration-200 shadow-sm" placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
           <button
-            onClick={() => setFilterSheetOpen(true)}
+            onClick={() => { setCardFilterQuery(''); setFilterSheetOpen(true); }}
             className={`h-11 px-4 rounded-2xl text-sm font-bold transition-all duration-200 flex items-center gap-2 shrink-0 ${activeFilterCount > 0 ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'}`}
           >
             <Filter className="w-4 h-4" />
@@ -2426,12 +2445,31 @@ export default function TransactionsPage() {
                       </button>
                     )}
                   </div>
-                  <div className="flex gap-2 flex-wrap mb-5">
-                    {accounts.map((a) => (
+                  {accounts.length > CARD_SEARCH_THRESHOLD && (
+                    <div className="relative mb-2">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 dark:text-slate-500 pointer-events-none" />
+                      <input
+                        value={cardFilterQuery}
+                        onChange={(e) => setCardFilterQuery(e.target.value)}
+                        placeholder={t('transactions.searchCards')}
+                        className="w-full h-9 pl-9 pr-8 rounded-xl bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-xs font-medium text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                      />
+                      {cardFilterQuery && (
+                        <button onClick={() => setCardFilterQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 tap-highlight-none">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <div className={`flex gap-2 flex-wrap mb-5 ${accounts.length > CARD_SEARCH_THRESHOLD ? 'max-h-36 overflow-y-auto overscroll-contain pr-1' : ''}`}>
+                    {visibleCards.map((a) => (
                       <button key={`acct-${a.id}`} onClick={() => toggleAccount(a.id)} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${accountFilters.includes(a.id) ? 'bg-indigo-600 text-white' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>
                         {a.name}{a.last4 ? ` ••${a.last4}` : ''}
                       </button>
                     ))}
+                    {visibleCards.length === 0 && (
+                      <p className="text-xs font-medium text-slate-400 dark:text-slate-500 py-1.5">{t('transactions.noCardsMatch')}</p>
+                    )}
                   </div>
                 </>
               )}

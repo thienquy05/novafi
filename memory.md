@@ -15,6 +15,29 @@ Denominator includes the rollover too so shares stay meaningful (a single catego
 
 **Verification:** `tsc --noEmit` clean; `vitest` calculations suite **342 passing**; `eslint` 0 errors (only the pre-existing load-effect setState warning).
 
+## 2026-06-17 — Funding pools: auto-archive on full settle-up + manual archive/reopen, and collapsible spend/payback history (branch claude/funding-archive-payment-history-il91t4)
+
+User feedback: "will Funding automatically turn to archive when I receive all the payment from people? If yes that's fine, otherwise add that option plus a manual archive. Also the payment history from a pool should be cleaner instead of showing all transactions at once."
+
+Answer to the question: it did NOT auto-archive. The `closed` flag already existed on `Funding` (persisted in `sheets.ts`, read at `r[9]`), but nothing ever set it — its only effect was hiding the "Spend" button (`!f.closed`). There was no auto-archive and no manual control. Added both, plus collapsed the history lists.
+
+### `lib/funding.ts`
+- New pure helper `isFullySettled(f)`: true only when at least one NON-me participant actually pledged (`contributed > 0`) AND `totalOwed(f) === 0`. The first clause is the guard that keeps a solo "me-only" pool (which owes nothing from the start) from auto-archiving — auto-archive is meant for the moment the group finishes paying you back.
+
+### `app/(app)/funding/page.tsx`
+- **Auto-archive:** `recordPayment` now builds the updated pool, then `justSettled = !base.closed && isFullySettled(base)`; if so it sets `closed: true` and shows the `funding.poolSettledArchived` toast instead of the normal recorded/updated toast. Only fires on the transition (skips if already closed); manual controls below override it. Editing/deleting a payback does NOT auto-reopen — that's left to the manual button so the state is predictable.
+- **Manual archive/reopen:** new `setArchived(f, closed)` flips only the `closed` flag (no cash rows move) via the existing `persist(updated, [], [], key)` path; toasts `funding.poolArchived` / `funding.poolReopened`. Surfaced as a ghost icon button (lucide `Archive` / `ArchiveRestore`) in each card's top-right action group, next to Spend and Delete.
+- **Card rendering extracted** into a `renderPool(f)` closure (was an inline `fundings.map`) so active and archived pools share one renderer. Closed pools render at `opacity-75` with an "Archived" pill (Archive icon) beside the description.
+- **Archived section:** pools split into `activePools` / `archivedPools`. Active ones render first; archived ones live under a collapsible toggle ("Archived (n)") at the bottom, closed by default, using the shared `Collapsible` component. (Empty-state still keyed on `fundings.length === 0`, so an all-archived account shows only the archived section, not the empty card.)
+- **Cleaner history:** the Spends and Paybacks lists are now each a collapsible section (default collapsed). The header became a button showing the section title + a summary `funding.itemsTotal` ("{n} · {amount}" — spend count & `f.spent`, payback count & `totalRepaid`) with a rotating chevron; rows live inside `<Collapsible>`. Per-pool open state tracked in `openSpends` / `openPays` Sets via a `toggle()` helper; archived-section open state in `showArchived`. Imported `totalRepaid`, `isFullySettled`, `Collapsible`, and icons `Archive`/`ArchiveRestore`/`ChevronDown`.
+
+### Locales (`locales/en.json`, `locales/vi.json`)
+- Added `funding.itemsTotal` ("{n} · {amount}"), `archive`, `reopen`, `archivedBadge`, `archivedSection` ("Archived ({n})"), `poolArchived`, `poolReopened`, `poolSettledArchived` ("Everyone's settled up — pool archived"), with Vietnamese equivalents.
+
+### Tests
+- `lib/__tests__/funding.test.ts`: new `isFullySettled` suite — false while anyone still owes (partial payback), true once every other participant is paid in full, and false for a solo me-only pool (nothing to settle).
+- Full suite green (553 tests); `tsc --noEmit` clean; eslint clean on the changed files (the one remaining warning, `set-state-in-effect` on the pre-existing `useEffect(() => { load(); })`, is not from this change).
+
 ## 2026-06-17 — Quick-Add payment safeguard now covers credit cards too, not just deposit accounts (branch claude/quick-add-payment-safety-0dfoj5)
 
 Follow-up to the prediction-alert change below. The Quick-Add inline safeguard only checked *spendable* deposit accounts (it gated on `isSpendableAccount`), so charging a purchase to a credit card never warned even when it would push the card past its limit — the dashboard prediction alert covered cards but the form didn't. Per the user ("the payment-safety warning should work for all existing accounts … regardless which way to input"), extended the safeguard to every assessable account so the warning fires the same way however a spend is entered.
@@ -2019,3 +2042,18 @@ Added `transactions.cardUsed` (section label) — en "Card", vi "Thẻ".
 
 ### Verification
 `tsc --noEmit` clean (no errors in transactions/page.tsx or elsewhere).
+
+## 2026-06-17 — Compact, searchable "Card" filter (branch claude/transaction-filter-tags-28km5g)
+
+The Transactions filter popup rendered every account as a flat flex-wrap of chips under "Card used". That grows unbounded and gets unwieldy as more cards are added, so the section is now searchable + height-capped once the card count is large.
+
+### `app/(app)/transactions/page.tsx`
+- New state `cardFilterQuery` (type-to-filter the card picker; empty = show all). Reset to '' whenever the filter popup is opened (the filter button's onClick).
+- New `CARD_SEARCH_THRESHOLD = 6` and a `visibleCards` useMemo: filters accounts by name/last4 against the query, then **sorts selected cards first** so an active selection is never hidden by a query. Deps `[accounts, cardFilterQuery, accountFilters]`.
+- Card section UI: when `accounts.length > CARD_SEARCH_THRESHOLD`, a small search input (reusing the `Search` icon + an `X` clear button) appears above the chips, and the chip container becomes `max-h-36 overflow-y-auto overscroll-contain`. Below the threshold it renders exactly as before (no search, no scroll cap). Chips now map over `visibleCards` instead of `accounts`; an empty result shows a `noCardsMatch` placeholder. Selection/toggle, styling, and the "Clear (n)" link are unchanged.
+
+### Locales (`locales/en.json`, `locales/vi.json`)
+Added `transactions.searchCards` (en "Search cards…", vi "Tìm thẻ…") and `transactions.noCardsMatch` (en "No cards match", vi "Không có thẻ phù hợp"). vi mirrors en's shape.
+
+### Verification
+`tsc --noEmit` clean; `eslint` 0 errors (only the pre-existing documented warnings); `vitest` 550 passing.
