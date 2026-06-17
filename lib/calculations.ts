@@ -1760,18 +1760,27 @@ export function accountUpcomingBills(
 
 export type AccountOverdraftRisk = {
   account: Account;
-  currentBalance: number;
-  threshold: number;         // the account's minBalance buffer (0 when unset)
+  // 'deposit' = cash-drawdown model (checking/savings/cash): bills spend down a
+  // real balance. 'credit' = available-credit model (credit cards): bills add to
+  // the debt and the ceiling is the card's credit limit.
+  kind: 'deposit' | 'credit';
+  currentBalance: number;    // the account's current balance (debt owed, for credit)
+  threshold: number;         // deposit: the minBalance buffer (0 when unset); credit: the credit limit
   upcoming: UpcomingBill[];  // upcoming bills drawn from this account (your share)
   upcomingTotal: number;     // sum of your shares of those bills
-  projectedBalance: number;  // currentBalance − upcomingTotal
-  shortfall: number;         // max(0, threshold − projectedBalance): cash to add to be safe
-  belowThreshold: boolean;   // projected < threshold (the warn trigger)
-  willOverdraft: boolean;    // projected < 0 (the hard, money-goes-negative trigger)
+  projectedBalance: number;  // deposit: balance − upcomingTotal; credit: projected debt = balance + upcomingTotal
+  shortfall: number;         // deposit: cash to add to be safe; credit: amount the charges run over the limit
+  belowThreshold: boolean;   // the warn trigger (deposit: projected < buffer; credit: projected debt > limit)
+  willOverdraft: boolean;    // the hard trigger (deposit: projected < 0; credit: projected debt > limit)
+  // Credit cards only — the headroom before the upcoming charges land. Lets
+  // callers phrase "X of available credit, Y in bills" without re-deriving it.
+  availableCredit?: number;  // creditLimit − currentBalance
 };
 
-// Project one account's balance forward over its upcoming bills and compare to
-// its buffer. Pure: callers decide how to surface the result.
+// Project one account forward over its upcoming bills and compare to its safety
+// line. Deposit accounts (checking/savings/cash) spend a real balance down and
+// the line is the minBalance buffer. Credit cards charge the bills as new debt
+// and the line is the credit limit. Pure: callers decide how to surface it.
 export function assessAccountOverdraft(
   account: Account,
   bills: Bill[],
@@ -1780,11 +1789,39 @@ export function assessAccountOverdraft(
 ): AccountOverdraftRisk {
   const upcoming = accountUpcomingBills(account.id, bills, today, horizonDays);
   const upcomingTotal = roundCents(upcoming.reduce((s, u) => s + u.share, 0));
+
+  if (account.type === 'credit') {
+    // Available-credit model. The card's balance is debt owed; bills charged to
+    // it push that debt up toward the credit limit. "Won't have enough" means
+    // the upcoming charges would run the balance past the limit (no available
+    // credit left). With no limit set we can't draw the line — caller filters
+    // those out — and with no upcoming charges there's nothing to warn about.
+    const creditLimit = Math.max(0, account.creditLimit ?? 0);
+    const availableCredit = roundCents(creditLimit - account.balance);
+    const projectedDebt = roundCents(account.balance + upcomingTotal);
+    const overLimit = upcomingTotal > 0 && creditLimit > 0 && projectedDebt > creditLimit;
+    const shortfall = Math.max(0, roundCents(projectedDebt - creditLimit));
+    return {
+      account,
+      kind: 'credit',
+      currentBalance: account.balance,
+      threshold: creditLimit,
+      upcoming,
+      upcomingTotal,
+      projectedBalance: projectedDebt,
+      shortfall,
+      belowThreshold: overLimit,
+      willOverdraft: overLimit,
+      availableCredit,
+    };
+  }
+
   const projectedBalance = roundCents(account.balance - upcomingTotal);
   const threshold = Math.max(0, account.minBalance ?? 0);
   const shortfall = Math.max(0, roundCents(threshold - projectedBalance));
   return {
     account,
+    kind: 'deposit',
     currentBalance: account.balance,
     threshold,
     upcoming,
@@ -1796,10 +1833,19 @@ export function assessAccountOverdraft(
   };
 }
 
-// Every guarded account whose projected balance (after upcoming bills) breaches
-// its buffer, worst shortfall first. A buffer of 0 still flags a real overdraft
-// (projected below zero). Accounts comfortably in the black are omitted, so an
-// empty array means "all clear".
+// True for accounts the upcoming-bills alert can assess: the spendable deposit
+// accounts (checking/savings/cash) plus credit cards that have a credit limit
+// set (the ceiling we project the charges against). Loan/investment and
+// limit-less cards are skipped — there's no meaningful line to draw.
+function isOverdraftAssessable(account: Account): boolean {
+  if (isSpendableAccount(account)) return true;
+  return account.type === 'credit' && (account.creditLimit ?? 0) > 0;
+}
+
+// Every assessable account whose projection (after upcoming bills) breaches its
+// safety line — deposit buffers and credit limits alike — worst shortfall
+// first. Accounts comfortably in the clear are omitted, so an empty array means
+// "all clear".
 export function detectOverdraftRisks(
   accounts: Account[],
   bills: Bill[],
@@ -1807,7 +1853,7 @@ export function detectOverdraftRisks(
   horizonDays: number = OVERDRAFT_HORIZON_DAYS,
 ): AccountOverdraftRisk[] {
   return accounts
-    .filter(isSpendableAccount)
+    .filter(isOverdraftAssessable)
     .map((a) => assessAccountOverdraft(a, bills, today, horizonDays))
     .filter((r) => r.belowThreshold)
     .sort((a, b) => b.shortfall - a.shortfall);

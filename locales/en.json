@@ -989,6 +989,8 @@
     "overdraftWillBody": "{balance} on hand − {bills} in bills = {projected} projected",
     "overdraftBufferTitle": "{name} will dip below your buffer",
     "overdraftBufferBody": "{projected} left after {bills} in bills · below your {buffer} buffer",
+    "creditLimitTitle": "{name} won't cover upcoming bills",
+    "creditLimitBody": "{available} of available credit − {bills} in bills · {over} over your limit",
     "billTitle": "{name} is overdue",
     "billBody": "{amount} was due {date}",
     "budgetTitle": "Over budget: {category}",

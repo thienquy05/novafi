@@ -62,6 +62,21 @@ export function buildNotifications(
     let title: string;
     let body: string;
 
+    if (risk.kind === 'credit') {
+      // A credit card whose upcoming bills would push its balance past the
+      // credit limit. The "balance" here is debt owed and the line is the limit,
+      // so the wording talks about available credit rather than cash on hand.
+      severity = 'critical';
+      title = tr('notifications.creditLimitTitle', { name });
+      body = tr('notifications.creditLimitBody', {
+        available: fmt(risk.availableCredit ?? 0),
+        bills: fmt(risk.upcomingTotal),
+        over: fmt(risk.shortfall),
+      });
+      items.push({ id: `overdraft:${risk.account.id}`, type: 'overdraft', severity, title, body, href: '/credit' });
+      continue;
+    }
+
     if (risk.currentBalance < 0) {
       severity = 'critical';
       title = tr('notifications.overdrawnTitle', { name });

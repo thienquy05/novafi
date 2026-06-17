@@ -2,6 +2,28 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-17 — "Won't cover upcoming bills" alert now spans credit cards, not just deposit accounts (branch claude/payment-alert-all-accounts-rid066)
+
+The upcoming-bills overdraft prediction only assessed *spendable* accounts (checking/savings/cash via `isSpendableAccount`), so a bill assigned to a credit card never produced a "won't have enough" alert. A bill's pay-from `account` can be any account type, so this missed cards that real bills are charged to. Extended the alert to credit cards using an available-credit model (per user decision: credit cards = check available credit; loan/investment stay excluded).
+
+### `lib/calculations.ts`
+- `AccountOverdraftRisk` gained a `kind: 'deposit' | 'credit'` discriminator and an optional `availableCredit` field (credit cards only = `creditLimit − balance`). Field meanings now branch by `kind`:
+  - deposit: `projectedBalance = balance − upcomingTotal`, `threshold = minBalance buffer`, `shortfall = cash to add`, triggers as before.
+  - credit: `projectedBalance = balance + upcomingTotal` (projected debt), `threshold = creditLimit`, `shortfall = amount the charges run past the limit`, `belowThreshold`/`willOverdraft` both = "charges push debt over the limit".
+- `assessAccountOverdraft` branches on `account.type === 'credit'`. Credit only warns when there are actual upcoming charges (`upcomingTotal > 0`) and a limit is set — an already-over-limit card with nothing due stays quiet (utilization is a separate nudge).
+- New private `isOverdraftAssessable(account)` = `isSpendableAccount(a) || (credit with creditLimit > 0)`. `detectOverdraftRisks` now filters on it instead of `isSpendableAccount`, so cards with a limit join the sorted-by-shortfall list; limit-less cards and loan/investment are still skipped. `isSpendableAccount` itself is unchanged (still used by Quick-Add).
+
+### `lib/notifications.ts`
+- The overdraft loop handles `risk.kind === 'credit'` first: critical severity, title `notifications.creditLimitTitle`, body `creditLimitBody` (available credit − bills · over limit), deep-links to `/credit` (deposit risks still link to `/accounts`). Stable id stays `overdraft:<accountId>`.
+
+### Locales (`locales/en.json`, `locales/vi.json`)
+- Added `notifications.creditLimitTitle` ("{name} won't cover upcoming bills") and `creditLimitBody` ("{available} of available credit − {bills} in bills · {over} over your limit"), plus Vietnamese equivalents.
+
+### Tests
+- `lib/__tests__/calculations.test.ts`: added credit-card cases to `assessAccountOverdraft` (over-limit flagged, fits under limit clear, no-charges stays quiet) and a `detectOverdraftRisks` case proving limit-set cards are included and sorted by shortfall while limit-less cards are skipped.
+- `lib/__tests__/notifications.test.ts`: added a credit-card "would run past its limit" alert assertion (`creditLimitTitle`, `/credit`) and a no-upcoming-bills no-alert case.
+- Full suite green (550 tests); `tsc --noEmit` clean.
+
 ## 2026-06-11 — Notification panel positioning · overdraft banners removed · clearer overdraft wording (branch claude/notification-overdraft-fixes-3784)
 
 Follow-up to the notification center. Three fixes from feedback (screenshot showed the dropdown clipping off the left edge with "otifications", and a confusing "−$178 on hand − $0 in bills = −$178 projected" overdraft message).
