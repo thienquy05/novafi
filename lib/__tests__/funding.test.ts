@@ -4,9 +4,10 @@ import {
   buildContributionTx, buildSpendTxs, syncFundingTxAmount, syncFundingTxRemoval,
   buildRepayTx, groupFundingSpends, participantOwed, participantRepaid, totalOwed,
   isFullySettled, FUNDING_REPAY_CATEGORY,
+  isRealPool, buildPoolContributionTx, participantsFromContributions, contributionsTotal, poolProgress,
 } from '@/lib/funding';
-import { calcFundingHeld, calcFundingHeldByAccount } from '@/lib/calculations';
-import type { Funding, FundingParticipant, FundingRepayment, Transaction } from '@/types';
+import { applyTransactionToBalances, calcFundingHeld, calcFundingHeldByAccount } from '@/lib/calculations';
+import type { Account, Funding, FundingContribution, FundingParticipant, FundingRepayment, Transaction } from '@/types';
 
 const PEOPLE: FundingParticipant[] = [
   { name: 'Me', contributed: 100, isMe: true },
@@ -71,7 +72,7 @@ describe('buildSpendTxs', () => {
 
 function makePool(o: Partial<Funding> = {}): Funding {
   return {
-    id: 'f1', description: 'Beach trip', account: 'acc1', date: '2026-06-09',
+    id: 'f1', description: 'Beach trip', account: 'acc1', date: '2026-06-09', kind: 'virtual',
     participants: PEOPLE.map((p) => ({ ...p })),
     totalContributed: 300, spent: 120,
     contributionTxId: 'ctx1', spendTxIds: ['stx1', 'stx2'], repayments: [], closed: false,
@@ -242,6 +243,88 @@ describe('isFullySettled (auto-archive trigger)', () => {
   it('false for a solo pool where only "me" pledged (nothing to settle)', () => {
     const solo = makePool({ participants: [{ name: 'Me', contributed: 100, isMe: true }], repayments: [] });
     expect(isFullySettled(solo)).toBe(false); // nobody else owed → not an auto-archive case
+  });
+});
+
+// ── Real money pools ──────────────────────────────────────────────────────────
+
+describe('real pool: contribution building', () => {
+  it('my contribution is a non-held transfer from my account into the pool', () => {
+    const { tx, contribution } = buildPoolContributionTx('pool1', 100, 'Me', true, 'chk1', 'Trip', '2026-06-09');
+    expect(tx.type).toBe('transfer');
+    expect(tx.category).toBe('Transfer');     // NOT 'Funding' → stays my money, not held
+    expect(tx.account).toBe('chk1');          // leaves my account
+    expect(tx.toAccount).toBe('pool1');       // into the pool
+    expect(calcFundingHeld([tx])).toBe(0);    // my own money is never "held for others"
+    expect(contribution).toMatchObject({ id: tx.id, participant: 'Me', amount: 100, isMe: true, account: 'chk1' });
+  });
+
+  it("another person's contribution is held-for-others cash in the pool", () => {
+    const { tx, contribution } = buildPoolContributionTx('pool1', 200, 'Alex', false, '', 'Trip', '2026-06-09');
+    expect(tx.category).toBe('Funding');
+    expect(tx.account).toBe('');              // external source → not income
+    expect(tx.toAccount).toBe('pool1');
+    expect(calcFundingHeldByAccount([tx])).toEqual({ pool1: 200 });
+    expect(contribution.account).toBe('');    // others' money isn't drawn from one of my accounts
+  });
+});
+
+describe('participantsFromContributions / contributionsTotal', () => {
+  const contributions: FundingContribution[] = [
+    { id: 'c1', participant: 'Me', amount: 100, isMe: true, account: 'chk1', date: '2026-06-09' },
+    { id: 'c2', participant: 'Alex', amount: 200, isMe: false, account: '', date: '2026-06-09' },
+    { id: 'c3', participant: 'Me', amount: 50, isMe: true, account: 'chk1', date: '2026-06-12' }, // a top-up
+  ];
+  it('rolls each person up to their total cash in', () => {
+    expect(participantsFromContributions(contributions)).toEqual([
+      { name: 'Me', contributed: 150, isMe: true },
+      { name: 'Alex', contributed: 200, isMe: false },
+    ]);
+    expect(contributionsTotal(contributions)).toBe(350);
+  });
+});
+
+describe('poolProgress (savings-goal target)', () => {
+  it('null when there is no target', () => {
+    expect(poolProgress(100)).toBeNull();
+    expect(poolProgress(100, 0)).toBeNull();
+  });
+  it('is the funded fraction of the target', () => {
+    expect(poolProgress(150, 300)).toBeCloseTo(0.5);
+    expect(poolProgress(400, 300)).toBeCloseTo(1.333, 2); // over-funded
+  });
+});
+
+describe('isRealPool', () => {
+  it('reads the pool kind', () => {
+    expect(isRealPool({ kind: 'real' })).toBe(true);
+    expect(isRealPool({ kind: 'virtual' })).toBe(false);
+  });
+});
+
+describe('real pool: full cash-flow keeps net worth honest', () => {
+  // A real pool holds my $100 + Alex's $200 in a dedicated pool account, then a $90
+  // spend (my $30 share) is charged to it. The pool account's balance and the
+  // held-for-others figure must stay consistent with each leg.
+  const acc = (id: string, type: Account['type'], balance: number): Account =>
+    ({ id, name: id, type, institution: '', balance, last4: '', color: '#000', createdAt: '2026-01-01' });
+
+  it('moves my money in, holds others money, and a spend draws the right portions', () => {
+    let accounts: Account[] = [acc('chk1', 'checking', 1000), acc('pool1', 'pool', 0)];
+    const mine = buildPoolContributionTx('pool1', 100, 'Me', true, 'chk1', 'Trip', '2026-06-09').tx;
+    const others = buildPoolContributionTx('pool1', 200, 'Alex', false, '', 'Trip', '2026-06-09').tx;
+    const spend = buildSpendTxs('pool1', 90, 30, 'Dinner', '2026-06-10');
+    for (const tx of [mine, others, ...spend]) accounts = applyTransactionToBalances(accounts, tx, 'apply');
+
+    const pool = accounts.find((a) => a.id === 'pool1')!;
+    const chk = accounts.find((a) => a.id === 'chk1')!;
+    expect(chk.balance).toBe(900);            // my $100 left checking
+    expect(pool.balance).toBe(210);           // 100 + 200 − 90
+    // Of the pool balance, $140 is Alex's held cash (200 in − 60 of his share spent).
+    const held = calcFundingHeldByAccount([mine, others, ...spend]);
+    expect(held).toEqual({ pool1: 140 });
+    // My money still in the pool = balance − held = 70 (my 100 in − 30 of my share spent).
+    expect(pool.balance - held.pool1).toBe(70);
   });
 });
 

@@ -226,7 +226,7 @@ export function QuickAddTransaction({ accounts: accountsProp, bills: billsProp, 
               value={form.account}
               options={[
                 { value: '', label: t('common.selectPlaceholder') },
-                ...accounts.map((a) => ({ value: a.id, label: a.name })),
+                ...accounts.filter((a) => a.type !== 'pool').map((a) => ({ value: a.id, label: a.name })),
               ]}
               onChange={(e) => setForm((f) => ({ ...f, account: e.target.value }))}
             />
@@ -236,7 +236,7 @@ export function QuickAddTransaction({ accounts: accountsProp, bills: billsProp, 
                 value={form.toAccount}
                 options={[
                   { value: '', label: t('common.selectPlaceholder') },
-                  ...accounts.filter((a) => a.id !== form.account).map((a) => ({ value: a.id, label: a.name })),
+                  ...accounts.filter((a) => a.id !== form.account && a.type !== 'pool').map((a) => ({ value: a.id, label: a.name })),
                 ]}
                 onChange={(e) => setForm((f) => ({ ...f, toAccount: e.target.value }))}
               />

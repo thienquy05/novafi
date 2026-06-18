@@ -2114,3 +2114,39 @@ Added `common.clear`; and under `transactions`: `accountsSection`, `paymentMetho
 
 ### Verification
 `tsc --noEmit` clean; `eslint` **0 errors** (only the 3 pre-existing documented warnings: load-effect setState ×2, line-754 ternary expression); `vitest` **556 passing**; `next build` succeeds.
+
+## 2026-06-18 — Funding: virtual + real money pools (branch claude/funding-pool-options-u46a3k)
+
+Added a second KIND of Funding pool alongside the existing virtual one: a **real money pool** where actual cash is put in up front and held in a dedicated `pool`-type account, with a live balance and an optional savings-goal target (a "group savings goal"). The request left the UI to me; I confirmed three product decisions with the user via AskUserQuestion: (1) cash lives in a **dedicated pool account**, (2) real pools support an **optional target + progress bar**, (3) my own contribution **moves real money** into the pool.
+
+### Data model
+- **`types/index.ts`** — `Account['type']` gains `'pool'` (a dedicated Funding holding bucket; an asset for net worth, but hidden from the Accounts page and from generic transaction/bill account pickers). `Funding` gains required `kind: 'virtual' | 'real'` plus real-only optionals `poolAccountId?`, `target?`, `contributions?: FundingContribution[]`. New `FundingContribution { id, participant, amount, isMe, account, date }` (one cash-in; `id` is the ledger transfer it created, `account` = my source for isMe / '' for others).
+- **`lib/sheets.ts`** — `FUNDING_HEADER` extended to L–O: `kind`, `pool_account_id`, `target`, `contributions_json`. `getFundings` range `A2:K1000` → `A2:O1000`; parses r[11]=kind (legacy/blank ⇒ `'virtual'`), r[12]=poolAccountId, r[13]=target (blank ⇒ undefined), r[14]=contributions_json. `upsertFunding` appends the four new cells. (`deleteRowById`'s column arg is unused, left as `'K'`.)
+
+### Cash-flow model (reuses the existing "funding held for others" net-worth machinery)
+A real pool is created with a fresh `pool` account (balance 0). Contributions are real transfers INTO it:
+- **my contribution** → `transfer` from my spendable account → pool, category **`'Transfer'`** (stays my money, NOT held-for-others, net worth unchanged — internal move).
+- **others' contribution** → `transfer` (empty source) → pool, category **`'Funding'`** → counted by `calcFundingHeldByAccount` as held-for-others in the pool account, so net worth nets it out.
+A **spend** is charged to the pool account via the existing `buildSpendTxs(poolAccountId, amount, myShare, …)`: my share = an `expense` from the pool (my consumption, net worth −myShare); the rest = a `transfer` OUT tagged `'Funding'` (draws held-for-others down, net worth neutral). Net result: pool account balance = `totalContributed − spent`; `held[pool]` = others' money still in the jar; `balance − held` = my money still in the jar. Real pools never use repayments (everyone already paid in).
+
+### `lib/funding.ts` helpers (all pure, unit-tested)
+`isRealPool(f)`; `buildPoolContributionTx(poolAccountId, amount, participant, isMe, fromAccount, desc, date)` → `{tx, contribution}` (branches category Transfer vs Funding as above); `participantsFromContributions(contributions)` rolls each person up to their total cash in (keeps `f.participants` usable by the shared card UI); `contributionsTotal(contributions)`; `poolProgress(totalContributed, target)` → funded fraction or null.
+
+### API — `app/api/funding/route.ts`
+- **POST** body gains `addAccount?: Account`. When present (and not already stored) the new pool account is appended to the working array BEFORE the contribution rows are applied, so they have somewhere to land; `persistChangedAccounts(accounts, working)` then writes it as a new row (diff-by-index: the appended index has no `before`, so it's always written — works even for a zero-contribution pool). The cash block now also runs when only `addAccount` is set.
+- **DELETE** also reverses `contributions[].id` rows and then `deleteAccount(poolAccountId)` (handles both the "had cash rows" and "empty pool" paths). Imports `deleteAccount`.
+
+### Funding page — `app/(app)/funding/page.tsx`
+- New-pool modal: a **Virtual / Real** segmented toggle at the top (kind state). Real mode swaps labels — account selector becomes "Fund my share from" (deposit accounts only), adds an optional "Savings target" input, and the include-me/contribution labels switch to real-money wording. `createRealPool()` builds the `pool` account (named via `funding.poolAccountName`), one `buildPoolContributionTx` per participant, derives participants/total from the contributions, and persists with `addTxs` + `addAccount`; optimistically adds the pool account to local `accounts`.
+- Pool card branches on `isRealPool(f)`: a "Real pool" badge (PiggyBank), the third figure tile reads "Balance" instead of "Remaining", and an optional **goal-progress bar** (`poolProgress`) renders when a target is set. The contributors section shows an **Add money** action + per-person **Add more** (instead of owes/record-payment); a **Contributions** collapsible (mirrors the paybacks list) lists each cash-in with edit/delete. The repayments section is virtual-only.
+- New **Contribution modal** (add + edit) with an "is my own money" checkbox (shows the fund-from selector) or a name field for others. Handlers `openContrib`/`openEditContrib`/`recordContribution`/`deleteContribution` rebuild contributions → participants → total and persist add/remove tx ids. The **Spend modal** locks the charge account to the pool account for real pools (shown read-only) instead of a picker. `persist()` gained an optional `addAccount` param.
+
+### Hiding `pool` accounts from the rest of the app
+- **Accounts page** (`app/(app)/accounts/page.tsx`): added `pool` to `ACCOUNT_TYPE_CONFIG` (PiggyBank/emerald) and the two label Records (`typePool`/`groupPool`), but excluded it from the add-account **type Select** (`Object.entries(...).filter(value !== 'pool')`) and from the grouped listing (`if (a.type !== 'pool')`). Pool accounts still flow through the net-worth/assets loop (which already nets out `fundingHeld` per account), so a real pool's my-portion counts toward net worth while the others-portion does not.
+- Generic "all accounts" pickers now filter `a.type !== 'pool'` so the managed pool account can't be mis-posted to: QuickAddTransaction (from/to), transactions page (form account/toAccount, loan into-account ×3, split pay-from), bills page (pay-from ×2, payback into-account), accounts loan payment-from. The read-only transaction *filter* list was intentionally left untouched (filtering by a pool account is useful).
+
+### Locales (`locales/en.json`, `locales/vi.json`)
+Added `accounts.typePool`/`groupPool`; updated `funding.subtitle`; added ~26 `funding.*` keys (virtualPool, realPool, realBadge, realHint, fundMyShareFrom, targetOptional, includeMeReal, myContributionReal, balance, goalProgress, goalOf, addContribution, addMore, paidIn, yourMoneyIn, contributionsTitle, fromAccount, cashHandedIn, editContribution, contributionHint, contributionIsMe, whoContributed, contributionAdded, contributionUpdated, contributionDeleted, confirmDeleteContribution, poolAccountName). vi mirrors en.
+
+### Tests / verification
+`lib/__tests__/funding.test.ts` gains real-pool coverage: contribution building (my Transfer vs others' Funding + held), `participantsFromContributions`/`contributionsTotal` (incl. top-ups), `poolProgress`, `isRealPool`, and a full cash-flow scenario asserting pool balance, `calcFundingHeldByAccount`, and the my-portion = balance − held identity. Existing `makePool` helpers (funding + transactions-route tests) updated with `kind: 'virtual'`. `tsc --noEmit` clean; `eslint` 0 errors (only the pre-existing load-effect warnings); `vitest` **567 passing**.

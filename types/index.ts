@@ -79,7 +79,11 @@ export interface Transaction {
 export interface Account {
   id: string;
   name: string;
-  type: 'checking' | 'savings' | 'credit' | 'investment' | 'loan' | 'cash';
+  // 'pool' is a dedicated holding bucket auto-created for a REAL Funding pool (see
+  // Funding below). It counts as an asset in net worth, but its created/managed
+  // entirely by the Funding feature — it's hidden from the Accounts page and from
+  // the generic transaction/bill account pickers so it can't be mis-posted to.
+  type: 'checking' | 'savings' | 'credit' | 'investment' | 'loan' | 'cash' | 'pool';
   institution: string;
   balance: number;
   last4: string;
@@ -227,18 +231,42 @@ export interface Loan {
 }
 
 // A money pool the user (treasurer) holds on behalf of a group — e.g. everyone
-// chips in for a trip. The pool is VIRTUAL money — the group's agreed budget, not
-// cash parked in a real account. Real balances are only touched on these events:
-//   • SPEND: charged to a real account you pick (cash/card). Only the user's OWN
-//     share counts as their expense; the rest leaves the account as a `transfer`
-//     (fronting the group's money), so it never inflates the user's spending.
-//   • REPAY: a participant pays you back — recorded as a `transfer` INTO one of your
-//     accounts (category 'FundingRepay'), so it lands as neither income nor a debt.
-//   • The user's own pledge is just an earmark (no cash row), tracked for the total.
+// chips in for a trip. A pool is one of two KINDS:
+//
+//   • VIRTUAL — the group's agreed budget, not cash parked anywhere. Real balances
+//     are touched only on SPEND (charged to a real account you pick; only your own
+//     share is an expense, the rest is a `transfer` fronting the group's money) and
+//     REPAY (a participant pays you back — a `transfer` INTO your account tagged
+//     'FundingRepay'). Your own pledge is just an earmark (no cash row).
+//
+//   • REAL — actual cash is put in up front and held in a dedicated `pool`-type
+//     account (`poolAccountId`). The pool's live balance = totalContributed − spent
+//     = the pool account's balance. Cash flows:
+//       – your contribution → a `transfer` from your spendable account INTO the pool
+//         account (category 'Transfer'): your money, just moved to the shared bucket.
+//       – others' contributions → a `transfer` (empty source) INTO the pool account
+//         tagged 'Funding', so it's held-for-others and netted out of net worth.
+//       – a SPEND is charged to the pool account: your share is an expense, the rest
+//         a `transfer` OUT (tagged 'Funding'), drawing the held money back down.
+//     Real pools settle nothing afterwards (everyone already paid in), so they carry
+//     no repayments. An optional `target` turns the pool into a group savings goal.
 export interface FundingParticipant {
   name: string;        // display name ('' allowed only for the "me" row, which sets isMe)
-  contributed: number; // this person's pledge — their agreed share of the virtual pool
+  contributed: number; // virtual: this person's pledge; real: actual cash they put in
   isMe: boolean;       // true for the treasurer's own contribution
+}
+
+// One real-pool contribution (cash actually put into the pool). Self-contained so a
+// single contribution can be edited/deleted and the pool re-derived without parsing
+// the ledger. `id` is the ledger `transfer` it created (into the pool account), so a
+// pool delete reverses it atomically. Only used by REAL pools.
+export interface FundingContribution {
+  id: string;          // the ledger transfer row id this created
+  participant: string; // who put the money in (matches FundingParticipant.name)
+  amount: number;
+  isMe: boolean;       // true when it's the treasurer's own money
+  account: string;     // your source account the cash came from (isMe); '' for others
+  date: string;        // YYYY-MM-DD
 }
 
 // One participant paying you back. Self-contained so the pool can edit/delete a
@@ -258,14 +286,19 @@ export interface Funding {
   description: string;
   account: string;          // default account to charge / receive into (a suggestion)
   date: string;             // YYYY-MM-DD created
+  kind: 'virtual' | 'real'; // virtual budget vs. real cash held in a pool account
   participants: FundingParticipant[];
-  totalContributed: number; // virtual pool size = sum of every participant's pledge
+  totalContributed: number; // pool size = sum of every participant's pledge/contribution
   spent: number;            // cumulative amount spent from the pool
   // Cash rows this pool created, so deletion reverses them atomically:
   contributionTxId: string; // legacy upfront others-contribution transfer ('' for virtual pools)
   spendTxIds: string[];     // ids of every spend row (my-share expenses + others transfers)
-  repayments: FundingRepayment[]; // participants paying you back (settle-up after the trip)
+  repayments: FundingRepayment[]; // virtual only: participants paying you back (settle-up)
   closed: boolean;          // user marked the pool wrapped up
+  // ── REAL pools only ──
+  poolAccountId?: string;   // the dedicated `pool`-type account holding the real cash
+  target?: number;          // optional savings-goal target (drives a progress bar); 0/absent = none
+  contributions?: FundingContribution[]; // itemized cash put into the pool
 }
 
 export const EXPENSE_CATEGORIES = [

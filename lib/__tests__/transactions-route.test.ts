@@ -135,7 +135,7 @@ describe('DELETE /api/transactions (delete → reverse balance)', () => {
 describe('funding pool reconciliation (linked cash rows edited/deleted here)', () => {
   function makePool(o: Partial<Funding> = {}): Funding {
     return {
-      id: 'f1', description: 'Trip', account: 'a1', date: '2026-06-01',
+      id: 'f1', description: 'Trip', account: 'a1', date: '2026-06-01', kind: 'virtual',
       participants: [
         { name: 'Me', contributed: 100, isMe: true },
         { name: 'Alex', contributed: 200, isMe: false },

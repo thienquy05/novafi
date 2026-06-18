@@ -8,6 +8,7 @@ import {
   deleteTransaction,
   getAccounts,
   persistChangedAccounts,
+  deleteAccount,
 } from '@/lib/sheets';
 import { invalidateMany, CACHE_TTL, TX_CACHES } from '@/lib/cache';
 import { cachedGet, withSession } from '@/lib/apiRoute';
@@ -23,18 +24,24 @@ export const GET = cachedGet({
 // One write path for both "create pool" and "record spend": apply any cash rows
 // (contributions in / spend out), reverse any removed rows, then upsert the pool.
 // Bundling the cash with the pool keeps balances and the pool record in lockstep.
-//   body = { funding, addTxs?: Transaction[], removeTxIds?: string[] }
+// `addAccount` creates the dedicated holding account for a REAL pool atomically, so
+// the contribution rows below have somewhere to land.
+//   body = { funding, addTxs?, removeTxIds?, addAccount? }
 export const POST = withSession(async ({ accessToken, spreadsheetId, req }) => {
-  const { funding, addTxs, removeTxIds }: { funding: Funding; addTxs?: Transaction[]; removeTxIds?: string[] } =
-    await req.json();
+  const { funding, addTxs, removeTxIds, addAccount }: {
+    funding: Funding; addTxs?: Transaction[]; removeTxIds?: string[]; addAccount?: Account;
+  } = await req.json();
 
   let updatedAccounts: Account[] | null = null;
-  if ((addTxs && addTxs.length) || (removeTxIds && removeTxIds.length)) {
+  if ((addTxs && addTxs.length) || (removeTxIds && removeTxIds.length) || addAccount) {
     const [transactions, accounts] = await Promise.all([
       getTransactions(accessToken, spreadsheetId),
       getAccounts(accessToken, spreadsheetId),
     ]);
-    let working: Account[] = accounts;
+    // The new pool account is appended so existing indexes stay aligned for
+    // persistChangedAccounts (which diffs by index); it then gets written as a new row.
+    let working: Account[] =
+      addAccount && !accounts.some((a) => a.id === addAccount.id) ? [...accounts, addAccount] : accounts;
 
     for (const id of removeTxIds ?? []) {
       const old = transactions.find((t) => t.id === id);
@@ -74,6 +81,7 @@ export const DELETE = withSession(async ({ accessToken, spreadsheetId, req }) =>
         funding.contributionTxId,
         ...(funding.spendTxIds ?? []),
         ...(funding.repayments ?? []).map((r) => r.id),
+        ...(funding.contributions ?? []).map((c) => c.id),
       ].filter(Boolean) as string[]
     : [];
   let updatedAccounts: Account[] | null = null;
@@ -90,7 +98,19 @@ export const DELETE = withSession(async ({ accessToken, spreadsheetId, req }) =>
     }
     await persistChangedAccounts(accessToken, spreadsheetId, accounts, working);
     invalidateMany(spreadsheetId, TX_CACHES);
-    updatedAccounts = working;
+    // Drop the now-emptied dedicated pool account (real pools only).
+    if (funding?.poolAccountId) {
+      await deleteAccount(accessToken, spreadsheetId, funding.poolAccountId);
+      working = working.filter((a) => a.id !== funding.poolAccountId);
+      updatedAccounts = working;
+    } else {
+      updatedAccounts = working;
+    }
+  } else if (funding?.poolAccountId) {
+    // No cash rows to reverse, but still remove the empty pool account.
+    const accounts = await getAccounts(accessToken, spreadsheetId);
+    await deleteAccount(accessToken, spreadsheetId, funding.poolAccountId);
+    updatedAccounts = accounts.filter((a) => a.id !== funding.poolAccountId);
   }
 
   invalidateMany(spreadsheetId, ['funding']);

@@ -97,7 +97,7 @@ const LOANS_HEADER = [
 const FUNDING_HEADER = [
   'id', 'description', 'account', 'date', 'participants_json',
   'total_contributed', 'spent', 'contribution_tx_id', 'spend_tx_ids', 'closed',
-  'repayments_json',
+  'repayments_json', 'kind', 'pool_account_id', 'target', 'contributions_json',
 ];
 
 // A `values.get` against a tab that doesn't exist fails with HTTP 400 ("Unable
@@ -887,18 +887,23 @@ export async function getFundings(
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'Funding!A2:K1000',
+      range: 'Funding!A2:O1000',
     });
     return (res.data.values ?? []).map((r) => {
       let participants: Funding['participants'] = [];
       try { participants = JSON.parse(String(r[4] ?? '[]')); } catch { participants = []; }
       let repayments: Funding['repayments'] = [];
       try { repayments = JSON.parse(String(r[10] ?? '[]')); } catch { repayments = []; }
+      let contributions: Funding['contributions'] = [];
+      try { contributions = JSON.parse(String(r[14] ?? '[]')); } catch { contributions = []; }
+      // Legacy rows (pre-real-pool) have no kind column → they're virtual.
+      const kind: Funding['kind'] = r[11] === 'real' ? 'real' : 'virtual';
       return {
         id: r[0] ?? '',
         description: r[1] ?? '',
         account: r[2] ?? '',
         date: r[3] ?? '',
+        kind,
         participants,
         totalContributed: Number(r[5] ?? 0),
         spent: Number(r[6] ?? 0),
@@ -906,6 +911,9 @@ export async function getFundings(
         spendTxIds: String(r[8] ?? '').split('|').filter(Boolean),
         closed: r[9] === 'true',
         repayments,
+        poolAccountId: r[12] ? String(r[12]) : undefined,
+        target: r[13] === undefined || r[13] === '' ? undefined : Number(r[13]),
+        contributions,
       };
     });
   } catch (err) {
@@ -936,6 +944,8 @@ export async function upsertFunding(
         funding.contributionTxId ?? '', (funding.spendTxIds ?? []).join('|'),
         String(funding.closed),
         JSON.stringify(funding.repayments ?? []),
+        funding.kind ?? 'virtual', funding.poolAccountId ?? '', funding.target ?? '',
+        JSON.stringify(funding.contributions ?? []),
       ]],
     },
   });
