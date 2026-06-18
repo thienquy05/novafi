@@ -681,7 +681,12 @@
     "migrateDesc": "This pool's cash sits in an old holding account. Move it into a real account so its balance reflects the money flow.",
     "migrateHint": "Pick the real account that holds this pool's cash. Every contribution and spend will move onto it, and the old holding account will be removed.",
     "migrateButton": "Move cash",
-    "poolMigrated": "Pool moved to your account"
+    "poolMigrated": "Pool moved to your account",
+    "editPool": "Edit pool",
+    "poolUpdated": "Pool updated",
+    "editVirtualHint": "Add or remove people and adjust pledges — the pool total updates to match. Removing someone who already paid you back will reverse those paybacks.",
+    "editRealHint": "To add or remove contributors or change the amount, use Add money or edit the contributions below — real cash always moves through those.",
+    "confirmDropPaid": "Removing these people will reverse {n} payback(s) they made. Continue?"
   },
   "credit": {
     "title": "Smart Credit Report",

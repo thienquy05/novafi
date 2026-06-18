@@ -88,7 +88,57 @@ export function buildContributionTx(
   };
 }
 
-// ── Real money pools ──────────────────────────────────────────────────────────
+// ── Editing a virtual pool (people / pledges / description) ─────────────────────
+// Virtual-pool pledges are just numbers — changing them moves no cash. The only
+// cash rows tied to participants are:
+//   • a REMOVED participant's paybacks → reversed (their cash leaves your account),
+//     and dropped from the pool, so the edit is fully reversible and consistent.
+//   • the legacy upfront others'-contribution row (`contributionTxId`, only on old
+//     pools that fronted others' cash) → rebuilt to the new others' total so the
+//     held cash stays in sync; reversed outright when nobody else is left.
+// Spends are charged to real accounts independent of the roster, so they're untouched.
+// Returns the corrected pool plus the rows to add / reverse.
+export function planVirtualPoolEdit(
+  f: Funding,
+  newParticipants: FundingParticipant[],
+  description: string,
+  transactions: Transaction[],
+): { funding: Funding; addTxs: Transaction[]; removeTxIds: string[] } {
+  const newNames = new Set(newParticipants.map((p) => p.name));
+  const removeTxIds: string[] = [];
+  // Drop paybacks from anyone no longer in the pool, reversing their cash rows.
+  const repayments = f.repayments.filter((r) => {
+    if (newNames.has(r.participant)) return true;
+    removeTxIds.push(r.id);
+    return false;
+  });
+  const addTxs: Transaction[] = [];
+  let contributionTxId = f.contributionTxId;
+  if (f.contributionTxId) {
+    const original = transactions.find((t) => t.id === f.contributionTxId);
+    removeTxIds.push(f.contributionTxId);
+    const tx = buildContributionTx(
+      f.account,
+      othersContribution(newParticipants),
+      original?.description ?? description,
+      original?.date ?? f.date,
+    );
+    contributionTxId = tx ? tx.id : '';
+    if (tx) addTxs.push(tx);
+  }
+  return {
+    funding: {
+      ...f,
+      description,
+      participants: newParticipants,
+      totalContributed: totalContribution(newParticipants),
+      repayments,
+      contributionTxId,
+    },
+    addTxs,
+    removeTxIds,
+  };
+}
 // A REAL pool holds actual cash in a REAL account you choose (`poolAccountId` points
 // at one of your existing deposit accounts), so that account's balance reflects the
 // pooled money flowing in and out. Others' contributions are `transfer`s INTO that

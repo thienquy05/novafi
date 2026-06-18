@@ -681,7 +681,12 @@
     "migrateDesc": "Tiền của quỹ này đang nằm trong một tài khoản giữ tiền kiểu cũ. Hãy chuyển vào một tài khoản thật để số dư phản ánh dòng tiền.",
     "migrateHint": "Chọn tài khoản thật giữ tiền của quỹ này. Mọi khoản đóng góp và chi tiêu sẽ chuyển sang tài khoản đó, và tài khoản giữ tiền cũ sẽ bị xóa.",
     "migrateButton": "Chuyển tiền",
-    "poolMigrated": "Đã chuyển quỹ vào tài khoản của bạn"
+    "poolMigrated": "Đã chuyển quỹ vào tài khoản của bạn",
+    "editPool": "Sửa quỹ",
+    "poolUpdated": "Đã cập nhật quỹ",
+    "editVirtualHint": "Thêm hoặc bớt người và điều chỉnh mức góp — tổng quỹ sẽ cập nhật theo. Xóa người đã trả lại tiền cho bạn sẽ hoàn lại các khoản trả đó.",
+    "editRealHint": "Để thêm/bớt người đóng góp hoặc đổi số tiền, hãy dùng Thêm tiền hoặc sửa các khoản đóng góp bên dưới — tiền thật luôn đi qua đó.",
+    "confirmDropPaid": "Xóa những người này sẽ hoàn lại {n} khoản trả họ đã thực hiện. Tiếp tục?"
   },
   "credit": {
     "title": "Báo cáo tín dụng thông minh",

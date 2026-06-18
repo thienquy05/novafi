@@ -5,7 +5,7 @@ import {
   buildRepayTx, groupFundingSpends, participantOwed, participantRepaid, totalOwed,
   isFullySettled, FUNDING_REPAY_CATEGORY,
   isRealPool, buildPoolContributionTx, participantsFromContributions, contributionsTotal, poolProgress,
-  repointRealPoolAccount,
+  repointRealPoolAccount, planVirtualPoolEdit,
 } from '@/lib/funding';
 import { applyTransactionToBalances, calcFundingHeld, calcFundingHeldByAccount } from '@/lib/calculations';
 import type { Account, Funding, FundingContribution, FundingParticipant, FundingRepayment, Transaction } from '@/types';
@@ -414,5 +414,93 @@ describe('repointRealPoolAccount (legacy pool migration)', () => {
     const { f, transactions } = legacyPool();
     expect(repointRealPoolAccount(f, 'pool1', transactions)).toBeNull();
     expect(repointRealPoolAccount({ ...f, poolAccountId: undefined }, 'chk1', transactions)).toBeNull();
+  });
+});
+
+describe('planVirtualPoolEdit', () => {
+  it('recomputes the roster + total with no cash rows when nobody is removed', () => {
+    const f = makePool({
+      participants: [
+        { name: 'Me', contributed: 100, isMe: true },
+        { name: 'Alex', contributed: 100, isMe: false },
+      ],
+      repayments: [{ id: 'r1', participant: 'Alex', amount: 40, account: 'chk1', date: '2026-06-10' }],
+      contributionTxId: '',
+    });
+    const next = [
+      { name: 'Me', contributed: 150, isMe: true },          // bumped my pledge
+      { name: 'Alex', contributed: 100, isMe: false },        // unchanged (keeps payback)
+      { name: 'Sam', contributed: 80, isMe: false },          // added
+    ];
+    const { funding, addTxs, removeTxIds } = planVirtualPoolEdit(f, next, 'Beach trip 2', []);
+    expect(funding.description).toBe('Beach trip 2');
+    expect(funding.totalContributed).toBe(330);
+    expect(funding.participants).toEqual(next);
+    expect(funding.repayments).toHaveLength(1);   // Alex stays → payback kept
+    expect(addTxs).toEqual([]);
+    expect(removeTxIds).toEqual([]);
+  });
+
+  it("reverses a removed participant's paybacks and drops them", () => {
+    const f = makePool({
+      participants: [
+        { name: 'Me', contributed: 100, isMe: true },
+        { name: 'Alex', contributed: 100, isMe: false },
+      ],
+      repayments: [
+        { id: 'r1', participant: 'Alex', amount: 40, account: 'chk1', date: '2026-06-10' },
+        { id: 'r2', participant: 'Alex', amount: 60, account: 'chk1', date: '2026-06-11' },
+      ],
+      contributionTxId: '',
+    });
+    const { funding, addTxs, removeTxIds } = planVirtualPoolEdit(
+      f, [{ name: 'Me', contributed: 100, isMe: true }], 'Beach trip', [],
+    );
+    expect(removeTxIds.sort()).toEqual(['r1', 'r2']);   // both of Alex's paybacks reversed
+    expect(funding.repayments).toEqual([]);
+    expect(funding.totalContributed).toBe(100);
+    expect(addTxs).toEqual([]);
+  });
+
+  it('rebuilds the legacy upfront others-contribution row to the new others total', () => {
+    const original: Transaction = {
+      id: 'ctx1', date: '2026-06-09', description: 'Funding pool — Beach trip',
+      amount: 100, type: 'transfer', category: 'Funding', account: '', toAccount: 'chk1',
+    };
+    const f = makePool({
+      participants: [
+        { name: 'Me', contributed: 100, isMe: true },
+        { name: 'Alex', contributed: 100, isMe: false },
+      ],
+      account: 'chk1', repayments: [], contributionTxId: 'ctx1',
+    });
+    const { funding, addTxs, removeTxIds } = planVirtualPoolEdit(
+      f,
+      [{ name: 'Me', contributed: 100, isMe: true }, { name: 'Alex', contributed: 250, isMe: false }],
+      'Beach trip', [original],
+    );
+    expect(removeTxIds).toContain('ctx1');             // old held-cash row reversed
+    expect(addTxs).toHaveLength(1);
+    expect(addTxs[0].amount).toBe(250);                // rebuilt to the new others total
+    expect(addTxs[0].toAccount).toBe('chk1');
+    expect(addTxs[0].category).toBe('Funding');
+    expect(funding.contributionTxId).toBe(addTxs[0].id);
+  });
+
+  it('reverses the legacy row outright when the last other person is removed', () => {
+    const original: Transaction = {
+      id: 'ctx1', date: '2026-06-09', description: 'held', amount: 100,
+      type: 'transfer', category: 'Funding', account: '', toAccount: 'chk1',
+    };
+    const f = makePool({
+      participants: [{ name: 'Me', contributed: 100, isMe: true }, { name: 'Alex', contributed: 100, isMe: false }],
+      account: 'chk1', repayments: [], contributionTxId: 'ctx1',
+    });
+    const { funding, addTxs, removeTxIds } = planVirtualPoolEdit(
+      f, [{ name: 'Me', contributed: 100, isMe: true }], 'Beach trip', [original],
+    );
+    expect(removeTxIds).toEqual(['ctx1']);
+    expect(addTxs).toEqual([]);                        // nobody else → no held cash
+    expect(funding.contributionTxId).toBe('');
   });
 });

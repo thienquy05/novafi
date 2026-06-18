@@ -20,7 +20,7 @@ import {
   buildSpendTxs, buildRepayTx, groupFundingSpends, participantOwed, participantRepaid, totalOwed,
   totalRepaid, isFullySettled,
   isRealPool, buildPoolContributionTx, participantsFromContributions, contributionsTotal, poolProgress,
-  repointRealPoolAccount,
+  repointRealPoolAccount, planVirtualPoolEdit,
   type FundingSpend,
 } from '@/lib/funding';
 import { applyTransactionToBalances } from '@/lib/calculations';
@@ -84,6 +84,14 @@ export default function FundingPage() {
   const [migrateFor, setMigrateFor] = useState<Funding | null>(null);
   const [migrateAccount, setMigrateAccount] = useState('');
   function openMigrate(f: Funding) { setMigrateFor(f); setMigrateAccount(depositAccounts[0]?.id || ''); }
+
+  // Edit-pool modal: adjust description + (virtual) the roster/pledges or (real) the goal.
+  const [editFor, setEditFor] = useState<Funding | null>(null);
+  const [editDesc, setEditDesc] = useState('');
+  const [editTarget, setEditTarget] = useState('');
+  const [editIncludeMe, setEditIncludeMe] = useState(true);
+  const [editMyAmount, setEditMyAmount] = useState('');
+  const [editOthers, setEditOthers] = useState<OtherRow[]>([emptyOther()]);
 
   // Settle-up / record-payment modal (also serves editing a payment)
   const [payFor, setPayFor] = useState<Funding | null>(null);
@@ -398,6 +406,55 @@ export default function FundingPage() {
     await persist(m.funding, m.addTxs, m.removeTxIds, 'funding.poolMigrated', undefined, oldId);
   }
 
+  // ── Edit pool ──────────────────────────────────────────────────────────────────
+  function openEdit(f: Funding) {
+    setEditFor(f);
+    setEditDesc(f.description);
+    setEditTarget(f.target ? String(f.target) : '');
+    const me = f.participants.find((p) => p.isMe);
+    setEditIncludeMe(!!me);
+    setEditMyAmount(me ? String(me.contributed) : '');
+    const others = f.participants.filter((p) => !p.isMe).map((p) => ({ key: generateId(), name: p.name, amount: String(p.contributed) }));
+    setEditOthers(others.length ? others : [emptyOther()]);
+  }
+
+  // Build the edited roster from the modal fields (mirrors draftParticipants).
+  const editParticipants = (): FundingParticipant[] => {
+    const list: FundingParticipant[] = [];
+    if (editIncludeMe && num(editMyAmount) > 0) list.push({ name: t('funding.me'), contributed: num(editMyAmount), isMe: true });
+    for (const o of editOthers) {
+      if (o.name.trim() && num(o.amount) > 0) list.push({ name: o.name.trim(), contributed: num(o.amount), isMe: false });
+    }
+    return list;
+  };
+
+  async function saveEdit() {
+    if (!editFor) return;
+    const description = editDesc.trim();
+    if (!description) return;
+    if (isRealPool(editFor)) {
+      // Real pools derive their roster + total from contributions (managed via the
+      // contributions list) — here we only adjust the description and savings goal.
+      const targetNum = round2(num(editTarget));
+      const updated: Funding = { ...editFor, description, target: targetNum > 0 ? targetNum : undefined };
+      setFundings((prev) => prev.map((f) => f.id === updated.id ? updated : f));
+      setEditFor(null);
+      await persist(updated, [], [], 'funding.poolUpdated');
+      return;
+    }
+    // Virtual pool: recompute the roster/total. Any removed participant's paybacks are
+    // reversed (their cash leaves your account), keeping every row synchronized.
+    const newParticipants = editParticipants();
+    if (newParticipants.length === 0) return;
+    const newNames = new Set(newParticipants.map((p) => p.name));
+    const droppedRepaid = editFor.repayments.filter((r) => !newNames.has(r.participant)).length;
+    if (droppedRepaid > 0 && !confirm(t('funding.confirmDropPaid', { n: droppedRepaid }))) return;
+    const { funding, addTxs, removeTxIds } = planVirtualPoolEdit(editFor, newParticipants, description, transactions);
+    setFundings((prev) => prev.map((f) => f.id === funding.id ? funding : f));
+    setEditFor(null);
+    await persist(funding, addTxs, removeTxIds, 'funding.poolUpdated');
+  }
+
   // Manual wrap-up: archive a pool (e.g. you're done even if not fully settled) or
   // reopen one. No cash rows move — this only flips the pool's `closed` flag.
   async function setArchived(f: Funding, closed: boolean) {
@@ -461,6 +518,16 @@ export default function FundingPage() {
                 <MinusCircle className="w-4 h-4" />{t('funding.spend')}
               </Button>
             )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 h-9 w-9 rounded-xl"
+              onClick={() => openEdit(f)}
+              aria-label={t('funding.editPool')}
+              title={t('funding.editPool')}
+            >
+              <Pencil className="w-4 h-4" />
+            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -948,6 +1015,62 @@ export default function FundingPage() {
               <div className="flex gap-3">
                 <Button variant="secondary" className="flex-1" onClick={() => setMigrateFor(null)}>{t('common.cancel')}</Button>
                 <Button className="flex-1 shadow-sm" onClick={migrateHolding} disabled={saving || !migrateAccount}>{saving ? t('common.saving') : t('funding.migrateButton')}</Button>
+              </div>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      {/* ── Edit pool modal ───────────────────────────────────────────────── */}
+      <Modal open={editFor !== null} onClose={() => setEditFor(null)} title={t('funding.editPool')}>
+        {editFor && (
+          <>
+            <div className="space-y-5 pb-4">
+              <Input label={t('funding.description')} placeholder={t('funding.descPlaceholder')} value={editDesc} onChange={(e) => setEditDesc(e.target.value)} />
+
+              {isRealPool(editFor) ? (
+                <>
+                  <Input label={t('funding.targetOptional')} type="text" inputMode="decimal" placeholder="0.00" value={editTarget} onChange={(e) => setEditTarget(e.target.value.replace(/[^0-9.]/g, ''))} />
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/40 rounded-xl px-3 py-2">{t('funding.editRealHint')}</p>
+                </>
+              ) : (
+                <>
+                  {/* My pledge */}
+                  <div className="rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/40 p-4 space-y-3">
+                    <label className="flex items-center gap-2.5 cursor-pointer">
+                      <input type="checkbox" checked={editIncludeMe} onChange={(e) => setEditIncludeMe(e.target.checked)} className="w-4 h-4 rounded accent-indigo-600" />
+                      <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{t('funding.includeMe')}</span>
+                    </label>
+                    {editIncludeMe && (
+                      <Input label={t('funding.myContribution')} type="text" inputMode="decimal" placeholder="0.00" value={editMyAmount} onChange={(e) => setEditMyAmount(e.target.value.replace(/[^0-9.]/g, ''))} />
+                    )}
+                  </div>
+
+                  {/* Other people */}
+                  <div className="space-y-3">
+                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{t('funding.otherPeople')}</p>
+                    {editOthers.map((o, i) => (
+                      <div key={o.key} className="flex items-center gap-2.5">
+                        <Input className="h-14 flex-1 text-lg placeholder:text-lg placeholder:font-medium" placeholder={t('funding.personName')} value={o.name} onChange={(e) => setEditOthers((prev) => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
+                        <Input className="h-14 w-24 text-lg" type="text" inputMode="decimal" placeholder="0.00" value={o.amount} onChange={(e) => setEditOthers((prev) => prev.map((x, j) => j === i ? { ...x, amount: e.target.value.replace(/[^0-9.]/g, '') } : x))} />
+                        <button onClick={() => setEditOthers((prev) => prev.length > 1 ? prev.filter((_, j) => j !== i) : [emptyOther()])} className="text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 shrink-0 p-2 rounded-xl transition-colors" aria-label="Remove"><Trash2 className="w-5 h-5" /></button>
+                      </div>
+                    ))}
+                    <button onClick={() => setEditOthers((prev) => [...prev, emptyOther()])} className="text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 inline-flex items-center gap-2 mt-1 px-3 py-2 rounded-xl transition-colors">
+                      <UserPlus className="w-5 h-5" />{t('funding.addPerson')}
+                    </button>
+                  </div>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/40 rounded-xl px-3 py-2">{t('funding.editVirtualHint')}</p>
+                  {totalContribution(editParticipants()) > 0 && (
+                    <p className="text-sm font-bold text-slate-600 dark:text-slate-300 text-center">{t('funding.poolTotal', { amount: formatCurrency(totalContribution(editParticipants())) })}</p>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+              <div className="flex gap-3">
+                <Button variant="secondary" className="flex-1" onClick={() => setEditFor(null)}>{t('common.cancel')}</Button>
+                <Button className="flex-1 shadow-sm" onClick={saveEdit} disabled={saving || !editDesc.trim() || (!isRealPool(editFor) && totalContribution(editParticipants()) <= 0)}>{saving ? t('common.saving') : t('common.save')}</Button>
               </div>
             </div>
           </>

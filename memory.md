@@ -2,6 +2,27 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-18 — Edit pool: adjust people / pledges / description, with synchronized & reversible cash (branch claude/funding-pool-money-flow-9y4f9f)
+
+**User request:** add an "edit pool" so you can add/remove group people or change the total fund amount, keeping all transactions synchronized and reversible. (Same branch as the real-pool-money-flow change above.)
+
+### `lib/funding.ts`
+- **New `planVirtualPoolEdit(f, newParticipants, description, transactions)`** → `{ funding, addTxs, removeTxIds }`. Virtual pledges are virtual (no cash), so the only participant-linked cash rows it touches are: (1) a **removed** participant's paybacks → reversed and dropped from the pool; (2) the **legacy** upfront others'-contribution row (`contributionTxId`, only on old pools that fronted others' cash) → rebuilt via `buildContributionTx` to the new others' total (reusing the original row's description/date), or reversed outright when no other person remains. Recomputes `participants` + `totalContributed`; spends are untouched (charged to accounts independent of the roster).
+
+### `app/(app)/funding/page.tsx`
+- Added an **Edit (Pencil) button** to every pool card's action group, and an **Edit-pool modal**.
+  - **Virtual pools:** edit description + the roster (my pledge via include-me/amount, plus an add/remove "other people" editor mirroring the create modal); the pool total updates live. On save, `editParticipants()` builds the new roster and `planVirtualPoolEdit` plans the cash sync; if any removed person had paybacks, a confirm (`funding.confirmDropPaid`) warns those will be reversed.
+  - **Real pools:** edit description + savings target only — the roster/total derive from contributions (managed via Add money / the contributions list, already reversible), noted via `funding.editRealHint`. Save is a pure data update (no cash rows).
+- New state: `editFor`, `editDesc`, `editTarget`, `editIncludeMe`, `editMyAmount`, `editOthers`; helpers `openEdit`, `editParticipants`, `saveEdit`.
+
+### Locales (`en.json`, `vi.json`)
+- Added `funding.editPool`, `poolUpdated`, `editVirtualHint`, `editRealHint`, `confirmDropPaid`.
+
+### Tests (`lib/__tests__/funding.test.ts`)
+- New `planVirtualPoolEdit` suite: roster/total recompute with no cash rows when nobody's removed; a removed participant's paybacks reversed + dropped; legacy upfront row rebuilt to the new others' total; legacy row reversed outright when the last other person is removed.
+
+**Verification:** `tsc --noEmit` clean; full `vitest` **574 passing**; eslint on changed files shows only the two pre-existing notes (`load()` set-state-in-effect warning + `depositAccounts` useMemo compiler note).
+
 ## 2026-06-18 — Real money pools hold their cash in a CHOSEN real account (branch claude/funding-pool-money-flow-9y4f9f)
 
 **User feedback:** "For the Funding, real money pool, it should reflect the money flow into the chosen Accounts." Real pools used to auto-create a hidden synthetic `pool`-type holding account, so the pooled cash flowed into a phantom account rather than a real account the user actually holds the money in. Now a real pool holds its cash in a real deposit account you pick, so that account's balance reflects the money going in and out. (Two confirmed design choices: hold cash in **one chosen real account**; **migrate** legacy pools on next touch.)
