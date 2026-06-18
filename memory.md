@@ -2,6 +2,86 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-18 — CI lint fix: React Compiler couldn't preserve the funding useMemos (branch claude/funding-pool-money-flow-9y4f9f)
+
+CI's `lint` job failed (1 error) after the funding changes: `react-hooks/preserve-manual-memoization` — "Could not preserve existing memoization" on `depositAccounts = useMemo(...)`. Once the new migrate/contribution/edit handlers consumed `depositAccounts`/`chargeAccounts`, the React Compiler could no longer keep their manual `useMemo`. Verified master had 0 errors, so it was introduced here. Fix: compute `chargeAccounts`/`depositAccounts` as plain derived consts (the React Compiler auto-memoizes them) and drop the now-unused `useMemo` import in `app/(app)/funding/page.tsx`. Also asserted `expect(addTxs).toEqual([])` in the rename test to clear an unused-var warning. `npm run lint` now 0 errors (29 pre-existing warnings, same as master); typecheck clean; 576 tests pass.
+
+## 2026-06-18 — Stable participant ids so renaming keeps paybacks attached (branch claude/funding-pool-money-flow-9y4f9f)
+
+**User:** renaming a virtual-pool participant should keep their paybacks ("we will care about stable id"). Previously paybacks were keyed by name, so the edit-pool flow treated a rename as remove+add and reversed the renamed person's paybacks.
+
+### `types/index.ts`
+- `FundingParticipant.id?: string` — stable identity preserved across edits (optional for legacy rows / real-pool participants derived from contributions, which carry no paybacks).
+- `FundingRepayment.participantId?: string` — stable link to the participant (absent on legacy rows → matched by name).
+
+### `lib/funding.ts`
+- New `repaymentBelongsTo(r, p)`: matches by `participantId === p.id` when both present, else by display name (legacy fallback).
+- `participantRepaid(repayments, p)` now takes the **participant** (was a name) and uses the matcher; `participantOwed` follows.
+- `planVirtualPoolEdit(f, newParticipants, description, transactions, keptRename)` gained the `keptRename` arg: a map of each surviving participant's **old name → new name** (unchanged names map to themselves; old names absent from it = removed). Kept paybacks have their stored `participant` updated to the new name and `participantId` (re)linked to the surviving participant — so a rename never detaches a payback; removed participants' paybacks are still reversed.
+
+### `app/(app)/funding/page.tsx`
+- `OtherRow` gained `id` (stable) + `origName` (name when the edit modal opened); `emptyOther` seeds an `id`. New `myRowId` state gives the "me" pledge a stable id (reset in `openNew`).
+- `draftParticipants` / `editParticipants` now stamp each participant with its row id; `openEdit` captures each row's `id` (backfilled for legacy) + `origName`, and `editMyId`.
+- `saveEdit` builds `keptRename` from the rows (origName → new name for survivors) and the dropped-payback count from it, then calls `planVirtualPoolEdit`.
+- `recordPayment` stamps each payback with the payer's `participantId` (falls back to the edited row's existing id).
+- Card display `participantRepaid(f.repayments, p)` (was `p.name`).
+
+### Tests (`lib/__tests__/funding.test.ts`)
+- `participantRepaid`/`repaymentBelongsTo`: id match survives a stale stored name; legacy name fallback. New `planVirtualPoolEdit` rename case (paybacks re-keyed, nothing reversed). Existing edit + settle-up cases updated to the new signatures (participant object; `keptRename` map; participants/paybacks carry ids).
+
+**Verification:** `tsc --noEmit` clean; full `vitest` **576 passing**; eslint on changed files shows only the two pre-existing notes.
+
+## 2026-06-18 — Edit pool: adjust people / pledges / description, with synchronized & reversible cash (branch claude/funding-pool-money-flow-9y4f9f)
+
+**User request:** add an "edit pool" so you can add/remove group people or change the total fund amount, keeping all transactions synchronized and reversible. (Same branch as the real-pool-money-flow change above.)
+
+### `lib/funding.ts`
+- **New `planVirtualPoolEdit(f, newParticipants, description, transactions)`** → `{ funding, addTxs, removeTxIds }`. Virtual pledges are virtual (no cash), so the only participant-linked cash rows it touches are: (1) a **removed** participant's paybacks → reversed and dropped from the pool; (2) the **legacy** upfront others'-contribution row (`contributionTxId`, only on old pools that fronted others' cash) → rebuilt via `buildContributionTx` to the new others' total (reusing the original row's description/date), or reversed outright when no other person remains. Recomputes `participants` + `totalContributed`; spends are untouched (charged to accounts independent of the roster).
+
+### `app/(app)/funding/page.tsx`
+- Added an **Edit (Pencil) button** to every pool card's action group, and an **Edit-pool modal**.
+  - **Virtual pools:** edit description + the roster (my pledge via include-me/amount, plus an add/remove "other people" editor mirroring the create modal); the pool total updates live. On save, `editParticipants()` builds the new roster and `planVirtualPoolEdit` plans the cash sync; if any removed person had paybacks, a confirm (`funding.confirmDropPaid`) warns those will be reversed.
+  - **Real pools:** edit description + savings target only — the roster/total derive from contributions (managed via Add money / the contributions list, already reversible), noted via `funding.editRealHint`. Save is a pure data update (no cash rows).
+- New state: `editFor`, `editDesc`, `editTarget`, `editIncludeMe`, `editMyAmount`, `editOthers`; helpers `openEdit`, `editParticipants`, `saveEdit`.
+
+### Locales (`en.json`, `vi.json`)
+- Added `funding.editPool`, `poolUpdated`, `editVirtualHint`, `editRealHint`, `confirmDropPaid`.
+
+### Tests (`lib/__tests__/funding.test.ts`)
+- New `planVirtualPoolEdit` suite: roster/total recompute with no cash rows when nobody's removed; a removed participant's paybacks reversed + dropped; legacy upfront row rebuilt to the new others' total; legacy row reversed outright when the last other person is removed.
+
+**Verification:** `tsc --noEmit` clean; full `vitest` **574 passing**; eslint on changed files shows only the two pre-existing notes (`load()` set-state-in-effect warning + `depositAccounts` useMemo compiler note).
+
+## 2026-06-18 — Real money pools hold their cash in a CHOSEN real account (branch claude/funding-pool-money-flow-9y4f9f)
+
+**User feedback:** "For the Funding, real money pool, it should reflect the money flow into the chosen Accounts." Real pools used to auto-create a hidden synthetic `pool`-type holding account, so the pooled cash flowed into a phantom account rather than a real account the user actually holds the money in. Now a real pool holds its cash in a real deposit account you pick, so that account's balance reflects the money going in and out. (Two confirmed design choices: hold cash in **one chosen real account**; **migrate** legacy pools on next touch.)
+
+### `lib/funding.ts`
+- **`buildPoolContributionTx`** now returns `tx: Transaction | null`. New rule: when it's my own money and `fromAccount === poolAccountId` (the holding account), the money is already there → **no cash row** (just earmarked, mirroring a virtual pool's own pledge). Funding my share from a *different* account still builds the `Transfer` row (account→holding); others' money is unchanged (empty→holding, category 'Funding', held-for-others). Updated the real-pool header comment.
+- **New `repointRealPoolAccount(f, newAccountId, transactions)`** → `{ funding, addTxs, removeTxIds } | null`. Re-points every cash row the pool created (spends + contributions) from `poolAccountId` onto `newAccountId` (remove old rows, add identical copies with the account/toAccount swapped, fresh ids), and remaps the pool's `spendTxIds` + `contributions[].id` to the new ids. Because every row that fed the old account is moved off, the old (synthetic) account nets back to 0 → safe to delete. No-op when target equals current / no holding account.
+
+### `app/(app)/funding/page.tsx`
+- **`createRealPool`**: no longer creates a synthetic `pool` account. Uses the chosen deposit account (`accountId`) as `poolAccountId`/`account`. My initial contribution is funded from the holding account itself → no cash row; others' cash transfers into it. Drops the `addAccount` arg to `persist`.
+- **`recordContribution`**: handles the nullable tx (`tx ? [tx] : []`).
+- **`openContrib`**: defaults the my-money source to the pool's holding account when it's a real deposit account (so "add my own money" earmarks without an accidental transfer), else first deposit account.
+- **Legacy migration**: `legacyHolding(f)` = real pool whose `poolAccountId` is a `pool`-type account. Such pools render an amber nudge banner ("move it into a real account") + a **migrate modal** (`migrateFor`/`migrateAccount`, `openMigrate`, `migrateHolding`) that runs `repointRealPoolAccount`, persists the swap, and deletes the old synthetic account via the new `removeAccountId`.
+- **`persist`** gained a `removeAccountId?` param: optimistically drops the account locally and passes it to the API.
+- Creation modal: the real-pool account label switched from `funding.fundMyShareFrom` → `funding.holdIn` ("Hold the cash in").
+
+### `app/api/funding/route.ts`
+- POST accepts **`removeAccountId`** and, after applying tx rows + `persistChangedAccounts` (keeping index alignment), `deleteAccount`s it and filters it out of `working`. Gate condition includes `removeAccountId`.
+
+### `types/index.ts`
+- Reworked the `Funding` REAL-pool doc + `poolAccountId` comment (chosen real account; legacy = auto-created `pool` account until migrated) and the `Account` `'pool'` type comment (now legacy — no new ones created).
+
+### Locales (`en.json`, `vi.json`)
+- Rewrote `funding.realHint`; added `funding.migrateTitle`, `migrateDesc`, `migrateHint`, `migrateButton`, `poolMigrated`. (`poolAccountName` is now unused but left in place.)
+
+### Tests (`lib/__tests__/funding.test.ts`)
+- Rewrote the real-pool contribution cases (my-money-already-there → null tx; funded-from-another-account → Transfer row; others → held 'Funding'). Updated the full cash-flow test to use a real savings holding account. Added a `repointRealPoolAccount` suite (re-points all legs onto the chosen account, empties + allows deleting the old account, held-for-others follows to the real account; no-op cases).
+
+**Verification:** `tsc --noEmit` clean; full `vitest` **570 passing**; eslint on changed files shows only the two pre-existing notes (`load()` set-state-in-effect warning + `depositAccounts` useMemo compiler note), neither from this change.
+
 ## 2026-06-18 — Planning "Spent" total now includes rolled-over deficit (branch claude/cat-budget-discrepancy-gzuybd)
 
 **Bug (user):** with Budget Rollover on, last month's overspend should count as part of THIS month's spending everywhere so all sections show the same numbers. Most budget views already did this — the per-category cards (Planning + Dashboard) show `usage = spent + rolledOverDeficit`, and the over-budget count, the nav badge (fixed in the prior commit), and the SpendingPaceWidget all use the same effective figure. The one straggler was the Planning page's **"SPENT" summary card** (`totalSpent`), which summed raw `spentForCategory` only — so it didn't equal the sum of the budget bars rendered right below it whenever anything rolled over.

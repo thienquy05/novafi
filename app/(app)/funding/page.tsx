@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { CircleDollarSign, Plus, Trash2, Users, Wallet, RefreshCw, AlertCircle, MinusCircle, UserPlus, Pencil, HandCoins, Archive, ArchiveRestore, ChevronDown, PiggyBank, Target } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
@@ -20,12 +20,16 @@ import {
   buildSpendTxs, buildRepayTx, groupFundingSpends, participantOwed, participantRepaid, totalOwed,
   totalRepaid, isFullySettled,
   isRealPool, buildPoolContributionTx, participantsFromContributions, contributionsTotal, poolProgress,
+  repointRealPoolAccount, planVirtualPoolEdit,
   type FundingSpend,
 } from '@/lib/funding';
 import { applyTransactionToBalances } from '@/lib/calculations';
 
-type OtherRow = { key: string; name: string; amount: string };
-function emptyOther(): OtherRow { return { key: generateId(), name: '', amount: '' }; }
+// `id` is the participant's stable identity (preserved across edits so a rename keeps
+// their paybacks); `origName` is the name when the edit modal opened (used to re-key
+// existing paybacks onto the new name). Both unused by the create flow.
+type OtherRow = { key: string; id: string; name: string; amount: string; origName?: string };
+function emptyOther(): OtherRow { return { key: generateId(), id: generateId(), name: '', amount: '' }; }
 
 const num = (s: string) => { const n = parseFloat(s); return Number.isFinite(n) ? n : 0; };
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -47,6 +51,7 @@ export default function FundingPage() {
   const [accountId, setAccountId] = useState('');
   const [includeMe, setIncludeMe] = useState(true);
   const [myAmount, setMyAmount] = useState('');
+  const [myRowId, setMyRowId] = useState(() => generateId()); // stable id for the "me" pledge
   const [others, setOthers] = useState<OtherRow[]>([emptyOther()]);
   const [target, setTarget] = useState(''); // real pool: optional savings-goal target
 
@@ -79,6 +84,20 @@ export default function FundingPage() {
       return next;
     });
 
+  // Legacy-pool migration modal (move an old synthetic-account pool onto a real account)
+  const [migrateFor, setMigrateFor] = useState<Funding | null>(null);
+  const [migrateAccount, setMigrateAccount] = useState('');
+  function openMigrate(f: Funding) { setMigrateFor(f); setMigrateAccount(depositAccounts[0]?.id || ''); }
+
+  // Edit-pool modal: adjust description + (virtual) the roster/pledges or (real) the goal.
+  const [editFor, setEditFor] = useState<Funding | null>(null);
+  const [editDesc, setEditDesc] = useState('');
+  const [editTarget, setEditTarget] = useState('');
+  const [editIncludeMe, setEditIncludeMe] = useState(true);
+  const [editMyAmount, setEditMyAmount] = useState('');
+  const [editMyId, setEditMyId] = useState('');
+  const [editOthers, setEditOthers] = useState<OtherRow[]>([emptyOther()]);
+
   // Settle-up / record-payment modal (also serves editing a payment)
   const [payFor, setPayFor] = useState<Funding | null>(null);
   const [editingPay, setEditingPay] = useState<FundingRepayment | null>(null);
@@ -105,16 +124,15 @@ export default function FundingPage() {
   const { pullY, refreshing } = usePullToRefresh(() => load(true));
 
   // Accounts you can CHARGE a spend to: spendable deposits plus credit cards.
-  const chargeAccounts = useMemo(
-    () => accounts.filter((a) => a.type === 'checking' || a.type === 'savings' || a.type === 'cash' || a.type === 'credit'),
-    [accounts],
-  );
+  // (Plain derived consts — the React Compiler memoizes them; a manual useMemo here
+  // couldn't be preserved once these feed the migrate/contribution handlers below.)
+  const chargeAccounts = accounts.filter((a) => a.type === 'checking' || a.type === 'savings' || a.type === 'cash' || a.type === 'credit');
   // Accounts a repayment can land IN: deposit accounts only (a payback is cash to you).
-  const depositAccounts = useMemo(
-    () => accounts.filter((a) => a.type === 'checking' || a.type === 'savings' || a.type === 'cash'),
-    [accounts],
-  );
+  const depositAccounts = accounts.filter((a) => a.type === 'checking' || a.type === 'savings' || a.type === 'cash');
   const accountName = (id: string) => accounts.find((a) => a.id === id)?.name ?? id;
+  // A legacy real pool still parks its cash in an auto-created `pool`-type account.
+  // Such pools get a one-click prompt to move that cash into a real account.
+  const legacyHolding = (f: Funding) => isRealPool(f) && accounts.find((a) => a.id === f.poolAccountId)?.type === 'pool';
 
   // Optimistically fold a set of added/removed rows into the live account balances,
   // using the same ledger math the server applies (correct for cards vs deposits).
@@ -132,25 +150,26 @@ export default function FundingPage() {
 
   function openNew() {
     setKind('virtual'); setDesc(''); setAccountId(depositAccounts[0]?.id ?? accounts[0]?.id ?? '');
-    setIncludeMe(true); setMyAmount(''); setOthers([emptyOther()]); setTarget(''); setOpen(true);
+    setIncludeMe(true); setMyAmount(''); setMyRowId(generateId()); setOthers([emptyOther()]); setTarget(''); setOpen(true);
   }
 
   const draftParticipants = (): FundingParticipant[] => {
     const list: FundingParticipant[] = [];
-    if (includeMe && num(myAmount) > 0) list.push({ name: t('funding.me'), contributed: num(myAmount), isMe: true });
+    if (includeMe && num(myAmount) > 0) list.push({ id: myRowId, name: t('funding.me'), contributed: num(myAmount), isMe: true });
     for (const o of others) {
-      if (o.name.trim() && num(o.amount) > 0) list.push({ name: o.name.trim(), contributed: num(o.amount), isMe: false });
+      if (o.name.trim() && num(o.amount) > 0) list.push({ id: o.id, name: o.name.trim(), contributed: num(o.amount), isMe: false });
     }
     return list;
   };
 
-  async function persist(funding: Funding, addTxs: Transaction[], removeTxIds: string[], successKey: string, addAccount?: Account) {
+  async function persist(funding: Funding, addTxs: Transaction[], removeTxIds: string[], successKey: string, addAccount?: Account, removeAccountId?: string) {
     setSaving(true);
     applyRows(addTxs, removeTxIds);
+    if (removeAccountId) setAccounts((prev) => prev.filter((a) => a.id !== removeAccountId));
     try {
       const res = await fetch('/api/funding', {
         method: 'POST',
-        body: JSON.stringify({ funding, addTxs, removeTxIds, addAccount }),
+        body: JSON.stringify({ funding, addTxs, removeTxIds, addAccount, removeAccountId }),
         headers: { 'Content-Type': 'application/json' },
       });
       if (!res.ok) throw new Error();
@@ -190,33 +209,26 @@ export default function FundingPage() {
     await persist(funding, [], [], 'funding.poolCreated');
   }
 
-  // Real pool: open a dedicated holding account and move everyone's real cash into
-  // it up front (mine from my chosen account, others' as held-for-me money).
+  // Real pool: the cash lives in a real account you chose (`accountId`). Others' cash
+  // is moved into it as held-for-the-group money; your own money is already there, so
+  // it's just earmarked (no cash row). The account's balance reflects the real flow.
   async function createRealPool(participants: FundingParticipant[], date: string) {
     const note = t('funding.contributionDesc', { desc: desc.trim() });
-    const poolAccount: Account = {
-      id: generateId(),
-      name: t('funding.poolAccountName', { desc: desc.trim() }),
-      type: 'pool',
-      institution: '',
-      balance: 0,
-      last4: '',
-      color: '#10b981',
-      createdAt: date,
-    };
+    const holdingId = accountId; // the chosen real deposit account that holds the pool
     const txs: Transaction[] = [];
     const contributions: FundingContribution[] = [];
     for (const p of participants) {
       const { tx, contribution } = buildPoolContributionTx(
-        poolAccount.id, p.contributed, p.name, p.isMe, p.isMe ? accountId : '', note, date,
+        holdingId, p.contributed, p.name, p.isMe, p.isMe ? holdingId : '', note, date,
       );
-      txs.push(tx); contributions.push(contribution);
+      if (tx) txs.push(tx);
+      contributions.push(contribution);
     }
     const targetNum = round2(num(target));
     const funding: Funding = {
       id: generateId(),
       description: desc.trim(),
-      account: poolAccount.id,
+      account: holdingId,
       date,
       kind: 'real',
       participants: participantsFromContributions(contributions),
@@ -226,14 +238,13 @@ export default function FundingPage() {
       spendTxIds: [],
       repayments: [],
       closed: false,
-      poolAccountId: poolAccount.id,
+      poolAccountId: holdingId,
       target: targetNum > 0 ? targetNum : undefined,
       contributions,
     };
     setFundings((prev) => [funding, ...prev]);
-    setAccounts((prev) => [...prev, poolAccount]);
     setOpen(false);
-    await persist(funding, txs, [], 'funding.poolCreated', poolAccount);
+    await persist(funding, txs, [], 'funding.poolCreated');
   }
 
   // ── Spend ────────────────────────────────────────────────────────────────────
@@ -291,7 +302,10 @@ export default function FundingPage() {
     setContribIsMe(isMe);
     setContribWho(participant && !participant.isMe ? participant.name : '');
     setContribAmount('');
-    setContribAccount(depositAccounts[0]?.id || '');
+    // Default my-money source to the holding account itself (no transfer — just earmark
+    // money already there); fall back to the first deposit account for legacy pools.
+    const holding = f.poolAccountId && depositAccounts.some((a) => a.id === f.poolAccountId) ? f.poolAccountId : '';
+    setContribAccount(holding || depositAccounts[0]?.id || '');
   }
   function openEditContrib(f: Funding, c: FundingContribution) {
     setContribFor(f); setEditingContrib(c);
@@ -321,7 +335,8 @@ export default function FundingPage() {
     };
     setFundings((prev) => prev.map((f) => f.id === updated.id ? updated : f));
     setContribFor(null); setEditingContrib(null);
-    await persist(updated, [tx], removeTxIds, editingContrib ? 'funding.contributionUpdated' : 'funding.contributionAdded');
+    // `tx` is null when it's my own money already in the holding account (nothing moves).
+    await persist(updated, tx ? [tx] : [], removeTxIds, editingContrib ? 'funding.contributionUpdated' : 'funding.contributionAdded');
   }
 
   async function deleteContribution(f: Funding, c: FundingContribution) {
@@ -358,10 +373,12 @@ export default function FundingPage() {
     const date = editingPay?.date || today();
     const note = t('funding.paymentDesc', { name: payWho, desc: payFor.description });
     const { tx, repayment } = buildRepayTx(payAccount, amount, payWho, note, date);
+    // Link the payback to the payer's stable id so it stays attached if they're renamed.
+    const payer = payFor.participants.find((p) => p.name === payWho);
     const removeTxIds = editingPay ? [editingPay.id] : [];
     const base: Funding = {
       ...payFor,
-      repayments: [...payFor.repayments.filter((r) => r.id !== editingPay?.id), repayment],
+      repayments: [...payFor.repayments.filter((r) => r.id !== editingPay?.id), { ...repayment, participantId: payer?.id ?? editingPay?.participantId }],
     };
     // Auto-archive the moment this payback settles everyone up (only if it wasn't
     // already wrapped up). Manual archive/reopen below can always override.
@@ -378,6 +395,76 @@ export default function FundingPage() {
     const updated: Funding = { ...f, repayments: f.repayments.filter((x) => x.id !== r.id) };
     setFundings((prev) => prev.map((x) => x.id === updated.id ? updated : x));
     await persist(updated, [], [r.id], 'funding.paymentDeleted');
+  }
+
+  // Migrate a legacy real pool off its auto-created `pool` account onto a real account
+  // you choose: re-point every cash row, then drop the now-empty synthetic account.
+  async function migrateHolding() {
+    if (!migrateFor || !migrateAccount) return;
+    const m = repointRealPoolAccount(migrateFor, migrateAccount, transactions);
+    if (!m) { setMigrateFor(null); return; }
+    setFundings((prev) => prev.map((x) => x.id === m.funding.id ? m.funding : x));
+    const oldId = migrateFor.poolAccountId;
+    setMigrateFor(null);
+    await persist(m.funding, m.addTxs, m.removeTxIds, 'funding.poolMigrated', undefined, oldId);
+  }
+
+  // ── Edit pool ──────────────────────────────────────────────────────────────────
+  function openEdit(f: Funding) {
+    setEditFor(f);
+    setEditDesc(f.description);
+    setEditTarget(f.target ? String(f.target) : '');
+    const me = f.participants.find((p) => p.isMe);
+    setEditIncludeMe(!!me);
+    setEditMyAmount(me ? String(me.contributed) : '');
+    setEditMyId(me?.id ?? generateId()); // backfill a stable id for legacy "me"
+    // Each row carries the participant's stable id + the name it had on open, so a
+    // rename keeps its identity (legacy rows without an id get one assigned now).
+    const others = f.participants.filter((p) => !p.isMe).map((p) => ({ key: generateId(), id: p.id ?? generateId(), origName: p.name, name: p.name, amount: String(p.contributed) }));
+    setEditOthers(others.length ? others : [emptyOther()]);
+  }
+
+  // Build the edited roster from the modal fields, preserving each row's stable id.
+  const editParticipants = (): FundingParticipant[] => {
+    const list: FundingParticipant[] = [];
+    if (editIncludeMe && num(editMyAmount) > 0) list.push({ id: editMyId, name: t('funding.me'), contributed: num(editMyAmount), isMe: true });
+    for (const o of editOthers) {
+      if (o.name.trim() && num(o.amount) > 0) list.push({ id: o.id, name: o.name.trim(), contributed: num(o.amount), isMe: false });
+    }
+    return list;
+  };
+
+  async function saveEdit() {
+    if (!editFor) return;
+    const description = editDesc.trim();
+    if (!description) return;
+    if (isRealPool(editFor)) {
+      // Real pools derive their roster + total from contributions (managed via the
+      // contributions list) — here we only adjust the description and savings goal.
+      const targetNum = round2(num(editTarget));
+      const updated: Funding = { ...editFor, description, target: targetNum > 0 ? targetNum : undefined };
+      setFundings((prev) => prev.map((f) => f.id === updated.id ? updated : f));
+      setEditFor(null);
+      await persist(updated, [], [], 'funding.poolUpdated');
+      return;
+    }
+    // Virtual pool: recompute the roster/total. Map each surviving participant's OLD
+    // name → its new name so renames keep their paybacks; anyone dropped from the roster
+    // has their paybacks reversed (their cash leaves your account).
+    const newParticipants = editParticipants();
+    if (newParticipants.length === 0) return;
+    const keptRename: Record<string, string> = {};
+    const me = editFor.participants.find((p) => p.isMe);
+    if (editIncludeMe && num(editMyAmount) > 0 && me) keptRename[me.name] = t('funding.me');
+    for (const o of editOthers) {
+      if (o.origName && o.name.trim() && num(o.amount) > 0) keptRename[o.origName] = o.name.trim();
+    }
+    const droppedRepaid = editFor.repayments.filter((r) => keptRename[r.participant] === undefined).length;
+    if (droppedRepaid > 0 && !confirm(t('funding.confirmDropPaid', { n: droppedRepaid }))) return;
+    const { funding, addTxs, removeTxIds } = planVirtualPoolEdit(editFor, newParticipants, description, transactions, keptRename);
+    setFundings((prev) => prev.map((f) => f.id === funding.id ? funding : f));
+    setEditFor(null);
+    await persist(funding, addTxs, removeTxIds, 'funding.poolUpdated');
   }
 
   // Manual wrap-up: archive a pool (e.g. you're done even if not fully settled) or
@@ -447,6 +534,16 @@ export default function FundingPage() {
               variant="ghost"
               size="icon"
               className="text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 h-9 w-9 rounded-xl"
+              onClick={() => openEdit(f)}
+              aria-label={t('funding.editPool')}
+              title={t('funding.editPool')}
+            >
+              <Pencil className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 h-9 w-9 rounded-xl"
               onClick={() => setArchived(f, !f.closed)}
               aria-label={f.closed ? t('funding.reopen') : t('funding.archive')}
               title={f.closed ? t('funding.reopen') : t('funding.archive')}
@@ -456,6 +553,17 @@ export default function FundingPage() {
             <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 h-9 w-9 rounded-xl" onClick={() => deletePool(f)}><Trash2 className="w-4 h-4" /></Button>
           </div>
         </div>
+
+        {/* Legacy holding-account nudge: move the pool's cash into a real account */}
+        {legacyHolding(f) && (
+          <div className="rounded-2xl bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 p-3 flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2 min-w-0">
+              <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+              <p className="text-xs font-medium text-amber-800 dark:text-amber-300">{t('funding.migrateDesc')}</p>
+            </div>
+            <Button variant="secondary" size="sm" className="shrink-0" onClick={() => openMigrate(f)}>{t('funding.migrateButton')}</Button>
+          </div>
+        )}
 
         {/* Pool figures */}
         <div className="grid grid-cols-3 gap-3">
@@ -514,7 +622,7 @@ export default function FundingPage() {
           <div className="space-y-1.5">
             {f.participants.map((p, i) => {
               const owe = participantOwed(p, f.repayments);
-              const paid = participantRepaid(f.repayments, p.name);
+              const paid = participantRepaid(f.repayments, p);
               return (
                 <div key={i} className="flex items-center justify-between gap-2 text-sm">
                   <span className={`inline-flex items-center gap-1.5 font-bold px-2.5 py-1 rounded-lg ${p.isMe ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
@@ -755,7 +863,7 @@ export default function FundingPage() {
           <p className="text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/40 rounded-xl px-3 py-2">{t(kind === 'real' ? 'funding.realHint' : 'funding.virtualHint')}</p>
           <Input label={t('funding.description')} placeholder={t('funding.descPlaceholder')} value={desc} onChange={(e) => setDesc(e.target.value)} />
           <Select
-            label={t(kind === 'real' ? 'funding.fundMyShareFrom' : 'funding.defaultAccount')}
+            label={t(kind === 'real' ? 'funding.holdIn' : 'funding.defaultAccount')}
             value={accountId}
             options={(kind === 'real' ? depositAccounts : chargeAccounts).map((a) => ({ value: a.id, label: a.name }))}
             onChange={(e) => setAccountId(e.target.value)}
@@ -896,6 +1004,85 @@ export default function FundingPage() {
               <div className="flex gap-3">
                 <Button variant="secondary" className="flex-1" onClick={() => { setContribFor(null); setEditingContrib(null); }}>{t('common.cancel')}</Button>
                 <Button className="flex-1 shadow-sm" onClick={recordContribution} disabled={saving || num(contribAmount) <= 0 || (!contribIsMe && !contribWho.trim()) || (contribIsMe && !contribAccount)}>{saving ? t('common.saving') : (editingContrib ? t('common.save') : t('funding.addContribution'))}</Button>
+              </div>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      {/* ── Migrate legacy pool to a real account ─────────────────────────── */}
+      <Modal open={migrateFor !== null} onClose={() => setMigrateFor(null)} title={t('funding.migrateTitle')}>
+        {migrateFor && (
+          <>
+            <div className="space-y-5 pb-4">
+              <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{t('funding.migrateHint')}</p>
+              <Select
+                label={t('funding.holdIn')}
+                value={migrateAccount}
+                options={depositAccounts.map((a) => ({ value: a.id, label: a.name }))}
+                onChange={(e) => setMigrateAccount(e.target.value)}
+              />
+            </div>
+            <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+              <div className="flex gap-3">
+                <Button variant="secondary" className="flex-1" onClick={() => setMigrateFor(null)}>{t('common.cancel')}</Button>
+                <Button className="flex-1 shadow-sm" onClick={migrateHolding} disabled={saving || !migrateAccount}>{saving ? t('common.saving') : t('funding.migrateButton')}</Button>
+              </div>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      {/* ── Edit pool modal ───────────────────────────────────────────────── */}
+      <Modal open={editFor !== null} onClose={() => setEditFor(null)} title={t('funding.editPool')}>
+        {editFor && (
+          <>
+            <div className="space-y-5 pb-4">
+              <Input label={t('funding.description')} placeholder={t('funding.descPlaceholder')} value={editDesc} onChange={(e) => setEditDesc(e.target.value)} />
+
+              {isRealPool(editFor) ? (
+                <>
+                  <Input label={t('funding.targetOptional')} type="text" inputMode="decimal" placeholder="0.00" value={editTarget} onChange={(e) => setEditTarget(e.target.value.replace(/[^0-9.]/g, ''))} />
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/40 rounded-xl px-3 py-2">{t('funding.editRealHint')}</p>
+                </>
+              ) : (
+                <>
+                  {/* My pledge */}
+                  <div className="rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/40 p-4 space-y-3">
+                    <label className="flex items-center gap-2.5 cursor-pointer">
+                      <input type="checkbox" checked={editIncludeMe} onChange={(e) => setEditIncludeMe(e.target.checked)} className="w-4 h-4 rounded accent-indigo-600" />
+                      <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{t('funding.includeMe')}</span>
+                    </label>
+                    {editIncludeMe && (
+                      <Input label={t('funding.myContribution')} type="text" inputMode="decimal" placeholder="0.00" value={editMyAmount} onChange={(e) => setEditMyAmount(e.target.value.replace(/[^0-9.]/g, ''))} />
+                    )}
+                  </div>
+
+                  {/* Other people */}
+                  <div className="space-y-3">
+                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{t('funding.otherPeople')}</p>
+                    {editOthers.map((o, i) => (
+                      <div key={o.key} className="flex items-center gap-2.5">
+                        <Input className="h-14 flex-1 text-lg placeholder:text-lg placeholder:font-medium" placeholder={t('funding.personName')} value={o.name} onChange={(e) => setEditOthers((prev) => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
+                        <Input className="h-14 w-24 text-lg" type="text" inputMode="decimal" placeholder="0.00" value={o.amount} onChange={(e) => setEditOthers((prev) => prev.map((x, j) => j === i ? { ...x, amount: e.target.value.replace(/[^0-9.]/g, '') } : x))} />
+                        <button onClick={() => setEditOthers((prev) => prev.length > 1 ? prev.filter((_, j) => j !== i) : [emptyOther()])} className="text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 shrink-0 p-2 rounded-xl transition-colors" aria-label="Remove"><Trash2 className="w-5 h-5" /></button>
+                      </div>
+                    ))}
+                    <button onClick={() => setEditOthers((prev) => [...prev, emptyOther()])} className="text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 inline-flex items-center gap-2 mt-1 px-3 py-2 rounded-xl transition-colors">
+                      <UserPlus className="w-5 h-5" />{t('funding.addPerson')}
+                    </button>
+                  </div>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/40 rounded-xl px-3 py-2">{t('funding.editVirtualHint')}</p>
+                  {totalContribution(editParticipants()) > 0 && (
+                    <p className="text-sm font-bold text-slate-600 dark:text-slate-300 text-center">{t('funding.poolTotal', { amount: formatCurrency(totalContribution(editParticipants())) })}</p>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+              <div className="flex gap-3">
+                <Button variant="secondary" className="flex-1" onClick={() => setEditFor(null)}>{t('common.cancel')}</Button>
+                <Button className="flex-1 shadow-sm" onClick={saveEdit} disabled={saving || !editDesc.trim() || (!isRealPool(editFor) && totalContribution(editParticipants()) <= 0)}>{saving ? t('common.saving') : t('common.save')}</Button>
               </div>
             </div>
           </>

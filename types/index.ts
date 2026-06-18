@@ -79,10 +79,12 @@ export interface Transaction {
 export interface Account {
   id: string;
   name: string;
-  // 'pool' is a dedicated holding bucket auto-created for a REAL Funding pool (see
-  // Funding below). It counts as an asset in net worth, but its created/managed
-  // entirely by the Funding feature — it's hidden from the Accounts page and from
-  // the generic transaction/bill account pickers so it can't be mis-posted to.
+  // 'pool' is a legacy holding bucket auto-created for early REAL Funding pools (see
+  // Funding below). Real pools now hold their cash in a real account you choose, so no
+  // new 'pool' accounts are created — but existing ones live on until migrated. It
+  // counts as an asset in net worth, but is managed entirely by the Funding feature —
+  // hidden from the Accounts page and the generic transaction/bill account pickers so
+  // it can't be mis-posted to.
   type: 'checking' | 'savings' | 'credit' | 'investment' | 'loan' | 'cash' | 'pool';
   institution: string;
   balance: number;
@@ -239,18 +241,26 @@ export interface Loan {
 //     REPAY (a participant pays you back — a `transfer` INTO your account tagged
 //     'FundingRepay'). Your own pledge is just an earmark (no cash row).
 //
-//   • REAL — actual cash is put in up front and held in a dedicated `pool`-type
-//     account (`poolAccountId`). The pool's live balance = totalContributed − spent
-//     = the pool account's balance. Cash flows:
-//       – your contribution → a `transfer` from your spendable account INTO the pool
-//         account (category 'Transfer'): your money, just moved to the shared bucket.
-//       – others' contributions → a `transfer` (empty source) INTO the pool account
+//   • REAL — actual cash is held in a REAL account YOU choose (`poolAccountId` points
+//     at one of your deposit accounts), so that account's balance reflects the pooled
+//     money flowing in and out. The pool's live balance is its own running figure
+//     (totalContributed − spent), which need not equal the account balance. Cash flows:
+//       – your contribution → no cash row when the money's already in the holding
+//         account (just earmarked); a `transfer` (category 'Transfer') INTO it if you
+//         fund your share from a different account.
+//       – others' contributions → a `transfer` (empty source) INTO the holding account
 //         tagged 'Funding', so it's held-for-others and netted out of net worth.
-//       – a SPEND is charged to the pool account: your share is an expense, the rest
+//       – a SPEND is charged to the holding account: your share is an expense, the rest
 //         a `transfer` OUT (tagged 'Funding'), drawing the held money back down.
 //     Real pools settle nothing afterwards (everyone already paid in), so they carry
 //     no repayments. An optional `target` turns the pool into a group savings goal.
+//     (Legacy real pools created earlier reference an auto-created `pool`-type holding
+//     account; the Funding page offers to migrate them onto a real account.)
 export interface FundingParticipant {
+  // Stable identity, preserved across edits so a participant can be renamed without
+  // detaching their paybacks. Optional only for legacy rows / real-pool participants
+  // derived from contributions (which carry no paybacks); assigned for virtual pools.
+  id?: string;
   name: string;        // display name ('' allowed only for the "me" row, which sets isMe)
   contributed: number; // virtual: this person's pledge; real: actual cash they put in
   isMe: boolean;       // true for the treasurer's own contribution
@@ -275,7 +285,8 @@ export interface FundingContribution {
 // delete reverses it atomically.
 export interface FundingRepayment {
   id: string;          // the FundingRepay transfer row id
-  participant: string; // which participant paid (matches FundingParticipant.name)
+  participant: string; // which participant paid (display name; kept in sync on rename)
+  participantId?: string; // stable link to FundingParticipant.id (survives renames); absent on legacy rows → matched by name
   amount: number;
   account: string;     // the account the money landed in
   date: string;        // YYYY-MM-DD
@@ -296,7 +307,7 @@ export interface Funding {
   repayments: FundingRepayment[]; // virtual only: participants paying you back (settle-up)
   closed: boolean;          // user marked the pool wrapped up
   // ── REAL pools only ──
-  poolAccountId?: string;   // the dedicated `pool`-type account holding the real cash
+  poolAccountId?: string;   // the account holding the real cash — a chosen deposit account (legacy pools reference an auto-created `pool` account until migrated)
   target?: number;          // optional savings-goal target (drives a progress bar); 0/absent = none
   contributions?: FundingContribution[]; // itemized cash put into the pool
 }

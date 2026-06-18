@@ -39,13 +39,21 @@ export function poolRemaining(f: Pick<Funding, 'totalContributed' | 'spent'>): n
 // pledge minus everything they've paid back. The "me" row is the user's own money
 // and is never owed. Numbers can't go below 0 (an over-payment just settles them).
 
-export function participantRepaid(repayments: FundingRepayment[], name: string): number {
-  return round(repayments.filter((r) => r.participant === name).reduce((s, r) => s + (r.amount || 0), 0));
+// A payback belongs to a participant by stable id when both carry one (so it stays
+// attached through a rename), falling back to the display name for legacy rows
+// written before ids existed.
+export function repaymentBelongsTo(r: FundingRepayment, p: FundingParticipant): boolean {
+  if (r.participantId && p.id) return r.participantId === p.id;
+  return r.participant === p.name;
+}
+
+export function participantRepaid(repayments: FundingRepayment[], p: FundingParticipant): number {
+  return round(repayments.filter((r) => repaymentBelongsTo(r, p)).reduce((s, r) => s + (r.amount || 0), 0));
 }
 
 export function participantOwed(p: FundingParticipant, repayments: FundingRepayment[]): number {
   if (p.isMe) return 0;
-  return Math.max(0, round((p.contributed || 0) - participantRepaid(repayments, p.name)));
+  return Math.max(0, round((p.contributed || 0) - participantRepaid(repayments, p)));
 }
 
 export function totalRepaid(repayments: FundingRepayment[]): number {
@@ -88,21 +96,89 @@ export function buildContributionTx(
   };
 }
 
-// ── Real money pools ──────────────────────────────────────────────────────────
-// A REAL pool holds actual cash in a dedicated `pool`-type account. Contributions
-// are real `transfer`s INTO that account; spends are charged to it (so they draw
-// the real balance down). The pool's live balance is just totalContributed − spent
-// (== the pool account's balance). See the Funding type doc for the cash flows.
+// ── Editing a virtual pool (people / pledges / description) ─────────────────────
+// Virtual-pool pledges are just numbers — changing them moves no cash. The only
+// cash rows tied to participants are:
+//   • a REMOVED participant's paybacks → reversed (their cash leaves your account),
+//     and dropped from the pool, so the edit is fully reversible and consistent.
+//   • the legacy upfront others'-contribution row (`contributionTxId`, only on old
+//     pools that fronted others' cash) → rebuilt to the new others' total so the
+//     held cash stays in sync; reversed outright when nobody else is left.
+// Spends are charged to real accounts independent of the roster, so they're untouched.
+//
+// `keptRename` maps each SURVIVING participant's old display name → its new name
+// (unchanged names map to themselves); any old participant absent from it was removed.
+// A kept participant's paybacks follow the rename — their stored name is updated and
+// their `participantId` (re)linked to the surviving participant — so renaming never
+// detaches a payback. Returns the corrected pool plus the rows to add / reverse.
+export function planVirtualPoolEdit(
+  f: Funding,
+  newParticipants: FundingParticipant[],
+  description: string,
+  transactions: Transaction[],
+  keptRename: Record<string, string>,
+): { funding: Funding; addTxs: Transaction[]; removeTxIds: string[] } {
+  const newByName = new Map(newParticipants.map((p) => [p.name, p]));
+  const removeTxIds: string[] = [];
+  const repayments: FundingRepayment[] = [];
+  for (const r of f.repayments) {
+    const newName = keptRename[r.participant];
+    if (newName === undefined) {
+      removeTxIds.push(r.id); // owner no longer in the pool → reverse the payback
+      continue;
+    }
+    const newP = newByName.get(newName);
+    repayments.push({ ...r, participant: newName, participantId: newP?.id ?? r.participantId });
+  }
+  const addTxs: Transaction[] = [];
+  let contributionTxId = f.contributionTxId;
+  if (f.contributionTxId) {
+    const original = transactions.find((t) => t.id === f.contributionTxId);
+    removeTxIds.push(f.contributionTxId);
+    const tx = buildContributionTx(
+      f.account,
+      othersContribution(newParticipants),
+      original?.description ?? description,
+      original?.date ?? f.date,
+    );
+    contributionTxId = tx ? tx.id : '';
+    if (tx) addTxs.push(tx);
+  }
+  return {
+    funding: {
+      ...f,
+      description,
+      participants: newParticipants,
+      totalContributed: totalContribution(newParticipants),
+      repayments,
+      contributionTxId,
+    },
+    addTxs,
+    removeTxIds,
+  };
+}
+// A REAL pool holds actual cash in a REAL account you choose (`poolAccountId` points
+// at one of your existing deposit accounts), so that account's balance reflects the
+// pooled money flowing in and out. Others' contributions are `transfer`s INTO that
+// account (held-for-others, netted out of net worth); your own money already sitting
+// there is just earmarked (no cash row); spends are charged to it, drawing it down.
+// The pool's live balance is its own running figure: totalContributed − spent (which
+// need NOT equal the account balance, since the account can hold other money too).
+// (Legacy pools created before this point reference an auto-created `pool`-type
+// account — see `repointRealPoolAccount` for migrating them onto a real account.)
 
 export function isRealPool(f: Pick<Funding, 'kind'>): boolean {
   return f.kind === 'real';
 }
 
-// The cash row + record for one contribution INTO the pool account.
-//   • Your money (isMe): a `transfer` from your spendable account → pool, category
-//     'Transfer'. It's still your money, just moved to the shared bucket (so it
-//     stays in net worth and is NOT held-for-others).
-//   • Someone else's money: a `transfer` from an empty source → pool, category
+// The cash row + record for one contribution INTO the holding account.
+//   • Your money already in the holding account (isMe, fromAccount === the holding
+//     account): no cash row at all — it's already there, just earmarked (mirrors a
+//     virtual pool's own pledge). `tx` is null.
+//   • Your money moved from another account (isMe, fromAccount ≠ holding): a
+//     `transfer` from that account → holding, category 'Transfer'. Still your money,
+//     just relocated to the shared bucket (stays in net worth, NOT held-for-others).
+//   • Someone else's money: a `transfer` from an empty source → holding, category
 //     'Funding', so it's held-for-others and netted out of net worth.
 export function buildPoolContributionTx(
   poolAccountId: string,
@@ -112,13 +188,16 @@ export function buildPoolContributionTx(
   fromAccount: string,
   description: string,
   date: string,
-): { tx: Transaction; contribution: FundingContribution } {
+): { tx: Transaction | null; contribution: FundingContribution } {
   const amt = round(amount);
   const id = generateId();
   const now = new Date().toISOString();
-  const tx: Transaction = isMe
-    ? { id, date, description, amount: amt, type: 'transfer', category: 'Transfer', account: fromAccount, toAccount: poolAccountId, createdAt: now }
-    : { id, date, description, amount: amt, type: 'transfer', category: 'Funding', account: '', toAccount: poolAccountId, createdAt: now };
+  const tx: Transaction | null =
+    isMe && fromAccount === poolAccountId
+      ? null // my money is already in the holding account — nothing moves
+      : isMe
+        ? { id, date, description, amount: amt, type: 'transfer', category: 'Transfer', account: fromAccount, toAccount: poolAccountId, createdAt: now }
+        : { id, date, description, amount: amt, type: 'transfer', category: 'Funding', account: '', toAccount: poolAccountId, createdAt: now };
   return { tx, contribution: { id, participant, amount: amt, isMe, account: isMe ? fromAccount : '', date } };
 }
 
@@ -143,6 +222,48 @@ export function contributionsTotal(contributions: FundingContribution[]): number
 export function poolProgress(totalContributed: number, target?: number): number | null {
   if (!target || target <= 0) return null;
   return totalContributed / target;
+}
+
+// ── Legacy real-pool migration ────────────────────────────────────────────────
+// Early real pools parked their cash in a dedicated auto-created `pool`-type account.
+// A real pool now holds its cash in a REAL account you choose, so its balance
+// reflects the money flow. This re-points every cash row the pool created
+// (contributions in / spends out) from `poolAccountId` onto `newAccountId`, returning
+// the corrected pool plus the rows to swap (remove the old, add identical copies on
+// the new account). Because every row that fed the old account is moved off it, the
+// old account nets back to where it started (0 for a synthetic pool) so the caller
+// can delete it. Returns null when there's nothing to do.
+export function repointRealPoolAccount(
+  f: Funding,
+  newAccountId: string,
+  transactions: Transaction[],
+): { funding: Funding; addTxs: Transaction[]; removeTxIds: string[] } | null {
+  const oldId = f.poolAccountId;
+  if (!oldId || !newAccountId || oldId === newAccountId) return null;
+  const linked = new Set<string>([...(f.spendTxIds ?? []), ...((f.contributions ?? []).map((c) => c.id))]);
+  const idMap = new Map<string, string>();
+  const addTxs: Transaction[] = [];
+  const removeTxIds: string[] = [];
+  for (const t of transactions) {
+    if (!linked.has(t.id) || (t.account !== oldId && t.toAccount !== oldId)) continue;
+    const newId = generateId();
+    idMap.set(t.id, newId);
+    removeTxIds.push(t.id);
+    addTxs.push({
+      ...t,
+      id: newId,
+      account: t.account === oldId ? newAccountId : t.account,
+      toAccount: t.toAccount === oldId ? newAccountId : t.toAccount,
+    });
+  }
+  // Map the pool's own references onto the new row ids (rows not touched keep theirs).
+  const spendTxIds = (f.spendTxIds ?? []).map((id) => idMap.get(id) ?? id);
+  const contributions = (f.contributions ?? []).map((c) => (idMap.has(c.id) ? { ...c, id: idMap.get(c.id)! } : c));
+  return {
+    funding: { ...f, poolAccountId: newAccountId, account: newAccountId, spendTxIds, contributions },
+    addTxs,
+    removeTxIds,
+  };
 }
 
 // ── Ledger → pool reconciliation ──────────────────────────────────────────────
