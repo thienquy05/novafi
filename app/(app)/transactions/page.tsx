@@ -1714,16 +1714,11 @@ export default function TransactionsPage() {
   };
 
   // Category section in the filter sheet tracks the selected TYPE: expense → only
-  // expense categories, income → only income, all → both, transfer → hidden
-  // (transfers aren't user-categorized). The heading mirrors that choice.
+  // expense categories, income → only income, all → both (rendered as two
+  // separately-headed groups), transfer → hidden (transfers aren't categorized).
   const showDraftExpenseCats = draftFilter === 'all' || draftFilter === 'expense';
   const showDraftIncomeCats = draftFilter === 'all' || draftFilter === 'income';
   const showDraftCategories = draftFilter !== 'transfer';
-  const draftCategoryHeading = draftFilter === 'income'
-    ? t('transactions.incomeCategories')
-    : draftFilter === 'expense'
-      ? t('transactions.expenseCategories')
-      : t('transactions.allCategories');
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
@@ -2583,42 +2578,55 @@ export default function TransactionsPage() {
                     </section>
                   )}
 
-                  {/* ── Section 3: CATEGORIES (label + chips follow the selected TYPE) ── */}
+                  {/* ── Section 3: CATEGORIES (split into Expense / Income groups so the
+                       two don't blur together; each group keeps its own heading even
+                       when only one type is shown) ── */}
                   {showDraftCategories && (
-                    <section>
-                      <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2.5">{draftCategoryHeading}</p>
-                      <div className="flex gap-2 flex-wrap">
-                        {showDraftExpenseCats && [...expenseCategories, ...archivedExpenseCategories].map((c) => {
-                          const archived = archivedExpenseCategories.includes(c);
-                          const selected = draftCategoryFilters.includes(c);
-                          return (
-                            <button
-                              key={`exp-${c}`}
-                              onClick={() => toggleDraftCategory(c)}
-                              aria-pressed={selected}
-                              title={archived ? t('categories.archivedHint') : undefined}
-                              className={`px-4 h-9 rounded-full text-[13px] font-semibold transition-all duration-200 whitespace-nowrap inline-flex items-center gap-1 ${selected ? 'bg-slate-700 text-white border border-slate-700' : archived ? 'bg-transparent text-slate-400 dark:text-slate-500 border border-dashed border-slate-300 dark:border-slate-600' : 'bg-transparent text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}
-                            >
-                              {archived && <Archive className="w-3 h-3" />}{c}
-                            </button>
-                          );
-                        })}
-                        {showDraftIncomeCats && [...incomeCategories, ...archivedIncomeCategories].map((c) => {
-                          const archived = archivedIncomeCategories.includes(c);
-                          const selected = draftCategoryFilters.includes(c);
-                          return (
-                            <button
-                              key={`inc-${c}`}
-                              onClick={() => toggleDraftCategory(c)}
-                              aria-pressed={selected}
-                              title={archived ? t('categories.archivedHint') : undefined}
-                              className={`px-4 h-9 rounded-full text-[13px] font-semibold transition-all duration-200 whitespace-nowrap inline-flex items-center gap-1 ${selected ? 'bg-slate-700 text-white border border-slate-700' : archived ? 'bg-transparent text-slate-400 dark:text-slate-500 border border-dashed border-slate-300 dark:border-slate-600' : 'bg-transparent text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}
-                            >
-                              {archived && <Archive className="w-3 h-3" />}{c}
-                            </button>
-                          );
-                        })}
-                      </div>
+                    <section className="space-y-5">
+                      {showDraftExpenseCats && (
+                        <div>
+                          <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2.5">{t('transactions.expenseCategories')}</p>
+                          <div className="flex gap-2 flex-wrap">
+                            {[...expenseCategories, ...archivedExpenseCategories].map((c) => {
+                              const archived = archivedExpenseCategories.includes(c);
+                              const selected = draftCategoryFilters.includes(c);
+                              return (
+                                <button
+                                  key={`exp-${c}`}
+                                  onClick={() => toggleDraftCategory(c)}
+                                  aria-pressed={selected}
+                                  title={archived ? t('categories.archivedHint') : undefined}
+                                  className={`px-4 h-9 rounded-full text-[13px] font-semibold transition-all duration-200 whitespace-nowrap inline-flex items-center gap-1 ${selected ? 'bg-slate-700 text-white border border-slate-700' : archived ? 'bg-transparent text-slate-400 dark:text-slate-500 border border-dashed border-slate-300 dark:border-slate-600' : 'bg-transparent text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}
+                                >
+                                  {archived && <Archive className="w-3 h-3" />}{c}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      {showDraftIncomeCats && (
+                        <div>
+                          <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2.5">{t('transactions.incomeCategories')}</p>
+                          <div className="flex gap-2 flex-wrap">
+                            {[...incomeCategories, ...archivedIncomeCategories].map((c) => {
+                              const archived = archivedIncomeCategories.includes(c);
+                              const selected = draftCategoryFilters.includes(c);
+                              return (
+                                <button
+                                  key={`inc-${c}`}
+                                  onClick={() => toggleDraftCategory(c)}
+                                  aria-pressed={selected}
+                                  title={archived ? t('categories.archivedHint') : undefined}
+                                  className={`px-4 h-9 rounded-full text-[13px] font-semibold transition-all duration-200 whitespace-nowrap inline-flex items-center gap-1 ${selected ? 'bg-slate-700 text-white border border-slate-700' : archived ? 'bg-transparent text-slate-400 dark:text-slate-500 border border-dashed border-slate-300 dark:border-slate-600' : 'bg-transparent text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}
+                                >
+                                  {archived && <Archive className="w-3 h-3" />}{c}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </section>
                   )}
                 </div>
