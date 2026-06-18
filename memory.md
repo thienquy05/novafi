@@ -2,6 +2,10 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-18 — CI lint fix: React Compiler couldn't preserve the funding useMemos (branch claude/funding-pool-money-flow-9y4f9f)
+
+CI's `lint` job failed (1 error) after the funding changes: `react-hooks/preserve-manual-memoization` — "Could not preserve existing memoization" on `depositAccounts = useMemo(...)`. Once the new migrate/contribution/edit handlers consumed `depositAccounts`/`chargeAccounts`, the React Compiler could no longer keep their manual `useMemo`. Verified master had 0 errors, so it was introduced here. Fix: compute `chargeAccounts`/`depositAccounts` as plain derived consts (the React Compiler auto-memoizes them) and drop the now-unused `useMemo` import in `app/(app)/funding/page.tsx`. Also asserted `expect(addTxs).toEqual([])` in the rename test to clear an unused-var warning. `npm run lint` now 0 errors (29 pre-existing warnings, same as master); typecheck clean; 576 tests pass.
+
 ## 2026-06-18 — Stable participant ids so renaming keeps paybacks attached (branch claude/funding-pool-money-flow-9y4f9f)
 
 **User:** renaming a virtual-pool participant should keep their paybacks ("we will care about stable id"). Previously paybacks were keyed by name, so the edit-pool flow treated a rename as remove+add and reversed the renamed person's paybacks.
