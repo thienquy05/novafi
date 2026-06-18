@@ -1108,6 +1108,49 @@ describe('calcOverBudget', () => {
     const txs = [makeTx({ type: 'expense', date: '2026-05-10', amount: 500, category: 'Entertainment' })];
     expect(calcOverBudget(budgets, txs, MONTH)).toBe(0);
   });
+
+  it('rollover off: last month overspend does NOT push a category over', () => {
+    const budgets = [makeBudget({ category: 'Food', amount: 500 })];
+    const txs = [
+      makeTx({ id: 'p', type: 'expense', date: '2026-04-15', amount: 700, category: 'Food' }), // prev month overspend
+      makeTx({ id: 'c', type: 'expense', date: '2026-05-10', amount: 300, category: 'Food' }), // this month under cap
+    ];
+    expect(calcOverBudget(budgets, txs, MONTH, false)).toBe(0);
+  });
+
+  it('rollover on: last month overspend carries forward to push a category over', () => {
+    const budgets = [makeBudget({ category: 'Food', amount: 500 })];
+    const txs = [
+      makeTx({ id: 'p', type: 'expense', date: '2026-04-15', amount: 700, category: 'Food' }), // $200 deficit carried
+      makeTx({ id: 'c', type: 'expense', date: '2026-05-10', amount: 400, category: 'Food' }), // 400 + 200 = 600 > 500
+    ];
+    expect(calcOverBudget(budgets, txs, MONTH, true)).toBe(1);
+  });
+
+  it('rollover on: last month underspend carries nothing', () => {
+    const budgets = [makeBudget({ category: 'Food', amount: 500 })];
+    const txs = [
+      makeTx({ id: 'p', type: 'expense', date: '2026-04-15', amount: 100, category: 'Food' }), // surplus, no carry
+      makeTx({ id: 'c', type: 'expense', date: '2026-05-10', amount: 400, category: 'Food' }), // 400 < 500
+    ];
+    expect(calcOverBudget(budgets, txs, MONTH, true)).toBe(0);
+  });
+
+  it('rollover on: matches the Planning view (2 cats) where raw count would be 1', () => {
+    const budgets = [
+      makeBudget({ id: 'b1', category: 'Food', amount: 500 }),
+      makeBudget({ id: 'b2', category: 'Transport', amount: 150 }),
+    ];
+    const txs = [
+      // Food: this month already over the cap on raw spend alone.
+      makeTx({ id: 'f', type: 'expense', date: '2026-05-10', amount: 520, category: 'Food' }),
+      // Transport: under the cap this month, but last month's overspend carries it over.
+      makeTx({ id: 'tp', type: 'expense', date: '2026-04-12', amount: 220, category: 'Transport' }), // $70 deficit
+      makeTx({ id: 'tc', type: 'expense', date: '2026-05-12', amount: 120, category: 'Transport' }), // 120 + 70 = 190 > 150
+    ];
+    expect(calcOverBudget(budgets, txs, MONTH, false)).toBe(1); // raw badge under-counted
+    expect(calcOverBudget(budgets, txs, MONTH, true)).toBe(2);  // now consistent with Planning
+  });
 });
 
 // ── Budget Rollover ───────────────────────────────────────────────────────────

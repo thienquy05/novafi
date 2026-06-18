@@ -313,7 +313,14 @@ export default function PlanningPage() {
 
   // ─── Derived stats ───────────────────────────────────────────────────────
   const totalBudgeted = budgets.reduce((s, b) => s + monthlyAmount(b), 0);
-  const totalSpent = budgets.reduce((s, b) => s + spentForCategory(b.category), 0);
+  // "Spent" = effective usage across budgeted categories: this month's real spend
+  // PLUS each category's rolled-over deficit (last month's overspend carried in).
+  // This matches the per-category cards below (each shows `usage`) and the
+  // over-budget count, so the summary total equals the sum of the bars.
+  const totalSpent = budgets.reduce(
+    (s, b) => s + calcEffectiveSpent(spentForCategory(b.category), rolledOverDeficit(b)),
+    0,
+  );
   const overBudgetCount = budgets.filter(
     (b) => calcEffectiveSpent(spentForCategory(b.category), rolledOverDeficit(b)) > monthlyAmount(b)
   ).length;

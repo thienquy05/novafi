@@ -1992,22 +1992,33 @@ export function calcOverdueBills(bills: Bill[], now: Date): number {
   return bills.filter((b) => b.isActive && new Date(b.nextDue) < now).length;
 }
 
+// YYYY-MM of the month directly before `monthKey` (also YYYY-MM).
+function prevMonthKeyOf(monthKey: string): string {
+  const [y, m] = monthKey.split('-').map(Number);
+  const d = new Date(y, (m || 1) - 2, 1); // m is 1-based → m-2 lands on the prior month
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// Counts budget categories over their cap THIS month. With `rolloverEnabled`, this
+// mirrors the Planning and Dashboard views: last month's overspend carries into
+// this month's usage (cap unchanged), so a category pushed over by a rolled-over
+// deficit counts here too. Without it, only raw this-month spend is compared — the
+// two stay consistent so the nav badge can never disagree with the Planning card.
 export function calcOverBudget(
   budgets: Budget[],
   transactions: Transaction[],
   monthKey: string,
+  rolloverEnabled = false,
 ): number {
-  const monthExpenses = transactions.filter(
-    (t) => t.type === 'expense' && t.date.startsWith(monthKey),
-  );
-  return budgets.filter((b) => {
-    const monthly =
-      b.period === 'monthly' ? b.amount
-      : b.period === 'weekly'  ? b.amount * 4.33
-      : b.amount / 12;
-    const spent = monthExpenses
-      .filter((t) => t.category === b.category)
+  const prevKey = rolloverEnabled ? prevMonthKeyOf(monthKey) : null;
+  const spentIn = (cat: string, key: string) =>
+    transactions
+      .filter((t) => t.type === 'expense' && t.date.startsWith(key) && t.category === cat)
       .reduce((s, t) => s + t.amount, 0);
-    return spent > monthly;
+  return budgets.filter((b) => {
+    const monthly = normalizeMonthlyBudget(b.amount, b.period);
+    const spent = spentIn(b.category, monthKey);
+    const deficit = prevKey ? calcRolloverDeficit(monthly, spentIn(b.category, prevKey)) : 0;
+    return calcEffectiveSpent(spent, deficit) > monthly;
   }).length;
 }
