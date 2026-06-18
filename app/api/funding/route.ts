@@ -25,15 +25,17 @@ export const GET = cachedGet({
 // (contributions in / spend out), reverse any removed rows, then upsert the pool.
 // Bundling the cash with the pool keeps balances and the pool record in lockstep.
 // `addAccount` creates the dedicated holding account for a REAL pool atomically, so
-// the contribution rows below have somewhere to land.
-//   body = { funding, addTxs?, removeTxIds?, addAccount? }
+// the contribution rows below have somewhere to land. `removeAccountId` drops an
+// account once it's been emptied — used when migrating a legacy real pool off its
+// auto-created `pool` account (its rows are re-pointed via addTxs/removeTxIds first).
+//   body = { funding, addTxs?, removeTxIds?, addAccount?, removeAccountId? }
 export const POST = withSession(async ({ accessToken, spreadsheetId, req }) => {
-  const { funding, addTxs, removeTxIds, addAccount }: {
-    funding: Funding; addTxs?: Transaction[]; removeTxIds?: string[]; addAccount?: Account;
+  const { funding, addTxs, removeTxIds, addAccount, removeAccountId }: {
+    funding: Funding; addTxs?: Transaction[]; removeTxIds?: string[]; addAccount?: Account; removeAccountId?: string;
   } = await req.json();
 
   let updatedAccounts: Account[] | null = null;
-  if ((addTxs && addTxs.length) || (removeTxIds && removeTxIds.length) || addAccount) {
+  if ((addTxs && addTxs.length) || (removeTxIds && removeTxIds.length) || addAccount || removeAccountId) {
     const [transactions, accounts] = await Promise.all([
       getTransactions(accessToken, spreadsheetId),
       getAccounts(accessToken, spreadsheetId),
@@ -57,6 +59,12 @@ export const POST = withSession(async ({ accessToken, spreadsheetId, req }) => {
 
     await persistChangedAccounts(accessToken, spreadsheetId, accounts, working);
     invalidateMany(spreadsheetId, TX_CACHES);
+    // Drop the emptied account last (after its zeroed balance is persisted), keeping
+    // the index alignment persistChangedAccounts relies on intact until then.
+    if (removeAccountId && working.some((a) => a.id === removeAccountId)) {
+      await deleteAccount(accessToken, spreadsheetId, removeAccountId);
+      working = working.filter((a) => a.id !== removeAccountId);
+    }
     updatedAccounts = working;
   }
 

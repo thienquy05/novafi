@@ -2,6 +2,36 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-18 — Real money pools hold their cash in a CHOSEN real account (branch claude/funding-pool-money-flow-9y4f9f)
+
+**User feedback:** "For the Funding, real money pool, it should reflect the money flow into the chosen Accounts." Real pools used to auto-create a hidden synthetic `pool`-type holding account, so the pooled cash flowed into a phantom account rather than a real account the user actually holds the money in. Now a real pool holds its cash in a real deposit account you pick, so that account's balance reflects the money going in and out. (Two confirmed design choices: hold cash in **one chosen real account**; **migrate** legacy pools on next touch.)
+
+### `lib/funding.ts`
+- **`buildPoolContributionTx`** now returns `tx: Transaction | null`. New rule: when it's my own money and `fromAccount === poolAccountId` (the holding account), the money is already there → **no cash row** (just earmarked, mirroring a virtual pool's own pledge). Funding my share from a *different* account still builds the `Transfer` row (account→holding); others' money is unchanged (empty→holding, category 'Funding', held-for-others). Updated the real-pool header comment.
+- **New `repointRealPoolAccount(f, newAccountId, transactions)`** → `{ funding, addTxs, removeTxIds } | null`. Re-points every cash row the pool created (spends + contributions) from `poolAccountId` onto `newAccountId` (remove old rows, add identical copies with the account/toAccount swapped, fresh ids), and remaps the pool's `spendTxIds` + `contributions[].id` to the new ids. Because every row that fed the old account is moved off, the old (synthetic) account nets back to 0 → safe to delete. No-op when target equals current / no holding account.
+
+### `app/(app)/funding/page.tsx`
+- **`createRealPool`**: no longer creates a synthetic `pool` account. Uses the chosen deposit account (`accountId`) as `poolAccountId`/`account`. My initial contribution is funded from the holding account itself → no cash row; others' cash transfers into it. Drops the `addAccount` arg to `persist`.
+- **`recordContribution`**: handles the nullable tx (`tx ? [tx] : []`).
+- **`openContrib`**: defaults the my-money source to the pool's holding account when it's a real deposit account (so "add my own money" earmarks without an accidental transfer), else first deposit account.
+- **Legacy migration**: `legacyHolding(f)` = real pool whose `poolAccountId` is a `pool`-type account. Such pools render an amber nudge banner ("move it into a real account") + a **migrate modal** (`migrateFor`/`migrateAccount`, `openMigrate`, `migrateHolding`) that runs `repointRealPoolAccount`, persists the swap, and deletes the old synthetic account via the new `removeAccountId`.
+- **`persist`** gained a `removeAccountId?` param: optimistically drops the account locally and passes it to the API.
+- Creation modal: the real-pool account label switched from `funding.fundMyShareFrom` → `funding.holdIn` ("Hold the cash in").
+
+### `app/api/funding/route.ts`
+- POST accepts **`removeAccountId`** and, after applying tx rows + `persistChangedAccounts` (keeping index alignment), `deleteAccount`s it and filters it out of `working`. Gate condition includes `removeAccountId`.
+
+### `types/index.ts`
+- Reworked the `Funding` REAL-pool doc + `poolAccountId` comment (chosen real account; legacy = auto-created `pool` account until migrated) and the `Account` `'pool'` type comment (now legacy — no new ones created).
+
+### Locales (`en.json`, `vi.json`)
+- Rewrote `funding.realHint`; added `funding.migrateTitle`, `migrateDesc`, `migrateHint`, `migrateButton`, `poolMigrated`. (`poolAccountName` is now unused but left in place.)
+
+### Tests (`lib/__tests__/funding.test.ts`)
+- Rewrote the real-pool contribution cases (my-money-already-there → null tx; funded-from-another-account → Transfer row; others → held 'Funding'). Updated the full cash-flow test to use a real savings holding account. Added a `repointRealPoolAccount` suite (re-points all legs onto the chosen account, empties + allows deleting the old account, held-for-others follows to the real account; no-op cases).
+
+**Verification:** `tsc --noEmit` clean; full `vitest` **570 passing**; eslint on changed files shows only the two pre-existing notes (`load()` set-state-in-effect warning + `depositAccounts` useMemo compiler note), neither from this change.
+
 ## 2026-06-18 — Planning "Spent" total now includes rolled-over deficit (branch claude/cat-budget-discrepancy-gzuybd)
 
 **Bug (user):** with Budget Rollover on, last month's overspend should count as part of THIS month's spending everywhere so all sections show the same numbers. Most budget views already did this — the per-category cards (Planning + Dashboard) show `usage = spent + rolledOverDeficit`, and the over-budget count, the nav badge (fixed in the prior commit), and the SpendingPaceWidget all use the same effective figure. The one straggler was the Planning page's **"SPENT" summary card** (`totalSpent`), which summed raw `spentForCategory` only — so it didn't equal the sum of the budget bars rendered right below it whenever anything rolled over.

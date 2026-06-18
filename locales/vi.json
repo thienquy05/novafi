@@ -653,7 +653,7 @@
     "virtualPool": "Ảo",
     "realPool": "Tiền thật",
     "realBadge": "Quỹ tiền thật",
-    "realHint": "Tiền thật được đưa vào một tài khoản quỹ riêng ngay bây giờ. Phần của bạn chuyển từ tài khoản của bạn; tiền của người khác được giữ hộ cho nhóm. Số dư cập nhật khi tiền vào và ra.",
+    "realHint": "Tiền thật nằm trong một tài khoản bạn chọn. Tiền của người khác vào đó như tiền bạn giữ hộ cho nhóm; tiền của bạn đã có sẵn trong đó thì chỉ được đánh dấu dành riêng. Số dư tài khoản đó phản ánh tiền của quỹ vào và ra.",
     "fundMyShareFrom": "Góp phần của tôi từ",
     "targetOptional": "Mục tiêu tiết kiệm (tùy chọn)",
     "includeMeReal": "Thêm tiền của tôi",
@@ -676,7 +676,12 @@
     "contributionUpdated": "Đã cập nhật khoản đóng góp",
     "contributionDeleted": "Đã xóa khoản đóng góp",
     "confirmDeleteContribution": "Xóa khoản đóng góp này? Dòng sổ cái của nó sẽ được hoàn lại.",
-    "poolAccountName": "Quỹ {desc}"
+    "poolAccountName": "Quỹ {desc}",
+    "migrateTitle": "Chuyển quỹ vào tài khoản thật",
+    "migrateDesc": "Tiền của quỹ này đang nằm trong một tài khoản giữ tiền kiểu cũ. Hãy chuyển vào một tài khoản thật để số dư phản ánh dòng tiền.",
+    "migrateHint": "Chọn tài khoản thật giữ tiền của quỹ này. Mọi khoản đóng góp và chi tiêu sẽ chuyển sang tài khoản đó, và tài khoản giữ tiền cũ sẽ bị xóa.",
+    "migrateButton": "Chuyển tiền",
+    "poolMigrated": "Đã chuyển quỹ vào tài khoản của bạn"
   },
   "credit": {
     "title": "Báo cáo tín dụng thông minh",

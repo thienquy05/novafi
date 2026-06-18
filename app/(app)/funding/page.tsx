@@ -20,6 +20,7 @@ import {
   buildSpendTxs, buildRepayTx, groupFundingSpends, participantOwed, participantRepaid, totalOwed,
   totalRepaid, isFullySettled,
   isRealPool, buildPoolContributionTx, participantsFromContributions, contributionsTotal, poolProgress,
+  repointRealPoolAccount,
   type FundingSpend,
 } from '@/lib/funding';
 import { applyTransactionToBalances } from '@/lib/calculations';
@@ -79,6 +80,11 @@ export default function FundingPage() {
       return next;
     });
 
+  // Legacy-pool migration modal (move an old synthetic-account pool onto a real account)
+  const [migrateFor, setMigrateFor] = useState<Funding | null>(null);
+  const [migrateAccount, setMigrateAccount] = useState('');
+  function openMigrate(f: Funding) { setMigrateFor(f); setMigrateAccount(depositAccounts[0]?.id || ''); }
+
   // Settle-up / record-payment modal (also serves editing a payment)
   const [payFor, setPayFor] = useState<Funding | null>(null);
   const [editingPay, setEditingPay] = useState<FundingRepayment | null>(null);
@@ -115,6 +121,9 @@ export default function FundingPage() {
     [accounts],
   );
   const accountName = (id: string) => accounts.find((a) => a.id === id)?.name ?? id;
+  // A legacy real pool still parks its cash in an auto-created `pool`-type account.
+  // Such pools get a one-click prompt to move that cash into a real account.
+  const legacyHolding = (f: Funding) => isRealPool(f) && accounts.find((a) => a.id === f.poolAccountId)?.type === 'pool';
 
   // Optimistically fold a set of added/removed rows into the live account balances,
   // using the same ledger math the server applies (correct for cards vs deposits).
@@ -144,13 +153,14 @@ export default function FundingPage() {
     return list;
   };
 
-  async function persist(funding: Funding, addTxs: Transaction[], removeTxIds: string[], successKey: string, addAccount?: Account) {
+  async function persist(funding: Funding, addTxs: Transaction[], removeTxIds: string[], successKey: string, addAccount?: Account, removeAccountId?: string) {
     setSaving(true);
     applyRows(addTxs, removeTxIds);
+    if (removeAccountId) setAccounts((prev) => prev.filter((a) => a.id !== removeAccountId));
     try {
       const res = await fetch('/api/funding', {
         method: 'POST',
-        body: JSON.stringify({ funding, addTxs, removeTxIds, addAccount }),
+        body: JSON.stringify({ funding, addTxs, removeTxIds, addAccount, removeAccountId }),
         headers: { 'Content-Type': 'application/json' },
       });
       if (!res.ok) throw new Error();
@@ -190,33 +200,26 @@ export default function FundingPage() {
     await persist(funding, [], [], 'funding.poolCreated');
   }
 
-  // Real pool: open a dedicated holding account and move everyone's real cash into
-  // it up front (mine from my chosen account, others' as held-for-me money).
+  // Real pool: the cash lives in a real account you chose (`accountId`). Others' cash
+  // is moved into it as held-for-the-group money; your own money is already there, so
+  // it's just earmarked (no cash row). The account's balance reflects the real flow.
   async function createRealPool(participants: FundingParticipant[], date: string) {
     const note = t('funding.contributionDesc', { desc: desc.trim() });
-    const poolAccount: Account = {
-      id: generateId(),
-      name: t('funding.poolAccountName', { desc: desc.trim() }),
-      type: 'pool',
-      institution: '',
-      balance: 0,
-      last4: '',
-      color: '#10b981',
-      createdAt: date,
-    };
+    const holdingId = accountId; // the chosen real deposit account that holds the pool
     const txs: Transaction[] = [];
     const contributions: FundingContribution[] = [];
     for (const p of participants) {
       const { tx, contribution } = buildPoolContributionTx(
-        poolAccount.id, p.contributed, p.name, p.isMe, p.isMe ? accountId : '', note, date,
+        holdingId, p.contributed, p.name, p.isMe, p.isMe ? holdingId : '', note, date,
       );
-      txs.push(tx); contributions.push(contribution);
+      if (tx) txs.push(tx);
+      contributions.push(contribution);
     }
     const targetNum = round2(num(target));
     const funding: Funding = {
       id: generateId(),
       description: desc.trim(),
-      account: poolAccount.id,
+      account: holdingId,
       date,
       kind: 'real',
       participants: participantsFromContributions(contributions),
@@ -226,14 +229,13 @@ export default function FundingPage() {
       spendTxIds: [],
       repayments: [],
       closed: false,
-      poolAccountId: poolAccount.id,
+      poolAccountId: holdingId,
       target: targetNum > 0 ? targetNum : undefined,
       contributions,
     };
     setFundings((prev) => [funding, ...prev]);
-    setAccounts((prev) => [...prev, poolAccount]);
     setOpen(false);
-    await persist(funding, txs, [], 'funding.poolCreated', poolAccount);
+    await persist(funding, txs, [], 'funding.poolCreated');
   }
 
   // ── Spend ────────────────────────────────────────────────────────────────────
@@ -291,7 +293,10 @@ export default function FundingPage() {
     setContribIsMe(isMe);
     setContribWho(participant && !participant.isMe ? participant.name : '');
     setContribAmount('');
-    setContribAccount(depositAccounts[0]?.id || '');
+    // Default my-money source to the holding account itself (no transfer — just earmark
+    // money already there); fall back to the first deposit account for legacy pools.
+    const holding = f.poolAccountId && depositAccounts.some((a) => a.id === f.poolAccountId) ? f.poolAccountId : '';
+    setContribAccount(holding || depositAccounts[0]?.id || '');
   }
   function openEditContrib(f: Funding, c: FundingContribution) {
     setContribFor(f); setEditingContrib(c);
@@ -321,7 +326,8 @@ export default function FundingPage() {
     };
     setFundings((prev) => prev.map((f) => f.id === updated.id ? updated : f));
     setContribFor(null); setEditingContrib(null);
-    await persist(updated, [tx], removeTxIds, editingContrib ? 'funding.contributionUpdated' : 'funding.contributionAdded');
+    // `tx` is null when it's my own money already in the holding account (nothing moves).
+    await persist(updated, tx ? [tx] : [], removeTxIds, editingContrib ? 'funding.contributionUpdated' : 'funding.contributionAdded');
   }
 
   async function deleteContribution(f: Funding, c: FundingContribution) {
@@ -378,6 +384,18 @@ export default function FundingPage() {
     const updated: Funding = { ...f, repayments: f.repayments.filter((x) => x.id !== r.id) };
     setFundings((prev) => prev.map((x) => x.id === updated.id ? updated : x));
     await persist(updated, [], [r.id], 'funding.paymentDeleted');
+  }
+
+  // Migrate a legacy real pool off its auto-created `pool` account onto a real account
+  // you choose: re-point every cash row, then drop the now-empty synthetic account.
+  async function migrateHolding() {
+    if (!migrateFor || !migrateAccount) return;
+    const m = repointRealPoolAccount(migrateFor, migrateAccount, transactions);
+    if (!m) { setMigrateFor(null); return; }
+    setFundings((prev) => prev.map((x) => x.id === m.funding.id ? m.funding : x));
+    const oldId = migrateFor.poolAccountId;
+    setMigrateFor(null);
+    await persist(m.funding, m.addTxs, m.removeTxIds, 'funding.poolMigrated', undefined, oldId);
   }
 
   // Manual wrap-up: archive a pool (e.g. you're done even if not fully settled) or
@@ -456,6 +474,17 @@ export default function FundingPage() {
             <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 h-9 w-9 rounded-xl" onClick={() => deletePool(f)}><Trash2 className="w-4 h-4" /></Button>
           </div>
         </div>
+
+        {/* Legacy holding-account nudge: move the pool's cash into a real account */}
+        {legacyHolding(f) && (
+          <div className="rounded-2xl bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 p-3 flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2 min-w-0">
+              <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+              <p className="text-xs font-medium text-amber-800 dark:text-amber-300">{t('funding.migrateDesc')}</p>
+            </div>
+            <Button variant="secondary" size="sm" className="shrink-0" onClick={() => openMigrate(f)}>{t('funding.migrateButton')}</Button>
+          </div>
+        )}
 
         {/* Pool figures */}
         <div className="grid grid-cols-3 gap-3">
@@ -755,7 +784,7 @@ export default function FundingPage() {
           <p className="text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/40 rounded-xl px-3 py-2">{t(kind === 'real' ? 'funding.realHint' : 'funding.virtualHint')}</p>
           <Input label={t('funding.description')} placeholder={t('funding.descPlaceholder')} value={desc} onChange={(e) => setDesc(e.target.value)} />
           <Select
-            label={t(kind === 'real' ? 'funding.fundMyShareFrom' : 'funding.defaultAccount')}
+            label={t(kind === 'real' ? 'funding.holdIn' : 'funding.defaultAccount')}
             value={accountId}
             options={(kind === 'real' ? depositAccounts : chargeAccounts).map((a) => ({ value: a.id, label: a.name }))}
             onChange={(e) => setAccountId(e.target.value)}
@@ -896,6 +925,29 @@ export default function FundingPage() {
               <div className="flex gap-3">
                 <Button variant="secondary" className="flex-1" onClick={() => { setContribFor(null); setEditingContrib(null); }}>{t('common.cancel')}</Button>
                 <Button className="flex-1 shadow-sm" onClick={recordContribution} disabled={saving || num(contribAmount) <= 0 || (!contribIsMe && !contribWho.trim()) || (contribIsMe && !contribAccount)}>{saving ? t('common.saving') : (editingContrib ? t('common.save') : t('funding.addContribution'))}</Button>
+              </div>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      {/* ── Migrate legacy pool to a real account ─────────────────────────── */}
+      <Modal open={migrateFor !== null} onClose={() => setMigrateFor(null)} title={t('funding.migrateTitle')}>
+        {migrateFor && (
+          <>
+            <div className="space-y-5 pb-4">
+              <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{t('funding.migrateHint')}</p>
+              <Select
+                label={t('funding.holdIn')}
+                value={migrateAccount}
+                options={depositAccounts.map((a) => ({ value: a.id, label: a.name }))}
+                onChange={(e) => setMigrateAccount(e.target.value)}
+              />
+            </div>
+            <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+              <div className="flex gap-3">
+                <Button variant="secondary" className="flex-1" onClick={() => setMigrateFor(null)}>{t('common.cancel')}</Button>
+                <Button className="flex-1 shadow-sm" onClick={migrateHolding} disabled={saving || !migrateAccount}>{saving ? t('common.saving') : t('funding.migrateButton')}</Button>
               </div>
             </div>
           </>

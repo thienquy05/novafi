@@ -653,7 +653,7 @@
     "virtualPool": "Virtual",
     "realPool": "Real money",
     "realBadge": "Real pool",
-    "realHint": "Real cash goes into a dedicated pool account now. Your share moves from your account; others' cash is held for the group. The balance updates as money goes in and out.",
+    "realHint": "Real cash lives in an account you choose. Others' money lands there as cash you're holding for the group; your own money already in it is just earmarked. That account's balance reflects the pool's money going in and out.",
     "fundMyShareFrom": "Fund my share from",
     "targetOptional": "Savings target (optional)",
     "includeMeReal": "Add my own money",
@@ -676,7 +676,12 @@
     "contributionUpdated": "Contribution updated",
     "contributionDeleted": "Contribution removed",
     "confirmDeleteContribution": "Remove this contribution? Its ledger row will be reversed.",
-    "poolAccountName": "{desc} Pool"
+    "poolAccountName": "{desc} Pool",
+    "migrateTitle": "Move pool to a real account",
+    "migrateDesc": "This pool's cash sits in an old holding account. Move it into a real account so its balance reflects the money flow.",
+    "migrateHint": "Pick the real account that holds this pool's cash. Every contribution and spend will move onto it, and the old holding account will be removed.",
+    "migrateButton": "Move cash",
+    "poolMigrated": "Pool moved to your account"
   },
   "credit": {
     "title": "Smart Credit Report",

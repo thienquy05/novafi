@@ -89,20 +89,28 @@ export function buildContributionTx(
 }
 
 // ── Real money pools ──────────────────────────────────────────────────────────
-// A REAL pool holds actual cash in a dedicated `pool`-type account. Contributions
-// are real `transfer`s INTO that account; spends are charged to it (so they draw
-// the real balance down). The pool's live balance is just totalContributed − spent
-// (== the pool account's balance). See the Funding type doc for the cash flows.
+// A REAL pool holds actual cash in a REAL account you choose (`poolAccountId` points
+// at one of your existing deposit accounts), so that account's balance reflects the
+// pooled money flowing in and out. Others' contributions are `transfer`s INTO that
+// account (held-for-others, netted out of net worth); your own money already sitting
+// there is just earmarked (no cash row); spends are charged to it, drawing it down.
+// The pool's live balance is its own running figure: totalContributed − spent (which
+// need NOT equal the account balance, since the account can hold other money too).
+// (Legacy pools created before this point reference an auto-created `pool`-type
+// account — see `repointRealPoolAccount` for migrating them onto a real account.)
 
 export function isRealPool(f: Pick<Funding, 'kind'>): boolean {
   return f.kind === 'real';
 }
 
-// The cash row + record for one contribution INTO the pool account.
-//   • Your money (isMe): a `transfer` from your spendable account → pool, category
-//     'Transfer'. It's still your money, just moved to the shared bucket (so it
-//     stays in net worth and is NOT held-for-others).
-//   • Someone else's money: a `transfer` from an empty source → pool, category
+// The cash row + record for one contribution INTO the holding account.
+//   • Your money already in the holding account (isMe, fromAccount === the holding
+//     account): no cash row at all — it's already there, just earmarked (mirrors a
+//     virtual pool's own pledge). `tx` is null.
+//   • Your money moved from another account (isMe, fromAccount ≠ holding): a
+//     `transfer` from that account → holding, category 'Transfer'. Still your money,
+//     just relocated to the shared bucket (stays in net worth, NOT held-for-others).
+//   • Someone else's money: a `transfer` from an empty source → holding, category
 //     'Funding', so it's held-for-others and netted out of net worth.
 export function buildPoolContributionTx(
   poolAccountId: string,
@@ -112,13 +120,16 @@ export function buildPoolContributionTx(
   fromAccount: string,
   description: string,
   date: string,
-): { tx: Transaction; contribution: FundingContribution } {
+): { tx: Transaction | null; contribution: FundingContribution } {
   const amt = round(amount);
   const id = generateId();
   const now = new Date().toISOString();
-  const tx: Transaction = isMe
-    ? { id, date, description, amount: amt, type: 'transfer', category: 'Transfer', account: fromAccount, toAccount: poolAccountId, createdAt: now }
-    : { id, date, description, amount: amt, type: 'transfer', category: 'Funding', account: '', toAccount: poolAccountId, createdAt: now };
+  const tx: Transaction | null =
+    isMe && fromAccount === poolAccountId
+      ? null // my money is already in the holding account — nothing moves
+      : isMe
+        ? { id, date, description, amount: amt, type: 'transfer', category: 'Transfer', account: fromAccount, toAccount: poolAccountId, createdAt: now }
+        : { id, date, description, amount: amt, type: 'transfer', category: 'Funding', account: '', toAccount: poolAccountId, createdAt: now };
   return { tx, contribution: { id, participant, amount: amt, isMe, account: isMe ? fromAccount : '', date } };
 }
 
@@ -143,6 +154,48 @@ export function contributionsTotal(contributions: FundingContribution[]): number
 export function poolProgress(totalContributed: number, target?: number): number | null {
   if (!target || target <= 0) return null;
   return totalContributed / target;
+}
+
+// ── Legacy real-pool migration ────────────────────────────────────────────────
+// Early real pools parked their cash in a dedicated auto-created `pool`-type account.
+// A real pool now holds its cash in a REAL account you choose, so its balance
+// reflects the money flow. This re-points every cash row the pool created
+// (contributions in / spends out) from `poolAccountId` onto `newAccountId`, returning
+// the corrected pool plus the rows to swap (remove the old, add identical copies on
+// the new account). Because every row that fed the old account is moved off it, the
+// old account nets back to where it started (0 for a synthetic pool) so the caller
+// can delete it. Returns null when there's nothing to do.
+export function repointRealPoolAccount(
+  f: Funding,
+  newAccountId: string,
+  transactions: Transaction[],
+): { funding: Funding; addTxs: Transaction[]; removeTxIds: string[] } | null {
+  const oldId = f.poolAccountId;
+  if (!oldId || !newAccountId || oldId === newAccountId) return null;
+  const linked = new Set<string>([...(f.spendTxIds ?? []), ...((f.contributions ?? []).map((c) => c.id))]);
+  const idMap = new Map<string, string>();
+  const addTxs: Transaction[] = [];
+  const removeTxIds: string[] = [];
+  for (const t of transactions) {
+    if (!linked.has(t.id) || (t.account !== oldId && t.toAccount !== oldId)) continue;
+    const newId = generateId();
+    idMap.set(t.id, newId);
+    removeTxIds.push(t.id);
+    addTxs.push({
+      ...t,
+      id: newId,
+      account: t.account === oldId ? newAccountId : t.account,
+      toAccount: t.toAccount === oldId ? newAccountId : t.toAccount,
+    });
+  }
+  // Map the pool's own references onto the new row ids (rows not touched keep theirs).
+  const spendTxIds = (f.spendTxIds ?? []).map((id) => idMap.get(id) ?? id);
+  const contributions = (f.contributions ?? []).map((c) => (idMap.has(c.id) ? { ...c, id: idMap.get(c.id)! } : c));
+  return {
+    funding: { ...f, poolAccountId: newAccountId, account: newAccountId, spendTxIds, contributions },
+    addTxs,
+    removeTxIds,
+  };
 }
 
 // ── Ledger → pool reconciliation ──────────────────────────────────────────────
