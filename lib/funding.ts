@@ -39,13 +39,21 @@ export function poolRemaining(f: Pick<Funding, 'totalContributed' | 'spent'>): n
 // pledge minus everything they've paid back. The "me" row is the user's own money
 // and is never owed. Numbers can't go below 0 (an over-payment just settles them).
 
-export function participantRepaid(repayments: FundingRepayment[], name: string): number {
-  return round(repayments.filter((r) => r.participant === name).reduce((s, r) => s + (r.amount || 0), 0));
+// A payback belongs to a participant by stable id when both carry one (so it stays
+// attached through a rename), falling back to the display name for legacy rows
+// written before ids existed.
+export function repaymentBelongsTo(r: FundingRepayment, p: FundingParticipant): boolean {
+  if (r.participantId && p.id) return r.participantId === p.id;
+  return r.participant === p.name;
+}
+
+export function participantRepaid(repayments: FundingRepayment[], p: FundingParticipant): number {
+  return round(repayments.filter((r) => repaymentBelongsTo(r, p)).reduce((s, r) => s + (r.amount || 0), 0));
 }
 
 export function participantOwed(p: FundingParticipant, repayments: FundingRepayment[]): number {
   if (p.isMe) return 0;
-  return Math.max(0, round((p.contributed || 0) - participantRepaid(repayments, p.name)));
+  return Math.max(0, round((p.contributed || 0) - participantRepaid(repayments, p)));
 }
 
 export function totalRepaid(repayments: FundingRepayment[]): number {
@@ -97,21 +105,31 @@ export function buildContributionTx(
 //     pools that fronted others' cash) → rebuilt to the new others' total so the
 //     held cash stays in sync; reversed outright when nobody else is left.
 // Spends are charged to real accounts independent of the roster, so they're untouched.
-// Returns the corrected pool plus the rows to add / reverse.
+//
+// `keptRename` maps each SURVIVING participant's old display name → its new name
+// (unchanged names map to themselves); any old participant absent from it was removed.
+// A kept participant's paybacks follow the rename — their stored name is updated and
+// their `participantId` (re)linked to the surviving participant — so renaming never
+// detaches a payback. Returns the corrected pool plus the rows to add / reverse.
 export function planVirtualPoolEdit(
   f: Funding,
   newParticipants: FundingParticipant[],
   description: string,
   transactions: Transaction[],
+  keptRename: Record<string, string>,
 ): { funding: Funding; addTxs: Transaction[]; removeTxIds: string[] } {
-  const newNames = new Set(newParticipants.map((p) => p.name));
+  const newByName = new Map(newParticipants.map((p) => [p.name, p]));
   const removeTxIds: string[] = [];
-  // Drop paybacks from anyone no longer in the pool, reversing their cash rows.
-  const repayments = f.repayments.filter((r) => {
-    if (newNames.has(r.participant)) return true;
-    removeTxIds.push(r.id);
-    return false;
-  });
+  const repayments: FundingRepayment[] = [];
+  for (const r of f.repayments) {
+    const newName = keptRename[r.participant];
+    if (newName === undefined) {
+      removeTxIds.push(r.id); // owner no longer in the pool → reverse the payback
+      continue;
+    }
+    const newP = newByName.get(newName);
+    repayments.push({ ...r, participant: newName, participantId: newP?.id ?? r.participantId });
+  }
   const addTxs: Transaction[] = [];
   let contributionTxId = f.contributionTxId;
   if (f.contributionTxId) {

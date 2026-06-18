@@ -257,6 +257,10 @@ export interface Loan {
 //     (Legacy real pools created earlier reference an auto-created `pool`-type holding
 //     account; the Funding page offers to migrate them onto a real account.)
 export interface FundingParticipant {
+  // Stable identity, preserved across edits so a participant can be renamed without
+  // detaching their paybacks. Optional only for legacy rows / real-pool participants
+  // derived from contributions (which carry no paybacks); assigned for virtual pools.
+  id?: string;
   name: string;        // display name ('' allowed only for the "me" row, which sets isMe)
   contributed: number; // virtual: this person's pledge; real: actual cash they put in
   isMe: boolean;       // true for the treasurer's own contribution
@@ -281,7 +285,8 @@ export interface FundingContribution {
 // delete reverses it atomically.
 export interface FundingRepayment {
   id: string;          // the FundingRepay transfer row id
-  participant: string; // which participant paid (matches FundingParticipant.name)
+  participant: string; // which participant paid (display name; kept in sync on rename)
+  participantId?: string; // stable link to FundingParticipant.id (survives renames); absent on legacy rows → matched by name
   amount: number;
   account: string;     // the account the money landed in
   date: string;        // YYYY-MM-DD

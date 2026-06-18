@@ -25,8 +25,11 @@ import {
 } from '@/lib/funding';
 import { applyTransactionToBalances } from '@/lib/calculations';
 
-type OtherRow = { key: string; name: string; amount: string };
-function emptyOther(): OtherRow { return { key: generateId(), name: '', amount: '' }; }
+// `id` is the participant's stable identity (preserved across edits so a rename keeps
+// their paybacks); `origName` is the name when the edit modal opened (used to re-key
+// existing paybacks onto the new name). Both unused by the create flow.
+type OtherRow = { key: string; id: string; name: string; amount: string; origName?: string };
+function emptyOther(): OtherRow { return { key: generateId(), id: generateId(), name: '', amount: '' }; }
 
 const num = (s: string) => { const n = parseFloat(s); return Number.isFinite(n) ? n : 0; };
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -48,6 +51,7 @@ export default function FundingPage() {
   const [accountId, setAccountId] = useState('');
   const [includeMe, setIncludeMe] = useState(true);
   const [myAmount, setMyAmount] = useState('');
+  const [myRowId, setMyRowId] = useState(() => generateId()); // stable id for the "me" pledge
   const [others, setOthers] = useState<OtherRow[]>([emptyOther()]);
   const [target, setTarget] = useState(''); // real pool: optional savings-goal target
 
@@ -91,6 +95,7 @@ export default function FundingPage() {
   const [editTarget, setEditTarget] = useState('');
   const [editIncludeMe, setEditIncludeMe] = useState(true);
   const [editMyAmount, setEditMyAmount] = useState('');
+  const [editMyId, setEditMyId] = useState('');
   const [editOthers, setEditOthers] = useState<OtherRow[]>([emptyOther()]);
 
   // Settle-up / record-payment modal (also serves editing a payment)
@@ -149,14 +154,14 @@ export default function FundingPage() {
 
   function openNew() {
     setKind('virtual'); setDesc(''); setAccountId(depositAccounts[0]?.id ?? accounts[0]?.id ?? '');
-    setIncludeMe(true); setMyAmount(''); setOthers([emptyOther()]); setTarget(''); setOpen(true);
+    setIncludeMe(true); setMyAmount(''); setMyRowId(generateId()); setOthers([emptyOther()]); setTarget(''); setOpen(true);
   }
 
   const draftParticipants = (): FundingParticipant[] => {
     const list: FundingParticipant[] = [];
-    if (includeMe && num(myAmount) > 0) list.push({ name: t('funding.me'), contributed: num(myAmount), isMe: true });
+    if (includeMe && num(myAmount) > 0) list.push({ id: myRowId, name: t('funding.me'), contributed: num(myAmount), isMe: true });
     for (const o of others) {
-      if (o.name.trim() && num(o.amount) > 0) list.push({ name: o.name.trim(), contributed: num(o.amount), isMe: false });
+      if (o.name.trim() && num(o.amount) > 0) list.push({ id: o.id, name: o.name.trim(), contributed: num(o.amount), isMe: false });
     }
     return list;
   };
@@ -372,10 +377,12 @@ export default function FundingPage() {
     const date = editingPay?.date || today();
     const note = t('funding.paymentDesc', { name: payWho, desc: payFor.description });
     const { tx, repayment } = buildRepayTx(payAccount, amount, payWho, note, date);
+    // Link the payback to the payer's stable id so it stays attached if they're renamed.
+    const payer = payFor.participants.find((p) => p.name === payWho);
     const removeTxIds = editingPay ? [editingPay.id] : [];
     const base: Funding = {
       ...payFor,
-      repayments: [...payFor.repayments.filter((r) => r.id !== editingPay?.id), repayment],
+      repayments: [...payFor.repayments.filter((r) => r.id !== editingPay?.id), { ...repayment, participantId: payer?.id ?? editingPay?.participantId }],
     };
     // Auto-archive the moment this payback settles everyone up (only if it wasn't
     // already wrapped up). Manual archive/reopen below can always override.
@@ -414,16 +421,19 @@ export default function FundingPage() {
     const me = f.participants.find((p) => p.isMe);
     setEditIncludeMe(!!me);
     setEditMyAmount(me ? String(me.contributed) : '');
-    const others = f.participants.filter((p) => !p.isMe).map((p) => ({ key: generateId(), name: p.name, amount: String(p.contributed) }));
+    setEditMyId(me?.id ?? generateId()); // backfill a stable id for legacy "me"
+    // Each row carries the participant's stable id + the name it had on open, so a
+    // rename keeps its identity (legacy rows without an id get one assigned now).
+    const others = f.participants.filter((p) => !p.isMe).map((p) => ({ key: generateId(), id: p.id ?? generateId(), origName: p.name, name: p.name, amount: String(p.contributed) }));
     setEditOthers(others.length ? others : [emptyOther()]);
   }
 
-  // Build the edited roster from the modal fields (mirrors draftParticipants).
+  // Build the edited roster from the modal fields, preserving each row's stable id.
   const editParticipants = (): FundingParticipant[] => {
     const list: FundingParticipant[] = [];
-    if (editIncludeMe && num(editMyAmount) > 0) list.push({ name: t('funding.me'), contributed: num(editMyAmount), isMe: true });
+    if (editIncludeMe && num(editMyAmount) > 0) list.push({ id: editMyId, name: t('funding.me'), contributed: num(editMyAmount), isMe: true });
     for (const o of editOthers) {
-      if (o.name.trim() && num(o.amount) > 0) list.push({ name: o.name.trim(), contributed: num(o.amount), isMe: false });
+      if (o.name.trim() && num(o.amount) > 0) list.push({ id: o.id, name: o.name.trim(), contributed: num(o.amount), isMe: false });
     }
     return list;
   };
@@ -442,14 +452,20 @@ export default function FundingPage() {
       await persist(updated, [], [], 'funding.poolUpdated');
       return;
     }
-    // Virtual pool: recompute the roster/total. Any removed participant's paybacks are
-    // reversed (their cash leaves your account), keeping every row synchronized.
+    // Virtual pool: recompute the roster/total. Map each surviving participant's OLD
+    // name → its new name so renames keep their paybacks; anyone dropped from the roster
+    // has their paybacks reversed (their cash leaves your account).
     const newParticipants = editParticipants();
     if (newParticipants.length === 0) return;
-    const newNames = new Set(newParticipants.map((p) => p.name));
-    const droppedRepaid = editFor.repayments.filter((r) => !newNames.has(r.participant)).length;
+    const keptRename: Record<string, string> = {};
+    const me = editFor.participants.find((p) => p.isMe);
+    if (editIncludeMe && num(editMyAmount) > 0 && me) keptRename[me.name] = t('funding.me');
+    for (const o of editOthers) {
+      if (o.origName && o.name.trim() && num(o.amount) > 0) keptRename[o.origName] = o.name.trim();
+    }
+    const droppedRepaid = editFor.repayments.filter((r) => keptRename[r.participant] === undefined).length;
     if (droppedRepaid > 0 && !confirm(t('funding.confirmDropPaid', { n: droppedRepaid }))) return;
-    const { funding, addTxs, removeTxIds } = planVirtualPoolEdit(editFor, newParticipants, description, transactions);
+    const { funding, addTxs, removeTxIds } = planVirtualPoolEdit(editFor, newParticipants, description, transactions, keptRename);
     setFundings((prev) => prev.map((f) => f.id === funding.id ? funding : f));
     setEditFor(null);
     await persist(funding, addTxs, removeTxIds, 'funding.poolUpdated');
@@ -610,7 +626,7 @@ export default function FundingPage() {
           <div className="space-y-1.5">
             {f.participants.map((p, i) => {
               const owe = participantOwed(p, f.repayments);
-              const paid = participantRepaid(f.repayments, p.name);
+              const paid = participantRepaid(f.repayments, p);
               return (
                 <div key={i} className="flex items-center justify-between gap-2 text-sm">
                   <span className={`inline-flex items-center gap-1.5 font-bold px-2.5 py-1 rounded-lg ${p.isMe ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>

@@ -214,9 +214,16 @@ describe('settle-up math', () => {
     { id: 'r2', participant: 'Alex', amount: 40, account: 'cash1', date: '2026-06-21' },
   ];
   it('sums a participant repayments and nets against their pledge', () => {
-    expect(participantRepaid(repayments, 'Alex')).toBe(100);     // 60 + 40
+    expect(participantRepaid(repayments, { name: 'Alex', contributed: 100, isMe: false })).toBe(100);     // 60 + 40
     expect(participantOwed({ name: 'Alex', contributed: 100, isMe: false }, repayments)).toBe(0); // fully paid
     expect(participantOwed({ name: 'Sam', contributed: 100, isMe: false }, repayments)).toBe(100); // hasn't paid
+  });
+  it('matches by stable participant id even after a rename, with a name fallback', () => {
+    const byId: FundingRepayment[] = [{ id: 'r1', participant: 'Old name', participantId: 'p1', amount: 50, account: 'cash1', date: '2026-06-20' }];
+    // The stored name is stale but the id still links the payback to the participant.
+    expect(participantRepaid(byId, { id: 'p1', name: 'New name', contributed: 80, isMe: false })).toBe(50);
+    // Legacy row (no participantId) still resolves by name.
+    expect(participantRepaid(repayments, { id: 'pX', name: 'Alex', contributed: 100, isMe: false })).toBe(100);
   });
   it('the me row never owes', () => {
     expect(participantOwed({ name: 'Me', contributed: 100, isMe: true }, repayments)).toBe(0);
@@ -421,18 +428,18 @@ describe('planVirtualPoolEdit', () => {
   it('recomputes the roster + total with no cash rows when nobody is removed', () => {
     const f = makePool({
       participants: [
-        { name: 'Me', contributed: 100, isMe: true },
-        { name: 'Alex', contributed: 100, isMe: false },
+        { id: 'me', name: 'Me', contributed: 100, isMe: true },
+        { id: 'p1', name: 'Alex', contributed: 100, isMe: false },
       ],
-      repayments: [{ id: 'r1', participant: 'Alex', amount: 40, account: 'chk1', date: '2026-06-10' }],
+      repayments: [{ id: 'r1', participant: 'Alex', participantId: 'p1', amount: 40, account: 'chk1', date: '2026-06-10' }],
       contributionTxId: '',
     });
     const next = [
-      { name: 'Me', contributed: 150, isMe: true },          // bumped my pledge
-      { name: 'Alex', contributed: 100, isMe: false },        // unchanged (keeps payback)
-      { name: 'Sam', contributed: 80, isMe: false },          // added
+      { id: 'me', name: 'Me', contributed: 150, isMe: true },     // bumped my pledge
+      { id: 'p1', name: 'Alex', contributed: 100, isMe: false },   // unchanged (keeps payback)
+      { id: 'p2', name: 'Sam', contributed: 80, isMe: false },     // added
     ];
-    const { funding, addTxs, removeTxIds } = planVirtualPoolEdit(f, next, 'Beach trip 2', []);
+    const { funding, addTxs, removeTxIds } = planVirtualPoolEdit(f, next, 'Beach trip 2', [], { Me: 'Me', Alex: 'Alex' });
     expect(funding.description).toBe('Beach trip 2');
     expect(funding.totalContributed).toBe(330);
     expect(funding.participants).toEqual(next);
@@ -441,20 +448,39 @@ describe('planVirtualPoolEdit', () => {
     expect(removeTxIds).toEqual([]);
   });
 
+  it('keeps a renamed participant\'s paybacks attached (re-keyed by stable id + name)', () => {
+    const f = makePool({
+      participants: [
+        { id: 'me', name: 'Me', contributed: 100, isMe: true },
+        { id: 'p1', name: 'Alex', contributed: 100, isMe: false },
+      ],
+      repayments: [{ id: 'r1', participant: 'Alex', participantId: 'p1', amount: 40, account: 'chk1', date: '2026-06-10' }],
+      contributionTxId: '',
+    });
+    const { funding, addTxs, removeTxIds } = planVirtualPoolEdit(
+      f,
+      [{ id: 'me', name: 'Me', contributed: 100, isMe: true }, { id: 'p1', name: 'Alexander', contributed: 100, isMe: false }],
+      'Beach trip', [], { Me: 'Me', Alex: 'Alexander' },   // Alex → Alexander
+    );
+    expect(removeTxIds).toEqual([]);                       // no cash reversed — just a rename
+    expect(funding.repayments).toHaveLength(1);
+    expect(funding.repayments[0]).toMatchObject({ id: 'r1', participant: 'Alexander', participantId: 'p1', amount: 40 });
+  });
+
   it("reverses a removed participant's paybacks and drops them", () => {
     const f = makePool({
       participants: [
-        { name: 'Me', contributed: 100, isMe: true },
-        { name: 'Alex', contributed: 100, isMe: false },
+        { id: 'me', name: 'Me', contributed: 100, isMe: true },
+        { id: 'p1', name: 'Alex', contributed: 100, isMe: false },
       ],
       repayments: [
-        { id: 'r1', participant: 'Alex', amount: 40, account: 'chk1', date: '2026-06-10' },
-        { id: 'r2', participant: 'Alex', amount: 60, account: 'chk1', date: '2026-06-11' },
+        { id: 'r1', participant: 'Alex', participantId: 'p1', amount: 40, account: 'chk1', date: '2026-06-10' },
+        { id: 'r2', participant: 'Alex', participantId: 'p1', amount: 60, account: 'chk1', date: '2026-06-11' },
       ],
       contributionTxId: '',
     });
     const { funding, addTxs, removeTxIds } = planVirtualPoolEdit(
-      f, [{ name: 'Me', contributed: 100, isMe: true }], 'Beach trip', [],
+      f, [{ id: 'me', name: 'Me', contributed: 100, isMe: true }], 'Beach trip', [], { Me: 'Me' }, // Alex dropped
     );
     expect(removeTxIds.sort()).toEqual(['r1', 'r2']);   // both of Alex's paybacks reversed
     expect(funding.repayments).toEqual([]);
@@ -469,15 +495,15 @@ describe('planVirtualPoolEdit', () => {
     };
     const f = makePool({
       participants: [
-        { name: 'Me', contributed: 100, isMe: true },
-        { name: 'Alex', contributed: 100, isMe: false },
+        { id: 'me', name: 'Me', contributed: 100, isMe: true },
+        { id: 'p1', name: 'Alex', contributed: 100, isMe: false },
       ],
       account: 'chk1', repayments: [], contributionTxId: 'ctx1',
     });
     const { funding, addTxs, removeTxIds } = planVirtualPoolEdit(
       f,
-      [{ name: 'Me', contributed: 100, isMe: true }, { name: 'Alex', contributed: 250, isMe: false }],
-      'Beach trip', [original],
+      [{ id: 'me', name: 'Me', contributed: 100, isMe: true }, { id: 'p1', name: 'Alex', contributed: 250, isMe: false }],
+      'Beach trip', [original], { Me: 'Me', Alex: 'Alex' },
     );
     expect(removeTxIds).toContain('ctx1');             // old held-cash row reversed
     expect(addTxs).toHaveLength(1);
@@ -493,11 +519,11 @@ describe('planVirtualPoolEdit', () => {
       type: 'transfer', category: 'Funding', account: '', toAccount: 'chk1',
     };
     const f = makePool({
-      participants: [{ name: 'Me', contributed: 100, isMe: true }, { name: 'Alex', contributed: 100, isMe: false }],
+      participants: [{ id: 'me', name: 'Me', contributed: 100, isMe: true }, { id: 'p1', name: 'Alex', contributed: 100, isMe: false }],
       account: 'chk1', repayments: [], contributionTxId: 'ctx1',
     });
     const { funding, addTxs, removeTxIds } = planVirtualPoolEdit(
-      f, [{ name: 'Me', contributed: 100, isMe: true }], 'Beach trip', [original],
+      f, [{ id: 'me', name: 'Me', contributed: 100, isMe: true }], 'Beach trip', [original], { Me: 'Me' },
     );
     expect(removeTxIds).toEqual(['ctx1']);
     expect(addTxs).toEqual([]);                        // nobody else → no held cash

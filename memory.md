@@ -2,6 +2,31 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-18 — Stable participant ids so renaming keeps paybacks attached (branch claude/funding-pool-money-flow-9y4f9f)
+
+**User:** renaming a virtual-pool participant should keep their paybacks ("we will care about stable id"). Previously paybacks were keyed by name, so the edit-pool flow treated a rename as remove+add and reversed the renamed person's paybacks.
+
+### `types/index.ts`
+- `FundingParticipant.id?: string` — stable identity preserved across edits (optional for legacy rows / real-pool participants derived from contributions, which carry no paybacks).
+- `FundingRepayment.participantId?: string` — stable link to the participant (absent on legacy rows → matched by name).
+
+### `lib/funding.ts`
+- New `repaymentBelongsTo(r, p)`: matches by `participantId === p.id` when both present, else by display name (legacy fallback).
+- `participantRepaid(repayments, p)` now takes the **participant** (was a name) and uses the matcher; `participantOwed` follows.
+- `planVirtualPoolEdit(f, newParticipants, description, transactions, keptRename)` gained the `keptRename` arg: a map of each surviving participant's **old name → new name** (unchanged names map to themselves; old names absent from it = removed). Kept paybacks have their stored `participant` updated to the new name and `participantId` (re)linked to the surviving participant — so a rename never detaches a payback; removed participants' paybacks are still reversed.
+
+### `app/(app)/funding/page.tsx`
+- `OtherRow` gained `id` (stable) + `origName` (name when the edit modal opened); `emptyOther` seeds an `id`. New `myRowId` state gives the "me" pledge a stable id (reset in `openNew`).
+- `draftParticipants` / `editParticipants` now stamp each participant with its row id; `openEdit` captures each row's `id` (backfilled for legacy) + `origName`, and `editMyId`.
+- `saveEdit` builds `keptRename` from the rows (origName → new name for survivors) and the dropped-payback count from it, then calls `planVirtualPoolEdit`.
+- `recordPayment` stamps each payback with the payer's `participantId` (falls back to the edited row's existing id).
+- Card display `participantRepaid(f.repayments, p)` (was `p.name`).
+
+### Tests (`lib/__tests__/funding.test.ts`)
+- `participantRepaid`/`repaymentBelongsTo`: id match survives a stale stored name; legacy name fallback. New `planVirtualPoolEdit` rename case (paybacks re-keyed, nothing reversed). Existing edit + settle-up cases updated to the new signatures (participant object; `keptRename` map; participants/paybacks carry ids).
+
+**Verification:** `tsc --noEmit` clean; full `vitest` **576 passing**; eslint on changed files shows only the two pre-existing notes.
+
 ## 2026-06-18 — Edit pool: adjust people / pledges / description, with synchronized & reversible cash (branch claude/funding-pool-money-flow-9y4f9f)
 
 **User request:** add an "edit pool" so you can add/remove group people or change the total fund amount, keeping all transactions synchronized and reversible. (Same branch as the real-pool-money-flow change above.)
