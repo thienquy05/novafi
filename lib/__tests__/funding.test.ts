@@ -463,6 +463,7 @@ describe('planVirtualPoolEdit', () => {
       'Beach trip', [], { Me: 'Me', Alex: 'Alexander' },   // Alex → Alexander
     );
     expect(removeTxIds).toEqual([]);                       // no cash reversed — just a rename
+    expect(addTxs).toEqual([]);                            // …and nothing added either
     expect(funding.repayments).toHaveLength(1);
     expect(funding.repayments[0]).toMatchObject({ id: 'r1', participant: 'Alexander', participantId: 'p1', amount: 40 });
   });

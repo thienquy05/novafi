@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { CircleDollarSign, Plus, Trash2, Users, Wallet, RefreshCw, AlertCircle, MinusCircle, UserPlus, Pencil, HandCoins, Archive, ArchiveRestore, ChevronDown, PiggyBank, Target } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
@@ -124,15 +124,11 @@ export default function FundingPage() {
   const { pullY, refreshing } = usePullToRefresh(() => load(true));
 
   // Accounts you can CHARGE a spend to: spendable deposits plus credit cards.
-  const chargeAccounts = useMemo(
-    () => accounts.filter((a) => a.type === 'checking' || a.type === 'savings' || a.type === 'cash' || a.type === 'credit'),
-    [accounts],
-  );
+  // (Plain derived consts — the React Compiler memoizes them; a manual useMemo here
+  // couldn't be preserved once these feed the migrate/contribution handlers below.)
+  const chargeAccounts = accounts.filter((a) => a.type === 'checking' || a.type === 'savings' || a.type === 'cash' || a.type === 'credit');
   // Accounts a repayment can land IN: deposit accounts only (a payback is cash to you).
-  const depositAccounts = useMemo(
-    () => accounts.filter((a) => a.type === 'checking' || a.type === 'savings' || a.type === 'cash'),
-    [accounts],
-  );
+  const depositAccounts = accounts.filter((a) => a.type === 'checking' || a.type === 'savings' || a.type === 'cash');
   const accountName = (id: string) => accounts.find((a) => a.id === id)?.name ?? id;
   // A legacy real pool still parks its cash in an auto-created `pool`-type account.
   // Such pools get a one-click prompt to move that cash into a real account.
