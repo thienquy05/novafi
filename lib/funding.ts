@@ -1,4 +1,4 @@
-import type { Funding, FundingParticipant, FundingRepayment, Transaction } from '@/types';
+import type { Funding, FundingContribution, FundingParticipant, FundingRepayment, Transaction } from '@/types';
 import { generateId } from './utils';
 
 // Pure helpers for the Funding (virtual group money pool) feature.
@@ -86,6 +86,63 @@ export function buildContributionTx(
     toAccount: account,
     createdAt: new Date().toISOString(),
   };
+}
+
+// ── Real money pools ──────────────────────────────────────────────────────────
+// A REAL pool holds actual cash in a dedicated `pool`-type account. Contributions
+// are real `transfer`s INTO that account; spends are charged to it (so they draw
+// the real balance down). The pool's live balance is just totalContributed − spent
+// (== the pool account's balance). See the Funding type doc for the cash flows.
+
+export function isRealPool(f: Pick<Funding, 'kind'>): boolean {
+  return f.kind === 'real';
+}
+
+// The cash row + record for one contribution INTO the pool account.
+//   • Your money (isMe): a `transfer` from your spendable account → pool, category
+//     'Transfer'. It's still your money, just moved to the shared bucket (so it
+//     stays in net worth and is NOT held-for-others).
+//   • Someone else's money: a `transfer` from an empty source → pool, category
+//     'Funding', so it's held-for-others and netted out of net worth.
+export function buildPoolContributionTx(
+  poolAccountId: string,
+  amount: number,
+  participant: string,
+  isMe: boolean,
+  fromAccount: string,
+  description: string,
+  date: string,
+): { tx: Transaction; contribution: FundingContribution } {
+  const amt = round(amount);
+  const id = generateId();
+  const now = new Date().toISOString();
+  const tx: Transaction = isMe
+    ? { id, date, description, amount: amt, type: 'transfer', category: 'Transfer', account: fromAccount, toAccount: poolAccountId, createdAt: now }
+    : { id, date, description, amount: amt, type: 'transfer', category: 'Funding', account: '', toAccount: poolAccountId, createdAt: now };
+  return { tx, contribution: { id, participant, amount: amt, isMe, account: isMe ? fromAccount : '', date } };
+}
+
+// Re-derive the participant roster (with each person's total cash in) from the
+// itemized contributions. Keeping participants in sync this way lets the shared
+// card UI and the contribution helpers above work for real pools unchanged.
+export function participantsFromContributions(contributions: FundingContribution[]): FundingParticipant[] {
+  const map = new Map<string, FundingParticipant>();
+  for (const c of contributions) {
+    const cur = map.get(c.participant);
+    if (cur) cur.contributed = round(cur.contributed + c.amount);
+    else map.set(c.participant, { name: c.participant, contributed: round(c.amount), isMe: c.isMe });
+  }
+  return [...map.values()];
+}
+
+export function contributionsTotal(contributions: FundingContribution[]): number {
+  return round(contributions.reduce((s, c) => s + (c.amount || 0), 0));
+}
+
+// Funded fraction of a savings-goal target (0..1+, or null when no target is set).
+export function poolProgress(totalContributed: number, target?: number): number | null {
+  if (!target || target <= 0) return null;
+  return totalContributed / target;
 }
 
 // ── Ledger → pool reconciliation ──────────────────────────────────────────────

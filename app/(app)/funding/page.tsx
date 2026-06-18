@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { CircleDollarSign, Plus, Trash2, Users, Wallet, RefreshCw, AlertCircle, MinusCircle, UserPlus, Pencil, HandCoins, Archive, ArchiveRestore, ChevronDown } from 'lucide-react';
+import { CircleDollarSign, Plus, Trash2, Users, Wallet, RefreshCw, AlertCircle, MinusCircle, UserPlus, Pencil, HandCoins, Archive, ArchiveRestore, ChevronDown, PiggyBank, Target } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -14,11 +14,12 @@ import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { peekCache, ensureResources } from '@/lib/client/store';
 import { useToast } from '@/lib/toast';
 import { useTranslation } from '@/lib/i18n/context';
-import type { Account, Funding, FundingParticipant, FundingRepayment, Transaction } from '@/types';
+import type { Account, Funding, FundingContribution, FundingParticipant, FundingRepayment, Transaction } from '@/types';
 import {
   myContribution, totalContribution, poolRemaining,
   buildSpendTxs, buildRepayTx, groupFundingSpends, participantOwed, participantRepaid, totalOwed,
   totalRepaid, isFullySettled,
+  isRealPool, buildPoolContributionTx, participantsFromContributions, contributionsTotal, poolProgress,
   type FundingSpend,
 } from '@/lib/funding';
 import { applyTransactionToBalances } from '@/lib/calculations';
@@ -41,11 +42,21 @@ export default function FundingPage() {
   // New-pool modal
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [kind, setKind] = useState<'virtual' | 'real'>('virtual');
   const [desc, setDesc] = useState('');
   const [accountId, setAccountId] = useState('');
   const [includeMe, setIncludeMe] = useState(true);
   const [myAmount, setMyAmount] = useState('');
   const [others, setOthers] = useState<OtherRow[]>([emptyOther()]);
+  const [target, setTarget] = useState(''); // real pool: optional savings-goal target
+
+  // Contribution modal (real pools — add / edit a cash-in). Mirrors the payback modal.
+  const [contribFor, setContribFor] = useState<Funding | null>(null);
+  const [editingContrib, setEditingContrib] = useState<FundingContribution | null>(null);
+  const [contribWho, setContribWho] = useState('');
+  const [contribAmount, setContribAmount] = useState('');
+  const [contribIsMe, setContribIsMe] = useState(false);
+  const [contribAccount, setContribAccount] = useState('');
 
   // Spend modal (also serves editing an existing spend)
   const [spendFor, setSpendFor] = useState<Funding | null>(null);
@@ -59,6 +70,7 @@ export default function FundingPage() {
   // the card tidy), plus whether the archived-pools section is open.
   const [openSpends, setOpenSpends] = useState<Set<string>>(new Set());
   const [openPays, setOpenPays] = useState<Set<string>>(new Set());
+  const [openContribs, setOpenContribs] = useState<Set<string>>(new Set());
   const [showArchived, setShowArchived] = useState(false);
   const toggle = (set: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) =>
     set((prev) => {
@@ -119,8 +131,8 @@ export default function FundingPage() {
   }, [transactions]);
 
   function openNew() {
-    setDesc(''); setAccountId(depositAccounts[0]?.id ?? accounts[0]?.id ?? '');
-    setIncludeMe(true); setMyAmount(''); setOthers([emptyOther()]); setOpen(true);
+    setKind('virtual'); setDesc(''); setAccountId(depositAccounts[0]?.id ?? accounts[0]?.id ?? '');
+    setIncludeMe(true); setMyAmount(''); setOthers([emptyOther()]); setTarget(''); setOpen(true);
   }
 
   const draftParticipants = (): FundingParticipant[] => {
@@ -132,13 +144,13 @@ export default function FundingPage() {
     return list;
   };
 
-  async function persist(funding: Funding, addTxs: Transaction[], removeTxIds: string[], successKey: string) {
+  async function persist(funding: Funding, addTxs: Transaction[], removeTxIds: string[], successKey: string, addAccount?: Account) {
     setSaving(true);
     applyRows(addTxs, removeTxIds);
     try {
       const res = await fetch('/api/funding', {
         method: 'POST',
-        body: JSON.stringify({ funding, addTxs, removeTxIds }),
+        body: JSON.stringify({ funding, addTxs, removeTxIds, addAccount }),
         headers: { 'Content-Type': 'application/json' },
       });
       if (!res.ok) throw new Error();
@@ -157,12 +169,14 @@ export default function FundingPage() {
     const participants = draftParticipants();
     if (!desc.trim() || participants.length === 0) return;
     const date = today();
+    if (kind === 'real') { await createRealPool(participants, date); return; }
     // Virtual pool: no cash moves up front — just the agreed budget and who pledged.
     const funding: Funding = {
       id: generateId(),
       description: desc.trim(),
       account: accountId,
       date,
+      kind: 'virtual',
       participants,
       totalContributed: totalContribution(participants),
       spent: 0,
@@ -176,16 +190,65 @@ export default function FundingPage() {
     await persist(funding, [], [], 'funding.poolCreated');
   }
 
+  // Real pool: open a dedicated holding account and move everyone's real cash into
+  // it up front (mine from my chosen account, others' as held-for-me money).
+  async function createRealPool(participants: FundingParticipant[], date: string) {
+    const note = t('funding.contributionDesc', { desc: desc.trim() });
+    const poolAccount: Account = {
+      id: generateId(),
+      name: t('funding.poolAccountName', { desc: desc.trim() }),
+      type: 'pool',
+      institution: '',
+      balance: 0,
+      last4: '',
+      color: '#10b981',
+      createdAt: date,
+    };
+    const txs: Transaction[] = [];
+    const contributions: FundingContribution[] = [];
+    for (const p of participants) {
+      const { tx, contribution } = buildPoolContributionTx(
+        poolAccount.id, p.contributed, p.name, p.isMe, p.isMe ? accountId : '', note, date,
+      );
+      txs.push(tx); contributions.push(contribution);
+    }
+    const targetNum = round2(num(target));
+    const funding: Funding = {
+      id: generateId(),
+      description: desc.trim(),
+      account: poolAccount.id,
+      date,
+      kind: 'real',
+      participants: participantsFromContributions(contributions),
+      totalContributed: contributionsTotal(contributions),
+      spent: 0,
+      contributionTxId: '',
+      spendTxIds: [],
+      repayments: [],
+      closed: false,
+      poolAccountId: poolAccount.id,
+      target: targetNum > 0 ? targetNum : undefined,
+      contributions,
+    };
+    setFundings((prev) => [funding, ...prev]);
+    setAccounts((prev) => [...prev, poolAccount]);
+    setOpen(false);
+    await persist(funding, txs, [], 'funding.poolCreated', poolAccount);
+  }
+
   // ── Spend ────────────────────────────────────────────────────────────────────
   function openSpend(f: Funding) {
     setSpendFor(f); setEditingSpend(null);
     setSpendAmount(''); setSpendMine(''); setSpendDesc('');
-    setSpendAccount(f.account || chargeAccounts[0]?.id || '');
+    // Real pools always draw from their own holding account; virtual pools let you
+    // pick which real account fronts the spend.
+    setSpendAccount(isRealPool(f) ? (f.poolAccountId ?? '') : (f.account || chargeAccounts[0]?.id || ''));
   }
   function openEditSpend(f: Funding, s: FundingSpend) {
     setSpendFor(f); setEditingSpend(s);
     setSpendAmount(String(s.amount)); setSpendMine(s.myShare ? String(s.myShare) : '');
-    setSpendDesc(s.description); setSpendAccount(s.chargedAccount || f.account || chargeAccounts[0]?.id || '');
+    setSpendDesc(s.description);
+    setSpendAccount(isRealPool(f) ? (f.poolAccountId ?? '') : (s.chargedAccount || f.account || chargeAccounts[0]?.id || ''));
   }
 
   async function recordSpend() {
@@ -217,6 +280,61 @@ export default function FundingPage() {
     };
     setFundings((prev) => prev.map((x) => x.id === updated.id ? updated : x));
     await persist(updated, [], s.txIds, 'funding.spendDeleted');
+  }
+
+  // ── Contributions (real pools) ─────────────────────────────────────────────────
+  // Adding/editing real cash put into the pool. Each is a `transfer` into the pool
+  // account; the participant roster + totals are re-derived from the contributions.
+  function openContrib(f: Funding, participant?: FundingParticipant) {
+    setContribFor(f); setEditingContrib(null);
+    const isMe = participant?.isMe ?? false;
+    setContribIsMe(isMe);
+    setContribWho(participant && !participant.isMe ? participant.name : '');
+    setContribAmount('');
+    setContribAccount(depositAccounts[0]?.id || '');
+  }
+  function openEditContrib(f: Funding, c: FundingContribution) {
+    setContribFor(f); setEditingContrib(c);
+    setContribIsMe(c.isMe);
+    setContribWho(c.isMe ? '' : c.participant);
+    setContribAmount(String(c.amount));
+    setContribAccount(c.account || depositAccounts[0]?.id || '');
+  }
+
+  async function recordContribution() {
+    if (!contribFor || !contribFor.poolAccountId) return;
+    const amount = round2(num(contribAmount));
+    const who = contribIsMe ? t('funding.me') : contribWho.trim();
+    if (!(amount > 0) || !who || (contribIsMe && !contribAccount)) return;
+    const date = editingContrib?.date || today();
+    const note = t('funding.contributionDesc', { desc: contribFor.description });
+    const { tx, contribution } = buildPoolContributionTx(
+      contribFor.poolAccountId, amount, who, contribIsMe, contribIsMe ? contribAccount : '', note, date,
+    );
+    const removeTxIds = editingContrib ? [editingContrib.id] : [];
+    const contributions = [...(contribFor.contributions ?? []).filter((c) => c.id !== editingContrib?.id), contribution];
+    const updated: Funding = {
+      ...contribFor,
+      contributions,
+      participants: participantsFromContributions(contributions),
+      totalContributed: contributionsTotal(contributions),
+    };
+    setFundings((prev) => prev.map((f) => f.id === updated.id ? updated : f));
+    setContribFor(null); setEditingContrib(null);
+    await persist(updated, [tx], removeTxIds, editingContrib ? 'funding.contributionUpdated' : 'funding.contributionAdded');
+  }
+
+  async function deleteContribution(f: Funding, c: FundingContribution) {
+    if (!confirm(t('funding.confirmDeleteContribution'))) return;
+    const contributions = (f.contributions ?? []).filter((x) => x.id !== c.id);
+    const updated: Funding = {
+      ...f,
+      contributions,
+      participants: participantsFromContributions(contributions),
+      totalContributed: contributionsTotal(contributions),
+    };
+    setFundings((prev) => prev.map((x) => x.id === updated.id ? updated : x));
+    await persist(updated, [], [c.id], 'funding.contributionDeleted');
   }
 
   // ── Settle-up / repayment ──────────────────────────────────────────────────────
@@ -292,12 +410,16 @@ export default function FundingPage() {
   const archivedPools = fundings.filter((f) => f.closed);
 
   function renderPool(f: Funding) {
+    const real = isRealPool(f);
     const remaining = poolRemaining(f);
     const myShare = myContribution(f.participants);
     const owed = totalOwed(f);
     const spends = groupFundingSpends(f.spendTxIds, transactions);
     const spendsOpen = openSpends.has(f.id);
     const paysOpen = openPays.has(f.id);
+    const contribsOpen = openContribs.has(f.id);
+    const contributions = f.contributions ?? [];
+    const progress = poolProgress(f.totalContributed, f.target);
     return (
       <Card key={f.id} className={`space-y-4 ${f.closed ? 'opacity-75' : ''}`}>
         <div className="flex items-start justify-between gap-3">
@@ -310,8 +432,9 @@ export default function FundingPage() {
                 </span>
               )}
             </p>
-            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
-              {t('funding.virtualBadge')} · {formatDate(f.date)}
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1.5">
+              {real ? <PiggyBank className="w-3.5 h-3.5 text-emerald-500" /> : null}
+              {real ? t('funding.realBadge') : t('funding.virtualBadge')} · {formatDate(f.date)}
             </p>
           </div>
           <div className="flex gap-2 shrink-0">
@@ -345,18 +468,44 @@ export default function FundingPage() {
             <p className="text-base font-extrabold text-rose-600 dark:text-rose-400 mt-0.5">{formatCurrency(f.spent)}</p>
           </div>
           <div className={`rounded-2xl p-3 border ${remaining < 0 ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-100 dark:border-amber-800/40' : 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800/40'}`}>
-            <p className={`text-[11px] font-bold uppercase tracking-wider ${remaining < 0 ? 'text-amber-700/80 dark:text-amber-400/80' : 'text-emerald-700/80 dark:text-emerald-400/80'}`}>{remaining < 0 ? t('funding.overspent') : t('funding.remaining')}</p>
+            <p className={`text-[11px] font-bold uppercase tracking-wider ${remaining < 0 ? 'text-amber-700/80 dark:text-amber-400/80' : 'text-emerald-700/80 dark:text-emerald-400/80'}`}>{remaining < 0 ? t('funding.overspent') : real ? t('funding.balance') : t('funding.remaining')}</p>
             <p className={`text-base font-extrabold mt-0.5 ${remaining < 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{formatCurrency(Math.abs(remaining))}</p>
           </div>
         </div>
 
-        {/* Participants — pledge, paid back, and what's still owed */}
+        {/* Savings-goal progress (real pools with a target) */}
+        {real && progress !== null && (
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Target className="w-3.5 h-3.5" />{t('funding.goalProgress')}
+              </p>
+              <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                {t('funding.goalOf', { current: formatCurrency(f.totalContributed), target: formatCurrency(f.target ?? 0) })} · {Math.round(progress * 100)}%
+              </p>
+            </div>
+            <div className="h-2.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${progress >= 1 ? 'bg-emerald-500' : 'bg-indigo-500'}`}
+                style={{ width: `${Math.min(100, Math.max(0, progress * 100))}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Participants — pledge/contribution, paid back, and what's still owed */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5" />{t('funding.contributors', { n: f.participants.length })}
             </p>
-            {owed > 0 && (
+            {real ? (
+              !f.closed && (
+                <Button variant="ghost" size="sm" className="text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 h-8" onClick={() => openContrib(f)}>
+                  <Plus className="w-4 h-4" />{t('funding.addContribution')}
+                </Button>
+              )
+            ) : owed > 0 && (
               <Button variant="ghost" size="sm" className="text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 h-8" onClick={() => openPay(f)}>
                 <HandCoins className="w-4 h-4" />{t('funding.recordPayment')}
               </Button>
@@ -371,7 +520,15 @@ export default function FundingPage() {
                   <span className={`inline-flex items-center gap-1.5 font-bold px-2.5 py-1 rounded-lg ${p.isMe ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
                     {p.name}<span className="opacity-70">{formatCurrency(p.contributed)}</span>
                   </span>
-                  {p.isMe ? (
+                  {real ? (
+                    !f.closed ? (
+                      <button onClick={() => openContrib(f, p)} className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline">
+                        {t('funding.addMore')}
+                      </button>
+                    ) : (
+                      <span className="text-xs font-medium text-slate-400 dark:text-slate-500">{t('funding.paidIn')}</span>
+                    )
+                  ) : p.isMe ? (
                     <span className="text-xs font-medium text-slate-400 dark:text-slate-500">{t('funding.yourPledge')}</span>
                   ) : owe > 0 ? (
                     <button onClick={() => openPay(f, p)} className="text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline">
@@ -385,7 +542,7 @@ export default function FundingPage() {
             })}
           </div>
           {myShare > 0 && (
-            <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 mt-2">{t('funding.yourStake', { amount: formatCurrency(myShare) })}</p>
+            <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 mt-2">{t(real ? 'funding.yourMoneyIn' : 'funding.yourStake', { amount: formatCurrency(myShare) })}</p>
           )}
         </div>
 
@@ -425,8 +582,44 @@ export default function FundingPage() {
           </div>
         )}
 
-        {/* Repayments — collapsed to a summary row; expand to see/edit each one */}
-        {f.repayments.length > 0 && (
+        {/* Contributions (real pools) — collapsed to a summary row; expand to see/edit */}
+        {real && contributions.length > 0 && (
+          <div>
+            <button
+              onClick={() => toggle(setOpenContribs, f.id)}
+              className="w-full flex items-center justify-between gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+              aria-expanded={contribsOpen}
+            >
+              <span className="flex items-center gap-1.5">
+                {t('funding.contributionsTitle')}
+                <span className="normal-case tracking-normal text-slate-400 dark:text-slate-500">· {t('funding.itemsTotal', { n: contributions.length, amount: formatCurrency(f.totalContributed) })}</span>
+              </span>
+              <ChevronDown className={`w-4 h-4 transition-transform ${contribsOpen ? 'rotate-180' : ''}`} />
+            </button>
+            <Collapsible open={contribsOpen}>
+              <div className="space-y-1.5">
+                {[...contributions].sort((a, b) => b.date.localeCompare(a.date)).map((c) => (
+                  <div key={c.id} className="flex items-center justify-between gap-2 rounded-xl bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-800/40 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{c.participant}</p>
+                      <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
+                        {c.isMe ? t('funding.fromAccount', { account: accountName(c.account) }) : t('funding.cashHandedIn')} · {formatDate(c.date)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">{formatCurrency(c.amount)}</span>
+                      <button onClick={() => openEditContrib(f, c)} className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1.5 rounded-lg" aria-label={t('funding.edit')}><Pencil className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => deleteContribution(f, c)} className="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-1.5 rounded-lg" aria-label={t('common.delete')}><Trash2 className="w-3.5 h-3.5" /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Collapsible>
+          </div>
+        )}
+
+        {/* Repayments (virtual pools) — collapsed to a summary row; expand to see/edit each one */}
+        {!real && f.repayments.length > 0 && (
           <div>
             <button
               onClick={() => toggle(setOpenPays, f.id)}
@@ -546,23 +739,39 @@ export default function FundingPage() {
       {/* ── New pool modal ──────────────────────────────────────────────── */}
       <Modal open={open} onClose={() => setOpen(false)} title={t('funding.newPool')}>
         <div className="space-y-5 pb-4">
-          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/40 rounded-xl px-3 py-2">{t('funding.virtualHint')}</p>
+          {/* Kind: virtual budget vs. real cash pool */}
+          <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-slate-100 dark:bg-slate-700/50">
+            {(['virtual', 'real'] as const).map((k) => (
+              <button
+                key={k}
+                onClick={() => setKind(k)}
+                className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-colors ${kind === k ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}
+              >
+                {k === 'real' ? <PiggyBank className="w-4 h-4" /> : <Wallet className="w-4 h-4" />}
+                {t(k === 'real' ? 'funding.realPool' : 'funding.virtualPool')}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/40 rounded-xl px-3 py-2">{t(kind === 'real' ? 'funding.realHint' : 'funding.virtualHint')}</p>
           <Input label={t('funding.description')} placeholder={t('funding.descPlaceholder')} value={desc} onChange={(e) => setDesc(e.target.value)} />
           <Select
-            label={t('funding.defaultAccount')}
+            label={t(kind === 'real' ? 'funding.fundMyShareFrom' : 'funding.defaultAccount')}
             value={accountId}
-            options={chargeAccounts.map((a) => ({ value: a.id, label: a.name }))}
+            options={(kind === 'real' ? depositAccounts : chargeAccounts).map((a) => ({ value: a.id, label: a.name }))}
             onChange={(e) => setAccountId(e.target.value)}
           />
+          {kind === 'real' && (
+            <Input label={t('funding.targetOptional')} type="text" inputMode="decimal" placeholder="0.00" value={target} onChange={(e) => setTarget(e.target.value.replace(/[^0-9.]/g, ''))} />
+          )}
 
-          {/* My pledge */}
+          {/* My pledge / contribution */}
           <div className="rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/40 p-4 space-y-3">
             <label className="flex items-center gap-2.5 cursor-pointer">
               <input type="checkbox" checked={includeMe} onChange={(e) => setIncludeMe(e.target.checked)} className="w-4 h-4 rounded accent-indigo-600" />
-              <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{t('funding.includeMe')}</span>
+              <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{t(kind === 'real' ? 'funding.includeMeReal' : 'funding.includeMe')}</span>
             </label>
             {includeMe && (
-              <Input label={t('funding.myContribution')} type="text" inputMode="decimal" placeholder="0.00" value={myAmount} onChange={(e) => setMyAmount(e.target.value.replace(/[^0-9.]/g, ''))} />
+              <Input label={t(kind === 'real' ? 'funding.myContributionReal' : 'funding.myContribution')} type="text" inputMode="decimal" placeholder="0.00" value={myAmount} onChange={(e) => setMyAmount(e.target.value.replace(/[^0-9.]/g, ''))} />
             )}
           </div>
 
@@ -599,12 +808,20 @@ export default function FundingPage() {
           <>
             <div className="space-y-5 pb-4">
               <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{t('funding.spendingFrom', { desc: spendFor.description, remaining: formatCurrency(poolRemaining(spendFor)) })}</p>
-              <Select
-                label={t('funding.chargeFrom')}
-                value={spendAccount}
-                options={chargeAccounts.map((a) => ({ value: a.id, label: a.name }))}
-                onChange={(e) => setSpendAccount(e.target.value)}
-              />
+              {isRealPool(spendFor) ? (
+                // Real pools draw from their own holding account — not a choice.
+                <div className="rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 px-3 py-2.5">
+                  <p className="text-[11px] font-bold text-emerald-700/80 dark:text-emerald-400/80 uppercase tracking-wider">{t('funding.chargeFrom')}</p>
+                  <p className="text-sm font-bold text-slate-700 dark:text-slate-200 mt-0.5">{accountName(spendFor.poolAccountId ?? '')}</p>
+                </div>
+              ) : (
+                <Select
+                  label={t('funding.chargeFrom')}
+                  value={spendAccount}
+                  options={chargeAccounts.map((a) => ({ value: a.id, label: a.name }))}
+                  onChange={(e) => setSpendAccount(e.target.value)}
+                />
+              )}
               <Input label={t('funding.amount')} type="text" inputMode="decimal" placeholder="0.00" value={spendAmount} onChange={(e) => setSpendAmount(e.target.value.replace(/[^0-9.]/g, ''))} />
               <div>
                 <Input label={t('funding.myShare')} type="text" inputMode="decimal" placeholder="0.00" value={spendMine} onChange={(e) => setSpendMine(e.target.value.replace(/[^0-9.]/g, ''))} />
@@ -646,6 +863,39 @@ export default function FundingPage() {
               <div className="flex gap-3">
                 <Button variant="secondary" className="flex-1" onClick={() => { setPayFor(null); setEditingPay(null); }}>{t('common.cancel')}</Button>
                 <Button className="flex-1 shadow-sm" onClick={recordPayment} disabled={saving || num(payAmount) <= 0 || !payWho || !payAccount}>{saving ? t('common.saving') : (editingPay ? t('common.save') : t('funding.recordPayment'))}</Button>
+              </div>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      {/* ── Contribution modal (real pools — add + edit) ──────────────────── */}
+      <Modal open={contribFor !== null} onClose={() => { setContribFor(null); setEditingContrib(null); }} title={editingContrib ? t('funding.editContribution') : t('funding.addContribution')}>
+        {contribFor && (
+          <>
+            <div className="space-y-5 pb-4">
+              <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{t('funding.contributionHint')}</p>
+              <label className="flex items-center gap-2.5 cursor-pointer rounded-xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/40 px-3 py-2.5">
+                <input type="checkbox" checked={contribIsMe} onChange={(e) => setContribIsMe(e.target.checked)} className="w-4 h-4 rounded accent-indigo-600" />
+                <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{t('funding.contributionIsMe')}</span>
+              </label>
+              {!contribIsMe && (
+                <Input label={t('funding.whoContributed')} placeholder={t('funding.personName')} value={contribWho} onChange={(e) => setContribWho(e.target.value)} />
+              )}
+              <Input label={t('funding.amount')} type="text" inputMode="decimal" placeholder="0.00" value={contribAmount} onChange={(e) => setContribAmount(e.target.value.replace(/[^0-9.]/g, ''))} />
+              {contribIsMe && (
+                <Select
+                  label={t('funding.fundMyShareFrom')}
+                  value={contribAccount}
+                  options={depositAccounts.map((a) => ({ value: a.id, label: a.name }))}
+                  onChange={(e) => setContribAccount(e.target.value)}
+                />
+              )}
+            </div>
+            <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+              <div className="flex gap-3">
+                <Button variant="secondary" className="flex-1" onClick={() => { setContribFor(null); setEditingContrib(null); }}>{t('common.cancel')}</Button>
+                <Button className="flex-1 shadow-sm" onClick={recordContribution} disabled={saving || num(contribAmount) <= 0 || (!contribIsMe && !contribWho.trim()) || (contribIsMe && !contribAccount)}>{saving ? t('common.saving') : (editingContrib ? t('common.save') : t('funding.addContribution'))}</Button>
               </div>
             </div>
           </>

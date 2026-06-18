@@ -34,6 +34,9 @@ const ACCOUNT_TYPE_CONFIG = {
   investment: { icon: TrendingUp, colorClass: 'text-indigo-600 dark:text-indigo-400', bgClass: 'bg-indigo-50 dark:bg-indigo-900/30' },
   loan: { icon: CreditCard, colorClass: 'text-amber-600 dark:text-amber-400', bgClass: 'bg-amber-50 dark:bg-amber-900/30' },
   cash: { icon: Coins, colorClass: 'text-green-600 dark:text-green-400', bgClass: 'bg-green-50 dark:bg-green-900/30' },
+  // `pool` accounts are managed by the Funding feature and never listed/added here,
+  // but the config needs an entry so type-indexing stays exhaustive.
+  pool: { icon: PiggyBank, colorClass: 'text-emerald-600 dark:text-emerald-400', bgClass: 'bg-emerald-50 dark:bg-emerald-900/30' },
 };
 
 // Tolerate "1,000.50", "1.000,50", "$100", and currency symbols — strip
@@ -110,6 +113,7 @@ export default function AccountsPage() {
     investment: t('accounts.typeInvestment'),
     loan: t('accounts.typeLoan'),
     cash: t('accounts.typeCash'),
+    pool: t('accounts.typePool'),
   };
 
   // Section headers use a localized plural label rather than appending a literal
@@ -122,6 +126,7 @@ export default function AccountsPage() {
     investment: t('accounts.groupInvestment'),
     loan: t('accounts.groupLoan'),
     cash: t('accounts.groupCash'),
+    pool: t('accounts.groupPool'),
   };
 
   const load = useCallback(async (force = false) => {
@@ -292,8 +297,10 @@ export default function AccountsPage() {
   }, [accounts, transactions]);
 
   const grouped = useMemo(() => {
-    const g: Record<Account['type'], Account[]> = { checking: [], cash: [], savings: [], credit: [], investment: [], loan: [] };
-    for (const a of accounts) g[a.type].push(a);
+    const g: Record<Account['type'], Account[]> = { checking: [], cash: [], savings: [], credit: [], investment: [], loan: [], pool: [] };
+    // `pool` accounts are dedicated Funding holding buckets — managed on the Funding
+    // page, so they're not listed here (but still count toward net worth above).
+    for (const a of accounts) if (a.type !== 'pool') g[a.type].push(a);
     return g;
   }, [accounts]);
 
@@ -455,7 +462,7 @@ export default function AccountsPage() {
 
       <Modal open={open} onClose={() => { setOpen(false); setForm(EMPTY_FORM); setEditTarget(null); }} title={editTarget ? t('accounts.editAccount') : t('accounts.addAccount')}>
         <div className="space-y-5 pb-4">
-          <Select label={t('accounts.accountType')} value={form.type} options={Object.entries(ACCOUNT_TYPE_CONFIG).map(([value]) => ({ value, label: ACCOUNT_TYPE_LABELS[value as Account['type']] }))} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as Account['type'] }))} />
+          <Select label={t('accounts.accountType')} value={form.type} options={Object.entries(ACCOUNT_TYPE_CONFIG).filter(([value]) => value !== 'pool').map(([value]) => ({ value, label: ACCOUNT_TYPE_LABELS[value as Account['type']] }))} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as Account['type'] }))} />
           <Input label={t('accounts.accountName')} placeholder={form.type === 'checking' ? 'e.g. Chase Checking' : form.type === 'credit' ? 'e.g. Chase Sapphire' : form.type === 'cash' ? 'e.g. Wallet' : 'e.g. HYSA'} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
           <Input label={t('accounts.institution')} placeholder="e.g. Chase, Bank of America" value={form.institution} onChange={(e) => setForm((f) => ({ ...f, institution: e.target.value }))} />
           <Input label={form.type === 'credit' || form.type === 'loan' ? `${t('accounts.balanceOwed')} — enter negative if bank owes you` : t('accounts.currentBalance')} type="text" inputMode="decimal" placeholder="0.00" value={form.balance} onChange={(e) => setForm((f) => ({ ...f, balance: e.target.value.replace(/[^0-9.,\-]/g, '') }))} />
@@ -479,7 +486,7 @@ export default function AccountsPage() {
                   value={form.paymentAccountId}
                   options={[
                     { value: '', label: t('accounts.paymentAccountNone') },
-                    ...accounts.filter((a) => a.type !== 'loan').map((a) => ({ value: a.id, label: a.name })),
+                    ...accounts.filter((a) => a.type !== 'loan' && a.type !== 'pool').map((a) => ({ value: a.id, label: a.name })),
                   ]}
                   onChange={(e) => setForm((f) => ({ ...f, paymentAccountId: e.target.value }))}
                 />

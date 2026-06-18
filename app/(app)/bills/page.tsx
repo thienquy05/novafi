@@ -808,7 +808,7 @@ export default function BillsPage() {
               <Select
                 label={t('loans.intoAccount')}
                 value={paybackForm.account}
-                options={[{ value: '', label: t('loans.noAccount') }, ...accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))]}
+                options={[{ value: '', label: t('loans.noAccount') }, ...accounts.filter((a) => a.type !== 'pool').map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))]}
                 onChange={(e) => setPaybackForm((f) => ({ ...f, account: e.target.value }))}
               />
             </div>
@@ -1095,7 +1095,7 @@ export default function BillsPage() {
             <Input label={t('common.date')} type="date" value={payForm.date} onChange={(e) => setPayForm((f) => ({ ...f, date: e.target.value }))} />
           </div>
           {accounts.length > 0 && (
-            <Select label={t('bills.payFromAccount')} value={payForm.account} options={[{ value: '', label: t('common.selectPlaceholder') }, ...accounts.map((a) => ({ value: a.id, label: a.name }))]} onChange={(e) => setPayForm((f) => ({ ...f, account: e.target.value }))} />
+            <Select label={t('bills.payFromAccount')} value={payForm.account} options={[{ value: '', label: t('common.selectPlaceholder') }, ...accounts.filter((a) => a.type !== 'pool').map((a) => ({ value: a.id, label: a.name }))]} onChange={(e) => setPayForm((f) => ({ ...f, account: e.target.value }))} />
           )}
           {payBill && billParticipants(payBill).length > 0 ? (
             <div className="flex items-start gap-2.5 px-3.5 py-3 rounded-2xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800/50">
@@ -1142,7 +1142,7 @@ export default function BillsPage() {
           <Input label={t('bills.nextDueDate')} type="date" value={form.nextDue} onChange={(e) => setForm((f) => ({ ...f, nextDue: e.target.value }))} />
           <Select label={t('common.category')} value={form.category} options={expenseCategories.map((c) => ({ value: c, label: c }))} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} />
           {accounts.length > 0 && (
-            <Select label={t('bills.payFromOptional')} value={form.account} options={[{ value: '', label: t('common.selectPlaceholder') }, ...accounts.map((a) => ({ value: a.id, label: a.name }))]} onChange={(e) => setForm((f) => ({ ...f, account: e.target.value }))} />
+            <Select label={t('bills.payFromOptional')} value={form.account} options={[{ value: '', label: t('common.selectPlaceholder') }, ...accounts.filter((a) => a.type !== 'pool').map((a) => ({ value: a.id, label: a.name }))]} onChange={(e) => setForm((f) => ({ ...f, account: e.target.value }))} />
           )}
 
           {/* ── More options toggle ──────────────────────────────────────── */}

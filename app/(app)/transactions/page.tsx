@@ -805,7 +805,7 @@ export default function TransactionsPage() {
               <Select
                 label={isLent ? t('loans.intoAccount') : t('loans.fromAccount')}
                 value={paybackForm.account}
-                options={[{ value: '', label: t('loans.noAccount') }, ...accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))]}
+                options={[{ value: '', label: t('loans.noAccount') }, ...accounts.filter((a) => a.type !== 'pool').map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))]}
                 onChange={(e) => setPaybackForm((f) => ({ ...f, account: e.target.value }))}
               />
             </div>
@@ -1517,7 +1517,7 @@ export default function TransactionsPage() {
               <Select
                 label={t('loans.intoAccount')}
                 value={splitPaybackForm.account}
-                options={[{ value: '', label: t('loans.noAccount') }, ...accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))]}
+                options={[{ value: '', label: t('loans.noAccount') }, ...accounts.filter((a) => a.type !== 'pool').map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))]}
                 onChange={(e) => setSplitPaybackForm((f) => ({ ...f, account: e.target.value }))}
               />
             </div>
@@ -1592,7 +1592,7 @@ export default function TransactionsPage() {
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Select label={t('common.category')} value={splitExpenseForm.category} options={expenseCategories.map((c) => ({ value: c, label: c }))} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, category: e.target.value }))} />
-          <Select label={t('bills.payFromOptional')} value={splitExpenseForm.account} options={[{ value: '', label: t('loans.noAccount') }, ...accounts.map((a) => ({ value: a.id, label: a.name }))]} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, account: e.target.value }))} />
+          <Select label={t('bills.payFromOptional')} value={splitExpenseForm.account} options={[{ value: '', label: t('loans.noAccount') }, ...accounts.filter((a) => a.type !== 'pool').map((a) => ({ value: a.id, label: a.name }))]} onChange={(e) => setSplitExpenseForm((f) => ({ ...f, account: e.target.value }))} />
         </div>
 
         {/* Participants */}
@@ -2051,12 +2051,12 @@ export default function TransactionsPage() {
               <Select label={t('common.category')} value={form.category} options={categories.map((c) => ({ value: c, label: c }))} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} />
             )}
             <Select label={form.type === 'transfer' ? t('transactions.fromAccount') : t('common.account')} value={form.account} disabled={editManaged} className="disabled:opacity-60 disabled:cursor-not-allowed"
-              options={[{ value: '', label: t('common.nonePlaceholder') }, ...accounts.map((a) => ({ value: a.id, label: a.type === 'credit' || a.type === 'loan' ? `${a.name} (owed: ${formatCurrency(a.balance)})` : `${a.name} (${formatCurrency(a.balance)})` }))]}
+              options={[{ value: '', label: t('common.nonePlaceholder') }, ...accounts.filter((a) => a.type !== 'pool').map((a) => ({ value: a.id, label: a.type === 'credit' || a.type === 'loan' ? `${a.name} (owed: ${formatCurrency(a.balance)})` : `${a.name} (${formatCurrency(a.balance)})` }))]}
               onChange={(e) => setForm((f) => ({ ...f, account: e.target.value }))} />
           </div>
           {form.type === 'transfer' && (
             <Select label={t('transactions.toAccount')} value={form.toAccount} disabled={editManaged} className="disabled:opacity-60 disabled:cursor-not-allowed"
-              options={[{ value: '', label: t('common.nonePlaceholder') }, ...accounts.filter((a) => a.id !== form.account).map((a) => ({ value: a.id, label: a.type === 'credit' || a.type === 'loan' ? `${a.name} · Pay off (owed: ${formatCurrency(a.balance)})` : `${a.name} (${formatCurrency(a.balance)})` }))]}
+              options={[{ value: '', label: t('common.nonePlaceholder') }, ...accounts.filter((a) => a.id !== form.account && a.type !== 'pool').map((a) => ({ value: a.id, label: a.type === 'credit' || a.type === 'loan' ? `${a.name} · Pay off (owed: ${formatCurrency(a.balance)})` : `${a.name} (${formatCurrency(a.balance)})` }))]}
               onChange={(e) => setForm((f) => ({ ...f, toAccount: e.target.value }))} />
           )}
           {form.type === 'transfer' && form.toAccount && (() => {
@@ -2116,7 +2116,7 @@ export default function TransactionsPage() {
           <Select
             label={t('common.account')}
             value={splitShared.account}
-            options={[{ value: '', label: t('common.nonePlaceholder') }, ...accounts.map((a) => ({ value: a.id, label: a.type === 'credit' || a.type === 'loan' ? `${a.name} (owed: ${formatCurrency(a.balance)})` : `${a.name} (${formatCurrency(a.balance)})` }))]}
+            options={[{ value: '', label: t('common.nonePlaceholder') }, ...accounts.filter((a) => a.type !== 'pool').map((a) => ({ value: a.id, label: a.type === 'credit' || a.type === 'loan' ? `${a.name} (owed: ${formatCurrency(a.balance)})` : `${a.name} (${formatCurrency(a.balance)})` }))]}
             onChange={(e) => setSplitShared((s) => ({ ...s, account: e.target.value }))}
           />
           <div className="space-y-2.5">
@@ -2281,7 +2281,7 @@ export default function TransactionsPage() {
               <Select
                 label={loanForm.direction === 'lent' ? t('loans.fromAccount') : t('loans.toAccount')}
                 value={loanForm.account}
-                options={[{ value: '', label: t('loans.noAccount') }, ...accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))]}
+                options={[{ value: '', label: t('loans.noAccount') }, ...accounts.filter((a) => a.type !== 'pool').map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))]}
                 onChange={(e) => setLoanForm((f) => ({ ...f, account: e.target.value }))}
               />
               <Select
