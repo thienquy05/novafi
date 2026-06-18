@@ -2,6 +2,17 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-18 — Planning "Spent" total now includes rolled-over deficit (branch claude/cat-budget-discrepancy-gzuybd)
+
+**Bug (user):** with Budget Rollover on, last month's overspend should count as part of THIS month's spending everywhere so all sections show the same numbers. Most budget views already did this — the per-category cards (Planning + Dashboard) show `usage = spent + rolledOverDeficit`, and the over-budget count, the nav badge (fixed in the prior commit), and the SpendingPaceWidget all use the same effective figure. The one straggler was the Planning page's **"SPENT" summary card** (`totalSpent`), which summed raw `spentForCategory` only — so it didn't equal the sum of the budget bars rendered right below it whenever anything rolled over.
+
+**Fix:**
+- `app/(app)/planning/page.tsx` — `totalSpent` now sums `calcEffectiveSpent(spentForCategory(cat), rolledOverDeficit(b))` across budgets (was raw spend). It now matches the per-category cards (each shows `usage`), the over-budget count, and the rollover-aware badge. The rose "over" color compares this effective total to `totalBudgeted`.
+
+**Deliberately left unchanged (these are real cash figures, not budget usage — adding rollover would double-count money already spent last month):** Reports' yearly `totalSpent`, cash-flow / monthly expense totals, net worth. Rollover stays a per-budget "used side" concept only.
+
+**Verification:** `tsc --noEmit` clean; full `vitest` suite **560 passing**.
+
 ## 2026-06-17 — Over-budget nav badge now matches the Planning card (branch claude/cat-budget-discrepancy-gzuybd)
 
 **Bug (user):** the Planning page's "OVER BUDGET" card showed **2 cats** while the Plan nav-item badge showed **1**. The two counts disagreed because they used different rules: the Planning card (`app/(app)/planning/page.tsx:317`) and Dashboard (`app/(app)/dashboard/page.tsx:254`) count a category over budget when `spent + rolledOverDeficit > cap` (rollover-aware), but the badge's `calcOverBudget` only compared raw `spent > cap`, ignoring Budget Rollover. With rollover on, a category pushed over solely by last month's carried-over overspend counted in Planning but not in the badge.
