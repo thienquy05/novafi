@@ -213,6 +213,15 @@ export default function TransactionsPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [showTemplates, setShowTemplates] = useState(false);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  // Staged ("draft") filter state. The redesigned filter sheet defers changes
+  // until "Apply Filters" is tapped, so edits live here while the sheet is open
+  // and only commit to the live filter state (filter/categoryFilters/accountFilters)
+  // on apply. Seeded from the committed values each time the sheet opens.
+  const [draftFilter, setDraftFilter] = useState<'all' | 'income' | 'expense' | 'transfer'>('all');
+  const [draftCategoryFilters, setDraftCategoryFilters] = useState<string[]>([]);
+  const [draftAccountFilters, setDraftAccountFilters] = useState<string[]>([]);
+  // "View All" expander for the Custom Accounts row (collapsed to one line until tapped).
+  const [showAllCustomAccounts, setShowAllCustomAccounts] = useState(false);
   // Type-to-filter query for the "Card used" picker so the list stays short and
   // searchable once many cards exist (empty = show all cards).
   const [cardFilterQuery, setCardFilterQuery] = useState('');
@@ -353,6 +362,8 @@ export default function TransactionsPage() {
     return matchSearch && matchFilter && matchCategory && matchAccount && matchMonth;
   }), [transactions, search, filter, categoryFilters, accountFilters, selectedMonth]);
 
+  // Committed-state toggles — used by the active-filter chips in the page header,
+  // which remove a live filter on tap (the sheet itself edits the draft below).
   function toggleCategory(c: string) {
     setCategoryFilters((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
   }
@@ -360,21 +371,64 @@ export default function TransactionsPage() {
     setAccountFilters((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   }
 
-  // Past this many cards the flat chip list gets unwieldy, so the picker switches
-  // to a searchable, height-capped list. Selected cards are pinned to the top so a
-  // search query never hides what's already active.
-  const CARD_SEARCH_THRESHOLD = 6;
-  const visibleCards = useMemo(() => {
-    const q = cardFilterQuery.trim().toLowerCase();
-    const matches = q
-      ? accounts.filter((a) => a.name.toLowerCase().includes(q) || (a.last4 ?? '').includes(q))
-      : accounts;
-    return [...matches].sort((a, b) => {
-      const aSel = accountFilters.includes(a.id) ? 0 : 1;
-      const bSel = accountFilters.includes(b.id) ? 0 : 1;
+  // ── Filter sheet: staged draft <-> committed lifecycle ──────────────────────
+  function toggleDraftCategory(c: string) {
+    setDraftCategoryFilters((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
+  }
+  function toggleDraftAccount(id: string) {
+    setDraftAccountFilters((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  }
+  function openFilterSheet() {
+    // Seed the draft from the currently-applied filters so reopening shows live state.
+    setDraftFilter(filter);
+    setDraftCategoryFilters(categoryFilters);
+    setDraftAccountFilters(accountFilters);
+    setCardFilterQuery('');
+    setShowAllCustomAccounts(false);
+    setFilterSheetOpen(true);
+  }
+  function applyFilters() {
+    // Commit the draft. filterKey (derived from committed state) changes, which
+    // resets the visible page count downstream — no manual reset needed here.
+    setFilter(draftFilter);
+    setCategoryFilters(draftCategoryFilters);
+    setAccountFilters(draftAccountFilters);
+    setFilterSheetOpen(false);
+  }
+  function clearAllDraft() {
+    setDraftFilter('all');
+    setDraftCategoryFilters([]);
+    setDraftAccountFilters([]);
+  }
+  const draftFilterCount = (draftFilter !== 'all' ? 1 : 0) + draftCategoryFilters.length + draftAccountFilters.length;
+
+  // Accounts split into the two groups the filter sheet shows: "Payment Methods"
+  // (what you pay with — checking / credit / cash) and "Custom Accounts" (savings /
+  // investment / loan ledgers). Each is filtered by the in-sheet search box and
+  // pins draft-selected cards first so a query never hides an active selection.
+  const PAYMENT_TYPES: Account['type'][] = ['checking', 'credit', 'cash'];
+  // Custom Accounts collapse to this many chips until "+ View All" is tapped.
+  const CUSTOM_COLLAPSE = 5;
+  function matchAccount(a: Account, q: string) {
+    return !q || a.name.toLowerCase().includes(q) || (a.last4 ?? '').includes(q);
+  }
+  function sortBySelected(list: Account[]) {
+    return [...list].sort((a, b) => {
+      const aSel = draftAccountFilters.includes(a.id) ? 0 : 1;
+      const bSel = draftAccountFilters.includes(b.id) ? 0 : 1;
       return aSel - bSel;
     });
-  }, [accounts, cardFilterQuery, accountFilters]);
+  }
+  const paymentMethodAccounts = useMemo(() => {
+    const q = cardFilterQuery.trim().toLowerCase();
+    return sortBySelected(accounts.filter((a) => PAYMENT_TYPES.includes(a.type) && matchAccount(a, q)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accounts, cardFilterQuery, draftAccountFilters]);
+  const customLedgerAccounts = useMemo(() => {
+    const q = cardFilterQuery.trim().toLowerCase();
+    return sortBySelected(accounts.filter((a) => !PAYMENT_TYPES.includes(a.type) && matchAccount(a, q)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accounts, cardFilterQuery, draftAccountFilters]);
 
   function openAdd() { setEditTarget(null); setForm(EMPTY_FORM); setOpen(true); }
   function openEdit(tx: Transaction) {
@@ -1659,6 +1713,18 @@ export default function TransactionsPage() {
     transfer: t('common.transfers'),
   };
 
+  // Category section in the filter sheet tracks the selected TYPE: expense → only
+  // expense categories, income → only income, all → both, transfer → hidden
+  // (transfers aren't user-categorized). The heading mirrors that choice.
+  const showDraftExpenseCats = draftFilter === 'all' || draftFilter === 'expense';
+  const showDraftIncomeCats = draftFilter === 'all' || draftFilter === 'income';
+  const showDraftCategories = draftFilter !== 'transfer';
+  const draftCategoryHeading = draftFilter === 'income'
+    ? t('transactions.incomeCategories')
+    : draftFilter === 'expense'
+      ? t('transactions.expenseCategories')
+      : t('transactions.allCategories');
+
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
       {(pullY > 0 || refreshing) && (
@@ -1795,7 +1861,7 @@ export default function TransactionsPage() {
             <input className="w-full h-11 pl-10 pr-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all duration-200 shadow-sm" placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
           <button
-            onClick={() => { setCardFilterQuery(''); setFilterSheetOpen(true); }}
+            onClick={openFilterSheet}
             className={`h-11 px-4 rounded-2xl text-sm font-bold transition-all duration-200 flex items-center gap-2 shrink-0 ${activeFilterCount > 0 ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'}`}
           >
             <Filter className="w-4 h-4" />
@@ -2392,7 +2458,7 @@ export default function TransactionsPage() {
         </div>
       </Modal>
 
-      {/* ── Filter Popup (centered dialog) ───────────────────────────────── */}
+      {/* ── Filter Sheet (mobile bottom sheet: fixed header + scroll body + sticky footer) ── */}
       <AnimatePresence>
         {filterSheetOpen && (
           <>
@@ -2405,117 +2471,174 @@ export default function TransactionsPage() {
               className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[200]"
               onClick={() => setFilterSheetOpen(false)}
             />
-            <div
-              className="fixed inset-0 z-[200] flex items-center justify-center p-4 pointer-events-none"
-              style={{
-                paddingTop: 'env(safe-area-inset-top, 0px)',
-                paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-              }}
-            >
+            <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center sm:p-4 pointer-events-none">
               <motion.div
-                key="filter-popup"
-                initial={{ opacity: 0, scale: 0.96, y: 8 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.96, y: 8 }}
-                transition={{ type: 'spring', bounce: 0.15, duration: 0.3 }}
+                key="filter-sheet"
+                initial={{ opacity: 0, y: 40, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 40, scale: 0.98 }}
+                transition={{ type: 'spring', bounce: 0.18, duration: 0.32 }}
                 onClick={(e) => e.stopPropagation()}
-                className="pointer-events-auto w-full max-w-md bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-2xl px-5 pt-5 pb-6 max-h-[85vh] overflow-y-auto overscroll-contain"
+                role="dialog"
+                aria-modal="true"
+                aria-label={t('transactions.filters')}
+                className="pointer-events-auto w-full sm:max-w-md flex flex-col bg-[#F9FAFB] dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl border border-slate-200 dark:border-slate-700 shadow-2xl max-h-[92vh] sm:max-h-[88vh] overflow-hidden"
               >
-              <div className="flex items-center justify-between mb-5">
-                <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 tracking-tight">{t('transactions.filters')}</h2>
-                <button onClick={() => setFilterSheetOpen(false)} className="h-8 w-8 rounded-full flex items-center justify-center text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors duration-150 tap-highlight-none shrink-0">
-                  <X className="w-4.5 h-4.5" />
-                </button>
-              </div>
-              <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">{t('common.type')}</p>
-              <div className="flex gap-2 flex-wrap mb-5">
-                {(['all', 'income', 'expense', 'transfer'] as const).map((f) => (
-                  <button key={f} onClick={() => setFilter(f)} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${filter === f ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>
-                    {filterLabels[f]}
+                {/* Header (fixed) */}
+                <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-slate-200/80 dark:border-slate-700/80 bg-[#F9FAFB] dark:bg-slate-900">
+                  <h2 className="text-lg font-extrabold text-slate-900 dark:text-slate-100 tracking-tight">{t('transactions.filters')}</h2>
+                  <button onClick={() => setFilterSheetOpen(false)} aria-label={t('common.close')} className="h-9 w-9 rounded-full flex items-center justify-center text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/70 dark:hover:bg-slate-700 transition-colors duration-150 tap-highlight-none shrink-0">
+                    <X className="w-5 h-5" />
                   </button>
-                ))}
-              </div>
-              {accounts.length > 0 && (
-                <>
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{t('transactions.cardUsed')}</p>
-                    {accountFilters.length > 0 && (
-                      <button onClick={() => setAccountFilters([])} className="text-[11px] font-bold text-rose-500 dark:text-rose-400 hover:text-rose-600 dark:hover:text-rose-400 tap-highlight-none flex items-center gap-1">
-                        <X className="w-3 h-3" />{t('transactions.clearFilters')} ({accountFilters.length})
-                      </button>
-                    )}
-                  </div>
-                  {accounts.length > CARD_SEARCH_THRESHOLD && (
-                    <div className="relative mb-2">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 dark:text-slate-500 pointer-events-none" />
-                      <input
-                        value={cardFilterQuery}
-                        onChange={(e) => setCardFilterQuery(e.target.value)}
-                        placeholder={t('transactions.searchCards')}
-                        className="w-full h-9 pl-9 pr-8 rounded-xl bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-xs font-medium text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-                      />
-                      {cardFilterQuery && (
-                        <button onClick={() => setCardFilterQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 tap-highlight-none">
-                          <X className="w-3.5 h-3.5" />
+                </div>
+
+                {/* Scrollable filter content */}
+                <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5 space-y-7">
+                  {/* ── Section 1: TYPE (full-width segmented control) ── */}
+                  <section>
+                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2.5">{t('common.type')}</p>
+                    <div className="flex p-1 rounded-2xl bg-slate-200/60 dark:bg-slate-800 gap-1">
+                      {(['all', 'income', 'expense', 'transfer'] as const).map((f) => (
+                        <button
+                          key={f}
+                          onClick={() => setDraftFilter(f)}
+                          aria-pressed={draftFilter === f}
+                          className={`flex-1 h-10 rounded-xl text-[13px] font-bold transition-all duration-200 ${draftFilter === f ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'}`}
+                        >
+                          {filterLabels[f]}
                         </button>
-                      )}
+                      ))}
                     </div>
+                  </section>
+
+                  {/* ── Section 2: ACCOUNTS ── */}
+                  {accounts.length > 0 && (
+                    <section>
+                      <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2.5">{t('transactions.accountsSection')}</p>
+                      {/* Search bar */}
+                      <div className="relative mb-4">
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-500 pointer-events-none" />
+                        <input
+                          value={cardFilterQuery}
+                          onChange={(e) => setCardFilterQuery(e.target.value)}
+                          placeholder={t('transactions.searchAccounts')}
+                          className="w-full h-11 pl-10 pr-9 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-medium text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-sm focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all duration-200"
+                        />
+                        {cardFilterQuery && (
+                          <button onClick={() => setCardFilterQuery('')} aria-label={t('common.clear')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 tap-highlight-none">
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Sub-heading A: Payment Methods */}
+                      {paymentMethodAccounts.length > 0 && (
+                        <div className="mb-4">
+                          <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-2">{t('transactions.paymentMethods')}</p>
+                          <div className="flex gap-2 flex-wrap">
+                            {paymentMethodAccounts.map((a) => (
+                              <button
+                                key={`pay-${a.id}`}
+                                onClick={() => toggleDraftAccount(a.id)}
+                                aria-pressed={draftAccountFilters.includes(a.id)}
+                                className={`px-4 h-9 rounded-full text-[13px] font-semibold transition-all duration-200 whitespace-nowrap ${draftAccountFilters.includes(a.id) ? 'bg-indigo-600 text-white border border-indigo-600' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'}`}
+                              >
+                                {a.name}{a.last4 ? ` ••${a.last4}` : ''}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Sub-heading B: Custom Accounts (collapsible via "+ View All") */}
+                      {customLedgerAccounts.length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-2">{t('transactions.customAccounts')}</p>
+                          <div className="flex gap-2 flex-wrap">
+                            {(showAllCustomAccounts || cardFilterQuery ? customLedgerAccounts : customLedgerAccounts.slice(0, CUSTOM_COLLAPSE)).map((a) => (
+                              <button
+                                key={`cust-${a.id}`}
+                                onClick={() => toggleDraftAccount(a.id)}
+                                aria-pressed={draftAccountFilters.includes(a.id)}
+                                className={`px-4 h-9 rounded-full text-[13px] font-semibold transition-all duration-200 whitespace-nowrap ${draftAccountFilters.includes(a.id) ? 'bg-indigo-600 text-white border border-indigo-600' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'}`}
+                              >
+                                {a.name}{a.last4 ? ` ••${a.last4}` : ''}
+                              </button>
+                            ))}
+                            {!showAllCustomAccounts && !cardFilterQuery && customLedgerAccounts.length > CUSTOM_COLLAPSE && (
+                              <button
+                                onClick={() => setShowAllCustomAccounts(true)}
+                                className="px-4 h-9 rounded-full text-[13px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50 transition-all duration-200 whitespace-nowrap"
+                              >
+                                + {t('transactions.viewAll')}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {paymentMethodAccounts.length === 0 && customLedgerAccounts.length === 0 && (
+                        <p className="text-sm font-medium text-slate-400 dark:text-slate-500 py-1.5">{t('transactions.noCardsMatch')}</p>
+                      )}
+                    </section>
                   )}
-                  <div className={`flex gap-2 flex-wrap mb-5 ${accounts.length > CARD_SEARCH_THRESHOLD ? 'max-h-36 overflow-y-auto overscroll-contain pr-1' : ''}`}>
-                    {visibleCards.map((a) => (
-                      <button key={`acct-${a.id}`} onClick={() => toggleAccount(a.id)} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${accountFilters.includes(a.id) ? 'bg-indigo-600 text-white' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>
-                        {a.name}{a.last4 ? ` ••${a.last4}` : ''}
-                      </button>
-                    ))}
-                    {visibleCards.length === 0 && (
-                      <p className="text-xs font-medium text-slate-400 dark:text-slate-500 py-1.5">{t('transactions.noCardsMatch')}</p>
-                    )}
-                  </div>
-                </>
-              )}
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{t('common.category')}</p>
-                {categoryFilters.length > 0 && (
-                  <button onClick={() => setCategoryFilters([])} className="text-[11px] font-bold text-rose-500 dark:text-rose-400 hover:text-rose-600 dark:hover:text-rose-400 tap-highlight-none flex items-center gap-1">
-                    <X className="w-3 h-3" />{t('transactions.clearFilters')} ({categoryFilters.length})
+
+                  {/* ── Section 3: CATEGORIES (label + chips follow the selected TYPE) ── */}
+                  {showDraftCategories && (
+                    <section>
+                      <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2.5">{draftCategoryHeading}</p>
+                      <div className="flex gap-2 flex-wrap">
+                        {showDraftExpenseCats && [...expenseCategories, ...archivedExpenseCategories].map((c) => {
+                          const archived = archivedExpenseCategories.includes(c);
+                          const selected = draftCategoryFilters.includes(c);
+                          return (
+                            <button
+                              key={`exp-${c}`}
+                              onClick={() => toggleDraftCategory(c)}
+                              aria-pressed={selected}
+                              title={archived ? t('categories.archivedHint') : undefined}
+                              className={`px-4 h-9 rounded-full text-[13px] font-semibold transition-all duration-200 whitespace-nowrap inline-flex items-center gap-1 ${selected ? 'bg-slate-700 text-white border border-slate-700' : archived ? 'bg-transparent text-slate-400 dark:text-slate-500 border border-dashed border-slate-300 dark:border-slate-600' : 'bg-transparent text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}
+                            >
+                              {archived && <Archive className="w-3 h-3" />}{c}
+                            </button>
+                          );
+                        })}
+                        {showDraftIncomeCats && [...incomeCategories, ...archivedIncomeCategories].map((c) => {
+                          const archived = archivedIncomeCategories.includes(c);
+                          const selected = draftCategoryFilters.includes(c);
+                          return (
+                            <button
+                              key={`inc-${c}`}
+                              onClick={() => toggleDraftCategory(c)}
+                              aria-pressed={selected}
+                              title={archived ? t('categories.archivedHint') : undefined}
+                              className={`px-4 h-9 rounded-full text-[13px] font-semibold transition-all duration-200 whitespace-nowrap inline-flex items-center gap-1 ${selected ? 'bg-slate-700 text-white border border-slate-700' : archived ? 'bg-transparent text-slate-400 dark:text-slate-500 border border-dashed border-slate-300 dark:border-slate-600' : 'bg-transparent text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}
+                            >
+                              {archived && <Archive className="w-3 h-3" />}{c}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  )}
+                </div>
+
+                {/* Fixed action footer */}
+                <div
+                  className="shrink-0 flex items-center gap-3 px-5 pt-4 border-t border-slate-200/80 dark:border-slate-700/80 bg-[#F9FAFB] dark:bg-slate-900"
+                  style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 1rem)' }}
+                >
+                  <button
+                    onClick={clearAllDraft}
+                    disabled={draftFilterCount === 0}
+                    className="shrink-0 px-2 py-2 text-sm font-bold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed tap-highlight-none transition-colors"
+                  >
+                    {t('transactions.clearAll')}
                   </button>
-                )}
-              </div>
-              <div className="flex gap-2 flex-wrap mb-4">
-                <button onClick={() => setCategoryFilters([])} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${categoryFilters.length === 0 ? 'bg-indigo-600 text-white' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>{t('common.all')}</button>
-              </div>
-              {(expenseCategories.length > 0 || archivedExpenseCategories.length > 0) && (
-                <>
-                  <p className="text-[11px] font-bold text-rose-500 dark:text-rose-400 uppercase tracking-wider mb-2">{t('common.expenses')}</p>
-                  <div className="flex gap-2 flex-wrap mb-4">
-                    {expenseCategories.map((c) => (
-                      <button key={`exp-${c}`} onClick={() => toggleCategory(c)} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${categoryFilters.includes(c) ? 'bg-indigo-600 text-white' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>{c}</button>
-                    ))}
-                    {/* Archived categories: kept filterable so past transactions stay findable, shown muted with an archive marker. */}
-                    {archivedExpenseCategories.map((c) => (
-                      <button key={`exp-arc-${c}`} onClick={() => toggleCategory(c)} title={t('categories.archivedHint')} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap inline-flex items-center gap-1 ${categoryFilters.includes(c) ? 'bg-indigo-600 text-white' : 'bg-slate-50/60 dark:bg-slate-700/50 text-slate-400 dark:text-slate-500 border border-dashed border-slate-300 dark:border-slate-600'}`}><Archive className="w-3 h-3" />{c}</button>
-                    ))}
-                  </div>
-                </>
-              )}
-              {(incomeCategories.length > 0 || archivedIncomeCategories.length > 0) && (
-                <>
-                  <p className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-2">{t('common.income')}</p>
-                  <div className="flex gap-2 flex-wrap">
-                    {incomeCategories.map((c) => (
-                      <button key={`inc-${c}`} onClick={() => toggleCategory(c)} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap ${categoryFilters.includes(c) ? 'bg-indigo-600 text-white' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600'}`}>{c}</button>
-                    ))}
-                    {archivedIncomeCategories.map((c) => (
-                      <button key={`inc-arc-${c}`} onClick={() => toggleCategory(c)} title={t('categories.archivedHint')} className={`px-3.5 h-9 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap inline-flex items-center gap-1 ${categoryFilters.includes(c) ? 'bg-indigo-600 text-white' : 'bg-slate-50/60 dark:bg-slate-700/50 text-slate-400 dark:text-slate-500 border border-dashed border-slate-300 dark:border-slate-600'}`}><Archive className="w-3 h-3" />{c}</button>
-                    ))}
-                  </div>
-                </>
-              )}
-              {activeFilterCount > 0 && (
-                <button onClick={() => { setFilter('all'); setCategoryFilters([]); setAccountFilters([]); }} className="mt-5 w-full py-2.5 text-sm font-semibold text-rose-500 dark:text-rose-400 hover:text-rose-600 dark:hover:text-rose-400 tap-highlight-none">
-                  {t('transactions.clearFilters')}
-                </button>
-              )}
+                  <Button onClick={applyFilters} className="flex-1">
+                    {draftFilterCount > 0 ? `${t('transactions.applyFilters')} (${draftFilterCount})` : t('transactions.applyFilters')}
+                  </Button>
+                </div>
               </motion.div>
             </div>
           </>

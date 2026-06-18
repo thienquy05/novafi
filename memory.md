@@ -2057,3 +2057,36 @@ Added `transactions.searchCards` (en "Search cards…", vi "Tìm thẻ…") and 
 
 ### Verification
 `tsc --noEmit` clean; `eslint` 0 errors (only the pre-existing documented warnings); `vitest` 550 passing.
+
+## 2026-06-17 — Filter sheet high-fidelity redesign: TYPE segmented control, grouped accounts, staged Apply (branch claude/transaction-filter-ui-design-e1tv2l)
+
+Redesigned the Transactions filter dialog into a high-fidelity mobile sheet matching a provided spec (fixed header → scrollable sections → sticky action footer). Two product decisions were mine (the request left them to me): account grouping is **by account type** (no fictional "custom ledger" data), and the footer uses a **true staged Apply** (drafts commit only on tap), departing from the previous live-apply model.
+
+### Staged ("draft") filter lifecycle (`app/(app)/transactions/page.tsx`)
+The old popup mutated `filter`/`categoryFilters`/`accountFilters` live. The redesign defers changes:
+- New state: `draftFilter`, `draftCategoryFilters`, `draftAccountFilters` (seeded from the committed values when the sheet opens) and `showAllCustomAccounts` (the "+ View All" expander).
+- `openFilterSheet()` seeds the drafts from committed state, resets `cardFilterQuery`/`showAllCustomAccounts`, opens the sheet. The header Filter button now calls this (was an inline `setCardFilterQuery('')` + `setFilterSheetOpen(true)`).
+- `applyFilters()` commits drafts → committed state and closes. Because `filterKey` (line ~1637) is derived from committed state, the existing `filterKey !== prevFilterKey` check auto-resets `visibleCount` to `PAGE_SIZE` — no manual paging reset needed.
+- `clearAllDraft()` resets drafts to `all`/`[]`/`[]` (does not close; disabled when `draftFilterCount === 0`).
+- `toggleDraftCategory` / `toggleDraftAccount` mirror the committed `toggleCategory`/`toggleAccount`, which are **kept** because the page-header active-filter chips still remove a *live* filter on tap.
+- `draftFilterCount = (draftFilter !== 'all') + draftCategoryFilters.length + draftAccountFilters.length` — shown in the Apply button label.
+
+### Account grouping by type (replaces flat "Card used" list)
+- Removed `CARD_SEARCH_THRESHOLD` and the `visibleCards` memo.
+- `PAYMENT_TYPES = ['checking','credit','cash']`. `paymentMethodAccounts` = accounts of those types; `customLedgerAccounts` = the rest (savings/investment/loan). Both filter by `cardFilterQuery` (name/last4) via `matchAccount`, and pin draft-selected cards first via `sortBySelected`. `CUSTOM_COLLAPSE = 5` caps the Custom Accounts row until "+ View All" (search overrides the collapse).
+
+### Dynamic category section
+Derived in render: `showDraftExpenseCats` (all|expense), `showDraftIncomeCats` (all|income), `showDraftCategories` (hidden for `transfer` — transfers aren't user-categorized), and `draftCategoryHeading` (Income Categories / Expense Categories / Categories). Chips render expense then income lists (archived appended, dashed border + Archive icon, kept filterable).
+
+### Sheet UI (replaced the centered `max-w-md` popup, lines ~2449+)
+- Container: `flex items-end sm:items-center` → bottom sheet on mobile, centered card on ≥sm. Panel is `flex flex-col … max-h-[92vh] overflow-hidden` with three regions: **fixed header** (`Filters` title + round X, `border-b`), **`flex-1 overflow-y-auto` body** (`space-y-7`), **sticky footer** (`border-t`, safe-area bottom padding) holding a low-emphasis text **Clear All** (left) + a full-width primary `Button` **Apply Filters** (right). Background `#F9FAFB` per spec (dark: `slate-900`).
+- **TYPE**: full-width segmented control — `flex p-1 rounded-2xl bg-slate-200/60`, four `flex-1 h-10` segments; selected = `bg-slate-900 text-white shadow-sm` (dark navy), unselected = muted text only. Drives `draftFilter`.
+- **ACCOUNTS**: full-width search input (`Search accounts or custom ledgers…`, magnifier icon, X clear), then **Payment Methods** and **Custom Accounts** sub-headings, each a wrap of pill chips (`rounded-full`, selected = `bg-indigo-600 text-white`). Custom row ends in a `+ View All` chip when collapsed.
+- **CATEGORIES**: dynamic heading + grid of `rounded-full` chips with light border + transparent bg when unselected, solid `bg-slate-700 text-white` (slate blue) when selected — per spec.
+- `aria-modal`/`role="dialog"`/`aria-label` on the panel; `aria-pressed` on every toggle; `aria-label` on icon-only buttons.
+
+### Locales (`locales/en.json`, `locales/vi.json`)
+Added `common.clear`; and under `transactions`: `accountsSection`, `paymentMethods`, `customAccounts`, `searchAccounts`, `viewAll`, `applyFilters`, `clearAll`, `expenseCategories`, `incomeCategories`, `allCategories`, `noAccounts`. vi mirrors en's shape with Vietnamese strings.
+
+### Verification
+`tsc --noEmit` clean; `eslint` **0 errors** (only the 3 pre-existing documented warnings: load-effect setState ×2, line-754 ternary expression); `vitest` **556 passing**; `next build` succeeds.
