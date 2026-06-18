@@ -1129,13 +1129,14 @@ export async function appendNetWorthSnapshot(
 export async function batchGetBadgesData(
   accessToken: string,
   spreadsheetId: string
-): Promise<{ bills: Bill[]; budgets: Budget[]; transactions: Transaction[]; accounts: Account[] }> {
+): Promise<{ bills: Bill[]; budgets: Budget[]; transactions: Transaction[]; accounts: Account[]; settings: TaxSettings }> {
   const sheets = getSheetsClient(accessToken);
   const ranges = [
     'Bills!A2:M200',
     'Budgets!A2:D200',
     'Transactions!A2:J',
     'Accounts!A2:P200',
+    SETTINGS_RANGE,
   ];
   const res = await sheets.spreadsheets.values.batchGet({
     spreadsheetId,
@@ -1165,7 +1166,8 @@ export async function batchGetBadgesData(
     splitGroupId: r[9] ?? '',
   }));
   const accounts: Account[] = (vr[3]?.values ?? []).map((r) => rowToAccount(r as string[]));
-  return { bills, budgets, transactions, accounts };
+  const settings = parseSettingsRows((vr[4]?.values ?? []) as string[][]);
+  return { bills, budgets, transactions, accounts, settings };
 }
 
 export type DashboardData = {

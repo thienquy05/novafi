@@ -18,13 +18,13 @@ export async function GET() {
     const now = new Date();
     const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-    const { bills, budgets, transactions, accounts } = await batchGetBadgesData(
+    const { bills, budgets, transactions, accounts, settings } = await batchGetBadgesData(
       session.accessToken,
       session.spreadsheetId
     );
 
     const overdueBills = calcOverdueBills(bills, now);
-    const overBudget = calcOverBudget(budgets, transactions, thisMonth);
+    const overBudget = calcOverBudget(budgets, transactions, thisMonth, settings.budgetRollover);
     const creditAlerts = calcCreditAlerts(accounts);
 
     const result: Badges = { overdueBills, overBudget, creditAlerts };
