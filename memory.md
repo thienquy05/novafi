@@ -2,6 +2,44 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-22 — Funding section + 10 new features (branch claude/confident-darwin-n5b8n6)
+
+### Round 2 — 10 feature additions
+
+**1. Equal-split calculator** (`app/(app)/funding/page.tsx`)
+"÷ Split equally (N people)" button in spend modal fills `spendMine` with `totalAmount / participants.length`. Only shown for virtual pools with >1 participant.
+
+**2. Custom dates** (`app/(app)/funding/page.tsx`)
+Date pickers added to: spend modal (`spendDate`), contribution modal (`contribDate`), payment modal (`payDate`). All state was already added in Round 1; modal fields were wired up in Round 2.
+
+**3. "You're Owed" banner** (`app/(app)/funding/page.tsx`)
+Gradient `from-indigo-600 to-violet-600` card shown above the pool list when `totalOwedAll > 0`. Shows total amount, tab count, and outstanding people count.
+
+**4. Sort & filter bar** (`app/(app)/funding/page.tsx`)
+Filter pills (All / Tabs / Vaults / Needs action) + sort select (Most recent / Most owed / A→Z). `filteredPools` and `sortedPools` derived consts. Pool list now renders `sortedPools.map(...)`. Only visible when >1 active pool.
+
+**5. Copy/share pool summary** (`app/(app)/funding/page.tsx`)
+`copyPoolSummary(f)` formats a multi-line summary (amounts, members, statuses) and copies to clipboard via `navigator.clipboard`. Share2 icon button in each card header.
+
+**6. Spending categories** (`app/(app)/funding/page.tsx` + `lib/funding.ts`)
+`POOL_SPEND_CATEGORIES` const (Food, Fun, Shopping, Travel, Health, Other). Category pill selector in spend modal. Category badge shown on spend items in the card (hidden for 'Other'). `buildSpendTxs` accepts `spendCategory` param; `FundingSpend.category` field.
+
+**7. Group Vault progress milestone toasts** (`app/(app)/funding/page.tsx`)
+`recordContribution()` fires toasts at 25/50/75/100% of savings target (delayed 500ms for effect).
+
+**8. Pool activity log** (`app/(app)/funding/page.tsx` + `lib/funding.ts`)
+`buildPoolActivity()` builds a unified sorted timeline (created, spend, contribution, repayment). Collapsible "Activity" section at bottom of each card with colored dot timeline, only shown when >1 entry. `openActivity` Set controls per-card expansion.
+
+**9. Sort & filter** (see #4 above)
+
+**10. Dashboard FundingWidget** (`app/(app)/dashboard/FundingWidget.tsx`, `app/(app)/dashboard/page.tsx`)
+New client component fetches `ensureResources(['funding', 'transactions'])`. Shows Group Tab owed summary + Group Vault progress bars. Only renders when there are active pools. Added to dashboard page before Recent Transactions.
+
+**Locales added** (`locales/en.json` — funding section):
+`date`, `splitEqually`, `spendCategory`, `owedBannerTitle`, `owedBannerSub`, `tabSingular`, `tabPlural`, `personSingular`, `personPlural`, `summaryCopied`, `summaryFailed`, `filterAll`, `filterTabs`, `filterVaults`, `filterAction`, `sortRecent`, `sortOwed`, `sortAZ`, `activityTitle`, `activityCreated`, `activitySpend`, `activityContrib`, `activityRepay`, `milestone25`, `milestone50`, `milestone75`, `milestone100`, `sharePool`, `noPools`
+
+---
+
 ## 2026-06-22 — Funding section redesign (branch claude/confident-darwin-n5b8n6)
 
 ### Core bug fix: deleting a pool no longer deletes the linked bank account
