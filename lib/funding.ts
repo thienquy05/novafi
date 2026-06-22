@@ -192,12 +192,15 @@ export function buildPoolContributionTx(
   const amt = round(amount);
   const id = generateId();
   const now = new Date().toISOString();
+  // No ledger row for $0 — used when creating members with no initial contribution.
   const tx: Transaction | null =
-    isMe && fromAccount === poolAccountId
-      ? null // my money is already in the holding account — nothing moves
-      : isMe
-        ? { id, date, description, amount: amt, type: 'transfer', category: 'Transfer', account: fromAccount, toAccount: poolAccountId, createdAt: now }
-        : { id, date, description, amount: amt, type: 'transfer', category: 'Funding', account: '', toAccount: poolAccountId, createdAt: now };
+    amt <= 0
+      ? null
+      : isMe && fromAccount === poolAccountId
+        ? null
+        : isMe
+          ? { id, date, description, amount: amt, type: 'transfer', category: 'Transfer', account: fromAccount, toAccount: poolAccountId, createdAt: now }
+          : { id, date, description, amount: amt, type: 'transfer', category: 'Funding', account: '', toAccount: poolAccountId, createdAt: now };
   return { tx, contribution: { id, participant, amount: amt, isMe, account: isMe ? fromAccount : '', date } };
 }
 

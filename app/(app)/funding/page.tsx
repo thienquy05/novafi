@@ -189,6 +189,15 @@ export default function FundingPage() {
     return list;
   };
 
+  const draftRealParticipants = (): FundingParticipant[] => {
+    const list: FundingParticipant[] = [];
+    if (includeMe) list.push({ id: myRowId, name: t('funding.me'), contributed: 0, isMe: true });
+    for (const o of others) {
+      if (o.name.trim()) list.push({ id: o.id, name: o.name.trim(), contributed: 0, isMe: false });
+    }
+    return list;
+  };
+
   async function persist(funding: Funding, addTxs: Transaction[], removeTxIds: string[], successKey: string, addAccount?: Account, removeAccountId?: string) {
     setSaving(true);
     applyRows(addTxs, removeTxIds);
@@ -212,10 +221,15 @@ export default function FundingPage() {
   }
 
   async function createPool() {
+    const date = today();
+    if (kind === 'real') {
+      const participants = draftRealParticipants();
+      if (!desc.trim() || participants.length === 0) return;
+      await createRealPool(participants, date);
+      return;
+    }
     const participants = draftParticipants();
     if (!desc.trim() || participants.length === 0) return;
-    const date = today();
-    if (kind === 'real') { await createRealPool(participants, date); return; }
     // Virtual pool: no cash moves up front — just the agreed budget and who pledged.
     const funding: Funding = {
       id: generateId(),
@@ -588,6 +602,7 @@ export default function FundingPage() {
   }
 
   const draftTotal = totalContribution(draftParticipants());
+  const draftRealCount = draftRealParticipants().length;
   const hasAccounts = accounts.length > 0;
   const activePools = fundings.filter((f) => !f.closed);
   const archivedPools = fundings.filter((f) => f.closed);
@@ -622,33 +637,40 @@ export default function FundingPage() {
     const spendsOpen = openSpends.has(f.id);
     const paysOpen = openPays.has(f.id);
     const contribsOpen = openContribs.has(f.id);
-    const contributions = f.contributions ?? [];
+    const contributions = (f.contributions ?? []).filter((c) => c.amount > 0);
     const progress = poolProgress(f.totalContributed, f.target);
     const activityLog: FundingActivity[] = buildPoolActivity(f, transactions);
     const activityOpen = openActivity.has(f.id);
     return (
       <Card key={f.id} tone={real ? 'emerald' : 'indigo'} className={`space-y-4 ${f.closed ? 'opacity-75' : ''}`}>
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="font-bold text-slate-900 dark:text-slate-100 truncate flex items-center gap-2">
-              {f.description}
-              {f.closed && (
-                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full">
-                  <Archive className="w-3 h-3" />{t('funding.archivedBadge')}
-                </span>
-              )}
-            </p>
-            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1.5">
-              {real
-                ? <Landmark className="w-3.5 h-3.5 text-emerald-500" />
-                : <Receipt className="w-3.5 h-3.5 text-indigo-500" />}
-              {real ? t('funding.realBadge') : t('funding.virtualBadge')} · {formatDate(f.date)}
-            </p>
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <p className="font-bold text-slate-900 dark:text-slate-100 truncate flex-1">{f.description}</p>
+            <span className={`shrink-0 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${real ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' : 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300'}`}>
+              {real ? <Landmark className="w-3 h-3" /> : <Receipt className="w-3 h-3" />}
+              {real ? t('funding.realBadge') : t('funding.virtualBadge')}
+            </span>
+            {f.closed && (
+              <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full">
+                <Archive className="w-3 h-3" />{t('funding.archivedBadge')}
+              </span>
+            )}
+            <span className="shrink-0 text-xs font-medium text-slate-400 dark:text-slate-500">{formatDate(f.date)}</span>
           </div>
-          <div className="flex gap-1 shrink-0">
+          <div className="flex items-center gap-1 flex-wrap">
             {!f.closed && (
               <Button variant="secondary" size="sm" onClick={() => openSpend(f)}>
                 <MinusCircle className="w-4 h-4" />{t('funding.spend')}
+              </Button>
+            )}
+            {real && !f.closed && (
+              <Button variant="secondary" size="sm" className="text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-50 dark:hover:bg-emerald-900/30" onClick={() => openContrib(f)}>
+                <Plus className="w-4 h-4" />{t('funding.addContribution')}
+              </Button>
+            )}
+            {!real && owed > 0 && !f.closed && (
+              <Button variant="secondary" size="sm" className="text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-50 dark:hover:bg-emerald-900/30" onClick={() => openPay(f)}>
+                <HandCoins className="w-4 h-4" />{t('funding.recordPayment')}
               </Button>
             )}
             <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 h-9 w-9 rounded-xl" onClick={() => copyPoolSummary(f)} aria-label={t('funding.sharePool')} title={t('funding.sharePool')}><Share2 className="w-4 h-4" /></Button>
@@ -707,21 +729,10 @@ export default function FundingPage() {
 
         {/* Participants — pledge/contribution, paid back, and what's still owed */}
         <div>
-          <div className="flex items-center justify-between mb-2">
+          <div className="mb-2">
             <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5" />{t('funding.contributors', { n: f.participants.length })}
             </p>
-            {real ? (
-              !f.closed && (
-                <Button variant="ghost" size="sm" className="text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 h-8" onClick={() => openContrib(f)}>
-                  <Plus className="w-4 h-4" />{t('funding.addContribution')}
-                </Button>
-              )
-            ) : owed > 0 && (
-              <Button variant="ghost" size="sm" className="text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 h-8" onClick={() => openPay(f)}>
-                <HandCoins className="w-4 h-4" />{t('funding.recordPayment')}
-              </Button>
-            )}
           </div>
           <div className="space-y-1.5">
             {f.participants.map((p, i) => {
@@ -1077,8 +1088,8 @@ export default function FundingPage() {
               <input type="checkbox" checked={includeMe} onChange={(e) => setIncludeMe(e.target.checked)} className="w-4 h-4 rounded accent-indigo-600" />
               <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{t(kind === 'real' ? 'funding.includeMeReal' : 'funding.includeMe')}</span>
             </label>
-            {includeMe && (
-              <Input label={t(kind === 'real' ? 'funding.myContributionReal' : 'funding.myContribution')} type="text" inputMode="decimal" placeholder="0.00" value={myAmount} onChange={(e) => setMyAmount(e.target.value.replace(/[^0-9.]/g, ''))} />
+            {includeMe && kind !== 'real' && (
+              <Input label={t('funding.myContribution')} type="text" inputMode="decimal" placeholder="0.00" value={myAmount} onChange={(e) => setMyAmount(e.target.value.replace(/[^0-9.]/g, ''))} />
             )}
           </div>
 
@@ -1088,7 +1099,9 @@ export default function FundingPage() {
             {others.map((o, i) => (
               <div key={o.key} className="flex items-center gap-2.5">
                 <Input className="h-14 flex-1 text-lg placeholder:text-lg placeholder:font-medium" placeholder={t('funding.personName')} value={o.name} onChange={(e) => setOthers((prev) => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
-                <Input className="h-14 w-24 text-lg" type="text" inputMode="decimal" placeholder="0.00" value={o.amount} onChange={(e) => setOthers((prev) => prev.map((x, j) => j === i ? { ...x, amount: e.target.value.replace(/[^0-9.]/g, '') } : x))} />
+                {kind !== 'real' && (
+                  <Input className="h-14 w-24 text-lg" type="text" inputMode="decimal" placeholder="0.00" value={o.amount} onChange={(e) => setOthers((prev) => prev.map((x, j) => j === i ? { ...x, amount: e.target.value.replace(/[^0-9.]/g, '') } : x))} />
+                )}
                 <button onClick={() => setOthers((prev) => prev.length > 1 ? prev.filter((_, j) => j !== i) : prev)} className="text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 shrink-0 p-2 rounded-xl transition-colors" aria-label="Remove"><Trash2 className="w-5 h-5" /></button>
               </div>
             ))}
@@ -1097,14 +1110,17 @@ export default function FundingPage() {
             </button>
           </div>
 
-          {draftTotal > 0 && (
+          {kind === 'real' && (
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/40 rounded-xl px-3 py-2">{t('funding.realMembersHint')}</p>
+          )}
+          {kind !== 'real' && draftTotal > 0 && (
             <p className="text-sm font-bold text-slate-600 dark:text-slate-300 text-center">{t('funding.poolTotal', { amount: formatCurrency(draftTotal) })}</p>
           )}
         </div>
         <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
-            <Button className="flex-1 shadow-sm" onClick={createPool} disabled={saving || !desc.trim() || draftTotal <= 0}>{saving ? t('common.saving') : t('funding.createPool')}</Button>
+            <Button className="flex-1 shadow-sm" onClick={createPool} disabled={saving || !desc.trim() || (kind === 'real' ? draftRealCount === 0 : draftTotal <= 0)}>{saving ? t('common.saving') : t('funding.createPool')}</Button>
           </div>
         </div>
       </Modal>
