@@ -1,5 +1,5 @@
 import type {
-  Account, Transaction, Bill, PaycheckEntry, Budget, Goal, Contact, Split, Loan, Funding, TaxSettings,
+  Account, Transaction, Bill, PaycheckEntry, Budget, Goal, Contact, Split, Loan, Funding, TaxSettings, TrackedSubscription,
 } from '@/types';
 
 /**
@@ -25,6 +25,7 @@ export type BatchData = {
   loans: Loan[];
   funding: Funding[];
   settings: TaxSettings;
+  subscriptions: TrackedSubscription[];
 };
 
 export type BatchKey = keyof BatchData;

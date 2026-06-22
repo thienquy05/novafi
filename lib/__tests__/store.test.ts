@@ -12,6 +12,7 @@ function fakeData(partial: Partial<BatchData>): BatchData {
   return {
     accounts: [], transactions: [], bills: [], paychecks: [], budgets: [],
     goals: [], contacts: [], splits: [], loans: [], funding: [], settings: {} as BatchData['settings'],
+    subscriptions: [],
     ...partial,
   };
 }

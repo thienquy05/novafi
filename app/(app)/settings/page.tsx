@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useSession, signOut } from 'next-auth/react';
-import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, User, SlidersHorizontal, Receipt, Tags, Landmark, Building2, Database, ShieldCheck, ChevronDown, LogOut, Users, UserPlus, Trash2, Archive } from 'lucide-react';
+import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, User, SlidersHorizontal, Receipt, Tags, Landmark, Building2, Database, ShieldCheck, ChevronDown, LogOut, Users, UserPlus, Trash2, Archive, AlertTriangle } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { BRACKETS_2026, STANDARD_DEDUCTION_2026 } from '@/lib/tax';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -78,7 +78,13 @@ export default function SettingsPage() {
   // Categories that tag at least one transaction — Delete is blocked for these
   // (archive keeps history findable). Counted from the ledger on mount.
   const [catUsage, setCatUsage] = useState<Record<string, number>>({});
+  // Delete All Data safeguard flow: null = closed, 'confirm1' = step-1 modal, 'confirm2' = step-2 type-to-confirm
+  const [deleteAllStep, setDeleteAllStep] = useState<null | 'confirm1' | 'confirm2'>(null);
+  const [deleteAllInput, setDeleteAllInput] = useState('');
+  const [deleteAllBusy, setDeleteAllBusy] = useState(false);
   const toast = useToast();
+
+  const DELETE_PHRASE = 'I want to delete my data';
 
   useEffect(() => {
     fetch('/api/settings')
@@ -245,6 +251,27 @@ export default function SettingsPage() {
   function handleSignOut() {
     if (!confirm(t('settings.signOutConfirm'))) return;
     signOut({ callbackUrl: '/' });
+  }
+
+  async function handleDeleteAll() {
+    setDeleteAllBusy(true);
+    try {
+      const res = await fetch('/api/delete-all', { method: 'POST' });
+      if (!res.ok) throw new Error();
+      toast(t('settings.deleteAllSuccess'), 'success');
+      // Wipe all known localStorage keys then sessionStorage
+      const lsKeys = [
+        'nf_theme', 'nf_lang', 'nf_tx_templates_v1',
+        'novafi_mobile_nav_order', 'nf_badges_cache_v2',
+        'nf_sub_dismissed_v1',
+      ];
+      lsKeys.forEach((k) => localStorage.removeItem(k));
+      sessionStorage.clear();
+      signOut({ callbackUrl: '/' });
+    } catch {
+      toast(t('settings.deleteAllFailed'), 'error');
+      setDeleteAllBusy(false);
+    }
   }
 
   if (loading) {
@@ -836,6 +863,85 @@ export default function SettingsPage() {
               Open Google Drive <ExternalLink className="w-4 h-4" />
             </a>
           </Card>
+
+          {/* Danger Zone — Delete All Data */}
+          <Card className="border-rose-200 dark:border-rose-800/50 bg-rose-50/30 dark:bg-rose-900/10">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2.5">
+                <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-rose-100 dark:bg-rose-900/40 text-rose-500 dark:text-rose-400">
+                  <AlertTriangle className="w-4 h-4" />
+                </span>
+                <span className="text-rose-700 dark:text-rose-400">{t('settings.deleteAllData')}</span>
+              </CardTitle>
+            </CardHeader>
+            <div className="flex items-start justify-between gap-4">
+              <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">{t('settings.deleteAllDataDesc')}</p>
+              <Button
+                variant="secondary"
+                onClick={() => setDeleteAllStep('confirm1')}
+                className="shrink-0 shadow-sm text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/50 hover:bg-rose-100 dark:hover:bg-rose-900/30"
+              >
+                <Trash2 className="w-4 h-4" />
+                {t('settings.deleteAllDataBtn')}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* ── Delete All Data modals ── */}
+      {deleteAllStep === 'confirm1' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => { if (!deleteAllBusy) setDeleteAllStep(null); }}>
+          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-slate-800 p-6 shadow-xl border border-slate-200 dark:border-slate-700" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-3">
+              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-rose-100 dark:bg-rose-900/40 text-rose-500 dark:text-rose-400 shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </span>
+              <p className="text-base font-extrabold text-slate-900 dark:text-slate-100">{t('settings.deleteAllStep1Title')}</p>
+            </div>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-5 leading-relaxed">{t('settings.deleteAllStep1Body')}</p>
+            <div className="flex flex-col gap-2.5">
+              <Button
+                onClick={() => { setDeleteAllStep('confirm2'); setDeleteAllInput(''); }}
+                className="w-full bg-rose-600 hover:bg-rose-700 text-white border-0"
+              >
+                {t('common.proceed')}
+              </Button>
+              <button onClick={() => setDeleteAllStep(null)} className="w-full p-2.5 rounded-xl text-sm font-bold text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+                {t('common.cancel')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteAllStep === 'confirm2' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => { if (!deleteAllBusy) { setDeleteAllStep(null); setDeleteAllInput(''); } }}>
+          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-slate-800 p-6 shadow-xl border border-slate-200 dark:border-slate-700" onClick={(e) => e.stopPropagation()}>
+            <p className="text-base font-extrabold text-slate-900 dark:text-slate-100 mb-1">{t('settings.deleteAllStep2Title')}</p>
+            <p className="text-xs text-rose-500 dark:text-rose-400 font-bold mb-4">{t('settings.deleteAllStep2Hint')}</p>
+            <input
+              autoFocus
+              className="w-full h-10 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/20 mb-4 font-mono"
+              placeholder={t('settings.deleteAllStep2Placeholder')}
+              value={deleteAllInput}
+              onChange={(e) => setDeleteAllInput(e.target.value)}
+              disabled={deleteAllBusy}
+            />
+            <div className="flex flex-col gap-2.5">
+              <Button
+                onClick={handleDeleteAll}
+                disabled={deleteAllInput !== DELETE_PHRASE || deleteAllBusy}
+                className="w-full bg-rose-600 hover:bg-rose-700 disabled:opacity-40 text-white border-0"
+              >
+                <Trash2 className="w-4 h-4" />
+                {deleteAllBusy ? t('settings.deleteAllDeleting') : t('settings.deleteAllConfirmBtn')}
+              </Button>
+              <button onClick={() => { setDeleteAllStep(null); setDeleteAllInput(''); }} disabled={deleteAllBusy} className="w-full p-2.5 rounded-xl text-sm font-bold text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors disabled:opacity-40">
+                {t('common.cancel')}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

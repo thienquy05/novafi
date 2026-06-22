@@ -20,6 +20,7 @@ import {
   ChevronDown,
   Sliders,
   CircleDollarSign,
+  RefreshCw,
   type LucideIcon,
 } from 'lucide-react';
 import { signOut } from 'next-auth/react';
@@ -105,9 +106,10 @@ const NAV_GROUPS: { labelKey: string; items: NavItem[] }[] = [
   {
     labelKey: 'nav.groupPlan',
     items: [
-      { href: '/savings',  labelKey: 'nav.savings',  icon: PiggyBank, badgeKey: null },
-      { href: '/bills',    labelKey: 'nav.bills',    icon: Calendar,  badgeKey: 'overdueBills' },
-      { href: '/planning', labelKey: 'nav.planning', icon: BarChart3, badgeKey: 'overBudget' },
+      { href: '/savings',       labelKey: 'nav.savings',       icon: PiggyBank,  badgeKey: null },
+      { href: '/bills',         labelKey: 'nav.bills',         icon: Calendar,   badgeKey: 'overdueBills' },
+      { href: '/planning',      labelKey: 'nav.planning',      icon: BarChart3,  badgeKey: 'overBudget' },
+      { href: '/subscriptions', labelKey: 'nav.subscriptions', icon: RefreshCw,  badgeKey: null },
     ],
   },
 ];
@@ -119,7 +121,7 @@ type GroupKey = 'overview' | 'money' | 'plan' | 'system';
 const NAV_GROUP_OF: Record<string, GroupKey> = {
   '/dashboard': 'overview', '/reports': 'overview',
   '/accounts': 'money', '/transactions': 'money', '/credit': 'money', '/funding': 'money', '/paychecks': 'money',
-  '/savings': 'plan', '/bills': 'plan', '/planning': 'plan',
+  '/savings': 'plan', '/bills': 'plan', '/planning': 'plan', '/subscriptions': 'plan',
   '/settings': 'system',
 };
 const MORE_GROUPS: { key: GroupKey; labelKey: string }[] = [
@@ -245,17 +247,18 @@ export function MobileHeader() {
 const MOBILE_NAV_ORDER_KEY = 'novafi_mobile_nav_order';
 
 const ALL_MOBILE_NAV: NavItem[] = [
-  { href: '/dashboard',    labelKey: 'nav.home',         icon: LayoutDashboard, badgeKey: null },
-  { href: '/transactions', labelKey: 'nav.spending',     icon: ArrowLeftRight,  badgeKey: null },
-  { href: '/bills',        labelKey: 'nav.bills',        icon: Calendar,        badgeKey: 'overdueBills' },
-  { href: '/planning',     labelKey: 'nav.planning',     icon: BarChart3,       badgeKey: 'overBudget' },
-  { href: '/accounts',     labelKey: 'nav.accounts',     icon: Landmark,        badgeKey: null },
-  { href: '/credit',       labelKey: 'nav.credit',       icon: CreditCard,      badgeKey: 'creditAlerts' },
-  { href: '/funding',      labelKey: 'nav.funding',      icon: CircleDollarSign,       badgeKey: null },
-  { href: '/savings',      labelKey: 'nav.savings',      icon: PiggyBank,       badgeKey: null },
-  { href: '/paychecks',    labelKey: 'nav.paychecks',    icon: DollarSign,      badgeKey: null },
-  { href: '/reports',      labelKey: 'nav.reports',      icon: FileText,        badgeKey: null },
-  { href: '/settings',     labelKey: 'nav.settings',     icon: Settings,        badgeKey: null },
+  { href: '/dashboard',    labelKey: 'nav.home',          icon: LayoutDashboard, badgeKey: null },
+  { href: '/transactions', labelKey: 'nav.spending',      icon: ArrowLeftRight,  badgeKey: null },
+  { href: '/bills',        labelKey: 'nav.bills',         icon: Calendar,        badgeKey: 'overdueBills' },
+  { href: '/planning',     labelKey: 'nav.planning',      icon: BarChart3,       badgeKey: 'overBudget' },
+  { href: '/accounts',     labelKey: 'nav.accounts',      icon: Landmark,        badgeKey: null },
+  { href: '/credit',       labelKey: 'nav.credit',        icon: CreditCard,      badgeKey: 'creditAlerts' },
+  { href: '/funding',      labelKey: 'nav.funding',       icon: CircleDollarSign, badgeKey: null },
+  { href: '/savings',      labelKey: 'nav.savings',       icon: PiggyBank,       badgeKey: null },
+  { href: '/subscriptions', labelKey: 'nav.subscriptions', icon: RefreshCw,      badgeKey: null },
+  { href: '/paychecks',    labelKey: 'nav.paychecks',     icon: DollarSign,      badgeKey: null },
+  { href: '/reports',      labelKey: 'nav.reports',       icon: FileText,        badgeKey: null },
+  { href: '/settings',     labelKey: 'nav.settings',      icon: Settings,        badgeKey: null },
 ];
 
 function getMobileNavOrder(): NavItem[] {
