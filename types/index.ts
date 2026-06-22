@@ -344,3 +344,18 @@ export interface NetWorthSnapshot {
   // trend). null/absent when no card had a limit set at snapshot time.
   creditUtil?: number | null;
 }
+
+// A manually-tracked recurring subscription (Netflix, Spotify, etc.).
+// Distinct from the auto-detected `Subscription` type in lib/calculations.ts
+// which is a read-only view derived from transaction history.
+export interface TrackedSubscription {
+  id: string;
+  merchant: string;
+  amount: number;
+  frequency: 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly';
+  startDate: string;  // YYYY-MM-DD
+  category: string;
+  account: string;
+  isActive: boolean;
+  notes: string;
+}

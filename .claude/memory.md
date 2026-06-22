@@ -6,11 +6,75 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ## Current Version — NovaFi Web App (Next.js + Google Sheets)
 
-**Last Updated:** June 10, 2026
+**Last Updated:** June 22, 2026
 
 ---
 
-## 2026-06-10 — Recurring bills: allow split even when Loan payment option is chosen (branch claude/sharp-einstein-4al9tm)
+## 2026-06-22 — Subscription Tracker + Delete All Data in Settings (branch claude/funny-turing-ew2dac)
+
+### Feature 1: Subscription Tracker (`/subscriptions`)
+
+Manually-managed recurring subscriptions (Netflix, Spotify, memberships, etc.) stored in a dedicated Google Sheets tab.
+
+**New type — `types/index.ts`:**
+- `TrackedSubscription` interface: `id, merchant, amount, frequency (weekly|biweekly|monthly|quarterly|yearly), startDate, category, account, isActive, notes`
+- Distinct from auto-detected `Subscription` type in `lib/calculations.ts` (that's read-only from transaction history)
+
+**Backend — `lib/sheets.ts`:**
+- `SUBSCRIPTIONS_HEADER`, `rowToTrackedSubscription`, `subscriptionToRow` helpers
+- `getSubscriptions(accessToken, spreadsheetId)` — uses `isMissingTabError` guard, returns `[]` if tab doesn't exist yet
+- `upsertSubscription(...)` — calls `ensureSheet` first, then update-in-place if ID found, otherwise append
+- `deleteSubscription(...)` — calls `deleteRowById`
+- `BatchResult` extended with `subscriptions: TrackedSubscription[]`
+- `NonBatchableKey` extended with `'subscriptions'` (tab may not exist on older spreadsheets)
+- `BATCH_KEYS` includes `'subscriptions'`
+- `batchGetSheets` handles the subscriptions non-batchable key
+
+**Client type — `lib/client/api.ts`:**
+- `BatchData` extended with `subscriptions: TrackedSubscription[]`
+
+**API routes:**
+- `app/api/subscriptions/route.ts` (NEW): GET (`cachedGet`), POST (upsert), DELETE (delete by id)
+- `app/api/batch/route.ts` TTL record updated with `subscriptions: CACHE_TTL.LONG`
+
+**UI — `app/(app)/subscriptions/page.tsx`** (NEW):
+- Summary cards: monthly cost, yearly cost, active count
+- Cancel candidates section: active subs with no matching transaction description in last 90 days; dismissed IDs stored in `localStorage` key `nf_sub_dismissed_v1`; dismiss button removes from candidates view
+- Full list sorted: active first, then by monthly cost descending; inactive subs shown with "Paused" badge
+- Add/Edit modal: merchant, amount, frequency, startDate, category (useCategories hook), account select, notes, isActive toggle
+- `app/(app)/subscriptions/loading.tsx` (NEW): skeleton loading state
+
+**Navigation — `components/Sidebar.tsx`:**
+- Added `RefreshCw` icon entry under `'nav.groupPlan'` group
+- Added `'/subscriptions': 'plan'` to `NAV_GROUP_OF`
+- Added entry to `ALL_MOBILE_NAV`
+
+**i18n — `locales/en.json` + `locales/vi.json`:**
+- `nav.subscriptions` key
+- Full `subscriptions` namespace: title, subtitle, addBtn, editBtn, empty, emptyBody, monthlyCost, yearlyCost, activeCount, merchant, merchantPlaceholder, amount, frequency, startDate, category, account, notes, notesPlaceholder, isActive, addTitle, editTitle, saveBtn, cancelBtn, toastAdded, toastUpdated, toastDeleted, toastFailed, toastFailedDelete, confirmDelete, cancelCandidates, cancelCandidatesDesc, noRecentCharge, dismissDetection, perMonth, perYear, inactive, since, freqWeekly, freqBiweekly, freqMonthly, freqQuarterly, freqYearly, summaryActive, summaryMonthly, summaryYearly
+- `common.proceed` added to both locales
+
+### Feature 2: Delete All Data in Settings
+
+**Backend — `lib/sheets.ts`:**
+- `deleteAllData(accessToken, spreadsheetId)` — fetches spreadsheet metadata, clears `A2:ZZ` on all known data tabs (Transactions, Accounts, Bills, Budgets, Goals, Paychecks, Contacts, Splits, Loans, Funding, Subscriptions, NetWorthHistory), resets Settings tab to defaults via `saveSettings`
+
+**API route — `app/api/delete-all/route.ts`** (NEW):
+- `POST` handler: calls `deleteAllData`, then `clearCache()` (clears entire server cache)
+
+**Settings page — `app/(app)/settings/page.tsx`:**
+- New state: `deleteAllStep (null|'confirm1'|'confirm2')`, `deleteAllInput`, `deleteAllBusy`
+- `DELETE_PHRASE = 'I want to delete my data'`
+- `handleDeleteAll()` async function: calls `/api/delete-all`, removes known localStorage keys (`nf_theme`, `nf_lang`, `nf_tx_templates_v1`, `novafi_mobile_nav_order`, `nf_badges_cache_v2`, `nf_sub_dismissed_v1`), clears sessionStorage, then calls `signOut({ callbackUrl: '/' })`
+- **Danger Zone card** in About section: rose-themed, shows description, "Delete All Data" button
+- **Two-step modal flow:**
+  - Step 1 (`confirm1`): Warning with AlertTriangle icon, description, "Proceed" button → advances to step 2
+  - Step 2 (`confirm2`): Text input that must match `DELETE_PHRASE` exactly before confirming; "Delete Everything" button disabled until match; shows spinner state
+- i18n keys added to `settings` namespace in both locales
+
+---
+
+## 2026-06-10 — Recurring bills: allow split even when Loan payment option is chosen (branch claude/sharp-einstein-4al9tm) — Recurring bills: allow split even when Loan payment option is chosen (branch claude/sharp-einstein-4al9tm)
 
 User reported that selecting the Loan payment option on a recurring bill blocked the split-with-someone UI entirely. Two gates enforced this unnecessarily:
 

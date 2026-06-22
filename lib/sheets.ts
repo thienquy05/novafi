@@ -13,6 +13,7 @@ import type {
   Split,
   Loan,
   Funding,
+  TrackedSubscription,
 } from '@/types';
 import { DEFAULT_TAX_SETTINGS } from './utils';
 import { withRetryProxy } from './retry';
@@ -1336,11 +1337,12 @@ type BatchResult = {
   loans: Loan[];
   funding: Funding[];
   settings: TaxSettings;
+  subscriptions: TrackedSubscription[];
 };
 
 // Keys fetched via their own getter (auto-create a missing tab, or non-array
 // shape) rather than the shared batchGet of always-present array sheets.
-type NonBatchableKey = 'contacts' | 'splits' | 'loans' | 'funding' | 'settings';
+type NonBatchableKey = 'contacts' | 'splits' | 'loans' | 'funding' | 'settings' | 'subscriptions';
 
 // Sheets that always exist and carry no auto-create fallback — safe to batchGet.
 const BATCHABLE_SHEETS: Record<
@@ -1362,6 +1364,7 @@ export const BATCH_KEYS = [
   'loans',
   'funding',
   'settings',
+  'subscriptions',
 ] as BatchKey[];
 
 export async function batchGetSheets(
@@ -1409,9 +1412,144 @@ export async function batchGetSheets(
   if (keys.includes('settings')) {
     tasks.push(getSettings(accessToken, spreadsheetId).then((s) => { assign.settings = s; }));
   }
+  if (keys.includes('subscriptions')) {
+    tasks.push(getSubscriptions(accessToken, spreadsheetId).then((s) => { assign.subscriptions = s; }));
+  }
 
   await Promise.all(tasks);
   return out;
+}
+
+// ── Subscriptions ─────────────────────────────────────────────────────────────
+
+const SUBSCRIPTIONS_HEADER = [
+  'id', 'merchant', 'amount', 'frequency', 'start_date',
+  'category', 'account', 'is_active', 'notes',
+];
+
+function rowToTrackedSubscription(r: string[]): TrackedSubscription {
+  return {
+    id: r[0] ?? '',
+    merchant: r[1] ?? '',
+    amount: Number(r[2] ?? 0),
+    frequency: (r[3] ?? 'monthly') as TrackedSubscription['frequency'],
+    startDate: r[4] ?? '',
+    category: r[5] ?? '',
+    account: r[6] ?? '',
+    isActive: r[7] !== 'false',
+    notes: r[8] ?? '',
+  };
+}
+
+function subscriptionToRow(s: TrackedSubscription): (string | number | boolean)[] {
+  return [
+    s.id, s.merchant, s.amount, s.frequency, s.startDate,
+    s.category, s.account, String(s.isActive), s.notes,
+  ];
+}
+
+export async function getSubscriptions(
+  accessToken: string,
+  spreadsheetId: string,
+): Promise<TrackedSubscription[]> {
+  const sheets = getSheetsClient(accessToken);
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'Subscriptions!A2:I',
+    });
+    return (res.data.values ?? []).map(rowToTrackedSubscription).filter((s) => s.id);
+  } catch (err) {
+    if (isMissingTabError(err)) return [];
+    throw err;
+  }
+}
+
+export async function upsertSubscription(
+  accessToken: string,
+  spreadsheetId: string,
+  sub: TrackedSubscription,
+): Promise<void> {
+  const sheets = getSheetsClient(accessToken);
+  await ensureSheet(sheets, spreadsheetId, 'Subscriptions', SUBSCRIPTIONS_HEADER);
+  const existing = await getSubscriptions(accessToken, spreadsheetId);
+  const index = existing.findIndex((s) => s.id === sub.id);
+  if (index >= 0) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `Subscriptions!A${index + 2}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [subscriptionToRow(sub)] },
+    });
+  } else {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: 'Subscriptions!A1',
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: [subscriptionToRow(sub)] },
+    });
+  }
+}
+
+export async function deleteSubscription(
+  accessToken: string,
+  spreadsheetId: string,
+  id: string,
+): Promise<void> {
+  await deleteRowById(accessToken, spreadsheetId, 'Subscriptions', id, 'I');
+}
+
+// ── Delete All Data ───────────────────────────────────────────────────────────
+
+// Clears every data row from every known sheet tab (keeps headers).
+// Called by the "Delete All Data" safeguarded flow in Settings.
+export async function deleteAllData(
+  accessToken: string,
+  spreadsheetId: string,
+): Promise<void> {
+  const sheets = getSheetsClient(accessToken);
+
+  // All known tabs that hold data rows (not Settings — that uses key/value rows
+  // which we clear to defaults below).
+  const dataTabs = [
+    'Transactions',
+    'Accounts',
+    'Bills',
+    'Budgets',
+    'Goals',
+    'Paychecks',
+    'Contacts',
+    'Splits',
+    'Loans',
+    'Funding',
+    'Subscriptions',
+    'NetWorthHistory',
+  ];
+
+  // Fetch metadata once to know which tabs actually exist.
+  const meta = await sheets.spreadsheets.get({ spreadsheetId });
+  const existingTitles = new Set(
+    (meta.data.sheets ?? []).map((s) => s.properties?.title).filter(Boolean),
+  );
+
+  // Clear each existing data tab (A2:ZZ clears all rows after the header).
+  await Promise.all(
+    dataTabs
+      .filter((t) => existingTitles.has(t))
+      .map((t) =>
+        sheets.spreadsheets.values.clear({
+          spreadsheetId,
+          range: `${t}!A2:ZZ`,
+        }),
+      ),
+  );
+
+  // Reset Settings to defaults (overwrite the key/value rows).
+  if (existingTitles.has('Settings')) {
+    const { DEFAULT_TAX_SETTINGS } = await import('./utils');
+    await saveSettings(accessToken, spreadsheetId, DEFAULT_TAX_SETTINGS as TaxSettings);
+  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
