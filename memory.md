@@ -2,6 +2,14 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-22 — Subscriptions UI: label & text alignment fixes (branch claude/subscription-title-text-alignment-da8og6)
+
+**1. Third summary card label** (`app/(app)/subscriptions/page.tsx`)
+The third summary card shows the count of active subscriptions (`activeSubs.length`) but was mislabeled with `t('subscriptions.monthlyCost')` ("Monthly Cost"). Added a new locale key `subscriptions.activeSubscriptions` ("Active Subscriptions" / "Gói đang hoạt động") to `locales/en.json` and `locales/vi.json`, and switched the card to use it.
+
+**2. Tracked subscription metadata alignment** (`app/(app)/subscriptions/page.tsx`)
+The frequency/category/account meta row used `flex items-center gap-2` with no wrapping, so when a long account name (e.g. "Huntington Credit") wrapped inside its span, the `·` separators were vertically stranded against the centered two-line text. Changed the row to `flex flex-wrap items-center gap-x-1.5 gap-y-0.5` and added `whitespace-nowrap` to each piece so each label+separator wraps cleanly as a whole unit.
+
 ## 2026-06-22 — Funding section + 10 new features (branch claude/confident-darwin-n5b8n6)
 
 ### Round 2 — 10 feature additions

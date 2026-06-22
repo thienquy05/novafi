@@ -264,7 +264,7 @@ export default function SubscriptionsPage() {
             <p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(monthlyTotal * 12)}</p>
           </Card>
           <Card className="p-4 text-center">
-            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">{t('subscriptions.monthlyCost')}</p>
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">{t('subscriptions.activeSubscriptions')}</p>
             <p className="text-xl font-extrabold text-indigo-600 dark:text-indigo-400">{activeSubs.length}</p>
           </Card>
         </div>
@@ -408,11 +408,11 @@ export default function SubscriptionsPage() {
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-xs text-slate-500 dark:text-slate-400">{freqLabel(sub.frequency)}</span>
-                    {sub.category && <span className="text-xs text-slate-400 dark:text-slate-500">· {sub.category}</span>}
+                  <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
+                    <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{freqLabel(sub.frequency)}</span>
+                    {sub.category && <span className="text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">· {sub.category}</span>}
                     {sub.account && accountName(sub.account) && (
-                      <span className="text-xs text-slate-400 dark:text-slate-500">· {accountName(sub.account)}</span>
+                      <span className="text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">· {accountName(sub.account)}</span>
                     )}
                   </div>
                 </div>
