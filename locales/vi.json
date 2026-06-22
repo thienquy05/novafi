@@ -1128,7 +1128,13 @@
     "freqYearly": "Hàng năm",
     "summaryActive": "{n} đăng ký đang hoạt động",
     "summaryMonthly": "{amount}/tháng",
-    "summaryYearly": "{amount}/năm"
+    "summaryYearly": "{amount}/năm",
+    "spottedTitle": "Phát Hiện Trong Lịch Sử",
+    "spottedDesc": "Những khoản phí định kỳ này xuất hiện trong giao dịch của bạn. Thêm vào danh sách theo dõi để kiểm soát chi tiêu.",
+    "startTracking": "Bắt đầu theo dõi",
+    "priceWentUp": "Giá tăng {amount}",
+    "stoppedCharging": "Ngừng tính phí",
+    "seenFor": "xuất hiện {n} tháng"
   },
   "pwa": {
     "installTitle": "Cài đặt NovaFi",

@@ -1128,7 +1128,13 @@
     "freqYearly": "Yearly",
     "summaryActive": "{n} active subscriptions",
     "summaryMonthly": "{amount}/mo",
-    "summaryYearly": "{amount}/yr"
+    "summaryYearly": "{amount}/yr",
+    "spottedTitle": "Spotted in Your History",
+    "spottedDesc": "These recurring charges showed up in your transactions. Add them to your tracker to monitor what you're spending.",
+    "startTracking": "Start tracking",
+    "priceWentUp": "Price went up {amount}",
+    "stoppedCharging": "Stopped charging",
+    "seenFor": "seen for {n} months"
   },
   "pwa": {
     "installTitle": "Install NovaFi",

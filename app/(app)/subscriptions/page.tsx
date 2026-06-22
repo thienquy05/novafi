@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, RefreshCw, Pencil, Trash2, AlertTriangle, X, CheckCircle2, Circle } from 'lucide-react';
+import { Plus, RefreshCw, Pencil, Trash2, AlertTriangle, X, TrendingUp } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, generateId, today } from '@/lib/utils';
+import { detectSubscriptions } from '@/lib/calculations';
+import type { Subscription } from '@/lib/calculations';
 import { peekCache, ensureResources } from '@/lib/client/store';
 import { useToast } from '@/lib/toast';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
@@ -16,10 +18,8 @@ import { useTranslation } from '@/lib/i18n/context';
 import type { TrackedSubscription, Account, Transaction } from '@/types';
 
 const DISMISSED_KEY = 'nf_sub_dismissed_v1';
-
 const FREQ_OPTIONS = ['weekly', 'biweekly', 'monthly', 'quarterly', 'yearly'] as const;
 
-// Convert any frequency's amount to a monthly equivalent.
 function toMonthly(amount: number, freq: TrackedSubscription['frequency']): number {
   switch (freq) {
     case 'weekly':    return (amount * 52) / 12;
@@ -28,6 +28,27 @@ function toMonthly(amount: number, freq: TrackedSubscription['frequency']): numb
     case 'quarterly': return amount / 3;
     case 'yearly':    return amount / 12;
   }
+}
+
+// Cleans a raw transaction description into a display-ready merchant name.
+// "NETFLIX.COM 12345" → "Netflix", "SPOTIFY USA" → "Spotify Usa" (then user edits if needed)
+function prettifyMerchant(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[0-9#*/.,_-]+/g, ' ')
+    .replace(/\b(com|www|llc|inc|corp)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// Loose match so "Netflix" and "NETFLIX.COM 1234" are considered the same service.
+function serviceMatches(tracked: string, detected: string): boolean {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+  const a = norm(tracked), b = norm(detected);
+  const aWords = a.split(' ').filter((w) => w.length > 2);
+  const bWords = b.split(' ').filter((w) => w.length > 2);
+  return aWords.some((w) => b.includes(w)) || bWords.some((w) => a.includes(w));
 }
 
 const AVATAR_COLORS = [
@@ -64,9 +85,6 @@ const EMPTY_FORM: Omit<TrackedSubscription, 'id'> = {
 function getDismissed(): string[] {
   try { return JSON.parse(localStorage.getItem(DISMISSED_KEY) ?? '[]'); } catch { return []; }
 }
-function setDismissed(ids: string[]) {
-  localStorage.setItem(DISMISSED_KEY, JSON.stringify(ids));
-}
 
 export default function SubscriptionsPage() {
   const { t } = useTranslation();
@@ -97,13 +115,27 @@ export default function SubscriptionsPage() {
   useEffect(() => { load(); }, [load]);
   useAutoRefresh(() => load(true));
 
-  // ── Summary ──
+  // ── Auto-detected from transactions ──
+  const detected: Subscription[] = useMemo(
+    () => detectSubscriptions(transactions, new Date()),
+    [transactions],
+  );
+
+  // Only show detected entries that haven't already been manually tracked.
+  const untracked = useMemo(
+    () => detected.filter((d) => !subs.some((s) => serviceMatches(s.merchant, d.merchant))),
+    [detected, subs],
+  );
+
+  // ── Manually-tracked summary ──
   const activeSubs = useMemo(() => subs.filter((s) => s.isActive), [subs]);
-  const monthlyTotal = useMemo(() => activeSubs.reduce((sum, s) => sum + toMonthly(s.amount, s.frequency), 0), [activeSubs]);
-  const yearlyTotal = monthlyTotal * 12;
+  const monthlyTotal = useMemo(
+    () => activeSubs.reduce((sum, s) => sum + toMonthly(s.amount, s.frequency), 0),
+    [activeSubs],
+  );
 
   // ── Cancel candidates ──
-  // Active subscriptions with no matching transaction description in the last 90 days
+  // A tracked sub with no matching charge in 90 days AND not currently auto-detected.
   const cutoff = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() - 90);
@@ -115,21 +147,27 @@ export default function SubscriptionsPage() {
   const cancelCandidates = useMemo(() => {
     return activeSubs.filter((sub) => {
       if (dismissed.includes(sub.id)) return false;
+      // If auto-detection sees it, it's clearly still active — not a candidate.
+      if (detected.some((d) => serviceMatches(sub.merchant, d.merchant) && d.isActive)) return false;
       const name = sub.merchant.toLowerCase();
       return !recentTx.some((tx) => tx.description.toLowerCase().includes(name));
     });
-  }, [activeSubs, recentTx, dismissed]);
+  }, [activeSubs, recentTx, dismissed, detected]);
 
   // ── CRUD ──
-  function openAdd() {
+  function openAdd(prefill?: Partial<Omit<TrackedSubscription, 'id'>>) {
     setEditTarget(null);
-    setForm({ ...EMPTY_FORM, account: accounts[0]?.id ?? '' });
+    setForm({ ...EMPTY_FORM, account: accounts[0]?.id ?? '', ...prefill });
     setOpen(true);
   }
 
   function openEdit(sub: TrackedSubscription) {
     setEditTarget(sub);
-    setForm({ merchant: sub.merchant, amount: sub.amount, frequency: sub.frequency, startDate: sub.startDate, category: sub.category, account: sub.account, notes: sub.notes, isActive: sub.isActive });
+    setForm({
+      merchant: sub.merchant, amount: sub.amount, frequency: sub.frequency,
+      startDate: sub.startDate, category: sub.category, account: sub.account,
+      notes: sub.notes, isActive: sub.isActive,
+    });
     setOpen(true);
   }
 
@@ -138,12 +176,12 @@ export default function SubscriptionsPage() {
     setSaving(true);
     const body: TrackedSubscription = { id: editTarget?.id ?? generateId(), ...form };
     try {
-      const res = await fetch('/api/subscriptions', { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } });
-      if (!res.ok) throw new Error();
-      setSubs((prev) => {
-        const filtered = prev.filter((s) => s.id !== body.id);
-        return [...filtered, body];
+      const res = await fetch('/api/subscriptions', {
+        method: 'POST', body: JSON.stringify(body),
+        headers: { 'Content-Type': 'application/json' },
       });
+      if (!res.ok) throw new Error();
+      setSubs((prev) => [...prev.filter((s) => s.id !== body.id), body]);
       setOpen(false);
       toast(editTarget ? t('subscriptions.toastUpdated') : t('subscriptions.toastAdded'), 'success');
     } catch {
@@ -158,7 +196,10 @@ export default function SubscriptionsPage() {
     const prev = subs;
     setSubs((s) => s.filter((x) => x.id !== sub.id));
     try {
-      const res = await fetch('/api/subscriptions', { method: 'DELETE', body: JSON.stringify({ id: sub.id }), headers: { 'Content-Type': 'application/json' } });
+      const res = await fetch('/api/subscriptions', {
+        method: 'DELETE', body: JSON.stringify({ id: sub.id }),
+        headers: { 'Content-Type': 'application/json' },
+      });
       if (!res.ok) throw new Error();
       toast(t('subscriptions.toastDeleted'), 'success');
     } catch {
@@ -169,20 +210,17 @@ export default function SubscriptionsPage() {
 
   function dismissCandidate(id: string) {
     const next = [...dismissed, id];
-    setDismissed(next);
+    localStorage.setItem(DISMISSED_KEY, JSON.stringify(next));
     setDismissedState(next);
   }
 
-  const freqLabel = (freq: TrackedSubscription['frequency']) => {
-    const map: Record<string, string> = {
-      weekly: t('subscriptions.freqWeekly'),
-      biweekly: t('subscriptions.freqBiweekly'),
-      monthly: t('subscriptions.freqMonthly'),
-      quarterly: t('subscriptions.freqQuarterly'),
-      yearly: t('subscriptions.freqYearly'),
-    };
-    return map[freq] ?? freq;
-  };
+  const freqLabel = (freq: TrackedSubscription['frequency']) => ({
+    weekly: t('subscriptions.freqWeekly'),
+    biweekly: t('subscriptions.freqBiweekly'),
+    monthly: t('subscriptions.freqMonthly'),
+    quarterly: t('subscriptions.freqQuarterly'),
+    yearly: t('subscriptions.freqYearly'),
+  }[freq] ?? freq);
 
   const accountName = (id: string) => accounts.find((a) => a.id === id)?.name ?? '';
 
@@ -207,14 +245,14 @@ export default function SubscriptionsPage() {
         title={t('subscriptions.title')}
         subtitle={t('subscriptions.subtitle')}
         action={
-          <Button onClick={openAdd} className="shadow-sm">
+          <Button onClick={() => openAdd()} className="shadow-sm">
             <Plus className="w-4 h-4" />
             {t('subscriptions.addBtn')}
           </Button>
         }
       />
 
-      {/* Summary cards */}
+      {/* Summary cards — shown once there's something to summarise */}
       {activeSubs.length > 0 && (
         <div className="grid grid-cols-3 gap-3">
           <Card className="p-4 text-center">
@@ -223,16 +261,81 @@ export default function SubscriptionsPage() {
           </Card>
           <Card className="p-4 text-center">
             <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">{t('subscriptions.yearlyCost')}</p>
-            <p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(yearlyTotal)}</p>
+            <p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(monthlyTotal * 12)}</p>
           </Card>
           <Card className="p-4 text-center">
-            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">{t('subscriptions.summaryActive', { n: activeSubs.length })}</p>
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">{t('subscriptions.monthlyCost')}</p>
             <p className="text-xl font-extrabold text-indigo-600 dark:text-indigo-400">{activeSubs.length}</p>
           </Card>
         </div>
       )}
 
-      {/* Cancel candidates */}
+      {/* ── Spotted in Your History ── */}
+      {untracked.length > 0 && (
+        <Card>
+          <div className="flex items-start gap-3 mb-4">
+            <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 text-indigo-500 dark:text-indigo-400 shrink-0 mt-0.5">
+              <RefreshCw className="w-4 h-4" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-extrabold text-slate-800 dark:text-slate-100">{t('subscriptions.spottedTitle')}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{t('subscriptions.spottedDesc')}</p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {untracked.map((det) => {
+              const pretty = prettifyMerchant(det.merchant);
+              const { initial, color } = avatarFor(pretty);
+              return (
+                <div
+                  key={det.merchant}
+                  className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${det.isActive ? 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700/60' : 'bg-slate-50 dark:bg-slate-700/30 border-slate-100 dark:border-slate-700/40 opacity-75'}`}
+                >
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-sm font-extrabold ${det.isActive ? color : 'bg-slate-100 dark:bg-slate-700/60 text-slate-400 dark:text-slate-500'}`}>
+                    {initial}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">{pretty}</p>
+                    <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                      <span className="text-xs text-slate-500 dark:text-slate-400">{t('subscriptions.seenFor', { n: det.months })}</span>
+                      {det.hasPriceCreep && (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+                          <TrendingUp className="w-3 h-3" />
+                          {t('subscriptions.priceWentUp', { amount: formatCurrency(det.priceIncrease) })}
+                        </span>
+                      )}
+                      {!det.isActive && (
+                        <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
+                          {t('subscriptions.stoppedCharging')}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0 mr-1">
+                    <p className="text-sm font-extrabold text-slate-800 dark:text-slate-100">{formatCurrency(det.monthlyAmount)}</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">{t('subscriptions.perMonth')}</p>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    onClick={() => openAdd({
+                      merchant: pretty,
+                      amount: det.monthlyAmount,
+                      frequency: 'monthly',
+                      startDate: det.firstDate,
+                      category: det.category,
+                    })}
+                    className="shrink-0 text-xs px-3 py-1.5 h-auto"
+                  >
+                    {t('subscriptions.startTracking')}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
+      {/* ── Cancel Candidates ── */}
       {cancelCandidates.length > 0 && (
         <Card className="border-amber-200 dark:border-amber-800/50 bg-amber-50/40 dark:bg-amber-900/10">
           <div className="flex items-start gap-3 mb-4">
@@ -272,18 +375,18 @@ export default function SubscriptionsPage() {
         </Card>
       )}
 
-      {/* Subscriptions list */}
-      {subs.length === 0 ? (
+      {/* ── Tracked Subscriptions list ── */}
+      {subs.length === 0 && untracked.length === 0 ? (
         <Card className="py-12 text-center">
           <RefreshCw className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
           <p className="text-base font-bold text-slate-700 dark:text-slate-300 mb-1">{t('subscriptions.empty')}</p>
           <p className="text-sm text-slate-500 dark:text-slate-400 max-w-xs mx-auto mb-5">{t('subscriptions.emptyBody')}</p>
-          <Button onClick={openAdd} className="mx-auto">
+          <Button onClick={() => openAdd()} className="mx-auto">
             <Plus className="w-4 h-4" />
             {t('subscriptions.addBtn')}
           </Button>
         </Card>
-      ) : (
+      ) : sorted.length > 0 ? (
         <div className="space-y-2">
           {sorted.map((sub) => {
             const { initial, color } = avatarFor(sub.merchant);
@@ -339,7 +442,7 @@ export default function SubscriptionsPage() {
             );
           })}
         </div>
-      )}
+      ) : null}
 
       {/* Add / Edit Modal */}
       <Modal
@@ -398,7 +501,6 @@ export default function SubscriptionsPage() {
             value={form.notes}
             onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
           />
-          {/* Active toggle */}
           <div className="flex items-center justify-between gap-4 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60">
             <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{t('subscriptions.isActive')}</p>
             <button

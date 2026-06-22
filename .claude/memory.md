@@ -6,7 +6,7 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ## Current Version — NovaFi Web App (Next.js + Google Sheets)
 
-**Last Updated:** June 22, 2026
+**Last Updated:** June 22, 2026 (rev 2)
 
 ---
 
@@ -43,6 +43,13 @@ Manually-managed recurring subscriptions (Netflix, Spotify, memberships, etc.) s
 - Full list sorted: active first, then by monthly cost descending; inactive subs shown with "Paused" badge
 - Add/Edit modal: merchant, amount, frequency, startDate, category (useCategories hook), account select, notes, isActive toggle
 - `app/(app)/subscriptions/loading.tsx` (NEW): skeleton loading state
+
+**Merge with Bills detection (rev 2):**
+- Removed the `SubscriptionTracker` component from `app/(app)/bills/page.tsx` entirely (also removed `detectSubscriptions`, `Repeat`, `TrendingUp`, `ExpandableCard` imports that were only used by it)
+- Added "Spotted in Your History" section to the subscriptions page: runs `detectSubscriptions(transactions)`, filters out entries already matched to a manually tracked sub via `serviceMatches()` (loose word-overlap), shows prettified merchant name, price-went-up badge, stopped-charging badge, and a "Start tracking" button that pre-fills the Add modal
+- Cancel candidate logic updated to also skip subs that are actively auto-detected (meaning they're still being charged)
+- `prettifyMerchant()` helper cleans raw transaction descriptions ("NETFLIX.COM 12345" → "Netflix") for display
+- Added locale keys: `spottedTitle`, `spottedDesc`, `startTracking`, `priceWentUp`, `stoppedCharging`, `seenFor`
 
 **Navigation — `components/Sidebar.tsx`:**
 - Added `RefreshCw` icon entry under `'nav.groupPlan'` group
