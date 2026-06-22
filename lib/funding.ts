@@ -323,6 +323,7 @@ export function buildSpendTxs(
   myShare: number,
   description: string,
   date: string,
+  spendCategory = 'Other',
 ): Transaction[] {
   const total = round(amount);
   const mine = round(Math.min(Math.max(0, myShare), total));
@@ -332,7 +333,7 @@ export function buildSpendTxs(
   if (mine > 0) {
     txs.push({
       id: generateId(), date, description, amount: mine,
-      type: 'expense', category: 'Funding', account: chargedAccount, createdAt: now,
+      type: 'expense', category: spendCategory, account: chargedAccount, createdAt: now,
     });
   }
   if (others > 0) {
@@ -380,6 +381,7 @@ export interface FundingSpend {
   chargedAccount: string;
   description: string;
   date: string;
+  category: string;     // expense category chosen by the user (falls back to 'Other')
 }
 
 export function groupFundingSpends(spendTxIds: string[], transactions: Transaction[]): FundingSpend[] {
@@ -407,8 +409,37 @@ export function groupFundingSpends(spendTxIds: string[], transactions: Transacti
       chargedAccount: sample.account,
       description: sample.description,
       date: sample.date,
+      category: expense?.category ?? 'Other',
     });
   }
   // Newest first (by date, then key which embeds the createdAt timestamp).
   return spends.sort((a, b) => (b.date.localeCompare(a.date)) || b.key.localeCompare(a.key));
+}
+
+// ── Pool activity log ─────────────────────────────────────────────────────────
+// A unified chronological timeline of all events in a pool: creation, spends,
+// contributions (real pools), and repayments (virtual pools). Sorted newest first.
+export interface FundingActivity {
+  date: string;
+  type: 'created' | 'spend' | 'contribution' | 'repayment';
+  label: string;
+  amount: number;
+}
+
+export function buildPoolActivity(f: Funding, transactions: Transaction[]): FundingActivity[] {
+  const entries: FundingActivity[] = [];
+  entries.push({ date: f.date, type: 'created', label: f.description, amount: f.totalContributed });
+  for (const s of groupFundingSpends(f.spendTxIds, transactions)) {
+    entries.push({ date: s.date, type: 'spend', label: s.description, amount: s.amount });
+  }
+  for (const r of f.repayments) {
+    entries.push({ date: r.date, type: 'repayment', label: r.participant, amount: r.amount });
+  }
+  for (const c of f.contributions ?? []) {
+    entries.push({ date: c.date, type: 'contribution', label: c.participant, amount: c.amount });
+  }
+  // Sort newest first; 'created' is always last when dates tie.
+  return entries.sort((a, b) =>
+    b.date.localeCompare(a.date) || (a.type === 'created' ? 1 : b.type === 'created' ? -1 : 0),
+  );
 }

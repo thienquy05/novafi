@@ -106,19 +106,25 @@ export const DELETE = withSession(async ({ accessToken, spreadsheetId, req }) =>
     }
     await persistChangedAccounts(accessToken, spreadsheetId, accounts, working);
     invalidateMany(spreadsheetId, TX_CACHES);
-    // Drop the now-emptied dedicated pool account (real pools only).
-    if (funding?.poolAccountId) {
-      await deleteAccount(accessToken, spreadsheetId, funding.poolAccountId);
-      working = working.filter((a) => a.id !== funding.poolAccountId);
-      updatedAccounts = working;
-    } else {
-      updatedAccounts = working;
+    // Only drop the pool account if it's a legacy auto-created `pool`-type account.
+    // Real deposit accounts (checking/savings/cash) chosen by the user must never
+    // be deleted when a pool is removed — the account belongs to the user, not the pool.
+    const legacyPoolAcct = working.find((a) => a.id === funding?.poolAccountId && a.type === 'pool');
+    if (legacyPoolAcct) {
+      await deleteAccount(accessToken, spreadsheetId, legacyPoolAcct.id);
+      working = working.filter((a) => a.id !== legacyPoolAcct.id);
     }
+    updatedAccounts = working;
   } else if (funding?.poolAccountId) {
-    // No cash rows to reverse, but still remove the empty pool account.
+    // No cash rows to reverse — still drop the empty legacy pool account if applicable.
     const accounts = await getAccounts(accessToken, spreadsheetId);
-    await deleteAccount(accessToken, spreadsheetId, funding.poolAccountId);
-    updatedAccounts = accounts.filter((a) => a.id !== funding.poolAccountId);
+    const legacyPoolAcct = accounts.find((a) => a.id === funding.poolAccountId && a.type === 'pool');
+    if (legacyPoolAcct) {
+      await deleteAccount(accessToken, spreadsheetId, legacyPoolAcct.id);
+      updatedAccounts = accounts.filter((a) => a.id !== legacyPoolAcct.id);
+    } else {
+      updatedAccounts = accounts;
+    }
   }
 
   invalidateMany(spreadsheetId, ['funding']);

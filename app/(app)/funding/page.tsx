@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import { CircleDollarSign, Plus, Trash2, Users, Wallet, RefreshCw, AlertCircle, MinusCircle, UserPlus, Pencil, HandCoins, Archive, ArchiveRestore, ChevronDown, PiggyBank, Target } from 'lucide-react';
+import { CircleDollarSign, Plus, Trash2, Users, Wallet, RefreshCw, AlertCircle, MinusCircle, UserPlus, Pencil, HandCoins, Archive, ArchiveRestore, ChevronDown, Receipt, Landmark, PartyPopper, Target, Share2, Sparkles, Clock, SlidersHorizontal, CalendarDays } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -20,8 +20,8 @@ import {
   buildSpendTxs, buildRepayTx, groupFundingSpends, participantOwed, participantRepaid, totalOwed,
   totalRepaid, isFullySettled,
   isRealPool, buildPoolContributionTx, participantsFromContributions, contributionsTotal, poolProgress,
-  repointRealPoolAccount, planVirtualPoolEdit,
-  type FundingSpend,
+  repointRealPoolAccount, planVirtualPoolEdit, buildPoolActivity,
+  type FundingSpend, type FundingActivity,
 } from '@/lib/funding';
 import { applyTransactionToBalances } from '@/lib/calculations';
 
@@ -33,6 +33,16 @@ function emptyOther(): OtherRow { return { key: generateId(), id: generateId(), 
 
 const num = (s: string) => { const n = parseFloat(s); return Number.isFinite(n) ? n : 0; };
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+// Spend categories with emoji labels for the category pill selector.
+const POOL_SPEND_CATEGORIES = [
+  { value: 'Food', label: '🍕 Food' },
+  { value: 'Entertainment', label: '🎉 Fun' },
+  { value: 'Shopping', label: '🛍 Shopping' },
+  { value: 'Transportation', label: '🚗 Travel' },
+  { value: 'Health', label: '💊 Health' },
+  { value: 'Other', label: '📦 Other' },
+] as const;
 
 export default function FundingPage() {
   const { t } = useTranslation();
@@ -62,6 +72,7 @@ export default function FundingPage() {
   const [contribAmount, setContribAmount] = useState('');
   const [contribIsMe, setContribIsMe] = useState(false);
   const [contribAccount, setContribAccount] = useState('');
+  const [contribDate, setContribDate] = useState(today());
 
   // Spend modal (also serves editing an existing spend)
   const [spendFor, setSpendFor] = useState<Funding | null>(null);
@@ -70,13 +81,29 @@ export default function FundingPage() {
   const [spendMine, setSpendMine] = useState('');
   const [spendDesc, setSpendDesc] = useState('');
   const [spendAccount, setSpendAccount] = useState('');
+  const [spendDate, setSpendDate] = useState(today());
+  const [spendCategory, setSpendCategory] = useState('Other');
 
-  // Which pools' spend / payback history is expanded (collapsed by default to keep
-  // the card tidy), plus whether the archived-pools section is open.
+  const [payDate, setPayDate] = useState(today());
+
+  // Which pools' spend / payback / activity history is expanded (collapsed by default
+  // to keep the card tidy), plus whether the archived-pools section is open.
   const [openSpends, setOpenSpends] = useState<Set<string>>(new Set());
   const [openPays, setOpenPays] = useState<Set<string>>(new Set());
   const [openContribs, setOpenContribs] = useState<Set<string>>(new Set());
+  const [openActivity, setOpenActivity] = useState<Set<string>>(new Set());
   const [showArchived, setShowArchived] = useState(false);
+
+  // Sort & filter for the active pool list
+  const [filterType, setFilterType] = useState<'all' | 'virtual' | 'real' | 'action'>('all');
+  const [sortBy, setSortBy] = useState<'recent' | 'owed' | 'az'>('recent');
+
+  // Settle-up confirmation: holds the pending payment state so the user can choose
+  // whether to archive the pool before we commit it to the server.
+  const [settledFor, setSettledFor] = useState<{ pool: Funding; tx: Transaction; removeTxIds: string[]; wasEditing: boolean } | null>(null);
+  // Delete confirmation modal: holds the pool to delete until user confirms.
+  const [deleteFor, setDeleteFor] = useState<Funding | null>(null);
+
   const toggle = (set: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) =>
     set((prev) => {
       const next = new Set(prev);
@@ -251,14 +278,14 @@ export default function FundingPage() {
   function openSpend(f: Funding) {
     setSpendFor(f); setEditingSpend(null);
     setSpendAmount(''); setSpendMine(''); setSpendDesc('');
-    // Real pools always draw from their own holding account; virtual pools let you
-    // pick which real account fronts the spend.
+    setSpendDate(today()); setSpendCategory('Other');
     setSpendAccount(isRealPool(f) ? (f.poolAccountId ?? '') : (f.account || chargeAccounts[0]?.id || ''));
   }
   function openEditSpend(f: Funding, s: FundingSpend) {
     setSpendFor(f); setEditingSpend(s);
     setSpendAmount(String(s.amount)); setSpendMine(s.myShare ? String(s.myShare) : '');
     setSpendDesc(s.description);
+    setSpendDate(s.date); setSpendCategory(s.category ?? 'Other');
     setSpendAccount(isRealPool(f) ? (f.poolAccountId ?? '') : (s.chargedAccount || f.account || chargeAccounts[0]?.id || ''));
   }
 
@@ -267,9 +294,9 @@ export default function FundingPage() {
     const amount = round2(num(spendAmount));
     const mine = Math.min(round2(num(spendMine)), amount);
     if (!(amount > 0) || !spendAccount) return;
-    const date = editingSpend?.date || today();
+    const date = spendDate || today();
     const note = spendDesc.trim() || t('funding.spendDefault', { desc: spendFor.description });
-    const txs = buildSpendTxs(spendAccount, amount, mine, note, date);
+    const txs = buildSpendTxs(spendAccount, amount, mine, note, date, spendCategory);
     const removeTxIds = editingSpend?.txIds ?? [];
     const prevAmount = editingSpend?.amount ?? 0;
     const updated: Funding = {
@@ -302,8 +329,7 @@ export default function FundingPage() {
     setContribIsMe(isMe);
     setContribWho(participant && !participant.isMe ? participant.name : '');
     setContribAmount('');
-    // Default my-money source to the holding account itself (no transfer — just earmark
-    // money already there); fall back to the first deposit account for legacy pools.
+    setContribDate(today());
     const holding = f.poolAccountId && depositAccounts.some((a) => a.id === f.poolAccountId) ? f.poolAccountId : '';
     setContribAccount(holding || depositAccounts[0]?.id || '');
   }
@@ -312,6 +338,7 @@ export default function FundingPage() {
     setContribIsMe(c.isMe);
     setContribWho(c.isMe ? '' : c.participant);
     setContribAmount(String(c.amount));
+    setContribDate(c.date);
     setContribAccount(c.account || depositAccounts[0]?.id || '');
   }
 
@@ -320,13 +347,14 @@ export default function FundingPage() {
     const amount = round2(num(contribAmount));
     const who = contribIsMe ? t('funding.me') : contribWho.trim();
     if (!(amount > 0) || !who || (contribIsMe && !contribAccount)) return;
-    const date = editingContrib?.date || today();
+    const date = contribDate || today();
     const note = t('funding.contributionDesc', { desc: contribFor.description });
     const { tx, contribution } = buildPoolContributionTx(
       contribFor.poolAccountId, amount, who, contribIsMe, contribIsMe ? contribAccount : '', note, date,
     );
     const removeTxIds = editingContrib ? [editingContrib.id] : [];
     const contributions = [...(contribFor.contributions ?? []).filter((c) => c.id !== editingContrib?.id), contribution];
+    const prevTotal = contribFor.totalContributed;
     const updated: Funding = {
       ...contribFor,
       contributions,
@@ -335,6 +363,14 @@ export default function FundingPage() {
     };
     setFundings((prev) => prev.map((f) => f.id === updated.id ? updated : f));
     setContribFor(null); setEditingContrib(null);
+    // Milestone toasts when a Group Vault crosses 25/50/75/100% of its savings target.
+    if (contribFor.target) {
+      const prevProg = poolProgress(prevTotal, contribFor.target) ?? 0;
+      const newProg = poolProgress(updated.totalContributed, contribFor.target) ?? 0;
+      for (const [m, key] of [[0.25, 'funding.milestone25'], [0.5, 'funding.milestone50'], [0.75, 'funding.milestone75'], [1.0, 'funding.milestone100']] as [number, string][]) {
+        if (prevProg < m && newProg >= m) setTimeout(() => toast(t(key), 'success'), 500);
+      }
+    }
     // `tx` is null when it's my own money already in the holding account (nothing moves).
     await persist(updated, tx ? [tx] : [], removeTxIds, editingContrib ? 'funding.contributionUpdated' : 'funding.contributionAdded');
   }
@@ -358,11 +394,13 @@ export default function FundingPage() {
     const owedFirst = participant ?? f.participants.find((p) => !p.isMe && participantOwed(p, f.repayments) > 0);
     setPayWho(owedFirst?.name ?? f.participants.find((p) => !p.isMe)?.name ?? '');
     setPayAmount(owedFirst ? String(participantOwed(owedFirst, f.repayments)) : '');
+    setPayDate(today());
     setPayAccount(f.account && depositAccounts.some((a) => a.id === f.account) ? f.account : depositAccounts[0]?.id || '');
   }
   function openEditPay(f: Funding, r: FundingRepayment) {
     setPayFor(f); setEditingPay(r);
     setPayWho(r.participant); setPayAmount(String(r.amount));
+    setPayDate(r.date);
     setPayAccount(r.account || depositAccounts[0]?.id || '');
   }
 
@@ -370,23 +408,34 @@ export default function FundingPage() {
     if (!payFor) return;
     const amount = round2(num(payAmount));
     if (!(amount > 0) || !payWho || !payAccount) return;
-    const date = editingPay?.date || today();
+    const date = payDate || today();
     const note = t('funding.paymentDesc', { name: payWho, desc: payFor.description });
     const { tx, repayment } = buildRepayTx(payAccount, amount, payWho, note, date);
-    // Link the payback to the payer's stable id so it stays attached if they're renamed.
     const payer = payFor.participants.find((p) => p.name === payWho);
     const removeTxIds = editingPay ? [editingPay.id] : [];
+    const wasEditing = !!editingPay;
     const base: Funding = {
       ...payFor,
       repayments: [...payFor.repayments.filter((r) => r.id !== editingPay?.id), { ...repayment, participantId: payer?.id ?? editingPay?.participantId }],
     };
-    // Auto-archive the moment this payback settles everyone up (only if it wasn't
-    // already wrapped up). Manual archive/reopen below can always override.
-    const justSettled = !base.closed && isFullySettled(base);
-    const updated: Funding = justSettled ? { ...base, closed: true } : base;
-    setFundings((prev) => prev.map((f) => f.id === updated.id ? updated : f));
+    setFundings((prev) => prev.map((f) => f.id === base.id ? base : f));
     setPayFor(null); setEditingPay(null);
-    const successKey = justSettled ? 'funding.poolSettledArchived' : editingPay ? 'funding.paymentUpdated' : 'funding.paymentRecorded';
+    // When the final payback settles everyone, ask the user whether to archive instead
+    // of silently archiving — they may want to keep the pool active for reference.
+    if (!base.closed && isFullySettled(base)) {
+      setSettledFor({ pool: base, tx, removeTxIds, wasEditing });
+    } else {
+      await persist(base, [tx], removeTxIds, wasEditing ? 'funding.paymentUpdated' : 'funding.paymentRecorded');
+    }
+  }
+
+  async function confirmSettleArchive(archive: boolean) {
+    if (!settledFor) return;
+    const { pool, tx, removeTxIds, wasEditing } = settledFor;
+    const updated = archive ? { ...pool, closed: true } : pool;
+    if (archive) setFundings((prev) => prev.map((f) => f.id === updated.id ? updated : f));
+    setSettledFor(null);
+    const successKey = archive ? 'funding.poolSettledArchived' : wasEditing ? 'funding.paymentUpdated' : 'funding.paymentRecorded';
     await persist(updated, [tx], removeTxIds, successKey);
   }
 
@@ -395,6 +444,41 @@ export default function FundingPage() {
     const updated: Funding = { ...f, repayments: f.repayments.filter((x) => x.id !== r.id) };
     setFundings((prev) => prev.map((x) => x.id === updated.id ? updated : x));
     await persist(updated, [], [r.id], 'funding.paymentDeleted');
+  }
+
+  async function copyPoolSummary(f: Funding) {
+    const real = isRealPool(f);
+    const remaining = poolRemaining(f);
+    const lines: string[] = [
+      `${real ? '🏦' : '📋'} ${f.description} · ${real ? 'Group Vault' : 'Group Tab'}`,
+      `📅 ${formatDate(f.date)}`,
+      '',
+      `💰 Pool: ${formatCurrency(f.totalContributed)} | Spent: ${formatCurrency(f.spent)} | ${remaining >= 0 ? 'Remaining' : 'Overspent'}: ${formatCurrency(Math.abs(remaining))}`,
+    ];
+    if (f.target) {
+      const pct = Math.round((poolProgress(f.totalContributed, f.target) ?? 0) * 100);
+      lines.push(`🎯 Goal: ${formatCurrency(f.totalContributed)} of ${formatCurrency(f.target)} (${pct}%)`);
+    }
+    lines.push('', '👥 Members:');
+    for (const p of f.participants) {
+      if (real) {
+        lines.push(`  • ${p.name}: ${formatCurrency(p.contributed)} contributed`);
+      } else {
+        const owe = participantOwed(p, f.repayments);
+        const status = p.isMe ? 'your pledge' : owe > 0 ? `owes ${formatCurrency(owe)}` : 'settled ✓';
+        lines.push(`  • ${p.name}: ${formatCurrency(p.contributed)} — ${status}`);
+      }
+    }
+    if (!real) {
+      const owed = totalOwed(f);
+      if (owed > 0) lines.push('', `Total owed to you: ${formatCurrency(owed)}`);
+    }
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      toast(t('funding.summaryCopied'), 'success');
+    } catch {
+      toast(t('funding.summaryFailed'), 'error');
+    }
   }
 
   // Migrate a legacy real pool off its auto-created `pool` account onto a real account
@@ -475,8 +559,20 @@ export default function FundingPage() {
     await persist(updated, [], [], closed ? 'funding.poolArchived' : 'funding.poolReopened');
   }
 
-  async function deletePool(f: Funding) {
-    if (!confirm(t('funding.confirmDelete'))) return;
+  // Count how many ledger transactions a pool owns (shown in the delete warning).
+  function poolTxCount(f: Funding): number {
+    return [
+      f.contributionTxId,
+      ...(f.spendTxIds ?? []),
+      ...(f.repayments ?? []).map((r) => r.id),
+      ...(f.contributions ?? []).map((c) => c.id),
+    ].filter(Boolean).length;
+  }
+
+  async function confirmDeletePool() {
+    const f = deleteFor;
+    if (!f) return;
+    setDeleteFor(null);
     setFundings((prev) => prev.filter((x) => x.id !== f.id));
     try {
       const res = await fetch('/api/funding', { method: 'DELETE', body: JSON.stringify({ id: f.id }), headers: { 'Content-Type': 'application/json' } });
@@ -496,6 +592,27 @@ export default function FundingPage() {
   const activePools = fundings.filter((f) => !f.closed);
   const archivedPools = fundings.filter((f) => f.closed);
 
+  // Summary banner stats across all active Group Tabs.
+  const totalOwedAll = activePools.filter((f) => !isRealPool(f)).reduce((s, f) => s + totalOwed(f), 0);
+  const owingTabsCount = activePools.filter((f) => !isRealPool(f) && totalOwed(f) > 0).length;
+  const owingPeopleCount = activePools
+    .filter((f) => !isRealPool(f))
+    .flatMap((f) => f.participants.filter((p) => !p.isMe && participantOwed(p, f.repayments) > 0))
+    .length;
+
+  // Filtered + sorted active pools for the list view.
+  const filteredPools = activePools.filter((f) => {
+    if (filterType === 'virtual') return !isRealPool(f);
+    if (filterType === 'real') return isRealPool(f);
+    if (filterType === 'action') return !isRealPool(f) && totalOwed(f) > 0;
+    return true;
+  });
+  const sortedPools = [...filteredPools].sort((a, b) => {
+    if (sortBy === 'owed') return totalOwed(b) - totalOwed(a);
+    if (sortBy === 'az') return a.description.localeCompare(b.description);
+    return b.date.localeCompare(a.date);
+  });
+
   function renderPool(f: Funding) {
     const real = isRealPool(f);
     const remaining = poolRemaining(f);
@@ -507,8 +624,10 @@ export default function FundingPage() {
     const contribsOpen = openContribs.has(f.id);
     const contributions = f.contributions ?? [];
     const progress = poolProgress(f.totalContributed, f.target);
+    const activityLog: FundingActivity[] = buildPoolActivity(f, transactions);
+    const activityOpen = openActivity.has(f.id);
     return (
-      <Card key={f.id} className={`space-y-4 ${f.closed ? 'opacity-75' : ''}`}>
+      <Card key={f.id} tone={real ? 'emerald' : 'indigo'} className={`space-y-4 ${f.closed ? 'opacity-75' : ''}`}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="font-bold text-slate-900 dark:text-slate-100 truncate flex items-center gap-2">
@@ -520,37 +639,22 @@ export default function FundingPage() {
               )}
             </p>
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1.5">
-              {real ? <PiggyBank className="w-3.5 h-3.5 text-emerald-500" /> : null}
+              {real
+                ? <Landmark className="w-3.5 h-3.5 text-emerald-500" />
+                : <Receipt className="w-3.5 h-3.5 text-indigo-500" />}
               {real ? t('funding.realBadge') : t('funding.virtualBadge')} · {formatDate(f.date)}
             </p>
           </div>
-          <div className="flex gap-2 shrink-0">
+          <div className="flex gap-1 shrink-0">
             {!f.closed && (
               <Button variant="secondary" size="sm" onClick={() => openSpend(f)}>
                 <MinusCircle className="w-4 h-4" />{t('funding.spend')}
               </Button>
             )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 h-9 w-9 rounded-xl"
-              onClick={() => openEdit(f)}
-              aria-label={t('funding.editPool')}
-              title={t('funding.editPool')}
-            >
-              <Pencil className="w-4 h-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 h-9 w-9 rounded-xl"
-              onClick={() => setArchived(f, !f.closed)}
-              aria-label={f.closed ? t('funding.reopen') : t('funding.archive')}
-              title={f.closed ? t('funding.reopen') : t('funding.archive')}
-            >
-              {f.closed ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
-            </Button>
-            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 h-9 w-9 rounded-xl" onClick={() => deletePool(f)}><Trash2 className="w-4 h-4" /></Button>
+            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 h-9 w-9 rounded-xl" onClick={() => copyPoolSummary(f)} aria-label={t('funding.sharePool')} title={t('funding.sharePool')}><Share2 className="w-4 h-4" /></Button>
+            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 h-9 w-9 rounded-xl" onClick={() => openEdit(f)} aria-label={t('funding.editPool')} title={t('funding.editPool')}><Pencil className="w-4 h-4" /></Button>
+            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 h-9 w-9 rounded-xl" onClick={() => setArchived(f, !f.closed)} aria-label={f.closed ? t('funding.reopen') : t('funding.archive')} title={f.closed ? t('funding.reopen') : t('funding.archive')}>{f.closed ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}</Button>
+            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 h-9 w-9 rounded-xl" onClick={() => setDeleteFor(f)} aria-label={t('common.delete')}><Trash2 className="w-4 h-4" /></Button>
           </div>
         </div>
 
@@ -669,11 +773,16 @@ export default function FundingPage() {
               <ChevronDown className={`w-4 h-4 transition-transform ${spendsOpen ? 'rotate-180' : ''}`} />
             </button>
             <Collapsible open={spendsOpen}>
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
                 {spends.map((s) => (
                   <div key={s.key} className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 px-3 py-2">
                     <div className="min-w-0">
-                      <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{s.description}</p>
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{s.description}</p>
+                        {s.category && s.category !== 'Other' && (
+                          <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400">{POOL_SPEND_CATEGORIES.find((c) => c.value === s.category)?.label ?? s.category}</span>
+                        )}
+                      </div>
                       <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
                         {t('funding.chargedTo', { account: accountName(s.chargedAccount) })}{s.myShare > 0 ? ` · ${t('funding.yourShareOf', { amount: formatCurrency(s.myShare) })}` : ''} · {formatDate(s.date)}
                       </p>
@@ -705,7 +814,7 @@ export default function FundingPage() {
               <ChevronDown className={`w-4 h-4 transition-transform ${contribsOpen ? 'rotate-180' : ''}`} />
             </button>
             <Collapsible open={contribsOpen}>
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
                 {[...contributions].sort((a, b) => b.date.localeCompare(a.date)).map((c) => (
                   <div key={c.id} className="flex items-center justify-between gap-2 rounded-xl bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-800/40 px-3 py-2">
                     <div className="min-w-0">
@@ -741,7 +850,7 @@ export default function FundingPage() {
               <ChevronDown className={`w-4 h-4 transition-transform ${paysOpen ? 'rotate-180' : ''}`} />
             </button>
             <Collapsible open={paysOpen}>
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
                 {f.repayments.map((r) => (
                   <div key={r.id} className="flex items-center justify-between gap-2 rounded-xl bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-800/40 px-3 py-2">
                     <div className="min-w-0">
@@ -752,6 +861,44 @@ export default function FundingPage() {
                       <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">{formatCurrency(r.amount)}</span>
                       <button onClick={() => openEditPay(f, r)} className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1.5 rounded-lg" aria-label={t('funding.edit')}><Pencil className="w-3.5 h-3.5" /></button>
                       <button onClick={() => deletePayment(f, r)} className="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-1.5 rounded-lg" aria-label={t('common.delete')}><Trash2 className="w-3.5 h-3.5" /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Collapsible>
+          </div>
+        )}
+
+        {/* Activity log — unified chronological timeline of all pool events */}
+        {activityLog.length > 1 && (
+          <div>
+            <button
+              onClick={() => toggle(setOpenActivity, f.id)}
+              className="w-full flex items-center justify-between gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+              aria-expanded={activityOpen}
+            >
+              <span className="flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5" />{t('funding.activityTitle')}
+                <span className="normal-case tracking-normal text-slate-400 dark:text-slate-500">· {activityLog.length}</span>
+              </span>
+              <ChevronDown className={`w-4 h-4 transition-transform ${activityOpen ? 'rotate-180' : ''}`} />
+            </button>
+            <Collapsible open={activityOpen}>
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
+                {activityLog.map((entry, i) => (
+                  <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60">
+                    <div className={`w-2 h-2 rounded-full shrink-0 ${entry.type === 'spend' ? 'bg-rose-400' : entry.type === 'created' ? 'bg-indigo-400' : 'bg-emerald-400'}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                        {entry.type === 'created' ? t('funding.activityCreated') : entry.type === 'spend' ? t('funding.activitySpend') : entry.type === 'contribution' ? t('funding.activityContrib') : t('funding.activityRepay')}
+                      </p>
+                      <p className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate">{entry.label}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className={`text-xs font-extrabold ${entry.type === 'spend' ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                        {entry.type === 'spend' ? '-' : '+'}{formatCurrency(entry.amount)}
+                      </p>
+                      <p className="text-[10px] font-medium text-slate-400 dark:text-slate-500">{formatDate(entry.date)}</p>
                     </div>
                   </div>
                 ))}
@@ -819,7 +966,59 @@ export default function FundingPage() {
         </Card>
       ) : (
         <div className="space-y-4">
-          {activePools.map((f) => renderPool(f))}
+          {/* "You're Owed" summary banner — shown when any Group Tab has outstanding amounts */}
+          {totalOwedAll > 0 && (
+            <div className="rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 p-4 text-white shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-indigo-200">{t('funding.owedBannerTitle')}</p>
+                  <p className="text-2xl font-black mt-0.5">{formatCurrency(totalOwedAll)}</p>
+                  <p className="text-xs font-medium text-indigo-200 mt-1">
+                    {t('funding.owedBannerSub', {
+                      tabs: owingTabsCount,
+                      tabLabel: owingTabsCount === 1 ? t('funding.tabSingular') : t('funding.tabPlural'),
+                      people: owingPeopleCount,
+                      peopleLabel: owingPeopleCount === 1 ? t('funding.personSingular') : t('funding.personPlural'),
+                    })}
+                  </p>
+                </div>
+                <Sparkles className="w-10 h-10 text-indigo-300 shrink-0 opacity-80" />
+              </div>
+            </div>
+          )}
+
+          {/* Sort & filter bar — only shown when there are multiple pools */}
+          {activePools.length > 1 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              {(['all', 'virtual', 'real', 'action'] as const).map((fk) => (
+                <button
+                  key={fk}
+                  onClick={() => setFilterType(fk)}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-xl border transition-colors ${filterType === fk ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600'}`}
+                >
+                  {fk === 'all' ? t('funding.filterAll') : fk === 'virtual' ? t('funding.filterTabs') : fk === 'real' ? t('funding.filterVaults') : t('funding.filterAction')}
+                </button>
+              ))}
+              <div className="ml-auto">
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as 'recent' | 'owed' | 'az')}
+                  className="h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300 px-3 pr-8 focus:outline-none focus:border-indigo-400 appearance-none"
+                  style={{ backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2364748b' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 0.5rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.25em 1.25em' }}
+                >
+                  <option value="recent">{t('funding.sortRecent')}</option>
+                  <option value="owed">{t('funding.sortOwed')}</option>
+                  <option value="az">{t('funding.sortAZ')}</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          {sortedPools.length === 0 && activePools.length > 0 ? (
+            <p className="text-center text-sm font-medium text-slate-500 dark:text-slate-400 py-6">{t('funding.noPools')}</p>
+          ) : (
+            sortedPools.map((f) => renderPool(f))
+          )}
 
           {/* Archived pools — wrapped-up / fully-settled, tucked behind a toggle */}
           {archivedPools.length > 0 && (
@@ -847,15 +1046,15 @@ export default function FundingPage() {
       {/* ── New pool modal ──────────────────────────────────────────────── */}
       <Modal open={open} onClose={() => setOpen(false)} title={t('funding.newPool')}>
         <div className="space-y-5 pb-4">
-          {/* Kind: virtual budget vs. real cash pool */}
+          {/* Kind: Group Tab (virtual) vs. Group Vault (real cash pool) */}
           <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-slate-100 dark:bg-slate-700/50">
             {(['virtual', 'real'] as const).map((k) => (
               <button
                 key={k}
                 onClick={() => setKind(k)}
-                className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-colors ${kind === k ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}
+                className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-colors ${kind === k ? 'bg-white dark:bg-slate-800 shadow-sm ' + (k === 'real' ? 'text-emerald-600 dark:text-emerald-400' : 'text-indigo-600 dark:text-indigo-400') : 'text-slate-500 dark:text-slate-400'}`}
               >
-                {k === 'real' ? <PiggyBank className="w-4 h-4" /> : <Wallet className="w-4 h-4" />}
+                {k === 'real' ? <Landmark className="w-4 h-4" /> : <Receipt className="w-4 h-4" />}
                 {t(k === 'real' ? 'funding.realPool' : 'funding.virtualPool')}
               </button>
             ))}
@@ -933,9 +1132,34 @@ export default function FundingPage() {
               <Input label={t('funding.amount')} type="text" inputMode="decimal" placeholder="0.00" value={spendAmount} onChange={(e) => setSpendAmount(e.target.value.replace(/[^0-9.]/g, ''))} />
               <div>
                 <Input label={t('funding.myShare')} type="text" inputMode="decimal" placeholder="0.00" value={spendMine} onChange={(e) => setSpendMine(e.target.value.replace(/[^0-9.]/g, ''))} />
+                {!isRealPool(spendFor) && (spendFor.participants.length ?? 0) > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => { const n = spendFor.participants.length; const total = num(spendAmount); if (total > 0 && n > 0) setSpendMine(String(round2(total / n))); }}
+                    className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 px-3 py-1.5 rounded-xl transition-colors mt-1.5 inline-block"
+                  >
+                    {t('funding.splitEqually', { n: spendFor.participants.length })}
+                  </button>
+                )}
                 <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">{t('funding.myShareHint')}</p>
               </div>
               <Input label={t('funding.noteOptional')} placeholder={t('funding.notePlaceholder')} value={spendDesc} onChange={(e) => setSpendDesc(e.target.value)} />
+              <div>
+                <p className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">{t('funding.spendCategory')}</p>
+                <div className="flex flex-wrap gap-2">
+                  {POOL_SPEND_CATEGORIES.map((c) => (
+                    <button
+                      key={c.value}
+                      type="button"
+                      onClick={() => setSpendCategory(c.value)}
+                      className={`text-xs font-bold px-3 py-1.5 rounded-xl border transition-colors ${spendCategory === c.value ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 dark:bg-slate-700/40 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600 hover:border-indigo-300 dark:hover:border-indigo-600'}`}
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <Input label={t('funding.date')} type="date" value={spendDate} onChange={(e) => setSpendDate(e.target.value)} />
             </div>
             <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
               <div className="flex gap-3">
@@ -966,6 +1190,7 @@ export default function FundingPage() {
                 options={depositAccounts.map((a) => ({ value: a.id, label: a.name }))}
                 onChange={(e) => setPayAccount(e.target.value)}
               />
+              <Input label={t('funding.date')} type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} />
             </div>
             <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
               <div className="flex gap-3">
@@ -999,6 +1224,7 @@ export default function FundingPage() {
                   onChange={(e) => setContribAccount(e.target.value)}
                 />
               )}
+              <Input label={t('funding.date')} type="date" value={contribDate} onChange={(e) => setContribDate(e.target.value)} />
             </div>
             <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
               <div className="flex gap-3">
@@ -1027,6 +1253,47 @@ export default function FundingPage() {
               <div className="flex gap-3">
                 <Button variant="secondary" className="flex-1" onClick={() => setMigrateFor(null)}>{t('common.cancel')}</Button>
                 <Button className="flex-1 shadow-sm" onClick={migrateHolding} disabled={saving || !migrateAccount}>{saving ? t('common.saving') : t('funding.migrateButton')}</Button>
+              </div>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      {/* ── Settle-up confirmation: ask user to archive or keep active ───── */}
+      <Modal open={settledFor !== null} onClose={() => confirmSettleArchive(false)} title={t('funding.settledTitle')}>
+        <div className="space-y-5 pb-4">
+          <div className="flex items-center justify-center w-16 h-16 rounded-full bg-emerald-50 dark:bg-emerald-900/20 mx-auto">
+            <PartyPopper className="w-8 h-8 text-emerald-500" />
+          </div>
+          <p className="text-center text-sm font-medium text-slate-500 dark:text-slate-400">{t('funding.settledDesc')}</p>
+        </div>
+        <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+          <div className="flex gap-3">
+            <Button variant="secondary" className="flex-1" onClick={() => confirmSettleArchive(false)} disabled={saving}>{t('funding.settledKeepActive')}</Button>
+            <Button className="flex-1 shadow-sm" onClick={() => confirmSettleArchive(true)} disabled={saving}>{saving ? t('common.saving') : t('funding.settledArchive')}</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Delete pool safety guard: show transaction count before confirming ── */}
+      <Modal open={deleteFor !== null} onClose={() => setDeleteFor(null)} title={t('funding.deleteTitle')}>
+        {deleteFor && (
+          <>
+            <div className="space-y-4 pb-4">
+              <p className="text-base font-bold text-slate-800 dark:text-slate-100">{deleteFor.description}</p>
+              <div className="flex items-start gap-3 rounded-2xl bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-800/40 p-4">
+                <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+                <p className="text-sm font-medium text-rose-800 dark:text-rose-300">
+                  {poolTxCount(deleteFor) > 0
+                    ? t('funding.deleteDesc', { n: poolTxCount(deleteFor) })
+                    : t('funding.deleteDescEmpty')}
+                </p>
+              </div>
+            </div>
+            <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+              <div className="flex gap-3">
+                <Button variant="secondary" className="flex-1" onClick={() => setDeleteFor(null)}>{t('common.cancel')}</Button>
+                <Button variant="danger" className="flex-1" onClick={confirmDeletePool} disabled={saving}>{saving ? t('common.saving') : t('funding.deleteConfirm')}</Button>
               </div>
             </div>
           </>

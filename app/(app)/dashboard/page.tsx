@@ -18,6 +18,7 @@ import { Card, CardHeader, CardTitle, CardIcon, type CardTone } from '@/componen
 import { TrendingUp, TrendingDown, Calendar, PiggyBank, Wallet, BarChart3, ArrowLeftRight, Flame, CalendarDays, CreditCard, Target } from 'lucide-react';
 import { SpendingPieChart, BudgetBars, BudgetVsActualChart, MonthlyBarChart, GoalsSummary, NetWorthTrendChart, HealthBanner, EmergencyFundWidget, FinancialHealthScore, SavingsRateGauge } from './DashboardCharts';
 import { RecentTransactions } from './RecentTransactions';
+import { FundingWidget } from './FundingWidget';
 import type { NetWorthPoint } from './DashboardCharts';
 import { cachedOrFetch } from '@/lib/cache';
 import { AnimatedNumber } from '@/components/ui/AnimatedNumber';
@@ -948,6 +949,9 @@ export default async function DashboardPage() {
             )}
           </div>
         </Card>
+
+        {/* Group Money widget — outstanding tabs & vault progress (client-fetched) */}
+        <FundingWidget />
 
         {/* Recent Transactions */}
         <Card>
