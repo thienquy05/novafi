@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import { CircleDollarSign, Plus, Trash2, Users, Wallet, RefreshCw, AlertCircle, MinusCircle, UserPlus, Pencil, HandCoins, Archive, ArchiveRestore, ChevronDown, PiggyBank, Target } from 'lucide-react';
+import { CircleDollarSign, Plus, Trash2, Users, Wallet, RefreshCw, AlertCircle, MinusCircle, UserPlus, Pencil, HandCoins, Archive, ArchiveRestore, ChevronDown, Receipt, Landmark, PartyPopper, Target } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -77,6 +77,13 @@ export default function FundingPage() {
   const [openPays, setOpenPays] = useState<Set<string>>(new Set());
   const [openContribs, setOpenContribs] = useState<Set<string>>(new Set());
   const [showArchived, setShowArchived] = useState(false);
+
+  // Settle-up confirmation: holds the pending payment state so the user can choose
+  // whether to archive the pool before we commit it to the server.
+  const [settledFor, setSettledFor] = useState<{ pool: Funding; tx: Transaction; removeTxIds: string[]; wasEditing: boolean } | null>(null);
+  // Delete confirmation modal: holds the pool to delete until user confirms.
+  const [deleteFor, setDeleteFor] = useState<Funding | null>(null);
+
   const toggle = (set: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) =>
     set((prev) => {
       const next = new Set(prev);
@@ -373,20 +380,31 @@ export default function FundingPage() {
     const date = editingPay?.date || today();
     const note = t('funding.paymentDesc', { name: payWho, desc: payFor.description });
     const { tx, repayment } = buildRepayTx(payAccount, amount, payWho, note, date);
-    // Link the payback to the payer's stable id so it stays attached if they're renamed.
     const payer = payFor.participants.find((p) => p.name === payWho);
     const removeTxIds = editingPay ? [editingPay.id] : [];
+    const wasEditing = !!editingPay;
     const base: Funding = {
       ...payFor,
       repayments: [...payFor.repayments.filter((r) => r.id !== editingPay?.id), { ...repayment, participantId: payer?.id ?? editingPay?.participantId }],
     };
-    // Auto-archive the moment this payback settles everyone up (only if it wasn't
-    // already wrapped up). Manual archive/reopen below can always override.
-    const justSettled = !base.closed && isFullySettled(base);
-    const updated: Funding = justSettled ? { ...base, closed: true } : base;
-    setFundings((prev) => prev.map((f) => f.id === updated.id ? updated : f));
+    setFundings((prev) => prev.map((f) => f.id === base.id ? base : f));
     setPayFor(null); setEditingPay(null);
-    const successKey = justSettled ? 'funding.poolSettledArchived' : editingPay ? 'funding.paymentUpdated' : 'funding.paymentRecorded';
+    // When the final payback settles everyone, ask the user whether to archive instead
+    // of silently archiving — they may want to keep the pool active for reference.
+    if (!base.closed && isFullySettled(base)) {
+      setSettledFor({ pool: base, tx, removeTxIds, wasEditing });
+    } else {
+      await persist(base, [tx], removeTxIds, wasEditing ? 'funding.paymentUpdated' : 'funding.paymentRecorded');
+    }
+  }
+
+  async function confirmSettleArchive(archive: boolean) {
+    if (!settledFor) return;
+    const { pool, tx, removeTxIds, wasEditing } = settledFor;
+    const updated = archive ? { ...pool, closed: true } : pool;
+    if (archive) setFundings((prev) => prev.map((f) => f.id === updated.id ? updated : f));
+    setSettledFor(null);
+    const successKey = archive ? 'funding.poolSettledArchived' : wasEditing ? 'funding.paymentUpdated' : 'funding.paymentRecorded';
     await persist(updated, [tx], removeTxIds, successKey);
   }
 
@@ -475,8 +493,20 @@ export default function FundingPage() {
     await persist(updated, [], [], closed ? 'funding.poolArchived' : 'funding.poolReopened');
   }
 
-  async function deletePool(f: Funding) {
-    if (!confirm(t('funding.confirmDelete'))) return;
+  // Count how many ledger transactions a pool owns (shown in the delete warning).
+  function poolTxCount(f: Funding): number {
+    return [
+      f.contributionTxId,
+      ...(f.spendTxIds ?? []),
+      ...(f.repayments ?? []).map((r) => r.id),
+      ...(f.contributions ?? []).map((c) => c.id),
+    ].filter(Boolean).length;
+  }
+
+  async function confirmDeletePool() {
+    const f = deleteFor;
+    if (!f) return;
+    setDeleteFor(null);
     setFundings((prev) => prev.filter((x) => x.id !== f.id));
     try {
       const res = await fetch('/api/funding', { method: 'DELETE', body: JSON.stringify({ id: f.id }), headers: { 'Content-Type': 'application/json' } });
@@ -508,7 +538,7 @@ export default function FundingPage() {
     const contributions = f.contributions ?? [];
     const progress = poolProgress(f.totalContributed, f.target);
     return (
-      <Card key={f.id} className={`space-y-4 ${f.closed ? 'opacity-75' : ''}`}>
+      <Card key={f.id} tone={real ? 'emerald' : 'indigo'} className={`space-y-4 ${f.closed ? 'opacity-75' : ''}`}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="font-bold text-slate-900 dark:text-slate-100 truncate flex items-center gap-2">
@@ -520,7 +550,9 @@ export default function FundingPage() {
               )}
             </p>
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1.5">
-              {real ? <PiggyBank className="w-3.5 h-3.5 text-emerald-500" /> : null}
+              {real
+                ? <Landmark className="w-3.5 h-3.5 text-emerald-500" />
+                : <Receipt className="w-3.5 h-3.5 text-indigo-500" />}
               {real ? t('funding.realBadge') : t('funding.virtualBadge')} · {formatDate(f.date)}
             </p>
           </div>
@@ -550,7 +582,7 @@ export default function FundingPage() {
             >
               {f.closed ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
             </Button>
-            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 h-9 w-9 rounded-xl" onClick={() => deletePool(f)}><Trash2 className="w-4 h-4" /></Button>
+            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 h-9 w-9 rounded-xl" onClick={() => setDeleteFor(f)} aria-label={t('common.delete')}><Trash2 className="w-4 h-4" /></Button>
           </div>
         </div>
 
@@ -669,7 +701,7 @@ export default function FundingPage() {
               <ChevronDown className={`w-4 h-4 transition-transform ${spendsOpen ? 'rotate-180' : ''}`} />
             </button>
             <Collapsible open={spendsOpen}>
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
                 {spends.map((s) => (
                   <div key={s.key} className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 px-3 py-2">
                     <div className="min-w-0">
@@ -705,7 +737,7 @@ export default function FundingPage() {
               <ChevronDown className={`w-4 h-4 transition-transform ${contribsOpen ? 'rotate-180' : ''}`} />
             </button>
             <Collapsible open={contribsOpen}>
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
                 {[...contributions].sort((a, b) => b.date.localeCompare(a.date)).map((c) => (
                   <div key={c.id} className="flex items-center justify-between gap-2 rounded-xl bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-800/40 px-3 py-2">
                     <div className="min-w-0">
@@ -741,7 +773,7 @@ export default function FundingPage() {
               <ChevronDown className={`w-4 h-4 transition-transform ${paysOpen ? 'rotate-180' : ''}`} />
             </button>
             <Collapsible open={paysOpen}>
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
                 {f.repayments.map((r) => (
                   <div key={r.id} className="flex items-center justify-between gap-2 rounded-xl bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-800/40 px-3 py-2">
                     <div className="min-w-0">
@@ -847,15 +879,15 @@ export default function FundingPage() {
       {/* ── New pool modal ──────────────────────────────────────────────── */}
       <Modal open={open} onClose={() => setOpen(false)} title={t('funding.newPool')}>
         <div className="space-y-5 pb-4">
-          {/* Kind: virtual budget vs. real cash pool */}
+          {/* Kind: Group Tab (virtual) vs. Group Vault (real cash pool) */}
           <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-slate-100 dark:bg-slate-700/50">
             {(['virtual', 'real'] as const).map((k) => (
               <button
                 key={k}
                 onClick={() => setKind(k)}
-                className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-colors ${kind === k ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}
+                className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-colors ${kind === k ? 'bg-white dark:bg-slate-800 shadow-sm ' + (k === 'real' ? 'text-emerald-600 dark:text-emerald-400' : 'text-indigo-600 dark:text-indigo-400') : 'text-slate-500 dark:text-slate-400'}`}
               >
-                {k === 'real' ? <PiggyBank className="w-4 h-4" /> : <Wallet className="w-4 h-4" />}
+                {k === 'real' ? <Landmark className="w-4 h-4" /> : <Receipt className="w-4 h-4" />}
                 {t(k === 'real' ? 'funding.realPool' : 'funding.virtualPool')}
               </button>
             ))}
@@ -1027,6 +1059,47 @@ export default function FundingPage() {
               <div className="flex gap-3">
                 <Button variant="secondary" className="flex-1" onClick={() => setMigrateFor(null)}>{t('common.cancel')}</Button>
                 <Button className="flex-1 shadow-sm" onClick={migrateHolding} disabled={saving || !migrateAccount}>{saving ? t('common.saving') : t('funding.migrateButton')}</Button>
+              </div>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      {/* ── Settle-up confirmation: ask user to archive or keep active ───── */}
+      <Modal open={settledFor !== null} onClose={() => confirmSettleArchive(false)} title={t('funding.settledTitle')}>
+        <div className="space-y-5 pb-4">
+          <div className="flex items-center justify-center w-16 h-16 rounded-full bg-emerald-50 dark:bg-emerald-900/20 mx-auto">
+            <PartyPopper className="w-8 h-8 text-emerald-500" />
+          </div>
+          <p className="text-center text-sm font-medium text-slate-500 dark:text-slate-400">{t('funding.settledDesc')}</p>
+        </div>
+        <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+          <div className="flex gap-3">
+            <Button variant="secondary" className="flex-1" onClick={() => confirmSettleArchive(false)} disabled={saving}>{t('funding.settledKeepActive')}</Button>
+            <Button className="flex-1 shadow-sm" onClick={() => confirmSettleArchive(true)} disabled={saving}>{saving ? t('common.saving') : t('funding.settledArchive')}</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Delete pool safety guard: show transaction count before confirming ── */}
+      <Modal open={deleteFor !== null} onClose={() => setDeleteFor(null)} title={t('funding.deleteTitle')}>
+        {deleteFor && (
+          <>
+            <div className="space-y-4 pb-4">
+              <p className="text-base font-bold text-slate-800 dark:text-slate-100">{deleteFor.description}</p>
+              <div className="flex items-start gap-3 rounded-2xl bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-800/40 p-4">
+                <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+                <p className="text-sm font-medium text-rose-800 dark:text-rose-300">
+                  {poolTxCount(deleteFor) > 0
+                    ? t('funding.deleteDesc', { n: poolTxCount(deleteFor) })
+                    : t('funding.deleteDescEmpty')}
+                </p>
+              </div>
+            </div>
+            <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+              <div className="flex gap-3">
+                <Button variant="secondary" className="flex-1" onClick={() => setDeleteFor(null)}>{t('common.cancel')}</Button>
+                <Button variant="danger" className="flex-1" onClick={confirmDeletePool} disabled={saving}>{saving ? t('common.saving') : t('funding.deleteConfirm')}</Button>
               </div>
             </div>
           </>

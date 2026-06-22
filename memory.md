@@ -2,6 +2,30 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-22 — Funding section redesign (branch claude/confident-darwin-n5b8n6)
+
+### Core bug fix: deleting a pool no longer deletes the linked bank account
+`app/api/funding/route.ts` DELETE handler now checks `account.type === 'pool'` before calling `deleteAccount`. Only legacy auto-created `pool`-type holding accounts are deleted; real `checking`/`savings`/`cash` accounts the user chose are left untouched.
+
+### Pool type rename
+- `virtual` pool → **Group Tab** (you front the money, group pays you back)
+- `real` pool → **Group Vault** (actual cash pooled in a chosen account)
+Updated `locales/en.json`: `virtualPool`, `virtualBadge`, `realPool`, `realBadge`, `subtitle`, `emptyDesc`, `virtualHint`, `realHint`, `poolSettledArchived`. Added `settledTitle`, `settledDesc`, `settledArchive`, `settledKeepActive`, `deleteTitle`, `deleteDesc`, `deleteDescEmpty`, `deleteConfirm`.
+
+### Auto-archive confirmation dialog
+`recordPayment()` no longer silently archives on full settlement. Instead it defers via new `settledFor` state. A `PartyPopper` modal asks "Everyone's settled up! Archive this tab?" with [Keep active] / [Archive tab]. `confirmSettleArchive(archive: boolean)` handles both paths with the correct success toast.
+
+### Delete safety guard modal
+Removed native `confirm()`. New `setDeleteFor(f)` stores the pool, and `confirmDeletePool()` handles the actual deletion. The modal shows the pool name + a warning with the exact number of transactions that will be reversed (`poolTxCount(f)` helper). Uses `Button variant="danger"`.
+
+### History collapsible scroll
+All three expandable history lists (spends, contributions, repayments) now use `max-h-48 overflow-y-auto pr-0.5` so the list scrolls inside the card instead of expanding the whole page.
+
+### UI refresh
+- Removed `PiggyBank` icon; added `Receipt` (Group Tab) and `Landmark` (Group Vault) from lucide-react.
+- Pool cards are now `tone="indigo"` for Group Tab and `tone="emerald"` for Group Vault.
+- New-pool type selector shows per-type icon + color when active.
+
 ## 2026-06-18 — CI lint fix: React Compiler couldn't preserve the funding useMemos (branch claude/funding-pool-money-flow-9y4f9f)
 
 CI's `lint` job failed (1 error) after the funding changes: `react-hooks/preserve-manual-memoization` — "Could not preserve existing memoization" on `depositAccounts = useMemo(...)`. Once the new migrate/contribution/edit handlers consumed `depositAccounts`/`chargeAccounts`, the React Compiler could no longer keep their manual `useMemo`. Verified master had 0 errors, so it was introduced here. Fix: compute `chargeAccounts`/`depositAccounts` as plain derived consts (the React Compiler auto-memoizes them) and drop the now-unused `useMemo` import in `app/(app)/funding/page.tsx`. Also asserted `expect(addTxs).toEqual([])` in the rename test to clear an unused-var warning. `npm run lint` now 0 errors (29 pre-existing warnings, same as master); typecheck clean; 576 tests pass.
