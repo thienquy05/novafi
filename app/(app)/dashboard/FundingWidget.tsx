@@ -5,18 +5,18 @@ import { Card } from '@/components/ui/Card';
 import { ensureResources } from '@/lib/client/store';
 import { formatCurrency } from '@/lib/utils';
 import { totalOwed, isRealPool, poolProgress } from '@/lib/funding';
-import type { Funding, Transaction } from '@/types';
+import { useTranslation } from '@/lib/i18n/context';
+import type { Funding } from '@/types';
 
 export function FundingWidget() {
+  const { t } = useTranslation();
   const [fundings, setFundings] = useState<Funding[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [ready, setReady] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const data = await ensureResources(['funding', 'transactions']);
+      const data = await ensureResources(['funding']);
       setFundings(data.funding);
-      setTransactions(data.transactions);
     } finally {
       setReady(true);
     }
@@ -32,7 +32,7 @@ export function FundingWidget() {
 
   const totalOwedAll = tabs.reduce((s, f) => s + totalOwed(f), 0);
   const outstandingTabs = tabs.filter((f) => totalOwed(f) > 0);
-  const activeVaults = vaults.filter((f) => f.target && f.target > 0);
+  const vaultsWithGoal = vaults.filter((f) => f.target && f.target > 0);
 
   if (active.length === 0) return null;
 
@@ -44,7 +44,7 @@ export function FundingWidget() {
             <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center">
               <CircleDollarSign className="w-4 h-4 text-indigo-500" />
             </div>
-            <p className="text-sm font-bold text-slate-700 dark:text-slate-300">Group Money</p>
+            <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{t('funding.title')}</p>
           </div>
           <ArrowRight className="w-4 h-4 text-slate-400 dark:text-slate-500" />
         </div>
@@ -57,15 +57,15 @@ export function FundingWidget() {
                 <div className="flex items-center gap-1.5">
                   <Receipt className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                   <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                    {tabs.length} Group {tabs.length === 1 ? 'Tab' : 'Tabs'}
+                    {tabs.length} {t(tabs.length === 1 ? 'funding.tabSingular' : 'funding.tabPlural')}
                   </span>
                 </div>
                 {totalOwedAll > 0 ? (
                   <span className="text-sm font-extrabold text-indigo-600 dark:text-indigo-400">
-                    {formatCurrency(totalOwedAll)} owed
+                    {formatCurrency(totalOwedAll)} {t('funding.owedBannerTitle').toLowerCase()}
                   </span>
                 ) : (
-                  <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">All settled ✓</span>
+                  <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">{t('funding.settledUp')}</span>
                 )}
               </div>
               {outstandingTabs.length > 0 && (
@@ -77,7 +77,7 @@ export function FundingWidget() {
                     </div>
                   ))}
                   {outstandingTabs.length > 2 && (
-                    <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500">+{outstandingTabs.length - 2} more</p>
+                    <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500">+{outstandingTabs.length - 2} {t('funding.tabPlural')}</p>
                   )}
                 </div>
               )}
@@ -85,16 +85,16 @@ export function FundingWidget() {
           )}
 
           {/* Group Vaults summary */}
-          {activeVaults.length > 0 && (
+          {vaultsWithGoal.length > 0 && (
             <div className="rounded-xl bg-emerald-50/60 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 px-3 py-2.5">
               <div className="flex items-center gap-1.5 mb-2">
                 <Landmark className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                 <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                  {activeVaults.length} Group {activeVaults.length === 1 ? 'Vault' : 'Vaults'}
+                  {vaults.length} {t('funding.realBadge')}
                 </span>
               </div>
               <div className="space-y-2">
-                {activeVaults.slice(0, 2).map((f) => {
+                {vaultsWithGoal.slice(0, 2).map((f) => {
                   const pct = poolProgress(f.totalContributed, f.target) ?? 0;
                   return (
                     <div key={f.id}>
@@ -116,11 +116,11 @@ export function FundingWidget() {
           )}
 
           {/* Vaults without goals */}
-          {vaults.length > activeVaults.length && (
+          {vaults.length > 0 && vaultsWithGoal.length === 0 && (
             <div className="flex items-center gap-1.5">
               <Landmark className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
               <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                {vaults.filter((f) => !f.target).length} vault{vaults.filter((f) => !f.target).length !== 1 ? 's' : ''} saving
+                {vaults.length} {t('funding.realBadge')} {t('funding.balance').toLowerCase()}
               </span>
             </div>
           )}
