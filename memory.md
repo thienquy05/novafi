@@ -2,6 +2,11 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-23 — Subscriptions summary cards: cleaner alignment (branch claude/ui-update-pmzt1p)
+
+**Summary card layout** (`app/(app)/subscriptions/page.tsx`)
+The three summary cards (Monthly Cost / Yearly Cost / Active Subscriptions) used a plain block layout. Because the "Active Subscriptions" label is longer and wraps to two lines (while the other two stay on one), its number sat lower than the other two cards' numbers, making the row look misaligned and cramped. Switched each `Card` to `flex flex-col`, made the label `flex-1` (so it fills the space above the value), and bumped the label's bottom gap from `mb-1` to `mb-2`. Now the numbers align on a shared bottom baseline across all three cards regardless of how many lines each label wraps to — robust for both EN and VI label lengths. Pure UI change; no logic touched.
+
 ## 2026-06-22 — Subscriptions UI: label & text alignment fixes (branch claude/subscription-title-text-alignment-da8og6)
 
 **1. Third summary card label** (`app/(app)/subscriptions/page.tsx`)

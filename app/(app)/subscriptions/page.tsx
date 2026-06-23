@@ -255,16 +255,16 @@ export default function SubscriptionsPage() {
       {/* Summary cards — shown once there's something to summarise */}
       {activeSubs.length > 0 && (
         <div className="grid grid-cols-3 gap-3">
-          <Card className="p-4 text-center">
-            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">{t('subscriptions.monthlyCost')}</p>
+          <Card className="p-4 text-center flex flex-col">
+            <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">{t('subscriptions.monthlyCost')}</p>
             <p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(monthlyTotal)}</p>
           </Card>
-          <Card className="p-4 text-center">
-            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">{t('subscriptions.yearlyCost')}</p>
+          <Card className="p-4 text-center flex flex-col">
+            <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">{t('subscriptions.yearlyCost')}</p>
             <p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(monthlyTotal * 12)}</p>
           </Card>
-          <Card className="p-4 text-center">
-            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">{t('subscriptions.activeSubscriptions')}</p>
+          <Card className="p-4 text-center flex flex-col">
+            <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">{t('subscriptions.activeSubscriptions')}</p>
             <p className="text-xl font-extrabold text-indigo-600 dark:text-indigo-400">{activeSubs.length}</p>
           </Card>
         </div>
