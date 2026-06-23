@@ -1093,6 +1093,7 @@
     "emptyBody": "Add your first subscription — streaming, software, memberships — and NovaFi will track what you're spending and flag ones you might want to cancel.",
     "monthlyCost": "Monthly Cost",
     "yearlyCost": "Yearly Cost",
+    "activeSubscriptions": "Active Subscriptions",
     "activeCount": "{n} active",
     "merchant": "Service / Merchant",
     "merchantPlaceholder": "e.g. Netflix, Spotify",

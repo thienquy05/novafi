@@ -1093,6 +1093,7 @@
     "emptyBody": "Thêm đăng ký đầu tiên — streaming, phần mềm, thành viên — và NovaFi sẽ theo dõi chi tiêu và phát hiện những dịch vụ bạn có thể hủy.",
     "monthlyCost": "Chi phí hàng tháng",
     "yearlyCost": "Chi phí hàng năm",
+    "activeSubscriptions": "Gói đang hoạt động",
     "activeCount": "{n} đang hoạt động",
     "merchant": "Dịch vụ / Nhà cung cấp",
     "merchantPlaceholder": "vd: Netflix, Spotify",
