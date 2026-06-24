@@ -88,7 +88,9 @@
     "icon": "Biểu tượng",
     "optional": "tùy chọn",
     "deleteConfirm": "Bạn có chắc không?",
-    "netSavings": "Tiết kiệm ròng"
+    "netSavings": "Tiết kiệm ròng",
+    "showAllCount": "Xem tất cả ({count})",
+    "showLess": "Thu gọn"
   },
   "login": {
     "tagline": "Quản lý tài sản, được định nghĩa lại.",

@@ -88,7 +88,9 @@
     "icon": "Icon",
     "optional": "optional",
     "deleteConfirm": "Are you sure?",
-    "netSavings": "Net Savings"
+    "netSavings": "Net Savings",
+    "showAllCount": "Show all ({count})",
+    "showLess": "Show less"
   },
   "login": {
     "tagline": "Wealth management, redefined.",

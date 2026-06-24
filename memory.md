@@ -2,6 +2,18 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-24 — Cap rendered rows in Funding pool history lists (branch claude/sweet-wright-ujh086)
+
+**Follow-up to the targeted-load change below.** That fix bounded the *network* payload (only a pool's owned ledger rows are fetched). This one bounds the *DOM*: expanding a pool with a long history (spends / payments / contributions / activity) previously rendered **every** row at once. With 100+ entries that's a lot of nodes per expanded card.
+
+**`CappedList` wrapper** (`app/(app)/funding/page.tsx`)
+Added a small presentational component + `HISTORY_CAP = 20`. It keeps the existing scrollable container (`max-h-48 overflow-y-auto`) but renders at most `HISTORY_CAP` of its children, with a "Show all (N) / Show less" toggle below when there are more. Children are the already-keyed row elements (`Children.toArray` → `slice`), so capping never reorders or re-keys anything and each list keeps its own independent toggle state. Wrapped all four per-pool history lists (spends, contributions, repayments, activity) — each passes a localized `moreLabel`/`lessLabel`. Imported `Children, type ReactNode`.
+
+**Locales** (`locales/en.json`, `locales/vi.json`)
+Added reusable `common.showAllCount` ("Show all ({count})" / "Xem tất cả ({count})") and `common.showLess` ("Show less" / "Thu gọn"). (Both files must stay in sync — `t()` types `vi` as `typeof en`.)
+
+`tsc --noEmit` clean; `eslint` 0 errors; `vitest` 580 passing; `next build` succeeds.
+
 ## 2026-06-24 — Stop feature pages loading the whole ledger to show settled history (branch claude/sweet-wright-ujh086)
 
 **Problem.** Settling a Loan/Split/Bill/Funding item writes a row to the Transactions sheet (correct). But the pages that show those settled items pulled the **entire** Transactions sheet just to resolve the handful of rows they reference when you expand the history. Fine at 10–20 settled payments, increasingly wasteful toward 100+ as the ledger grows without bound. Goal: reduce the transactions loaded for these views.
