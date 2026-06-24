@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Children, type ReactNode } from 'react';
 import { CircleDollarSign, Plus, Trash2, Users, Wallet, RefreshCw, AlertCircle, MinusCircle, UserPlus, Pencil, HandCoins, Archive, ArchiveRestore, ChevronDown, Receipt, Landmark, PartyPopper, Target, Share2, Sparkles, Clock, SlidersHorizontal, CalendarDays } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
@@ -12,6 +12,7 @@ import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { peekCache, ensureResources } from '@/lib/client/store';
+import { loadTransactionsByIds } from '@/lib/client/api';
 import { useToast } from '@/lib/toast';
 import { useTranslation } from '@/lib/i18n/context';
 import type { Account, Funding, FundingContribution, FundingParticipant, FundingRepayment, Transaction } from '@/types';
@@ -20,7 +21,7 @@ import {
   buildSpendTxs, buildRepayTx, groupFundingSpends, participantOwed, participantRepaid, totalOwed,
   totalRepaid, isFullySettled,
   isRealPool, buildPoolContributionTx, participantsFromContributions, contributionsTotal, poolProgress,
-  repointRealPoolAccount, planVirtualPoolEdit, buildPoolActivity,
+  repointRealPoolAccount, planVirtualPoolEdit, buildPoolActivity, referencedTxIds,
   type FundingSpend, type FundingActivity,
 } from '@/lib/funding';
 import { applyTransactionToBalances } from '@/lib/calculations';
@@ -44,13 +45,48 @@ const POOL_SPEND_CATEGORIES = [
   { value: 'Other', label: '📦 Other' },
 ] as const;
 
+// How many rows a pool's history list (spends / payments / contributions /
+// activity) renders before a "Show all" reveal. Each list is already scrollable,
+// but capping the rendered rows keeps the DOM light when a single pool builds up
+// a long history over time — only the most recent few matter at a glance.
+const HISTORY_CAP = 20;
+
+// Wraps a scrollable history list: renders at most HISTORY_CAP children, with a
+// toggle to reveal the rest. The children are pre-keyed elements (one per row),
+// so slicing them never reorders or re-keys anything.
+function CappedList({ moreLabel, lessLabel, children }: {
+  moreLabel: string;  // localized, e.g. "Show all (100)"
+  lessLabel: string;  // localized, e.g. "Show less"
+  children: ReactNode;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const items = Children.toArray(children);
+  const shown = showAll ? items : items.slice(0, HISTORY_CAP);
+  return (
+    <>
+      <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">{shown}</div>
+      {items.length > HISTORY_CAP && (
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          className="w-full text-center text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 py-1.5 transition-colors"
+        >
+          {showAll ? lessLabel : moreLabel}
+        </button>
+      )}
+    </>
+  );
+}
+
 export default function FundingPage() {
   const { t } = useTranslation();
   const toast = useToast();
   const [fundings, setFundings] = useState<Funding[]>(() => peekCache(['funding'])?.funding ?? []);
   const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
-  const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
-  const [loading, setLoading] = useState(() => peekCache(['funding', 'accounts', 'transactions']) === null);
+  // Only the ledger rows the pools reference (spends + contributions) live here —
+  // never the whole Transactions sheet. Filled by `load` via loadTransactionsByIds.
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(() => peekCache(['funding', 'accounts']) === null);
   const [error, setError] = useState(false);
 
   // New-pool modal
@@ -134,10 +170,14 @@ export default function FundingPage() {
 
   const load = useCallback(async (force = false) => {
     try {
-      const data = await ensureResources(['funding', 'accounts', 'transactions'], { force });
+      const data = await ensureResources(['funding', 'accounts'], { force });
       setFundings(data.funding);
       setAccounts(data.accounts);
-      setTransactions(data.transactions);
+      // Resolve only the ledger rows these pools reference (spends + the legacy
+      // contribution row + real-pool cash-ins) instead of pulling the entire
+      // Transactions sheet — keeps the page light no matter how many settled
+      // payments have piled up in the ledger over time.
+      setTransactions(await loadTransactionsByIds(referencedTxIds(data.funding)));
       setError(false);
     } catch {
       setError(true);
@@ -784,7 +824,7 @@ export default function FundingPage() {
               <ChevronDown className={`w-4 h-4 transition-transform ${spendsOpen ? 'rotate-180' : ''}`} />
             </button>
             <Collapsible open={spendsOpen}>
-              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
+              <CappedList moreLabel={t('common.showAllCount', { count: spends.length })} lessLabel={t('common.showLess')}>
                 {spends.map((s) => (
                   <div key={s.key} className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 px-3 py-2">
                     <div className="min-w-0">
@@ -805,7 +845,7 @@ export default function FundingPage() {
                     </div>
                   </div>
                 ))}
-              </div>
+              </CappedList>
             </Collapsible>
           </div>
         )}
@@ -825,7 +865,7 @@ export default function FundingPage() {
               <ChevronDown className={`w-4 h-4 transition-transform ${contribsOpen ? 'rotate-180' : ''}`} />
             </button>
             <Collapsible open={contribsOpen}>
-              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
+              <CappedList moreLabel={t('common.showAllCount', { count: contributions.length })} lessLabel={t('common.showLess')}>
                 {[...contributions].sort((a, b) => b.date.localeCompare(a.date)).map((c) => (
                   <div key={c.id} className="flex items-center justify-between gap-2 rounded-xl bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-800/40 px-3 py-2">
                     <div className="min-w-0">
@@ -841,7 +881,7 @@ export default function FundingPage() {
                     </div>
                   </div>
                 ))}
-              </div>
+              </CappedList>
             </Collapsible>
           </div>
         )}
@@ -861,7 +901,7 @@ export default function FundingPage() {
               <ChevronDown className={`w-4 h-4 transition-transform ${paysOpen ? 'rotate-180' : ''}`} />
             </button>
             <Collapsible open={paysOpen}>
-              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
+              <CappedList moreLabel={t('common.showAllCount', { count: f.repayments.length })} lessLabel={t('common.showLess')}>
                 {f.repayments.map((r) => (
                   <div key={r.id} className="flex items-center justify-between gap-2 rounded-xl bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-800/40 px-3 py-2">
                     <div className="min-w-0">
@@ -875,7 +915,7 @@ export default function FundingPage() {
                     </div>
                   </div>
                 ))}
-              </div>
+              </CappedList>
             </Collapsible>
           </div>
         )}
@@ -895,7 +935,7 @@ export default function FundingPage() {
               <ChevronDown className={`w-4 h-4 transition-transform ${activityOpen ? 'rotate-180' : ''}`} />
             </button>
             <Collapsible open={activityOpen}>
-              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
+              <CappedList moreLabel={t('common.showAllCount', { count: activityLog.length })} lessLabel={t('common.showLess')}>
                 {activityLog.map((entry, i) => (
                   <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60">
                     <div className={`w-2 h-2 rounded-full shrink-0 ${entry.type === 'spend' ? 'bg-rose-400' : entry.type === 'created' ? 'bg-indigo-400' : 'bg-emerald-400'}`} />
@@ -913,7 +953,7 @@ export default function FundingPage() {
                     </div>
                   </div>
                 ))}
-              </div>
+              </CappedList>
             </Collapsible>
           </div>
         )}

@@ -38,3 +38,19 @@ export async function loadBatch<K extends BatchKey>(
   if (!res.ok) throw new Error(`batch load failed: ${res.status}`);
   return res.json() as Promise<Pick<BatchData, K>>;
 }
+
+/**
+ * Fetch ONLY the given transaction rows by id (one targeted GET).
+ *
+ * Feature pages whose records reference a handful of ledger rows (e.g. Funding,
+ * which links each pool to its spend/contribution transactions) use this to
+ * resolve just those rows — instead of loading the entire `transactions`
+ * resource, which grows without bound as settled payments accumulate. Returns
+ * `[]` for an empty id list without a round trip.
+ */
+export async function loadTransactionsByIds(ids: readonly string[]): Promise<Transaction[]> {
+  if (ids.length === 0) return [];
+  const res = await fetch(`/api/transactions?ids=${ids.map(encodeURIComponent).join(',')}`);
+  if (!res.ok) throw new Error(`transactions load failed: ${res.status}`);
+  return res.json() as Promise<Transaction[]>;
+}

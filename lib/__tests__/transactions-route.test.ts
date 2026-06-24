@@ -65,6 +65,21 @@ describe('GET /api/transactions (cachedGet)', () => {
     await GET(req('GET'));
     expect(sheets.getTransactions).toHaveBeenCalledTimes(1); // served from cache the 2nd time
   });
+
+  it('?ids= returns only the requested rows, filtered off the cached list', async () => {
+    const txs = [makeTx({ id: 't1' }), makeTx({ id: 't2' }), makeTx({ id: 't3' })];
+    (sheets.getTransactions as ReturnType<typeof vi.fn>).mockResolvedValue(txs);
+    const r = new Request('http://test/api/transactions?ids=t3,t1') as unknown as Parameters<typeof GET>[0];
+    const res = await GET(r);
+    // Order follows the ledger, not the query string; t2 (unrequested) is dropped.
+    expect(await res.json()).toEqual([txs[0], txs[2]]);
+  });
+
+  it('?ids= with an empty value returns [] (no rows requested)', async () => {
+    (sheets.getTransactions as ReturnType<typeof vi.fn>).mockResolvedValue([makeTx({ id: 't1' })]);
+    const r = new Request('http://test/api/transactions?ids=') as unknown as Parameters<typeof GET>[0];
+    expect(await (await GET(r)).json()).toEqual([]);
+  });
 });
 
 describe('POST /api/transactions (add → returns recomputed balances)', () => {

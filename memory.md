@@ -2,6 +2,41 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-24 — Cap rendered rows in Funding pool history lists (branch claude/sweet-wright-ujh086)
+
+**Follow-up to the targeted-load change below.** That fix bounded the *network* payload (only a pool's owned ledger rows are fetched). This one bounds the *DOM*: expanding a pool with a long history (spends / payments / contributions / activity) previously rendered **every** row at once. With 100+ entries that's a lot of nodes per expanded card.
+
+**`CappedList` wrapper** (`app/(app)/funding/page.tsx`)
+Added a small presentational component + `HISTORY_CAP = 20`. It keeps the existing scrollable container (`max-h-48 overflow-y-auto`) but renders at most `HISTORY_CAP` of its children, with a "Show all (N) / Show less" toggle below when there are more. Children are the already-keyed row elements (`Children.toArray` → `slice`), so capping never reorders or re-keys anything and each list keeps its own independent toggle state. Wrapped all four per-pool history lists (spends, contributions, repayments, activity) — each passes a localized `moreLabel`/`lessLabel`. Imported `Children, type ReactNode`.
+
+**Locales** (`locales/en.json`, `locales/vi.json`)
+Added reusable `common.showAllCount` ("Show all ({count})" / "Xem tất cả ({count})") and `common.showLess` ("Show less" / "Thu gọn"). (Both files must stay in sync — `t()` types `vi` as `typeof en`.)
+
+`tsc --noEmit` clean; `eslint` 0 errors; `vitest` 580 passing; `next build` succeeds.
+
+## 2026-06-24 — Stop feature pages loading the whole ledger to show settled history (branch claude/sweet-wright-ujh086)
+
+**Problem.** Settling a Loan/Split/Bill/Funding item writes a row to the Transactions sheet (correct). But the pages that show those settled items pulled the **entire** Transactions sheet just to resolve the handful of rows they reference when you expand the history. Fine at 10–20 settled payments, increasingly wasteful toward 100+ as the ledger grows without bound. Goal: reduce the transactions loaded for these views.
+
+**1. Targeted "by ids" transaction read** (`app/api/transactions/route.ts`)
+`GET /api/transactions` now accepts an optional `?ids=a,b,c` query param and returns only those rows. No param → the full ledger as before (back-compat). It filters off the **same** cached full list (`cachedOrFetch` under the `transactions:<sheet>` key), so it costs no extra Sheets quota and stays consistent with the invalidation the POST/PUT/DELETE handlers already do. Rewrote the handler from `cachedGet({...})` to `withSession(...)` + `cachedOrFetch(...)` so it can post-filter; reads params via `new URL(req.url).searchParams` (works for both `NextRequest` and a plain `Request`, which the route tests use). Imports `cachedOrFetch`; dropped the now-unused `cachedGet` import.
+
+**2. Client helper** (`lib/client/api.ts`)
+Added `loadTransactionsByIds(ids)` — one targeted GET to `/api/transactions?ids=…` (url-encoded, deduped by caller). Returns `[]` for an empty id list without a round trip. Type-only `Transaction` import already present.
+
+**3. Funding pages referenced-row set** (`lib/funding.ts`)
+Added pure, unit-tested `referencedTxIds(fundings)` → the deduped set of ledger rows the pools OWN: each pool's `spendTxIds`, the legacy `contributionTxId`, each repayment (`FundingRepay`) id, and a real pool's `contributions[].id`. This is exactly the set `poolTxCount` counts. Spends/contributions feed the spend & activity lists; repayment rows are included because the page reverses them optimistically when a payback is edited/deleted or a paid participant is dropped (`applyRows`).
+
+**4. Funding page targeted load** (`app/(app)/funding/page.tsx`)
+`load()` now fetches only `['funding','accounts']` via the batch, then resolves just `referencedTxIds(funding)` through `loadTransactionsByIds` into local `transactions` state (no longer seeded from `peekCache(['transactions'])`, which would be the whole sheet). Everything downstream (`groupFundingSpends`, `buildPoolActivity`, `repointRealPoolAccount`, `planVirtualPoolEdit`, `applyRows`) only ever looks up owned rows, so it keeps working — now bounded by funding activity instead of the global ledger. `loading` gate switched to `peekCache(['funding','accounts'])`. The post-mutation `await load(true)` re-derives ids from the fresh funding records, so new spends/paybacks stay in lockstep.
+
+**5. Bills page: drop a dead full-ledger load** (`app/(app)/bills/page.tsx`)
+The page batch-loaded `transactions` and set state, but the array was **never read** — settled-split history is derived entirely from the bounded `splits` records. Removed `transactions` from `peekCache`, `ensureResources`, the state, and `setTransactions`, so visiting Bills no longer pulls the whole ledger. (`Transaction` type still used for the pay/split builders, import kept.) Note: this no longer warms the transactions client-cache for a later Transactions-page visit — an acceptable trade for not loading the ledger here.
+
+Loans/one-off Splits live on the Transactions page, which loads the full ledger by design (it IS the ledger), so no change there.
+
+**Tests / verification.** Added `?ids=` coverage to `lib/__tests__/transactions-route.test.ts` (subset filter + empty-list → `[]`) and `referencedTxIds` coverage to `lib/__tests__/funding.test.ts` (spend/contribution/payback/cash-in union + dedup, empty pool). `tsc --noEmit` clean; `eslint` 0 errors (only pre-existing load-effect/purity warnings); `vitest` **580 passing**.
+
 ## 2026-06-23 — Subscriptions summary cards: cleaner alignment (branch claude/ui-update-pmzt1p)
 
 **Summary card layout** (`app/(app)/subscriptions/page.tsx`)

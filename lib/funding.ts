@@ -387,6 +387,24 @@ export interface FundingSpend {
   category: string;     // expense category chosen by the user (falls back to 'Other')
 }
 
+// Every ledger row a set of pools OWNS — the same set poolTxCount counts: each
+// pool's spend rows, the legacy upfront others-contribution row, each payback
+// (FundingRepay) row, and a real pool's itemized cash-ins. The Funding page
+// resolves just these by id (see loadTransactionsByIds) rather than loading the
+// whole Transactions sheet: spends/contributions feed the spend & activity lists,
+// while repayment rows are needed to optimistically reverse a balance when a
+// payback is edited/deleted or a paid participant is dropped. Deduped.
+export function referencedTxIds(fundings: Funding[]): string[] {
+  const ids = new Set<string>();
+  for (const f of fundings) {
+    if (f.contributionTxId) ids.add(f.contributionTxId);
+    for (const id of f.spendTxIds ?? []) if (id) ids.add(id);
+    for (const r of f.repayments ?? []) if (r.id) ids.add(r.id);
+    for (const c of f.contributions ?? []) if (c.id) ids.add(c.id);
+  }
+  return [...ids];
+}
+
 export function groupFundingSpends(spendTxIds: string[], transactions: Transaction[]): FundingSpend[] {
   const linked = new Set(spendTxIds);
   const rows = transactions.filter((t) => linked.has(t.id));
