@@ -5,7 +5,7 @@ import {
   buildRepayTx, groupFundingSpends, participantOwed, participantRepaid, totalOwed,
   isFullySettled, FUNDING_REPAY_CATEGORY,
   isRealPool, buildPoolContributionTx, participantsFromContributions, contributionsTotal, poolProgress,
-  repointRealPoolAccount, planVirtualPoolEdit,
+  repointRealPoolAccount, planVirtualPoolEdit, referencedTxIds,
 } from '@/lib/funding';
 import { applyTransactionToBalances, calcFundingHeld, calcFundingHeldByAccount } from '@/lib/calculations';
 import type { Account, Funding, FundingContribution, FundingParticipant, FundingRepayment, Transaction } from '@/types';
@@ -529,5 +529,27 @@ describe('planVirtualPoolEdit', () => {
     expect(removeTxIds).toEqual(['ctx1']);
     expect(addTxs).toEqual([]);                        // nobody else → no held cash
     expect(funding.contributionTxId).toBe('');
+  });
+});
+
+describe('referencedTxIds', () => {
+  it('gathers spend, contribution-row, payback and real-pool cash-in ids, deduped', () => {
+    const real = makePool({
+      id: 'f2', kind: 'real', contributionTxId: '', spendTxIds: ['stx2', 'stx3'],
+      contributions: [
+        { id: 'cb1', participant: 'Me', amount: 50, isMe: true, account: 'acc1', date: '2026-06-09' },
+        { id: 'cb2', participant: 'Alex', amount: 50, isMe: false, account: '', date: '2026-06-09' },
+      ],
+    });
+    const virtual = makePool({
+      repayments: [{ id: 'rp1', participant: 'Alex', amount: 20, account: 'acc1', date: '2026-06-09' }],
+    });
+    const ids = referencedTxIds([virtual, real]).sort();
+    // stx2 appears in both pools → deduped; ctx1 + rp1 from the virtual pool; cb1/cb2 cash-ins.
+    expect(ids).toEqual(['cb1', 'cb2', 'ctx1', 'rp1', 'stx1', 'stx2', 'stx3']);
+  });
+
+  it('returns [] for pools with no linked rows', () => {
+    expect(referencedTxIds([makePool({ contributionTxId: '', spendTxIds: [], repayments: [] })])).toEqual([]);
   });
 });

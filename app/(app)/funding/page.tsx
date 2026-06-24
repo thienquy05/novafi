@@ -12,6 +12,7 @@ import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { peekCache, ensureResources } from '@/lib/client/store';
+import { loadTransactionsByIds } from '@/lib/client/api';
 import { useToast } from '@/lib/toast';
 import { useTranslation } from '@/lib/i18n/context';
 import type { Account, Funding, FundingContribution, FundingParticipant, FundingRepayment, Transaction } from '@/types';
@@ -20,7 +21,7 @@ import {
   buildSpendTxs, buildRepayTx, groupFundingSpends, participantOwed, participantRepaid, totalOwed,
   totalRepaid, isFullySettled,
   isRealPool, buildPoolContributionTx, participantsFromContributions, contributionsTotal, poolProgress,
-  repointRealPoolAccount, planVirtualPoolEdit, buildPoolActivity,
+  repointRealPoolAccount, planVirtualPoolEdit, buildPoolActivity, referencedTxIds,
   type FundingSpend, type FundingActivity,
 } from '@/lib/funding';
 import { applyTransactionToBalances } from '@/lib/calculations';
@@ -49,8 +50,10 @@ export default function FundingPage() {
   const toast = useToast();
   const [fundings, setFundings] = useState<Funding[]>(() => peekCache(['funding'])?.funding ?? []);
   const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
-  const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
-  const [loading, setLoading] = useState(() => peekCache(['funding', 'accounts', 'transactions']) === null);
+  // Only the ledger rows the pools reference (spends + contributions) live here —
+  // never the whole Transactions sheet. Filled by `load` via loadTransactionsByIds.
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(() => peekCache(['funding', 'accounts']) === null);
   const [error, setError] = useState(false);
 
   // New-pool modal
@@ -134,10 +137,14 @@ export default function FundingPage() {
 
   const load = useCallback(async (force = false) => {
     try {
-      const data = await ensureResources(['funding', 'accounts', 'transactions'], { force });
+      const data = await ensureResources(['funding', 'accounts'], { force });
       setFundings(data.funding);
       setAccounts(data.accounts);
-      setTransactions(data.transactions);
+      // Resolve only the ledger rows these pools reference (spends + the legacy
+      // contribution row + real-pool cash-ins) instead of pulling the entire
+      // Transactions sheet — keeps the page light no matter how many settled
+      // payments have piled up in the ledger over time.
+      setTransactions(await loadTransactionsByIds(referencedTxIds(data.funding)));
       setError(false);
     } catch {
       setError(true);

@@ -1,17 +1,31 @@
 import { NextResponse } from 'next/server';
 import { getTransactions, addTransaction, addTransactions, deleteTransaction, updateTransaction, getAccounts, persistChangedAccounts, getFundings, upsertFunding, getLoans, upsertLoan, getSplits, upsertSplit } from '@/lib/sheets';
-import { invalidateMany, CACHE_TTL, TX_CACHES } from '@/lib/cache';
-import { cachedGet, withSession } from '@/lib/apiRoute';
+import { invalidateMany, cachedOrFetch, CACHE_TTL, TX_CACHES } from '@/lib/cache';
+import { withSession } from '@/lib/apiRoute';
 import { applyTransactionToBalances } from '@/lib/calculations';
 import { syncFundingTxAmount, syncFundingTxRemoval } from '@/lib/funding';
 import { syncLoanTxAmount, syncLoanTxRemoval } from '@/lib/loans';
 import { syncSplitTxAmount, syncSplitTxRemoval } from '@/lib/splits';
 import type { Account, Transaction } from '@/types';
 
-export const GET = cachedGet({
-  resource: 'transactions',
-  ttl: CACHE_TTL.SHORT,
-  fetch: ({ accessToken, spreadsheetId }) => getTransactions(accessToken, spreadsheetId),
+// GET /api/transactions            → the whole ledger (default).
+// GET /api/transactions?ids=a,b,c  → only those rows.
+//
+// The `ids` filter lets feature pages (Funding, …) resolve just the handful of
+// ledger rows their records reference — spend/contribution transactions — without
+// pulling the entire sheet over the wire. Filtering runs off the SAME cached
+// full list under the `transactions:<sheet>` key, so it adds no Sheets quota and
+// stays consistent with the cache invalidation the mutating handlers already do.
+export const GET = withSession(async ({ accessToken, spreadsheetId, req }) => {
+  const all = await cachedOrFetch(
+    `transactions:${spreadsheetId}`,
+    CACHE_TTL.SHORT,
+    () => getTransactions(accessToken, spreadsheetId),
+  );
+  const idsParam = new URL(req.url).searchParams.get('ids');
+  if (idsParam === null) return NextResponse.json(all);
+  const wanted = new Set(idsParam.split(',').map((s) => s.trim()).filter(Boolean));
+  return NextResponse.json(wanted.size === 0 ? [] : all.filter((t) => wanted.has(t.id)));
 });
 
 type TxEdit = { original: Transaction; updated: Transaction };

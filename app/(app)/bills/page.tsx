@@ -272,7 +272,6 @@ export default function BillsPage() {
   });
   const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
   const [paychecks, setPaychecks] = useState<PaycheckEntry[]>(() => peekCache(['paychecks'])?.paychecks ?? []);
-  const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
   const [contacts, setContacts] = useState<Contact[]>(() => peekCache(['contacts'])?.contacts ?? []);
   const [splits, setSplits] = useState<Split[]>(() => peekCache(['splits'])?.splits ?? []);
   const [open, setOpen] = useState(false);
@@ -285,7 +284,7 @@ export default function BillsPage() {
   // total is inferred by summing everyone's parts — see resolveSplit).
   const [billMyShare, setBillMyShare] = useState('');
   const [addingContact, setAddingContact] = useState(false);
-  const [loading, setLoading] = useState(() => peekCache(['bills', 'accounts', 'paychecks', 'transactions', 'contacts', 'splits']) === null);
+  const [loading, setLoading] = useState(() => peekCache(['bills', 'accounts', 'paychecks', 'contacts', 'splits']) === null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
   const [payBill, setPayBill] = useState<Bill | null>(null);
@@ -315,12 +314,14 @@ export default function BillsPage() {
   const load = useCallback(async (force = false) => {
     setError(false);
     try {
-      // One round trip instead of six; served from the client cache when fresh.
-      const data = await ensureResources(['bills', 'accounts', 'paychecks', 'transactions', 'contacts', 'splits'], { force });
+      // One round trip; served from the client cache when fresh. The Transactions
+      // sheet is deliberately NOT loaded here — the bills page derives everything
+      // it shows (incl. settled-split history) from the bounded `splits` records,
+      // so pulling the whole ledger just to discard it was pure waste.
+      const data = await ensureResources(['bills', 'accounts', 'paychecks', 'contacts', 'splits'], { force });
       setBills([...data.bills].sort((x, y) => x.nextDue.localeCompare(y.nextDue)));
       setAccounts(data.accounts);
       setPaychecks(data.paychecks);
-      setTransactions(data.transactions);
       setContacts(data.contacts);
       setSplits(data.splits);
     } catch {
