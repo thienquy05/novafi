@@ -562,6 +562,8 @@ export default function TransactionsPage() {
       const ownerSync = !!(editTarget && managedTxIds.has(editTarget.id) && roundCents(amount) !== roundCents(editTarget.amount));
       if (ownerSync) await syncOwnerAmount(editTarget!, amount);
       toast(editTarget ? t('transactions.toastUpdated') : t('transactions.toastAdded'), 'success');
+      try { sessionStorage.removeItem('nf_badges_cache_v2'); } catch { /* ignore */ }
+      window.dispatchEvent(new CustomEvent('novafi:badges-invalid'));
       // Owner-sync also rewrote the loan/split and its other cash leg → full
       // reconcile. Otherwise the row was already inserted optimistically and the
       // POST/PUT returned the authoritative balances, so skip the second round trip.
@@ -600,6 +602,8 @@ export default function TransactionsPage() {
       if (!res.ok) throw new Error();
       const data: { accounts?: Account[] } = await res.json().catch(() => ({}));
       if (data.accounts) setAccounts(data.accounts); // authoritative post-delete balances
+      try { sessionStorage.removeItem('nf_badges_cache_v2'); } catch { /* ignore */ }
+      window.dispatchEvent(new CustomEvent('novafi:badges-invalid'));
       // Offer one-tap undo: re-creating the row also re-applies its balance effects.
       toast(t('transactions.toastDeleted'), 'success', removed ? { label: t('common.undo'), onClick: () => restoreTransaction(removed) } : undefined);
     } catch {
@@ -1145,7 +1149,7 @@ export default function TransactionsPage() {
   const settledSplits = useMemo(() => oneOffSplits.filter((s) => s.settled).sort((a, b) => (b.settledDate || '').localeCompare(a.settledDate || '')), [oneOffSplits]);
   const pendingSplitGroups = useMemo(() => groupSplits(pendingSplits), [pendingSplits]);
   const settledSplitGroups = useMemo(() => groupSplits(settledSplits), [settledSplits]);
-  const totalOwedSplits = useMemo(() => pendingSplits.reduce((s, x) => s + x.amount, 0), [pendingSplits]);
+  const totalOwedSplits = useMemo(() => pendingSplits.reduce((s, x) => s + splitRemaining(x), 0), [pendingSplits]);
 
   function toggleSplitGroup(key: string) {
     setExpandedSplitGroups((prev) => {

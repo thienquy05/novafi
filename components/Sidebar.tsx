@@ -41,6 +41,19 @@ const BADGES_TTL_MS = 2 * 60 * 1000;
 
 function useBadges(): BadgeCounts {
   const [badges, setBadges] = useState<BadgeCounts>({ overdueBills: 0, overBudget: 0, creditAlerts: 0 });
+
+  function fetchBadges() {
+    fetch('/api/badges')
+      .then((r) => r.json())
+      .then((data: BadgeCounts) => {
+        setBadges(data);
+        try {
+          sessionStorage.setItem(BADGES_CACHE_KEY, JSON.stringify({ data, ts: Date.now() }));
+        } catch { /* ignore */ }
+      })
+      .catch(() => {});
+  }
+
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem(BADGES_CACHE_KEY);
@@ -52,17 +65,15 @@ function useBadges(): BadgeCounts {
         }
       }
     } catch { /* sessionStorage unavailable */ }
-
-    fetch('/api/badges')
-      .then((r) => r.json())
-      .then((data: BadgeCounts) => {
-        setBadges(data);
-        try {
-          sessionStorage.setItem(BADGES_CACHE_KEY, JSON.stringify({ data, ts: Date.now() }));
-        } catch { /* ignore */ }
-      })
-      .catch(() => {});
+    fetchBadges();
   }, []);
+
+  useEffect(() => {
+    const handler = () => fetchBadges();
+    window.addEventListener('novafi:badges-invalid', handler);
+    return () => window.removeEventListener('novafi:badges-invalid', handler);
+  }, []);
+
   return badges;
 }
 
