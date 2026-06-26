@@ -12,6 +12,7 @@ import type { Account, Bill, Transaction } from '@/types';
 import { useCategories } from '@/hooks/useCategories';
 import { useTranslation } from '@/lib/i18n/context';
 import { Haptics } from '@/lib/haptics';
+import { useToast } from '@/lib/toast';
 
 const EMPTY_FORM = {
   date: today(),
@@ -28,6 +29,7 @@ type QuickAddVariant = 'header' | 'fab' | 'sidebar' | 'navFab';
 export function QuickAddTransaction({ accounts: accountsProp, bills: billsProp, variant = 'header' }: { accounts?: Account[]; bills?: Bill[]; variant?: QuickAddVariant }) {
   const router = useRouter();
   const { t } = useTranslation();
+  const toast = useToast();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -107,13 +109,20 @@ export function QuickAddTransaction({ accounts: accountsProp, bills: billsProp, 
       createdAt: new Date().toISOString(),
     };
 
-    await fetch('/api/transactions', {
-      method: 'POST',
-      body: JSON.stringify(tx),
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    Haptics.success();
+    try {
+      const res = await fetch('/api/transactions', {
+        method: 'POST',
+        body: JSON.stringify(tx),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) throw new Error();
+      Haptics.success();
+      toast(t('transactions.toastAdded'), 'success');
+      try { sessionStorage.removeItem('nf_badges_cache_v2'); } catch { /* ignore */ }
+      window.dispatchEvent(new CustomEvent('novafi:badges-invalid'));
+    } catch {
+      toast(t('transactions.toastFailedSave'), 'error');
+    }
     handleClose();
     setSaving(false);
     router.refresh();

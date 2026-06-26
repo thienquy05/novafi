@@ -2,6 +2,21 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-26 — Loan/Split totals, Plus-button notifications, badge auto-refresh (branch claude/loan-split-totals-notifications-1byqd9)
+
+**1. Fix "Owed to you" total for Split Bills** (`app/(app)/transactions/page.tsx`)
+`totalOwedSplits` was computed using `x.amount` (the full original share) instead of `splitRemaining(x)` (`amount - repaidAmount`). After partial payments the summary card and the Splits modal both showed the original total instead of what remains. Changed the reducer on line ~1148 to use `splitRemaining(x)`. The Bills page already correctly used `splitRemaining` — now consistent.
+
+**2. Toast notification from the Plus (+) button** (`app/(app)/dashboard/QuickAddTransaction.tsx`)
+`handleSave` previously called the API with a bare `await fetch(...)` and no feedback — no toast, no error state. Added `useToast` hook and wrapped the call in try/catch: success shows `t('transactions.toastAdded')`, failure shows `t('transactions.toastFailedSave')`. Same UX as the full Transactions page Add flow.
+
+**3. Menu badge numbers auto-refresh without page reload** (`components/Sidebar.tsx`, `app/(app)/bills/page.tsx`, `app/(app)/transactions/page.tsx`, `app/(app)/dashboard/QuickAddTransaction.tsx`)
+`useBadges` used sessionStorage with a 2-minute TTL and only fetched once on mount — badges never updated after actions (bill payments, new transactions). Added a `'novafi:badges-invalid'` CustomEvent protocol: callers clear `'nf_badges_cache_v2'` from sessionStorage and dispatch the event; `useBadges` listens and immediately refetches. Event is dispatched after:
+- Any bill payment or skip (`advanceBillDue` in bills page)  
+- Any transaction add/edit in the transactions page  
+- Any transaction add in QuickAddTransaction
+This means paying an overdue bill makes the red badge on Bills drop immediately; adding a transaction clears a stale over-budget badge without requiring a reload.
+
 ## 2026-06-24 — Cap rendered rows in Funding pool history lists (branch claude/sweet-wright-ujh086)
 
 **Follow-up to the targeted-load change below.** That fix bounded the *network* payload (only a pool's owned ledger rows are fetched). This one bounds the *DOM*: expanding a pool with a long history (spends / payments / contributions / activity) previously rendered **every** row at once. With 100+ entries that's a lot of nodes per expanded card.

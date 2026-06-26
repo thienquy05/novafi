@@ -466,6 +466,8 @@ export default function BillsPage() {
     };
     setBills((prev) => prev.map((b) => b.id === bill.id ? updated : b).sort((x, y) => x.nextDue.localeCompare(y.nextDue)));
     await fetch('/api/bills', { method: 'POST', body: JSON.stringify(updated), headers: { 'Content-Type': 'application/json' } });
+    try { sessionStorage.removeItem('nf_badges_cache_v2'); } catch { /* ignore */ }
+    window.dispatchEvent(new CustomEvent('novafi:badges-invalid'));
   }
 
   async function handleRecordPayment() {
