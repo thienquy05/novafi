@@ -12,7 +12,7 @@ import {
   calcSpendingVolatilityScore, calcCoefficientOfVariation,
   applyExpenseBalance, applyIncomeBalance, applyTransferFromBalance, applyTransferToBalance,
   reverseExpenseBalance, reverseIncomeBalance, reverseTransferFromBalance, reverseTransferToBalance,
-  billToTransactionDefaults, calcSplitShares, calcLoanRemaining, myBillShare,
+  billToTransactionDefaults, calcSplitShares, calcLoanRemaining, myBillShare, billOthersShare, defaultBillPaymentAmount,
   calcOverdueBills, calcOverBudget,
   calcNetWorthProjection, calcPaycheckTaxToSave, calcLongestUntouchedSavings,
   calcLoanPayoff, calcLoanExtraPaymentImpact, calcLoanPaymentSplit,
@@ -913,6 +913,57 @@ describe('myBillShare', () => {
     expect(myBillShare({ ...base, splitAmount: 40 })).toBe(100);
   });
 });
+
+// ── defaultBillPaymentAmount ──────────────────────────────────────────────────
+// Regression guard for the loan-split underpayment bug: a loan-linked split bill
+// must record the FULL bill amount (not just your share), or the loan is paid
+// down by far too little and the account isn't drained for the fronted shares.
+
+describe('defaultBillPaymentAmount', () => {
+  const base: Bill = {
+    id: 'b1', name: 'Car Payment', amount: 510.76, frequency: 'monthly',
+    nextDue: '2026-06-27', account: 'chk', category: 'Car', isActive: true,
+  };
+
+  it('unsplit bill → full amount', () => {
+    expect(defaultBillPaymentAmount(base)).toBe(510.76);
+  });
+
+  it('plain split bill → only your share (others are fronted separately)', () => {
+    const split: Bill = { ...base, splitParticipants: [{ contactId: 'mom', amount: 300 }] };
+    expect(defaultBillPaymentAmount(split)).toBe(210.76);
+  });
+
+  it('LOAN-linked split bill → the FULL amount, not your share (the bug)', () => {
+    const loanSplit: Bill = {
+      ...base,
+      loanAccountId: 'ford',
+      splitParticipants: [{ contactId: 'mom', amount: 300 }],
+    };
+    // Must be the whole bill: the entire payment flows into the loan
+    // (interest + principal); the $300 is tracked as a receivable, not subtracted.
+    expect(defaultBillPaymentAmount(loanSplit)).toBe(510.76);
+  });
+
+  it('LOAN-linked unsplit bill → full amount', () => {
+    expect(defaultBillPaymentAmount({ ...base, loanAccountId: 'ford' })).toBe(510.76);
+  });
+
+  it('full loan payment = your share + everyone else’s shares (money conserved)', () => {
+    const loanSplit: Bill = {
+      ...base,
+      loanAccountId: 'ford',
+      splitParticipants: [{ contactId: 'mom', amount: 300 }, { contactId: 'dad', amount: 50 }],
+    };
+    expect(defaultBillPaymentAmount(loanSplit)).toBe(
+      roundCentsForTest(myBillShare(loanSplit) + billOthersShare(loanSplit)),
+    );
+  });
+});
+
+function roundCentsForTest(n: number): number {
+  return Math.round(n * 100) / 100;
+}
 
 // ── calcLoanRemaining ─────────────────────────────────────────────────────────
 

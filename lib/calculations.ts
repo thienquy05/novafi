@@ -1704,6 +1704,23 @@ export function myBillShare(bill: Bill): number {
   return roundCents((bill.amount || 0) - billOthersShare(bill));
 }
 
+// The amount to pre-fill / record when paying a bill. Single source of truth for
+// "how much cash actually leaves your account on this payment", so the Bills page
+// and any data-repair path agree. The split model differs by bill kind:
+//   • Loan-linked bill → the WHOLE bill amount is paid (interest is booked as an
+//     expense and the principal is transferred into the loan). The other people's
+//     shares are fronted as part of that single payment and tracked as
+//     receivables only — so the payment is the full bill, NOT just your share.
+//     (Pre-filling your share here was the bug that under-paid the loan.)
+//   • Plain split bill → only YOUR share is logged as an expense; each other
+//     person's share is fronted as its own transfer, so the default is your share.
+//   • Unsplit bill → the full amount.
+export function defaultBillPaymentAmount(bill: Bill): number {
+  if (bill.loanAccountId) return roundCents(bill.amount || 0);
+  if (billParticipants(bill).length > 0) return myBillShare(bill);
+  return roundCents(bill.amount || 0);
+}
+
 // Outstanding balance on a loan/IOU: principal minus everything paid back so
 // far, floored at 0 (over-repayment never produces a negative remaining).
 export function calcLoanRemaining(principal: number, repaidAmount: number): number {

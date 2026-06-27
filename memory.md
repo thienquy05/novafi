@@ -9,6 +9,13 @@ A running log of changes made to the NovaFi codebase.
 **Fix** (`app/(app)/bills/page.tsx`, `openPayModal`):
 Changed the pre-fill logic so loan-linked split bills use `defaults.amount` (the full bill amount) rather than `myBillShare`. Regular (non-loan) split bills keep the old behaviour — pre-fill your share only, since their shares are fronted as separate cashOut transfers. The split receivable records (others owe you) are created correctly in both cases.
 
+**Hardening — single source of truth + regression tests** (`lib/calculations.ts`, `app/(app)/bills/page.tsx`, `lib/__tests__/calculations.test.ts`):
+Extracted the per-bill-kind payment amount into one tested helper `defaultBillPaymentAmount(bill)` so the Bills page (and any future data-repair path) can't diverge again:
+- loan-linked bill → full `bill.amount` (whole payment flows into the loan as interest+principal; others' shares are receivables only)
+- plain split bill → `myBillShare` (others fronted separately)
+- unsplit bill → full amount
+`openPayModal` now calls this helper instead of the inline condition. Added 5 regression tests under `describe('defaultBillPaymentAmount')` including the exact Ford scenario ($510.76 total, $300 to Mom, your share $210.76 → loan payment must be $510.76 not $210.76) and a money-conservation check (full = your share + everyone else's shares). Full suite: 585 tests passing, `tsc --noEmit` clean, eslint 0 errors on changed files.
+
 ## 2026-06-26 — Loan/Split totals, Plus-button notifications, badge auto-refresh (branch claude/loan-split-totals-notifications-1byqd9)
 
 **1. Fix "Owed to you" total for Split Bills** (`app/(app)/transactions/page.tsx`)
