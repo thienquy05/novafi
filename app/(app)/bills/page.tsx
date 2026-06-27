@@ -439,9 +439,13 @@ export default function BillsPage() {
 
   function openPayModal(bill: Bill) {
     const defaults = billToTransactionDefaults(bill, today());
-    // For a shared bill, log only YOUR share as the expense — the other people
-    // cover their parts separately (tracked under "Owed to You", no expense).
-    const myAmount = billParticipants(bill).length > 0 ? myBillShare(bill) : defaults.amount;
+    // Loan-linked split bills: use the full bill amount — the whole payment goes to
+    // the loan (interest + principal); others' shares are tracked as receivables only.
+    // Regular split bills: pre-fill with only YOUR share — their parts are fronted as
+    // separate cashOut transfers and tracked under "Owed to You".
+    const myAmount = (billParticipants(bill).length > 0 && !bill.loanAccountId)
+      ? myBillShare(bill)
+      : defaults.amount;
     setPayBill(bill);
     setPayForm({ description: defaults.description, date: defaults.date, amount: String(myAmount), account: defaults.account, category: defaults.category });
   }

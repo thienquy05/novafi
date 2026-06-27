@@ -2,6 +2,13 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-27 — Fix loan bill split payment using wrong amount (branch claude/loan-bill-split-payment-798pli)
+
+**Bug:** When paying a loan-linked bill that was also split (e.g. Ford car payment $510.76, your share $210.76, Mom's share $300), `openPayModal` pre-filled the payment amount with `myBillShare(bill)` = $210.76 for ALL split bills — including loan ones. This meant `buildLoanPaymentTxs` only applied $210.76 to the loan instead of the full $510.76, producing a tiny $0.88 principal transfer and an incorrect interest expense. The account balance was also only reduced by $210.76 rather than $510.76.
+
+**Fix** (`app/(app)/bills/page.tsx`, `openPayModal`):
+Changed the pre-fill logic so loan-linked split bills use `defaults.amount` (the full bill amount) rather than `myBillShare`. Regular (non-loan) split bills keep the old behaviour — pre-fill your share only, since their shares are fronted as separate cashOut transfers. The split receivable records (others owe you) are created correctly in both cases.
+
 ## 2026-06-26 — Loan/Split totals, Plus-button notifications, badge auto-refresh (branch claude/loan-split-totals-notifications-1byqd9)
 
 **1. Fix "Owed to you" total for Split Bills** (`app/(app)/transactions/page.tsx`)
