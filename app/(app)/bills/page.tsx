@@ -12,7 +12,7 @@ import { BillsSkeleton } from '@/components/ui/Skeleton';
 import { FitText } from '@/components/ui/FitText';
 import { Collapsible } from '@/components/ui/Collapsible';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
-import { billToTransactionDefaults, calcPaycheckDeposited, myBillShare, billParticipants, billOthersShare } from '@/lib/calculations';
+import { billToTransactionDefaults, calcPaycheckDeposited, myBillShare, billParticipants, billOthersShare, defaultBillPaymentAmount } from '@/lib/calculations';
 import { buildLoanPaymentTxs } from '@/lib/loanPayments';
 import { buildSplitTx, groupSplits, isOneOffSplit, resolveSplit, splitRemaining } from '@/lib/splits';
 import type { Bill, Account, PaycheckEntry, Transaction, Contact, Split, BillSplitParticipant } from '@/types';
@@ -439,11 +439,11 @@ export default function BillsPage() {
 
   function openPayModal(bill: Bill) {
     const defaults = billToTransactionDefaults(bill, today());
-    // For a shared bill, log only YOUR share as the expense — the other people
-    // cover their parts separately (tracked under "Owed to You", no expense).
-    const myAmount = billParticipants(bill).length > 0 ? myBillShare(bill) : defaults.amount;
+    // The amount that actually leaves your account, per bill kind (loan vs. plain
+    // split vs. unsplit). Single source of truth — see defaultBillPaymentAmount.
+    const payAmount = defaultBillPaymentAmount(bill);
     setPayBill(bill);
-    setPayForm({ description: defaults.description, date: defaults.date, amount: String(myAmount), account: defaults.account, category: defaults.category });
+    setPayForm({ description: defaults.description, date: defaults.date, amount: String(payAmount), account: defaults.account, category: defaults.category });
   }
 
   function closePayModal() { setPayBill(null); }
