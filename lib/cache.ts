@@ -90,6 +90,9 @@ export const ACCOUNT_CACHES = ['accounts', 'dashboard'] as const;
 export const BILL_CACHES = ['bills', 'dashboard', 'badges'] as const;
 export const BUDGET_CACHES = ['budgets', 'dashboard', 'badges'] as const; // budget create/delete
 export const GOAL_CACHES = ['goals', 'dashboard'] as const;
+// A holdings mutation re-syncs the owning investment account's balance, so it
+// also stales accounts + the dashboard (net worth) + badges.
+export const INVESTMENT_CACHES = ['holdings', 'accounts', 'dashboard', 'badges'] as const;
 
 /** Clears the entire cache. Primarily for test isolation. */
 export function clearCache(): void {

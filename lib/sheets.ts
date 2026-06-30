@@ -14,6 +14,7 @@ import type {
   Loan,
   Funding,
   TrackedSubscription,
+  Holding,
 } from '@/types';
 import { DEFAULT_TAX_SETTINGS } from './utils';
 import { withRetryProxy } from './retry';
@@ -99,6 +100,10 @@ const FUNDING_HEADER = [
   'id', 'description', 'account', 'date', 'participants_json',
   'total_contributed', 'spent', 'contribution_tx_id', 'spend_tx_ids', 'closed',
   'repayments_json', 'kind', 'pool_account_id', 'target', 'contributions_json',
+];
+const HOLDINGS_HEADER = [
+  'id', 'account_id', 'symbol', 'name', 'asset_type', 'quantity',
+  'avg_cost', 'current_price', 'price_updated_at', 'notes', 'created_at',
 ];
 
 // A `values.get` against a tab that doesn't exist fails with HTTP 400 ("Unable
@@ -1338,11 +1343,12 @@ type BatchResult = {
   funding: Funding[];
   settings: TaxSettings;
   subscriptions: TrackedSubscription[];
+  holdings: Holding[];
 };
 
 // Keys fetched via their own getter (auto-create a missing tab, or non-array
 // shape) rather than the shared batchGet of always-present array sheets.
-type NonBatchableKey = 'contacts' | 'splits' | 'loans' | 'funding' | 'settings' | 'subscriptions';
+type NonBatchableKey = 'contacts' | 'splits' | 'loans' | 'funding' | 'settings' | 'subscriptions' | 'holdings';
 
 // Sheets that always exist and carry no auto-create fallback — safe to batchGet.
 const BATCHABLE_SHEETS: Record<
@@ -1365,6 +1371,7 @@ export const BATCH_KEYS = [
   'funding',
   'settings',
   'subscriptions',
+  'holdings',
 ] as BatchKey[];
 
 export async function batchGetSheets(
@@ -1414,6 +1421,9 @@ export async function batchGetSheets(
   }
   if (keys.includes('subscriptions')) {
     tasks.push(getSubscriptions(accessToken, spreadsheetId).then((s) => { assign.subscriptions = s; }));
+  }
+  if (keys.includes('holdings')) {
+    tasks.push(getHoldings(accessToken, spreadsheetId).then((h) => { assign.holdings = h; }));
   }
 
   await Promise.all(tasks);
@@ -1500,6 +1510,75 @@ export async function deleteSubscription(
   await deleteRowById(accessToken, spreadsheetId, 'Subscriptions', id, 'I');
 }
 
+// ── Holdings (investment positions: stocks / ETFs / crypto) ────────────────────
+
+function rowToHolding(r: string[]): Holding {
+  return {
+    id: String(r[0] ?? ''),
+    accountId: String(r[1] ?? ''),
+    symbol: String(r[2] ?? ''),
+    name: String(r[3] ?? ''),
+    assetType: (r[4] ?? 'stock') as Holding['assetType'],
+    quantity: Number(r[5] ?? 0) || 0,
+    avgCost: Number(r[6] ?? 0) || 0,
+    currentPrice: Number(r[7] ?? 0) || 0,
+    priceUpdatedAt: String(r[8] ?? ''),
+    notes: String(r[9] ?? ''),
+    createdAt: String(r[10] ?? ''),
+  };
+}
+
+function holdingToRow(h: Holding): (string | number)[] {
+  return [
+    h.id, h.accountId, h.symbol, h.name, h.assetType, h.quantity,
+    h.avgCost, h.currentPrice, h.priceUpdatedAt ?? '', h.notes ?? '', h.createdAt ?? '',
+  ];
+}
+
+export async function getHoldings(
+  accessToken: string,
+  spreadsheetId: string,
+): Promise<Holding[]> {
+  const sheets = getSheetsClient(accessToken);
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'Holdings!A2:K1000',
+      valueRenderOption: 'UNFORMATTED_VALUE',
+    });
+    return (res.data.values ?? []).map((r) => rowToHolding(r as string[])).filter((h) => h.id);
+  } catch (err) {
+    if (!isMissingTabError(err)) throw err;
+    await ensureSheet(sheets, spreadsheetId, 'Holdings', HOLDINGS_HEADER);
+    return [];
+  }
+}
+
+export async function upsertHolding(
+  accessToken: string,
+  spreadsheetId: string,
+  holding: Holding,
+): Promise<void> {
+  const sheets = getSheetsClient(accessToken);
+  await ensureSheet(sheets, spreadsheetId, 'Holdings', HOLDINGS_HEADER);
+  await deleteRowById(accessToken, spreadsheetId, 'Holdings', holding.id, 'K');
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: 'Holdings!A1',
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: { values: [holdingToRow(holding)] },
+  });
+}
+
+export async function deleteHolding(
+  accessToken: string,
+  spreadsheetId: string,
+  id: string,
+): Promise<void> {
+  await deleteRowById(accessToken, spreadsheetId, 'Holdings', id, 'K');
+}
+
 // ── Delete All Data ───────────────────────────────────────────────────────────
 
 // Clears every data row from every known sheet tab (keeps headers).
@@ -1524,6 +1603,7 @@ export async function deleteAllData(
     'Loans',
     'Funding',
     'Subscriptions',
+    'Holdings',
     'NetWorthHistory',
   ];
 

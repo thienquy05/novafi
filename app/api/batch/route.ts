@@ -29,6 +29,7 @@ const TTL: Record<BatchKey, number> = {
   contacts: CACHE_TTL.LONG,
   settings: CACHE_TTL.LONG,
   subscriptions: CACHE_TTL.LONG,
+  holdings: CACHE_TTL.SHORT,
 };
 
 export async function GET(req: NextRequest) {

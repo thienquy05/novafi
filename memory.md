@@ -2,6 +2,34 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-30 — Investments: track stocks, ETFs & crypto holdings (branch claude/investment-account-robinhood-feature-thfktu)
+
+Added a full **Investments** feature so a user setting up a Robinhood (or any) brokerage can track what's *inside* their investment accounts — VOO/ETFs, individual stocks, and crypto — not just a single account balance. The app already had an `investment` account *type* but no holdings model. Backed by a new `Holdings` tab in the user's own Google Sheet, same privacy-first model as everything else.
+
+### Data model
+- **`types/index.ts`** — new `Holding { id, accountId, symbol, name, assetType: 'stock'|'etf'|'crypto', quantity, avgCost, currentPrice, priceUpdatedAt, notes, createdAt }`. Market value = quantity × currentPrice; cost basis = quantity × avgCost; unrealized gain = the difference. A holding lives inside an `investment`-type Account.
+- **`lib/sheets.ts`** — `HOLDINGS_HEADER` (11 cols A–K); `getHoldings`/`upsertHolding`/`deleteHolding` follow the lazy-create-on-missing-tab pattern (`ensureSheet` + `isMissingTabError`) used by Loans/Funding/Subscriptions. `holdings` added to `BatchResult`, `NonBatchableKey`, `BATCH_KEYS`, the `batchGetSheets` task list (own getter, not the batchGet of always-present sheets), and `deleteAllData`'s tab list.
+
+### Pure calc library (new `lib/investments.ts`, unit-tested)
+`hasPrice`, `holdingValue` (falls back to cost basis when un-priced so a new position isn't a phantom 100% loss), `holdingCost`, `holdingGain`, `holdingGainPct` (null when no basis), `portfolioStats` (value/cost/gain/gainPct/count, empty-safe), `accountInvestmentValue(holdings, accountId)`, `allocationByType`, `allocationByHolding`. All round to cents via `roundCents` from calculations.ts. Tests in `lib/__tests__/investments.test.ts` (value/cost/gain/%, missing-price fallback, no-basis null, loss case, fractional crypto, aggregation, per-account sum, allocation ordering).
+
+### Account-balance auto-sync (the integration trick)
+`app/api/investments/route.ts` — GET (cached `holdings`, SHORT ttl), POST upsert, DELETE. After any mutation, `syncAccountBalance` recomputes the owning **investment** account's `balance = accountInvestmentValue(holdings, accountId)` and upserts it only if changed (and never touches a non-investment account). Because net worth / dashboard / reports all read `account.balance`, the portfolio flows into them with zero extra wiring. New `INVESTMENT_CACHES = ['holdings','accounts','dashboard','badges']` in `lib/cache.ts`; route invalidates it.
+
+### Optional best-effort price refresh
+`app/api/investments/quote/route.ts` — POST `{ items: [{symbol, assetType}] }` → `{ quotes, failed }`. Stocks/ETFs via Stooq CSV (`stooq.com/q/l/?s=voo.us&f=sc&e=csv`, `.us` suffix), crypto via CoinGecko `simple/price` using a curated symbol→id map (BTC→bitcoin, etc.). Each fetch is timeout-guarded (6s AbortController) and try/catch-wrapped so a blocked network/rate-limit/unknown symbol degrades to "no quote" rather than failing — manual entry always works.
+
+### UI
+- **`app/(app)/investments/page.tsx`** + `loading.tsx` — mirrors the Subscriptions page conventions (peekCache seed, ensureResources, useAutoRefresh, PageHeader, Card/Button/Input/Select/Modal, toast). Summary cards (Total Value / Total Gain $ / Total Return %), a CSS stacked **allocation bar + legend** by asset class (indigo ETF / sky stock / amber crypto — avoids the recharts ready-state dance), holdings **grouped by account** (largest value first) with per-holding value + gain ($ and %, up/down arrow + color), add/edit modal with a live market-value preview, and a **Refresh prices** button. Empty states: no investment account → CTA to /accounts; account but no holdings → add CTA. Symbols upper-cased; `priceUpdatedAt` stamped only when the price actually changes. After save/delete/refresh, `load(true)` re-pulls so the synced account balance shows.
+- **`components/Sidebar.tsx`** — `TrendingUp` nav item under the Money group (desktop), in `ALL_MOBILE_NAV`, and in `NAV_GROUP_OF` (money).
+- **`lib/client/api.ts`** (`BatchData` + `holdings`), **`app/api/batch/route.ts`** TTL map (`holdings: SHORT`), and `lib/__tests__/store.test.ts` `fakeData` fixture all gain `holdings`.
+
+### Locales
+`nav.investments` + a full `investments.*` block in both `locales/en.json` and `locales/vi.json` (title/subtitle, summary labels, asset-type labels, add/edit form, toasts incl. price-refresh outcomes, empty/no-account states).
+
+### Verification
+`tsc --noEmit` clean; `eslint` **0 errors** (only the pre-existing documented warnings); `vitest` **595 passing** (was 585, +10 investment tests); `next build` succeeds (`/investments`, `/api/investments`, `/api/investments/quote` all compile).
+
 ## 2026-06-27 — Fix loan bill split payment using wrong amount (branch claude/loan-bill-split-payment-798pli)
 
 **Bug:** When paying a loan-linked bill that was also split (e.g. Ford car payment $510.76, your share $210.76, Mom's share $300), `openPayModal` pre-filled the payment amount with `myBillShare(bill)` = $210.76 for ALL split bills — including loan ones. This meant `buildLoanPaymentTxs` only applied $210.76 to the loan instead of the full $510.76, producing a tiny $0.88 principal transfer and an incorrect interest expense. The account balance was also only reduced by $210.76 rather than $510.76.

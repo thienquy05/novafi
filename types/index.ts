@@ -312,6 +312,28 @@ export interface Funding {
   contributions?: FundingContribution[]; // itemized cash put into the pool
 }
 
+// One investment position (lot) held inside a brokerage / investment account —
+// e.g. VOO shares or BTC in your Robinhood account. NovaFi tracks the position,
+// not the trade history: `quantity` and `avgCost` capture your basis, and
+// `currentPrice` is the latest known mark (updated by hand or by the optional
+// quote refresh). Market value = quantity × currentPrice; unrealized gain =
+// (currentPrice − avgCost) × quantity. The owning investment Account's balance
+// is kept in sync with the total market value of its holdings, so net worth and
+// the dashboard reflect the portfolio automatically.
+export interface Holding {
+  id: string;
+  accountId: string;     // the `investment`-type Account this position lives in
+  symbol: string;        // ticker / pair, uppercased: 'VOO', 'AAPL', 'BTC'
+  name: string;          // display name: 'Vanguard S&P 500 ETF'
+  assetType: 'stock' | 'etf' | 'crypto';
+  quantity: number;      // shares or coins held
+  avgCost: number;       // average cost per unit (your cost basis per share/coin)
+  currentPrice: number;  // latest known price per unit (manual or quote-refreshed)
+  priceUpdatedAt: string; // YYYY-MM-DD the price was last set ('' = never)
+  notes: string;
+  createdAt: string;     // YYYY-MM-DD added
+}
+
 export const EXPENSE_CATEGORIES = [
   'Food',
   'Grocery',
