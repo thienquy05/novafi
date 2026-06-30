@@ -15,7 +15,7 @@ import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { useTranslation } from '@/lib/i18n/context';
 import {
   holdingValue, holdingCost, holdingGain, holdingGainPct,
-  portfolioStats, allocationByType,
+  portfolioStats, allocationByType, totalFromPerUnit, perUnitFromTotal,
 } from '@/lib/investments';
 import type { Holding, Account } from '@/types';
 
@@ -407,15 +407,19 @@ export default function InvestmentsPage() {
             value={form.name}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
           />
-          <div className="grid grid-cols-3 gap-3">
-            <Input
-              label={t('investments.quantity')}
-              type="number"
-              min="0"
-              step="any"
-              value={form.quantity || ''}
-              onChange={(e) => setForm((f) => ({ ...f, quantity: parseFloat(e.target.value) || 0 }))}
-            />
+          <Input
+            label={t('investments.quantity')}
+            type="number"
+            min="0"
+            step="any"
+            value={form.quantity || ''}
+            onChange={(e) => setForm((f) => ({ ...f, quantity: parseFloat(e.target.value) || 0 }))}
+          />
+
+          {/* Cost basis & price each accept a per-unit figure OR the total you
+              hold — editing one side chases the other through the quantity, so
+              you can enter whichever number you actually know. */}
+          <div className="grid grid-cols-2 gap-3">
             <Input
               label={t('investments.avgCost')}
               type="number"
@@ -425,6 +429,17 @@ export default function InvestmentsPage() {
               onChange={(e) => setForm((f) => ({ ...f, avgCost: parseFloat(e.target.value) || 0 }))}
             />
             <Input
+              label={t('investments.totalCost')}
+              type="number"
+              min="0"
+              step="0.01"
+              disabled={form.quantity <= 0}
+              value={form.quantity > 0 && form.avgCost > 0 ? totalFromPerUnit(form.avgCost, form.quantity) : ''}
+              onChange={(e) => setForm((f) => ({ ...f, avgCost: perUnitFromTotal(parseFloat(e.target.value) || 0, f.quantity) }))}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Input
               label={t('investments.currentPrice')}
               type="number"
               min="0"
@@ -432,16 +447,47 @@ export default function InvestmentsPage() {
               value={form.currentPrice || ''}
               onChange={(e) => setForm((f) => ({ ...f, currentPrice: parseFloat(e.target.value) || 0 }))}
             />
+            <Input
+              label={t('investments.totalValue')}
+              type="number"
+              min="0"
+              step="0.01"
+              disabled={form.quantity <= 0}
+              value={form.quantity > 0 && form.currentPrice > 0 ? totalFromPerUnit(form.currentPrice, form.quantity) : ''}
+              onChange={(e) => setForm((f) => ({ ...f, currentPrice: perUnitFromTotal(parseFloat(e.target.value) || 0, f.quantity) }))}
+            />
           </div>
-          {/* Live preview of value + gain for the form */}
-          {form.quantity > 0 && (
-            <div className="flex items-center justify-between gap-4 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 text-sm">
-              <span className="font-semibold text-slate-600 dark:text-slate-300">{t('investments.marketValue')}</span>
-              <span className="font-extrabold text-slate-900 dark:text-slate-100">
-                {formatCurrency((form.currentPrice > 0 ? form.currentPrice : form.avgCost) * form.quantity)}
-              </span>
-            </div>
+          {form.quantity <= 0 && (
+            <p className="text-xs text-slate-400 dark:text-slate-500 -mt-1">{t('investments.totalHint')}</p>
           )}
+
+          {/* Live preview: cost basis, current market value, and unrealized gain */}
+          {form.quantity > 0 && (() => {
+            const cost = totalFromPerUnit(form.avgCost, form.quantity);
+            const value = totalFromPerUnit(form.currentPrice > 0 ? form.currentPrice : form.avgCost, form.quantity);
+            const gain = value - cost;
+            const up = gain >= 0;
+            return (
+              <div className="space-y-1.5 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 text-sm">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="font-semibold text-slate-600 dark:text-slate-300">{t('investments.costBasis')}</span>
+                  <span className="font-bold text-slate-700 dark:text-slate-200">{formatCurrency(cost)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span className="font-semibold text-slate-600 dark:text-slate-300">{t('investments.marketValue')}</span>
+                  <span className="font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(value)}</span>
+                </div>
+                {form.currentPrice > 0 && form.avgCost > 0 && (
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="font-semibold text-slate-600 dark:text-slate-300">{t('investments.totalGain')}</span>
+                    <span className={`font-extrabold ${up ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                      {formatCurrency(gain, true)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <Input
             label={t('investments.notes')}
             placeholder={t('investments.notesPlaceholder')}

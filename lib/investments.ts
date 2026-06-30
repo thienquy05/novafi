@@ -18,6 +18,27 @@ export function hasPrice(h: Holding): boolean {
   return Number.isFinite(h.currentPrice) && h.currentPrice > 0;
 }
 
+/**
+ * Convert between a per-unit price and a total dollar amount so the entry form
+ * can "chase" whichever figure the user actually knows: type the price of one
+ * share/coin and read off the total (forwards), or type the total you hold and
+ * back-solve the price of a single unit (backwards).
+ *
+ * Both directions are quantity-safe — with no quantity there's nothing to
+ * multiply or divide, so they return 0 instead of NaN/Infinity. Per-unit is kept
+ * to 6 decimals so fractional-crypto totals round-trip cleanly (e.g. $100 over
+ * 3 shares → $33.333333 → back to $100.00), while totals round to cents.
+ */
+export function totalFromPerUnit(perUnit: number, quantity: number): number {
+  if (!Number.isFinite(perUnit) || !Number.isFinite(quantity)) return 0;
+  return roundCents(perUnit * quantity);
+}
+
+export function perUnitFromTotal(total: number, quantity: number): number {
+  if (!Number.isFinite(total) || !Number.isFinite(quantity) || quantity <= 0) return 0;
+  return Math.round((total / quantity) * 1e6) / 1e6;
+}
+
 /** Current market value of one holding. Falls back to cost basis when un-priced. */
 export function holdingValue(h: Holding): number {
   const price = hasPrice(h) ? h.currentPrice : h.avgCost;
