@@ -21,6 +21,7 @@ import {
   Sliders,
   CircleDollarSign,
   RefreshCw,
+  TrendingUp,
   type LucideIcon,
 } from 'lucide-react';
 import { signOut } from 'next-auth/react';
@@ -109,6 +110,7 @@ const NAV_GROUPS: { labelKey: string; items: NavItem[] }[] = [
     items: [
       { href: '/accounts',     labelKey: 'nav.accounts',     icon: Landmark,       badgeKey: null },
       { href: '/transactions', labelKey: 'nav.transactions', icon: ArrowLeftRight, badgeKey: null },
+      { href: '/investments',  labelKey: 'nav.investments',  icon: TrendingUp,     badgeKey: null },
       { href: '/credit',       labelKey: 'nav.credit',       icon: CreditCard,     badgeKey: 'creditAlerts' },
       { href: '/funding',      labelKey: 'nav.funding',      icon: CircleDollarSign,      badgeKey: null },
       { href: '/paychecks',    labelKey: 'nav.paychecks',    icon: DollarSign,     badgeKey: null },
@@ -131,7 +133,7 @@ const SETTINGS_ITEM: NavItem = { href: '/settings', labelKey: 'nav.settings', ic
 type GroupKey = 'overview' | 'money' | 'plan' | 'system';
 const NAV_GROUP_OF: Record<string, GroupKey> = {
   '/dashboard': 'overview', '/reports': 'overview',
-  '/accounts': 'money', '/transactions': 'money', '/credit': 'money', '/funding': 'money', '/paychecks': 'money',
+  '/accounts': 'money', '/transactions': 'money', '/investments': 'money', '/credit': 'money', '/funding': 'money', '/paychecks': 'money',
   '/savings': 'plan', '/bills': 'plan', '/planning': 'plan', '/subscriptions': 'plan',
   '/settings': 'system',
 };
@@ -263,6 +265,7 @@ const ALL_MOBILE_NAV: NavItem[] = [
   { href: '/bills',        labelKey: 'nav.bills',         icon: Calendar,        badgeKey: 'overdueBills' },
   { href: '/planning',     labelKey: 'nav.planning',      icon: BarChart3,       badgeKey: 'overBudget' },
   { href: '/accounts',     labelKey: 'nav.accounts',      icon: Landmark,        badgeKey: null },
+  { href: '/investments',  labelKey: 'nav.investments',   icon: TrendingUp,      badgeKey: null },
   { href: '/credit',       labelKey: 'nav.credit',        icon: CreditCard,      badgeKey: 'creditAlerts' },
   { href: '/funding',      labelKey: 'nav.funding',       icon: CircleDollarSign, badgeKey: null },
   { href: '/savings',      labelKey: 'nav.savings',       icon: PiggyBank,       badgeKey: null },
