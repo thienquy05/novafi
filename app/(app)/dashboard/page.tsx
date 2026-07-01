@@ -154,9 +154,13 @@ export default async function DashboardPage() {
     return pts.slice(-6);
   })();
 
-  // Build chart-ready net worth series
+  // Build chart-ready net worth series. Snapshots are deduped by month (keeping
+  // the latest write) so a race between concurrent dashboard loads appending
+  // the same month twice can't show that month's label more than once.
   const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const netWorthPoints: NetWorthPoint[] = [...netWorthHistory]
+  const latestPerMonth = new Map<string, typeof netWorthHistory[number]>();
+  for (const s of netWorthHistory) latestPerMonth.set(s.month, s);
+  const netWorthPoints: NetWorthPoint[] = [...latestPerMonth.values()]
     .sort((a, b) => a.month.localeCompare(b.month))
     .map((s) => {
       const [yr, mo] = s.month.split('-');

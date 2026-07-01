@@ -2,6 +2,21 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-07-01 — Fix bogus "year 0" report tab + duplicate month label in Net Worth Trend chart (branch claude/2026-button-zero-l2xej8)
+
+Two small UI data bugs reported from screenshots.
+
+### Reports page: spurious "0" year tab
+- **Root cause**: `app/(app)/reports/page.tsx` derived the year-tab list via `Number(tx.date.slice(0, 4))` over all transactions. A transaction row with an empty/blank `date` (produced by `rowToTransaction` in `lib/sheets.ts:292`, `date: r[1] ?? ''`, when the sheet's date cell is blank) yields `Number('') === 0`, so a "0" tab rendered next to the real years.
+- **Fix**: `app/(app)/reports/page.tsx` — the `years` memo now filters to `Number.isInteger(year) && year > 1000` before sorting, so any malformed/blank-date transaction can no longer surface a fake year tab. Underlying bad row (if any) lives in the user's own Google Sheet and isn't something this session can inspect/fix directly (data is fetched at runtime via the user's Google OAuth token, not stored in the repo).
+
+### Dashboard: duplicate month label in Net Worth Trend chart
+- **Root cause**: `app/(app)/dashboard/page.tsx` built `netWorthPoints` by mapping every row of `netWorthHistory` straight to a chart point with no dedup by month. `appendNetWorthSnapshot` (lib/sheets.ts) is fired fire-and-forget (`.catch(() => {})`) whenever the current month isn't snapped yet; two concurrent dashboard loads can both see "not yet snapped" and each append a row for the same month, producing two+ history rows sharing one `month` key — which rendered as the same month label repeated on the chart's x-axis (e.g. "Jul '26" three times).
+- **Fix**: `app/(app)/dashboard/page.tsx` — `netWorthPoints` now dedupes via a `Map<month, snapshot>` built by iterating `netWorthHistory` in order (last write per month wins) before sorting/mapping to chart points, so a duplicate-month race can no longer show a repeated label.
+
+### Verification
+`tsc --noEmit` clean; full `vitest run` suite (20 files / 600 tests) passing.
+
 ## 2026-07-01 — Settings: align "Delete All Data" card layout with "Data Storage" (branch claude/delete-data-ui-consistency-xrm9oo)
 
 UI consistency fix on the **About & Data** settings section. The "Delete All Data" (Danger Zone) card was the odd one out: it used a side-by-side `flex items-start justify-between` layout that crammed the description into a narrow left column with the button beside it, so the paragraph wrapped awkwardly. Every sibling card ("Data Storage", "App Update") uses a full-width description paragraph with the action button stacked below it.
