@@ -2,6 +2,25 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-06-30 — Investments rework: per-unit ↔ total entry + Robinhood MCP assessment (branch claude/investment-robinhood-mcp-1jeunt)
+
+Follow-up to the Investments feature. Two asks: (1) can the newly-linked **Robinhood MCP** drive secure real-time per-user money sync in the deployed app, and (2) if not, let a holding's price/total "chase backwards or forwards" so you can enter whichever figure you actually know.
+
+### Robinhood MCP assessment (no code — architectural conclusion)
+Not usable for secure per-user sync in the shipped app, and left out of the runtime deliberately:
+- The `mcp__Robinhood__*` tools live in the **Claude Code agent session**, not in the Next.js runtime. The app authenticates each user with their **own Google** OAuth (`lib/apiRoute.ts` `withSession`) and stores everything in **their own Google Sheet** — there is no per-user Robinhood credential anywhere in the runtime.
+- Real per-user sync would need each user to OAuth into *their own* Robinhood account. Robinhood has no official public third-party OAuth; the MCP is a single private connection tied to one account's token. Embedding it would expose one account's portfolio + a shared secret token to every user — a security non-starter.
+- Correct pattern for the deployed app stays the existing keyless public quotes (Stooq + CoinGecko) in `/api/investments/quote`; manual entry remains the always-available fallback.
+
+### Per-unit ↔ total conversion ("chase backwards & forwards")
+- **`lib/investments.ts`** — two new pure, quantity-safe helpers: `totalFromPerUnit(perUnit, quantity)` (forwards: price of one unit × quantity → total, rounded to cents) and `perUnitFromTotal(total, quantity)` (backwards: total ÷ quantity → per-unit, kept to 6 dp so fractional-crypto totals round-trip; returns 0 on quantity ≤ 0 / non-finite input instead of NaN/Infinity).
+- **`lib/__tests__/investments.test.ts`** — +4 tests (forwards, backwards, fractional-crypto round-trip, quantity-safety). Suite now 14 passing in this file.
+- **`app/(app)/investments/page.tsx`** — add/edit form reworked: Quantity is its own full-width field; cost basis and current price each expose a **per-unit input paired with a total input** (`grid-cols-2`). Editing either side chases the other through quantity (total inputs disabled until a quantity is entered, with a hint). Data model unchanged — per-unit `avgCost`/`currentPrice` remain the single source of truth; totals are derived on display and back-solved on edit, so no migration. Live preview enriched from a single market-value line to **cost basis + market value + unrealized gain** (gain colored, shown only once both a price and a cost exist).
+- **Locales** (`en.json`/`vi.json`) — `avgCost`/`currentPrice` relabelled with "/ unit"; new `totalCost` and `totalHint`. Reused existing `totalValue`/`totalGain`/`costBasis`/`marketValue`.
+
+### Verification
+`tsc --noEmit` clean; `eslint` 0 errors (pre-existing warnings only); investment test file 14 passing.
+
 ## 2026-06-30 — Investments: track stocks, ETFs & crypto holdings (branch claude/investment-account-robinhood-feature-thfktu)
 
 Added a full **Investments** feature so a user setting up a Robinhood (or any) brokerage can track what's *inside* their investment accounts — VOO/ETFs, individual stocks, and crypto — not just a single account balance. The app already had an `investment` account *type* but no holdings model. Backed by a new `Holdings` tab in the user's own Google Sheet, same privacy-first model as everything else.

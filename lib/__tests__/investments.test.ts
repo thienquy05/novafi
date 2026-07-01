@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   hasPrice, holdingValue, holdingCost, holdingGain, holdingGainPct,
   portfolioStats, accountInvestmentValue, allocationByType, allocationByHolding,
+  totalFromPerUnit, perUnitFromTotal,
 } from '@/lib/investments';
 import type { Holding } from '@/types';
 
@@ -54,6 +55,30 @@ describe('holding math', () => {
     expect(holdingValue(h)).toBe(7800);
     expect(holdingCost(h)).toBe(3900);
     expect(holdingGain(h)).toBe(3900);
+  });
+});
+
+describe('per-unit / total conversion (chase backwards & forwards)', () => {
+  it('goes forwards: per-unit price × quantity → total', () => {
+    expect(totalFromPerUnit(500, 10)).toBe(5000);
+    expect(totalFromPerUnit(33.333333, 3)).toBe(100); // rounds to cents
+  });
+
+  it('goes backwards: total ÷ quantity → per-unit price', () => {
+    expect(perUnitFromTotal(5000, 10)).toBe(500);
+    expect(perUnitFromTotal(100, 3)).toBeCloseTo(33.333333, 6);
+  });
+
+  it('round-trips a fractional-crypto total cleanly', () => {
+    const perUnit = perUnitFromTotal(100, 0.13); // ~769.23
+    expect(totalFromPerUnit(perUnit, 0.13)).toBe(100);
+  });
+
+  it('is quantity-safe (no NaN/Infinity) when quantity is missing', () => {
+    expect(perUnitFromTotal(100, 0)).toBe(0);
+    expect(perUnitFromTotal(100, -1)).toBe(0);
+    expect(totalFromPerUnit(NaN, 10)).toBe(0);
+    expect(perUnitFromTotal(100, NaN)).toBe(0);
   });
 });
 
