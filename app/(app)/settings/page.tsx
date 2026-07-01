@@ -874,17 +874,15 @@ export default function SettingsPage() {
                 <span className="text-rose-700 dark:text-rose-400">{t('settings.deleteAllData')}</span>
               </CardTitle>
             </CardHeader>
-            <div className="flex items-start justify-between gap-4">
-              <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">{t('settings.deleteAllDataDesc')}</p>
-              <Button
-                variant="secondary"
-                onClick={() => setDeleteAllStep('confirm1')}
-                className="shrink-0 shadow-sm text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/50 hover:bg-rose-100 dark:hover:bg-rose-900/30"
-              >
-                <Trash2 className="w-4 h-4" />
-                {t('settings.deleteAllDataBtn')}
-              </Button>
-            </div>
+            <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">{t('settings.deleteAllDataDesc')}</p>
+            <Button
+              variant="secondary"
+              onClick={() => setDeleteAllStep('confirm1')}
+              className="mt-4 shadow-sm text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/50 hover:bg-rose-100 dark:hover:bg-rose-900/30"
+            >
+              <Trash2 className="w-4 h-4" />
+              {t('settings.deleteAllDataBtn')}
+            </Button>
           </Card>
         </div>
       )}
