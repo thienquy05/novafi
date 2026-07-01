@@ -1,22 +1,31 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useSession, signOut } from 'next-auth/react';
-import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, User, SlidersHorizontal, Receipt, Tags, Landmark, Building2, Database, ShieldCheck, ChevronDown, LogOut, Users, UserPlus, Trash2, Archive, AlertTriangle } from 'lucide-react';
+import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, User, SlidersHorizontal, Receipt, Tags, Landmark, Building2, Database, ShieldCheck, ChevronDown, LogOut, Users, UserPlus, Trash2, Archive, AlertTriangle, Clock, MapPin } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { BRACKETS_2026, STANDARD_DEDUCTION_2026 } from '@/lib/tax';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
-import { DEFAULT_TAX_SETTINGS } from '@/lib/utils';
+import { DEFAULT_TAX_SETTINGS, DEFAULT_TIME_ZONE, TZ_COOKIE, formatClock, timeZoneAbbrev, formatDate, today } from '@/lib/utils';
 import type { TaxSettings, Contact } from '@/types';
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '@/types';
 import { generateId } from '@/lib/utils';
+import { TIME_ZONE_OPTIONS, TIME_ZONE_GROUPS, detectTimeZone, timeZoneLabel } from '@/lib/timezones';
 import { invalidateCategoriesCache } from '@/hooks/useCategories';
 import { useToast } from '@/lib/toast';
 import { useTranslation } from '@/lib/i18n/context';
 
 type SectionId = 'general' | 'taxes' | 'categories' | 'contacts' | 'about';
+
+// Mirror the chosen zone into a cookie (like nf_lang) so server components — the
+// dashboard render and the notifications API — read the same zone the client
+// uses, keeping every "today"/"now" in the app in sync.
+function writeTzCookie(tz: string) {
+  if (typeof document === 'undefined') return;
+  document.cookie = `${TZ_COOKIE}=${encodeURIComponent(tz)};path=/;max-age=31536000;SameSite=Lax`;
+}
 
 // Reusable labeled toggle row — replaces the four near-identical switch blocks
 // that the settings page used to repeat inline.
@@ -82,6 +91,8 @@ export default function SettingsPage() {
   const [deleteAllStep, setDeleteAllStep] = useState<null | 'confirm1' | 'confirm2'>(null);
   const [deleteAllInput, setDeleteAllInput] = useState('');
   const [deleteAllBusy, setDeleteAllBusy] = useState(false);
+  // Ticks once a second so the live clock preview in Time & Region stays current.
+  const [clockTick, setClockTick] = useState(() => Date.now());
   const toast = useToast();
 
   const DELETE_PHRASE = 'I want to delete my data';
@@ -90,6 +101,7 @@ export default function SettingsPage() {
     fetch('/api/settings')
       .then((r) => r.json())
       .then((s: TaxSettings) => {
+        const tz = s.timeZone || DEFAULT_TIME_ZONE;
         setSettings({
           ...s,
           displayName: s.displayName ?? '',
@@ -97,13 +109,23 @@ export default function SettingsPage() {
           customIncomeCategories: s.customIncomeCategories ?? [],
           hiddenExpenseCategories: s.hiddenExpenseCategories ?? [],
           hiddenIncomeCategories: s.hiddenIncomeCategories ?? [],
+          timeZone: tz,
         });
         if (s.language && s.language !== lang) {
           setLang(s.language);
         }
+        // Keep the cookie in step with the saved zone so server-rendered pages
+        // (dashboard, notifications) agree with the client without a save.
+        writeTzCookie(tz);
         setLoading(false);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Drive the live clock preview in the Time & Region card.
+  useEffect(() => {
+    const id = setInterval(() => setClockTick(Date.now()), 1000);
+    return () => clearInterval(id);
   }, []);
 
   useEffect(() => {
@@ -168,6 +190,13 @@ export default function SettingsPage() {
   function handleLangChange(newLang: 'en' | 'vi') {
     setLang(newLang);
     setSettings((prev) => prev ? { ...prev, language: newLang } : prev);
+  }
+
+  // Changing the zone takes effect immediately (cookie + state) so the live clock
+  // and the rest of the app reflect it right away; Save persists it to the sheet.
+  function handleTimeZoneChange(tz: string) {
+    writeTzCookie(tz);
+    setSettings((prev) => prev ? { ...prev, timeZone: tz } : prev);
   }
 
   async function handleSave() {
@@ -245,6 +274,7 @@ export default function SettingsPage() {
   function handleReset() {
     if (!confirm('Reset all settings to defaults?')) return;
     setSettings(DEFAULT_TAX_SETTINGS as TaxSettings);
+    writeTzCookie(DEFAULT_TAX_SETTINGS.timeZone);
   }
 
   // Guard against a misclick — signing out drops you back to the login screen.
@@ -393,6 +423,72 @@ export default function SettingsPage() {
                     {l === 'en' ? t('settings.langEn') : t('settings.langVi')}
                   </button>
                 ))}
+              </div>
+            </div>
+          </Card>
+
+          {/* Time & Region — the single source of truth for every "today"/"now"
+              in the app. Picking a zone here keeps the dashboard, bills timeline,
+              badges and notifications all aligned to the same local clock. */}
+          <Card>
+            <CardHeader>
+              <SectionTitle icon={Clock}>{t('settings.timeRegion')}</SectionTitle>
+            </CardHeader>
+            <div className="space-y-4">
+              {/* Live clock preview — reads clockTick so it ticks every second. */}
+              <div key={clockTick} className="flex items-center justify-between gap-4 rounded-2xl bg-gradient-to-br from-indigo-50 to-slate-50 dark:from-indigo-950/40 dark:to-slate-800/40 border border-indigo-100 dark:border-indigo-900/40 px-5 py-4">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-indigo-500 dark:text-indigo-400 flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5" />
+                    {timeZoneLabel(settings.timeZone)}
+                  </p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{formatDate(today(settings.timeZone))}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-2xl md:text-3xl font-bold tabular-nums text-slate-900 dark:text-slate-100">{formatClock(settings.timeZone)}</p>
+                  <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 mt-0.5">{timeZoneAbbrev(settings.timeZone)}</p>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-2">{t('settings.timeZoneLabel')}</p>
+                <div className="relative">
+                  <select
+                    value={settings.timeZone}
+                    onChange={(e) => handleTimeZoneChange(e.target.value)}
+                    className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50/50 px-4 text-base text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-100 dark:focus:border-indigo-400 dark:focus:bg-slate-800 transition-[border-color,background-color,box-shadow] duration-150 shadow-sm appearance-none"
+                    style={{
+                      backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2364748b' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`,
+                      backgroundPosition: 'right 1rem center',
+                      backgroundRepeat: 'no-repeat',
+                      backgroundSize: '1.5em 1.5em',
+                      paddingRight: '3rem',
+                    }}
+                  >
+                    {TIME_ZONE_GROUPS.map((group) => (
+                      <optgroup key={group} label={group}>
+                        {TIME_ZONE_OPTIONS.filter((o) => o.group === group).map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center justify-between gap-2 mt-2">
+                  <p className="text-xs text-slate-400 dark:text-slate-500">{t('settings.timeZoneDesc')}</p>
+                  {(() => {
+                    const detected = detectTimeZone();
+                    return detected && detected !== settings.timeZone ? (
+                      <button
+                        type="button"
+                        onClick={() => handleTimeZoneChange(detected)}
+                        className="shrink-0 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
+                      >
+                        {t('settings.useDetectedZone')}
+                      </button>
+                    ) : null;
+                  })()}
+                </div>
               </div>
             </div>
           </Card>

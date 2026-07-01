@@ -149,6 +149,7 @@ export function parseSettingsRows(rows: string[][]): TaxSettings {
     hiddenExpenseCategories: get('hidden_expense_categories', '').split('|').filter(Boolean),
     hiddenIncomeCategories: get('hidden_income_categories', '').split('|').filter(Boolean),
     language: (get('language', 'en') as Language),
+    timeZone: get('time_zone', DEFAULT_TAX_SETTINGS.timeZone),
   };
 }
 
@@ -191,6 +192,7 @@ export async function saveSettings(
     ['hidden_expense_categories', (settings.hiddenExpenseCategories ?? []).join('|')],
     ['hidden_income_categories', (settings.hiddenIncomeCategories ?? []).join('|')],
     ['language', settings.language ?? 'en'],
+    ['time_zone', settings.timeZone || DEFAULT_TAX_SETTINGS.timeZone],
   ];
   await sheets.spreadsheets.values.update({
     spreadsheetId,

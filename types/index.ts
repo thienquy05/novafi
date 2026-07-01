@@ -22,6 +22,7 @@ export interface TaxSettings {
   hiddenExpenseCategories: string[];
   hiddenIncomeCategories: string[];
   language: Language;
+  timeZone: string; // IANA time zone (e.g. 'America/New_York') — anchors every "today"/"now" across the app so server and client agree
 }
 
 export interface TaxResult {
