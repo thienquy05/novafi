@@ -51,9 +51,88 @@ export function formatDate(dateStr: string): string {
   });
 }
 
-export function today(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+// ── Time zone ────────────────────────────────────────────────────────────────
+// The app's "today" and "now" must agree everywhere — but the dashboard runs on
+// the server (usually UTC) while every other page runs in the browser's local
+// zone. Left unfixed, the dashboard's month/day math drifts a few hours off from
+// the rest of the app. To keep them in lockstep we anchor all date math to a
+// single user-chosen IANA time zone, resolved the same way on both sides.
+//
+// Default: America/New_York (Eastern — Toledo, OH and most of the US east).
+export const DEFAULT_TIME_ZONE = 'America/New_York';
+
+// Written by the settings page (mirrored from the persisted TaxSettings.timeZone)
+// so server components can read the user's zone synchronously from the request,
+// exactly like the nf_lang cookie.
+export const TZ_COOKIE = 'nf_tz';
+
+/**
+ * Resolve the effective time zone on the *client*. Prefers the nf_tz cookie
+ * (the user's saved choice), then the browser's own zone, then the default.
+ * Server code should pass an explicit `timeZone` instead of relying on this.
+ */
+export function getTimeZone(): string {
+  if (typeof document !== 'undefined') {
+    const m = document.cookie.match(/(?:^|;\s*)nf_tz=([^;]+)/);
+    if (m) {
+      try { return decodeURIComponent(m[1]); } catch { /* fall through */ }
+    }
+  }
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT_TIME_ZONE;
+  } catch {
+    return DEFAULT_TIME_ZONE;
+  }
+}
+
+/**
+ * A Date whose *local* getters (getFullYear/getMonth/getDate/getHours…) reflect
+ * the wall-clock time in `timeZone`. This lets existing code that reads
+ * now.getMonth()/getDate() stay unchanged while becoming zone-correct.
+ */
+export function zonedNow(timeZone?: string): Date {
+  const tz = timeZone || getTimeZone();
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    year: 'numeric', month: 'numeric', day: 'numeric',
+    hour: 'numeric', minute: 'numeric', second: 'numeric',
+    hour12: false,
+  }).formatToParts(new Date());
+  const p: Record<string, number> = {};
+  for (const { type, value } of parts) if (type !== 'literal') p[type] = Number(value);
+  // Some engines emit hour '24' at midnight; normalize to 0.
+  const hour = p.hour === 24 ? 0 : p.hour;
+  return new Date(p.year, p.month - 1, p.day, hour, p.minute, p.second);
+}
+
+/** Current date as YYYY-MM-DD in the given (or resolved) time zone. */
+export function today(timeZone?: string): string {
+  const tz = timeZone || getTimeZone();
+  // en-CA renders as YYYY-MM-DD, which is exactly the storage format we use.
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
+}
+
+/** Current wall-clock time (e.g. "3:45 PM") in the given (or resolved) zone. */
+export function formatClock(timeZone?: string, withSeconds = false): string {
+  const tz = timeZone || getTimeZone();
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour: 'numeric', minute: '2-digit',
+    ...(withSeconds ? { second: '2-digit' } : {}),
+    hour12: true,
+  }).format(new Date());
+}
+
+/** Short zone abbreviation (e.g. "EDT") for the given (or resolved) zone. */
+export function timeZoneAbbrev(timeZone?: string): string {
+  const tz = timeZone || getTimeZone();
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hour: 'numeric', timeZoneName: 'short',
+  }).formatToParts(new Date());
+  return parts.find((p) => p.type === 'timeZoneName')?.value ?? '';
 }
 
 export function generateId(): string {
@@ -81,4 +160,5 @@ export const DEFAULT_TAX_SETTINGS = {
   hiddenExpenseCategories: [] as string[],
   hiddenIncomeCategories: [] as string[],
   language: 'en' as const,
+  timeZone: DEFAULT_TIME_ZONE,
 };

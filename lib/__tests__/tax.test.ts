@@ -26,6 +26,7 @@ const BASE_SETTINGS: TaxSettings = {
   hiddenExpenseCategories: [],
   hiddenIncomeCategories: [],
   language: 'en',
+  timeZone: 'America/New_York',
 };
 
 describe('BRACKETS_2026 and STANDARD_DEDUCTION_2026', () => {

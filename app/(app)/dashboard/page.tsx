@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { auth } from '@/lib/auth';
 import { batchGetDashboardData, appendNetWorthSnapshot } from '@/lib/sheets';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency, formatDate, zonedNow } from '@/lib/utils';
 import {
   calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
   calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, calcSafeToSpendDaily, calcSpendableCash, pctChange as calcPctChange,
@@ -64,7 +64,10 @@ export default async function DashboardPage() {
 
   const { transactions, accounts, bills, budgets, goals, settings, netWorthHistory } = dashData;
 
-  const now = new Date();
+  // Anchor "now" to the user's chosen time zone (settings.timeZone), not the
+  // server's UTC clock. This is what kept the dashboard's month/day math a few
+  // hours out of step with the rest of the app, which runs in the browser zone.
+  const now = zonedNow(settings.timeZone);
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
   // This month

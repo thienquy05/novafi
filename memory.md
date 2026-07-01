@@ -2416,3 +2416,37 @@ Added `accounts.typePool`/`groupPool`; updated `funding.subtitle`; added ~26 `fu
 
 ### Tests / verification
 `lib/__tests__/funding.test.ts` gains real-pool coverage: contribution building (my Transfer vs others' Funding + held), `participantsFromContributions`/`contributionsTotal` (incl. top-ups), `poolProgress`, `isRealPool`, and a full cash-flow scenario asserting pool balance, `calcFundingHeldByAccount`, and the my-portion = balance − held identity. Existing `makePool` helpers (funding + transactions-route tests) updated with `kind: 'virtual'`. `tsc --noEmit` clean; `eslint` 0 errors (only the pre-existing load-effect warnings); `vitest` **567 passing**.
+
+---
+
+## Time-zone synchronization (system time fix + Settings picker)
+
+**Problem.** Every "today"/"now" in the app was computed with `new Date()` + local getters. The dashboard is a server component (`force-dynamic`) so its date math ran in the **server's UTC** clock, while every other page (`'use client'`) ran in the **browser's** zone. Result: the dashboard's month/day/"days elapsed" (and the bills/timeline math elsewhere) could sit a few hours out of step. There was also no way to pick a region.
+
+**Fix — one user-chosen IANA zone anchors all date math, resolved the same way on both server and client.**
+
+- **`types/index.ts`** — `TaxSettings` gains required `timeZone: string` (IANA id).
+- **`lib/utils.ts`** — new: `DEFAULT_TIME_ZONE = 'America/New_York'` (Eastern — Toledo, OH default), `TZ_COOKIE = 'nf_tz'`. Helpers:
+  - `getTimeZone()` — client resolver: prefers the `nf_tz` cookie, then the browser zone, then default. (Server code should pass an explicit zone instead.)
+  - `zonedNow(tz?)` — returns a `Date` whose **local getters** (`getFullYear/getMonth/getDate/getHours…`) reflect the wall-clock in `tz` (built via `Intl.DateTimeFormat('en-US',…).formatToParts`, normalizing hour `24`→`0`). Lets existing `now.getMonth()`-style code become zone-correct with no other changes.
+  - `today(tz?)` — `YYYY-MM-DD` in the zone via `Intl.DateTimeFormat('en-CA',…)` (ISO-shaped). **Signature is back-compatible** — the tz arg is optional, so all existing `today()` client callers keep working (they now resolve via cookie/browser).
+  - `formatClock(tz?, withSeconds?)`, `timeZoneAbbrev(tz?)` — for the Settings live-clock preview.
+  - `DEFAULT_TAX_SETTINGS.timeZone = DEFAULT_TIME_ZONE`.
+- **`lib/sheets.ts`** — `parseSettingsRows` reads `time_zone` (defaults to `DEFAULT_TAX_SETTINGS.timeZone` so **legacy sheets with no row default to Eastern**); `saveSettings` writes the `['time_zone', …]` key/value row. (Settings range is `A2:B100`, plenty of headroom.)
+- **`app/(app)/dashboard/page.tsx`** — `const now = new Date()` → `const now = zonedNow(settings.timeZone)`. This is the core bug fix; the dashboard already loads `settings` in its one batched round trip.
+- **`app/api/badges/route.ts`** — reordered to fetch data first, then `now = zonedNow(settings.timeZone)` so overdue/over-budget counts flip at the user's local midnight (imports `zonedNow`).
+- **`app/api/notifications/route.ts`** — reads `nf_tz` cookie (`|| DEFAULT_TIME_ZONE`) and uses `zonedNow(timeZone)` for the month key (imports `zonedNow`, `DEFAULT_TIME_ZONE`).
+
+**Cookie mirror (nf_tz).** Mirrors the `nf_lang` pattern so server components read the same zone the client uses without a round trip. Written by the Settings page: on settings **load**, on **zone change** (immediate — `handleTimeZoneChange`), and on **reset** (to default). Because `parseSettingsRows` defaults to Eastern and the client falls back to the browser zone, correctness holds even before the cookie exists.
+
+**`lib/timezones.ts` (new).** Curated `TIME_ZONE_OPTIONS` (US zones first — Eastern labeled "New York, Toledo, Detroit" — then Americas / Europe & Africa / Asia & Pacific), `TIME_ZONE_GROUPS` (optgroup order), `detectTimeZone()` (browser zone or undefined), `timeZoneLabel(value)`.
+
+**Settings UI — `app/(app)/settings/page.tsx`.** New **"Time & Region"** card (Clock icon) in the General section, between Language & Region and Dashboard Preferences:
+- **Live clock preview** — gradient tile showing the selected zone's label + date (`formatDate(today(tz))`), big `tabular-nums` time (`formatClock(tz)`) and abbrev (`timeZoneAbbrev(tz)`). Driven by a new `clockTick` state updated by a 1s `setInterval` effect (`key={clockTick}`).
+- **Grouped `<select>`** (native, styled to match the `Select` component) of `TIME_ZONE_OPTIONS` rendered as `<optgroup>`s; `onChange` → `handleTimeZoneChange` (cookie + state immediately; **Save** persists to the sheet).
+- **"Use my current zone"** shortcut shown when `detectTimeZone()` differs from the saved zone.
+- Load effect now defaults/normalizes `timeZone` and seeds the cookie; `handleReset` re-seeds the default cookie.
+
+**Locales** (`en.json`, `vi.json`) — added `settings.timeRegion`, `settings.timeZoneLabel`, `settings.timeZoneDesc`, `settings.useDetectedZone` (vi mirrors en).
+
+**Tests / verification.** `lib/__tests__/tax.test.ts` `BASE_SETTINGS` literal gains `timeZone: 'America/New_York'` (required-field fix). `tsc --noEmit` clean; eslint 0 errors on changed files (only pre-existing load-effect warnings elsewhere); `vitest` **599 passing**.
