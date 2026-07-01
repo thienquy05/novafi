@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ArrowDownLeft, ArrowUpRight, ArrowRightLeft, PiggyBank, Target, Pencil, CheckCircle2, Trash2 } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, ArrowRightLeft, PiggyBank, Target, Pencil, CheckCircle2, Trash2, Percent } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
+import { calcSavingsInterest } from '@/lib/calculations';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { peekCache, ensureResources } from '@/lib/client/store';
 import type { Account, Transaction, Goal } from '@/types';
@@ -32,6 +33,23 @@ type EditForm = {
   balance: string;
   last4: string;
   color: string;
+};
+
+// Recording interest the bank paid on a savings account. The amount is
+// pre-filled from the account's APY (see calcSavingsInterest) but stays editable
+// so it can be set to the exact figure the statement shows.
+type InterestForm = {
+  accountId: string;
+  amount: string;
+  description: string;
+  date: string;
+};
+
+const EMPTY_INTEREST_FORM: InterestForm = {
+  accountId: '',
+  amount: '',
+  description: '',
+  date: today(),
 };
 
 const EMPTY_EDIT_FORM: EditForm = {
@@ -65,6 +83,8 @@ export default function SavingsPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Account | null>(null);
   const [editForm, setEditForm] = useState<EditForm>(EMPTY_EDIT_FORM);
+  const [interestOpen, setInterestOpen] = useState(false);
+  const [interestForm, setInterestForm] = useState<InterestForm>(EMPTY_INTEREST_FORM);
   const [loading, setLoading] = useState(() => peekCache(['accounts', 'transactions', 'goals']) === null);
   const [saving, setSaving] = useState(false);
   const [visibleCount, setVisibleCount] = useState(SAVINGS_PAGE_SIZE);
@@ -173,6 +193,56 @@ export default function SavingsPage() {
     setOpen(true);
   }
 
+  // Prefer an account that actually has a rate set, so the amount pre-fills.
+  function openInterest() {
+    const withRate = accounts.find((a) => a.apr != null && a.apr > 0);
+    const acc = withRate ?? accounts[0];
+    setInterestForm({
+      ...EMPTY_INTEREST_FORM,
+      accountId: acc?.id ?? '',
+      amount: acc ? String(calcSavingsInterest(acc.balance, acc.apr ?? 0)) : '',
+      date: today(),
+    });
+    setInterestOpen(true);
+  }
+
+  // Switching accounts inside the modal re-suggests the interest for that account.
+  function selectInterestAccount(id: string) {
+    const acc = accounts.find((a) => a.id === id);
+    setInterestForm((f) => ({ ...f, accountId: id, amount: acc ? String(calcSavingsInterest(acc.balance, acc.apr ?? 0)) : '' }));
+  }
+
+  async function handleInterest() {
+    if (!interestForm.accountId || !interestForm.amount) return;
+    const amount = parseFloat(interestForm.amount);
+    if (!(amount > 0)) return;
+    setSaving(true);
+
+    // Interest the bank pays is real income credited to the savings account,
+    // so it's an `income` row (raises the balance) — not a Transfer like a manual
+    // deposit. Tagged category 'Interest' so it reads distinctly in history/reports.
+    const tx: Transaction = {
+      id: generateId(),
+      date: interestForm.date,
+      description: interestForm.description || 'Interest',
+      amount,
+      type: 'income',
+      category: 'Interest',
+      account: interestForm.accountId,
+    };
+
+    await fetch('/api/transactions', {
+      method: 'POST',
+      body: JSON.stringify(tx),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    setInterestOpen(false);
+    setInterestForm(EMPTY_INTEREST_FORM);
+    await load();
+    setSaving(false);
+  }
+
   function openEdit(account: Account) {
     setEditTarget(account);
     setEditForm({ name: account.name, institution: account.institution, balance: String(account.balance), last4: account.last4, color: account.color });
@@ -222,6 +292,10 @@ export default function SavingsPage() {
         action={
           accounts.length > 0 ? (
             <>
+              <Button variant="secondary" onClick={openInterest} className="flex-1 md:flex-none shadow-sm">
+                <Percent className="w-5 h-5" />
+                {t('savings.addInterest')}
+              </Button>
               <Button variant="secondary" onClick={() => openAction('withdraw')} className="flex-1 md:flex-none shadow-sm">
                 <ArrowUpRight className="w-5 h-5" />
                 {t('savings.withdraw')}
@@ -558,6 +632,78 @@ export default function SavingsPage() {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      {/* Add Interest Modal */}
+      <Modal
+        open={interestOpen}
+        onClose={() => { setInterestOpen(false); setInterestForm(EMPTY_INTEREST_FORM); }}
+        title={t('savings.addInterest')}
+      >
+        {(() => {
+          const acc = accounts.find((a) => a.id === interestForm.accountId);
+          const rate = acc?.apr;
+          const suggested = acc ? calcSavingsInterest(acc.balance, acc.apr ?? 0) : 0;
+          return (
+            <>
+              <div className="space-y-5 pb-4">
+                <Select
+                  label={t('savings.savingsAccount')}
+                  value={interestForm.accountId}
+                  options={accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))}
+                  onChange={(e) => selectInterestAccount(e.target.value)}
+                />
+                {/* Rate + calculated estimate so it's clear where the number comes from. */}
+                {rate != null && rate > 0 ? (
+                  <div className="rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 p-4">
+                    <p className="text-xs font-bold text-emerald-700/80 dark:text-emerald-400/80 uppercase tracking-wider">{t('savings.interestEstimate', { rate: rate.toFixed(2) })}</p>
+                    <p className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">+{formatCurrency(suggested)}</p>
+                    <p className="text-xs font-medium text-emerald-700/70 dark:text-emerald-400/70 mt-1">{t('savings.interestEstimateHint')}</p>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-4">
+                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{t('savings.noRateHint')}</p>
+                  </div>
+                )}
+                <Input
+                  label={t('savings.interestAmount')}
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={interestForm.amount}
+                  onChange={(e) => setInterestForm((f) => ({ ...f, amount: e.target.value }))}
+                />
+                <Input
+                  label={t('savings.descriptionOptional')}
+                  placeholder="e.g. Interest payment"
+                  value={interestForm.description}
+                  onChange={(e) => setInterestForm((f) => ({ ...f, description: e.target.value }))}
+                />
+                <Input
+                  label={t('common.date')}
+                  type="date"
+                  value={interestForm.date}
+                  onChange={(e) => setInterestForm((f) => ({ ...f, date: e.target.value }))}
+                />
+              </div>
+              <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+                <div className="flex gap-3">
+                  <Button variant="secondary" className="flex-1" onClick={() => { setInterestOpen(false); setInterestForm(EMPTY_INTEREST_FORM); }}>
+                    {t('common.cancel')}
+                  </Button>
+                  <Button
+                    className="flex-1 shadow-sm bg-emerald-600 hover:bg-emerald-500"
+                    onClick={handleInterest}
+                    disabled={saving || !interestForm.amount || !interestForm.accountId}
+                  >
+                    {saving ? t('common.saving') : t('savings.addInterest')}
+                  </Button>
+                </div>
+              </div>
+            </>
+          );
+        })()}
       </Modal>
     </div>
   );

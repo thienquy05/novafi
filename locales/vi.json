@@ -574,7 +574,10 @@
     "paymentFailed": "Không thể ghi nhận thanh toán",
     "minBalance": "Mức đệm số dư tối thiểu ($)",
     "minBalanceHint": "Chúng tôi sẽ cảnh báo trước khi một khoản chi làm tài khoản này tụt dưới mức này (sau hóa đơn sắp tới). Để trống để chỉ cảnh báo khi thực sự âm.",
-    "minBalanceBadge": "Giữ {amount}"
+    "minBalanceBadge": "Giữ {amount}",
+    "apy": "APY (%)",
+    "apyHint": "Lãi suất phần trăm hàng năm. Dùng để tính lãi ngân hàng trả cho bạn.",
+    "apyBadge": "APY {rate}%"
   },
   "funding": {
     "title": "Quỹ chung",
@@ -875,7 +878,12 @@
     "noTransactionsYet": "Chưa có giao dịch tiết kiệm nào. Hãy thực hiện lần nạp đầu tiên!",
     "byDate": "Đến {date}",
     "saved": "đã tiết kiệm",
-    "toGo": "còn lại"
+    "toGo": "còn lại",
+    "addInterest": "Thêm lãi",
+    "interestAmount": "Số tiền lãi",
+    "interestEstimate": "Lãi ước tính ở mức APY {rate}%",
+    "interestEstimateHint": "Dựa trên số dư hiện tại, trả hàng tháng. Điều chỉnh theo đúng số tiền ngân hàng đã trả.",
+    "noRateHint": "Tài khoản này chưa đặt lãi suất. Đặt APY ở trang Tài khoản để tự động tính, hoặc nhập số tiền bên dưới."
   },
   "planning": {
     "title": "Kế hoạch",
