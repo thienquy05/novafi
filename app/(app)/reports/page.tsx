@@ -58,7 +58,9 @@ export default function ReportsPage() {
 
   // Derive available years (memoized so it only recalculates when transactions change)
   const years = useMemo(() => {
-    const y = [...new Set(transactions.map((tx) => Number(tx.date.slice(0, 4))))].sort((a, b) => b - a);
+    const y = [...new Set(transactions.map((tx) => Number(tx.date.slice(0, 4))))]
+      .filter((year) => Number.isInteger(year) && year > 1000)
+      .sort((a, b) => b - a);
     if (y.length === 0) y.push(new Date().getFullYear());
     return y;
   }, [transactions]);
