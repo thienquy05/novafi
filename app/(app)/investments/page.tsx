@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
-import { TrendingUp, Plus, Pencil, Trash2, RefreshCw, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { TrendingUp, Plus, ArrowUpRight, ArrowDownRight, ArrowDownLeft, Pencil } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -13,60 +13,41 @@ import { peekCache, ensureResources } from '@/lib/client/store';
 import { useToast } from '@/lib/toast';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { useTranslation } from '@/lib/i18n/context';
+import { isSpendableAccount } from '@/lib/calculations';
 import {
-  holdingValue, holdingCost, holdingGain, holdingGainPct,
-  portfolioStats, allocationByType, totalFromPerUnit, perUnitFromTotal,
+  accountInvestment, portfolioStats, contributionHistory, CONTRIBUTION_CATEGORY,
 } from '@/lib/investments';
-import type { Holding, Account } from '@/types';
-
-const ASSET_TYPES = ['etf', 'stock', 'crypto'] as const;
-
-// Stable accent per asset class for the allocation bar + dots.
-const TYPE_COLOR: Record<Holding['assetType'], string> = {
-  etf: '#6366f1',    // indigo
-  stock: '#0ea5e9',  // sky
-  crypto: '#f59e0b', // amber
-};
+import type { Account, Transaction } from '@/types';
 
 function fmtPct(pct: number | null): string {
   if (pct === null) return '—';
   return `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
 }
 
-function fmtQty(n: number): string {
-  // Show up to 6 decimals for fractional crypto, trim trailing zeros.
-  return Number(n.toFixed(6)).toString();
-}
-
-const EMPTY_FORM: Omit<Holding, 'id' | 'createdAt'> = {
-  accountId: '',
-  symbol: '',
-  name: '',
-  assetType: 'etf',
-  quantity: 0,
-  avgCost: 0,
-  currentPrice: 0,
-  priceUpdatedAt: '',
-  notes: '',
-};
+// Which modal is open, and for which investment account.
+type Action = 'contribute' | 'withdraw' | 'value';
 
 export default function InvestmentsPage() {
   const { t } = useTranslation();
   const toast = useToast();
 
-  const [holdings, setHoldings] = useState<Holding[]>(() => peekCache(['holdings'])?.holdings ?? []);
   const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
+  const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [open, setOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState<Holding | null>(null);
-  const [form, setForm] = useState<Omit<Holding, 'id' | 'createdAt'>>(EMPTY_FORM);
+
+  const [action, setAction] = useState<Action | null>(null);
+  const [target, setTarget] = useState<Account | null>(null);
+  const [fromAccount, setFromAccount] = useState('');
+  const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(today());
+  const [note, setNote] = useState('');
+  const [value, setValue] = useState('');
 
   const load = useCallback(async (force = false) => {
-    const data = await ensureResources(['holdings', 'accounts'], { force });
-    setHoldings(data.holdings);
+    const data = await ensureResources(['accounts', 'transactions'], { force });
     setAccounts(data.accounts);
+    setTransactions(data.transactions);
     setLoading(false);
   }, []);
 
@@ -77,67 +58,56 @@ export default function InvestmentsPage() {
     () => accounts.filter((a) => a.type === 'investment'),
     [accounts],
   );
+  // Accounts you can fund from / withdraw to — real spendable cash accounts.
+  const spendAccounts = useMemo(() => accounts.filter(isSpendableAccount), [accounts]);
   const accountName = (id: string) => accounts.find((a) => a.id === id)?.name ?? t('investments.unknownAccount');
 
-  const stats = useMemo(() => portfolioStats(holdings), [holdings]);
-  const allocation = useMemo(() => allocationByType(holdings), [holdings]);
+  const stats = useMemo(() => portfolioStats(investAccounts, transactions), [investAccounts, transactions]);
 
-  // Holdings grouped under each investment account, accounts with positions first.
-  const grouped = useMemo(() => {
-    const byAccount = new Map<string, Holding[]>();
-    for (const h of holdings) {
-      const list = byAccount.get(h.accountId) ?? [];
-      list.push(h);
-      byAccount.set(h.accountId, list);
-    }
-    return [...byAccount.entries()]
-      .map(([accountId, items]) => ({
-        accountId,
-        items: [...items].sort((a, b) => holdingValue(b) - holdingValue(a)),
-        value: items.reduce((s, h) => s + holdingValue(h), 0),
-      }))
-      .sort((a, b) => b.value - a.value);
-  }, [holdings]);
-
-  function openAdd() {
-    setEditTarget(null);
-    setForm({ ...EMPTY_FORM, accountId: investAccounts[0]?.id ?? '' });
-    setOpen(true);
+  function openContribute(acc: Account) {
+    setTarget(acc); setAction('contribute');
+    setFromAccount(spendAccounts[0]?.id ?? ''); setAmount(''); setDate(today()); setNote('');
   }
-
-  function openEdit(h: Holding) {
-    setEditTarget(h);
-    setForm({
-      accountId: h.accountId, symbol: h.symbol, name: h.name, assetType: h.assetType,
-      quantity: h.quantity, avgCost: h.avgCost, currentPrice: h.currentPrice,
-      priceUpdatedAt: h.priceUpdatedAt, notes: h.notes,
-    });
-    setOpen(true);
+  function openWithdraw(acc: Account) {
+    setTarget(acc); setAction('withdraw');
+    setFromAccount(spendAccounts[0]?.id ?? ''); setAmount(''); setDate(today()); setNote('');
   }
+  function openValue(acc: Account) {
+    setTarget(acc); setAction('value');
+    setValue(acc.balance ? String(acc.balance) : '');
+  }
+  function close() { setAction(null); setTarget(null); }
 
-  const formValid = form.accountId && form.symbol.trim() && form.quantity > 0;
-
-  async function handleSave() {
-    if (!formValid) return;
+  // Post a transfer between a spendable account and the investment account.
+  // Direction is set by `action`: contribute = money in, withdraw = money out.
+  async function saveTransfer() {
+    if (!target || !fromAccount) return;
+    const amt = parseFloat(amount);
+    if (!(amt > 0)) return;
     setSaving(true);
-    const priceChanged = !editTarget || editTarget.currentPrice !== form.currentPrice;
-    const body: Holding = {
-      id: editTarget?.id ?? generateId(),
-      createdAt: editTarget?.createdAt ?? today(),
-      ...form,
-      symbol: form.symbol.trim().toUpperCase(),
-      priceUpdatedAt: form.currentPrice > 0 && priceChanged ? today() : form.priceUpdatedAt,
+    const isContribute = action === 'contribute';
+    const tx: Transaction = {
+      id: generateId(),
+      date: date || today(),
+      description: note.trim() || (isContribute
+        ? t('investments.defaultContributeNote', { name: target.name })
+        : t('investments.defaultWithdrawNote', { name: target.name })),
+      amount: amt,
+      type: 'transfer',
+      category: CONTRIBUTION_CATEGORY,
+      account: isContribute ? fromAccount : target.id,
+      toAccount: isContribute ? target.id : fromAccount,
+      createdAt: new Date().toISOString(),
     };
     try {
-      const res = await fetch('/api/investments', {
-        method: 'POST', body: JSON.stringify(body),
+      const res = await fetch('/api/transactions', {
+        method: 'POST', body: JSON.stringify(tx),
         headers: { 'Content-Type': 'application/json' },
       });
       if (!res.ok) throw new Error();
-      setHoldings((prev) => [...prev.filter((h) => h.id !== body.id), body]);
-      setOpen(false);
-      toast(editTarget ? t('investments.toastUpdated') : t('investments.toastAdded'), 'success');
-      load(true); // re-pull so the account balance sync is reflected
+      toast(isContribute ? t('investments.toastContributed') : t('investments.toastWithdrawn'), 'success');
+      close();
+      load(true);
     } catch {
       toast(t('investments.toastFailed'), 'error');
     } finally {
@@ -145,65 +115,27 @@ export default function InvestmentsPage() {
     }
   }
 
-  async function handleDelete(h: Holding) {
-    if (!confirm(t('investments.confirmDelete', { symbol: h.symbol }))) return;
-    const prev = holdings;
-    setHoldings((list) => list.filter((x) => x.id !== h.id));
+  // Set the investment account's current value (its balance) directly.
+  async function saveValue() {
+    if (!target) return;
+    const v = parseFloat(value);
+    if (!(v >= 0)) return;
+    setSaving(true);
     try {
       const res = await fetch('/api/investments', {
-        method: 'DELETE', body: JSON.stringify({ id: h.id, accountId: h.accountId }),
+        method: 'POST', body: JSON.stringify({ accountId: target.id, value: v }),
         headers: { 'Content-Type': 'application/json' },
       });
       if (!res.ok) throw new Error();
-      toast(t('investments.toastDeleted'), 'success');
+      toast(t('investments.toastValueUpdated'), 'success');
+      close();
       load(true);
     } catch {
-      setHoldings(prev);
-      toast(t('investments.toastFailedDelete'), 'error');
-    }
-  }
-
-  async function handleRefreshPrices() {
-    if (holdings.length === 0) return;
-    setRefreshing(true);
-    try {
-      const items = holdings.map((h) => ({ symbol: h.symbol, assetType: h.assetType }));
-      const res = await fetch('/api/investments/quote', {
-        method: 'POST', body: JSON.stringify({ items }),
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!res.ok) throw new Error();
-      const { quotes } = (await res.json()) as { quotes: Record<string, number>; failed: string[] };
-      const updated = holdings.filter((h) => {
-        const q = quotes[h.symbol.toUpperCase()];
-        return q != null && q > 0 && q !== h.currentPrice;
-      });
-      if (updated.length === 0) {
-        toast(t('investments.toastNoQuotes'), 'info');
-        return;
-      }
-      // Persist each updated price (account balance re-syncs server-side).
-      await Promise.all(updated.map((h) => {
-        const next: Holding = { ...h, currentPrice: quotes[h.symbol.toUpperCase()], priceUpdatedAt: today() };
-        return fetch('/api/investments', {
-          method: 'POST', body: JSON.stringify(next),
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }));
-      toast(t('investments.toastPricesUpdated', { n: updated.length }), 'success');
-      load(true);
-    } catch {
-      toast(t('investments.toastQuoteFailed'), 'error');
+      toast(t('investments.toastFailed'), 'error');
     } finally {
-      setRefreshing(false);
+      setSaving(false);
     }
   }
-
-  const typeLabel = (ty: Holding['assetType']) => ({
-    etf: t('investments.typeEtf'),
-    stock: t('investments.typeStock'),
-    crypto: t('investments.typeCrypto'),
-  }[ty]);
 
   if (loading) {
     return (
@@ -223,23 +155,8 @@ export default function InvestmentsPage() {
         tone="emerald"
         title={t('investments.title')}
         subtitle={t('investments.subtitle')}
-        action={
-          <div className="flex items-center gap-2 w-full md:w-auto">
-            {holdings.length > 0 && (
-              <Button variant="secondary" onClick={handleRefreshPrices} disabled={refreshing} className="shadow-sm">
-                <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-                {t('investments.refreshPrices')}
-              </Button>
-            )}
-            <Button onClick={openAdd} disabled={investAccounts.length === 0} className="shadow-sm">
-              <Plus className="w-4 h-4" />
-              {t('investments.addBtn')}
-            </Button>
-          </div>
-        }
       />
 
-      {/* No investment account yet → point to Accounts */}
       {investAccounts.length === 0 ? (
         <Card className="py-12 text-center">
           <TrendingUp className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
@@ -254,255 +171,182 @@ export default function InvestmentsPage() {
         </Card>
       ) : (
         <>
-          {/* Summary cards */}
+          {/* Portfolio summary */}
           <div className="grid grid-cols-3 gap-3">
             <Card className="p-4 text-center flex flex-col">
               <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">{t('investments.totalValue')}</p>
               <p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(stats.value)}</p>
             </Card>
             <Card className="p-4 text-center flex flex-col">
-              <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">{t('investments.totalGain')}</p>
-              <p className={`text-xl font-extrabold ${gainColor}`}>{formatCurrency(stats.gain, true)}</p>
+              <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">{t('investments.totalInvested')}</p>
+              <p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(stats.invested)}</p>
             </Card>
             <Card className="p-4 text-center flex flex-col">
-              <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">{t('investments.totalReturn')}</p>
-              <p className={`text-xl font-extrabold ${gainColor}`}>{fmtPct(stats.gainPct)}</p>
+              <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">{t('investments.totalGain')}</p>
+              <p className={`text-xl font-extrabold ${gainColor}`}>{formatCurrency(stats.gain, true)}</p>
+              <p className={`text-xs font-semibold mt-0.5 ${gainColor}`}>{fmtPct(stats.gainPct)}</p>
             </Card>
           </div>
 
-          {/* Allocation by asset class */}
-          {allocation.length > 0 && stats.value > 0 && (
-            <Card>
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-extrabold text-slate-800 dark:text-slate-100">{t('investments.allocation')}</p>
-                <p className="text-xs text-slate-400 dark:text-slate-500">{t('investments.costBasis')}: {formatCurrency(stats.cost)}</p>
-              </div>
-              <div className="flex h-3 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
-                {allocation.map((slice) => (
-                  <div
-                    key={slice.key}
-                    style={{ width: `${slice.pct}%`, backgroundColor: TYPE_COLOR[slice.key as Holding['assetType']] }}
-                    title={`${typeLabel(slice.key as Holding['assetType'])} · ${slice.pct.toFixed(1)}%`}
-                  />
-                ))}
-              </div>
-              <div className="flex flex-wrap gap-x-5 gap-y-2 mt-4">
-                {allocation.map((slice) => (
-                  <div key={slice.key} className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: TYPE_COLOR[slice.key as Holding['assetType']] }} />
-                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">{typeLabel(slice.key as Holding['assetType'])}</span>
-                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100">{slice.pct.toFixed(0)}%</span>
-                    <span className="text-xs text-slate-400 dark:text-slate-500">{formatCurrency(slice.value)}</span>
-                  </div>
-                ))}
-              </div>
-            </Card>
+          {spendAccounts.length === 0 && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 text-center">{t('investments.noSpendAccount')}</p>
           )}
 
-          {/* Holdings grouped by account */}
-          {holdings.length === 0 ? (
-            <Card className="py-12 text-center">
-              <TrendingUp className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
-              <p className="text-base font-bold text-slate-700 dark:text-slate-300 mb-1">{t('investments.empty')}</p>
-              <p className="text-sm text-slate-500 dark:text-slate-400 max-w-xs mx-auto mb-5">{t('investments.emptyBody')}</p>
-              <Button onClick={openAdd} className="mx-auto">
-                <Plus className="w-4 h-4" />
-                {t('investments.addBtn')}
-              </Button>
-            </Card>
-          ) : (
-            grouped.map((group) => (
-              <div key={group.accountId} className="space-y-2">
-                <div className="flex items-center justify-between px-1">
-                  <p className="text-sm font-bold text-slate-600 dark:text-slate-300">{accountName(group.accountId)}</p>
-                  <p className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(group.value)}</p>
+          {/* One card per investment account */}
+          {investAccounts.map((acc) => {
+            const s = accountInvestment(acc, transactions);
+            const up = s.gain >= 0;
+            const flow = contributionHistory(acc, transactions).slice(0, 4);
+            return (
+              <Card key={acc.id} className="p-5 space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-base font-extrabold text-slate-900 dark:text-slate-100 truncate">{acc.name}</p>
+                    {acc.institution && <p className="text-xs text-slate-400 dark:text-slate-500 truncate">{acc.institution}</p>}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(s.value)}</p>
+                    <p className={`text-xs font-semibold flex items-center justify-end gap-0.5 ${up ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                      {up ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                      {formatCurrency(s.gain, true)} ({fmtPct(s.gainPct)})
+                    </p>
+                  </div>
                 </div>
-                {group.items.map((h) => {
-                  const value = holdingValue(h);
-                  const gain = holdingGain(h);
-                  const pct = holdingGainPct(h);
-                  const up = gain >= 0;
-                  return (
-                    <Card key={h.id} className="flex items-center gap-3 p-3.5">
-                      <div
-                        className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-[11px] font-extrabold text-white"
-                        style={{ backgroundColor: TYPE_COLOR[h.assetType] }}
-                      >
-                        {h.symbol.slice(0, 4)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">{h.symbol}</p>
-                          <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-400 uppercase">
-                            {typeLabel(h.assetType)}
+
+                {/* Invested vs current value */}
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-700/40">
+                    <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('investments.invested')}</p>
+                    <p className="font-extrabold text-slate-800 dark:text-slate-100 mt-0.5">{formatCurrency(s.invested)}</p>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-700/40">
+                    <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('investments.currentValue')}</p>
+                    <p className="font-extrabold text-slate-800 dark:text-slate-100 mt-0.5">{formatCurrency(s.value)}</p>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={() => openContribute(acc)} disabled={spendAccounts.length === 0} className="flex-1 min-w-[7rem]">
+                    <Plus className="w-4 h-4" />
+                    {t('investments.addMoney')}
+                  </Button>
+                  <Button variant="secondary" onClick={() => openValue(acc)} className="flex-1 min-w-[7rem]">
+                    <Pencil className="w-4 h-4" />
+                    {t('investments.updateValue')}
+                  </Button>
+                  <Button variant="secondary" onClick={() => openWithdraw(acc)} disabled={spendAccounts.length === 0} className="flex-1 min-w-[7rem]">
+                    <ArrowDownLeft className="w-4 h-4" />
+                    {t('investments.withdraw')}
+                  </Button>
+                </div>
+
+                {/* Recent money flow */}
+                {flow.length > 0 && (
+                  <div className="pt-1">
+                    <p className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">{t('investments.flowTitle')}</p>
+                    <div className="space-y-1.5">
+                      {flow.map(({ tx, direction }) => (
+                        <div key={tx.id} className="flex items-center justify-between text-xs">
+                          <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 truncate">
+                            {direction === 'in'
+                              ? <ArrowUpRight className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                              : <ArrowDownLeft className="w-3.5 h-3.5 text-rose-500 shrink-0" />}
+                            <span className="truncate">{tx.date} · {direction === 'in' ? accountName(tx.account) : accountName(tx.toAccount ?? '')}</span>
+                          </span>
+                          <span className={`font-bold shrink-0 ml-2 ${direction === 'in' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                            {direction === 'in' ? '+' : '−'}{formatCurrency(tx.amount)}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                          {fmtQty(h.quantity)} @ {formatCurrency(h.avgCost)}
-                          {h.currentPrice > 0 && <> · {formatCurrency(h.currentPrice)}/{t('investments.unit')}</>}
-                        </p>
-                      </div>
-                      <div className="text-right shrink-0 mr-1">
-                        <p className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(value)}</p>
-                        <p className={`text-xs font-semibold flex items-center justify-end gap-0.5 ${up ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                          {up ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                          {formatCurrency(gain, true)} ({fmtPct(pct)})
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          onClick={() => openEdit(h)}
-                          title={t('common.edit')}
-                          className="p-2 rounded-lg text-slate-400 dark:text-slate-500 hover:text-indigo-500 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(h)}
-                          title={t('common.delete')}
-                          className="p-2 rounded-lg text-slate-400 dark:text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </Card>
-                  );
-                })}
-              </div>
-            ))
-          )}
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </Card>
+            );
+          })}
         </>
       )}
 
-      {/* Add / Edit Modal */}
+      {/* Contribute / Withdraw modal */}
       <Modal
-        open={open}
-        onClose={() => setOpen(false)}
-        title={editTarget ? t('investments.editTitle') : t('investments.addTitle')}
+        open={action === 'contribute' || action === 'withdraw'}
+        onClose={close}
+        title={action === 'withdraw' ? t('investments.withdrawTitle') : t('investments.contributeTitle')}
       >
-        <div className="space-y-4">
-          <Select
-            label={t('investments.account')}
-            value={form.accountId}
-            options={investAccounts.map((a) => ({ value: a.id, label: a.name }))}
-            onChange={(e) => setForm((f) => ({ ...f, accountId: e.target.value }))}
-          />
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label={t('investments.symbol')}
-              placeholder={t('investments.symbolPlaceholder')}
-              value={form.symbol}
-              onChange={(e) => setForm((f) => ({ ...f, symbol: e.target.value.toUpperCase() }))}
-            />
+        {target && (
+          <div className="space-y-4">
             <Select
-              label={t('investments.assetType')}
-              value={form.assetType}
-              options={ASSET_TYPES.map((ty) => ({ value: ty, label: typeLabel(ty) }))}
-              onChange={(e) => setForm((f) => ({ ...f, assetType: e.target.value as Holding['assetType'] }))}
+              label={action === 'withdraw' ? t('investments.toAccount') : t('investments.fromAccount')}
+              value={fromAccount}
+              options={spendAccounts.map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))}
+              onChange={(e) => setFromAccount(e.target.value)}
             />
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label={t('investments.amount')}
+                type="number" min="0" step="0.01"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+              />
+              <Input
+                label={t('investments.date')}
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+              />
+            </div>
+            <Input
+              label={t('investments.note')}
+              placeholder={t('investments.notePlaceholder')}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+            <p className="text-xs text-slate-400 dark:text-slate-500">
+              {action === 'withdraw' ? t('investments.withdrawHint') : t('investments.contributeHint')}
+            </p>
+            <div className="flex gap-2 pt-1">
+              <Button onClick={saveTransfer} disabled={saving || !fromAccount || !(parseFloat(amount) > 0)} className="flex-1">
+                {saving ? t('common.saving') : t('investments.saveBtn')}
+              </Button>
+              <Button variant="secondary" onClick={close} className="flex-1">{t('investments.cancelBtn')}</Button>
+            </div>
           </div>
-          <Input
-            label={t('investments.name')}
-            placeholder={t('investments.namePlaceholder')}
-            value={form.name}
-            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-          />
-          <Input
-            label={t('investments.quantity')}
-            type="number"
-            min="0"
-            step="any"
-            value={form.quantity || ''}
-            onChange={(e) => setForm((f) => ({ ...f, quantity: parseFloat(e.target.value) || 0 }))}
-          />
+        )}
+      </Modal>
 
-          {/* Cost basis & price each accept a per-unit figure OR the total you
-              hold — editing one side chases the other through the quantity, so
-              you can enter whichever number you actually know. */}
-          <div className="grid grid-cols-2 gap-3">
+      {/* Update current value modal */}
+      <Modal open={action === 'value'} onClose={close} title={t('investments.updateValueTitle')}>
+        {target && (
+          <div className="space-y-4">
             <Input
-              label={t('investments.avgCost')}
-              type="number"
-              min="0"
-              step="0.01"
-              value={form.avgCost || ''}
-              onChange={(e) => setForm((f) => ({ ...f, avgCost: parseFloat(e.target.value) || 0 }))}
+              label={t('investments.currentValue')}
+              type="number" min="0" step="0.01"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
             />
-            <Input
-              label={t('investments.totalCost')}
-              type="number"
-              min="0"
-              step="0.01"
-              disabled={form.quantity <= 0}
-              value={form.quantity > 0 && form.avgCost > 0 ? totalFromPerUnit(form.avgCost, form.quantity) : ''}
-              onChange={(e) => setForm((f) => ({ ...f, avgCost: perUnitFromTotal(parseFloat(e.target.value) || 0, f.quantity) }))}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label={t('investments.currentPrice')}
-              type="number"
-              min="0"
-              step="0.01"
-              value={form.currentPrice || ''}
-              onChange={(e) => setForm((f) => ({ ...f, currentPrice: parseFloat(e.target.value) || 0 }))}
-            />
-            <Input
-              label={t('investments.totalValue')}
-              type="number"
-              min="0"
-              step="0.01"
-              disabled={form.quantity <= 0}
-              value={form.quantity > 0 && form.currentPrice > 0 ? totalFromPerUnit(form.currentPrice, form.quantity) : ''}
-              onChange={(e) => setForm((f) => ({ ...f, currentPrice: perUnitFromTotal(parseFloat(e.target.value) || 0, f.quantity) }))}
-            />
-          </div>
-          {form.quantity <= 0 && (
-            <p className="text-xs text-slate-400 dark:text-slate-500 -mt-1">{t('investments.totalHint')}</p>
-          )}
-
-          {/* Live preview: cost basis, current market value, and unrealized gain */}
-          {form.quantity > 0 && (() => {
-            const cost = totalFromPerUnit(form.avgCost, form.quantity);
-            const value = totalFromPerUnit(form.currentPrice > 0 ? form.currentPrice : form.avgCost, form.quantity);
-            const gain = value - cost;
-            const up = gain >= 0;
-            return (
-              <div className="space-y-1.5 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 text-sm">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="font-semibold text-slate-600 dark:text-slate-300">{t('investments.costBasis')}</span>
-                  <span className="font-bold text-slate-700 dark:text-slate-200">{formatCurrency(cost)}</span>
+            <p className="text-xs text-slate-400 dark:text-slate-500">{t('investments.valueHint')}</p>
+            {value !== '' && parseFloat(value) >= 0 && (() => {
+              const invested = accountInvestment(target, transactions).invested;
+              const gain = Math.round((parseFloat(value) - invested) * 100) / 100;
+              const up = gain >= 0;
+              return (
+                <div className="flex items-center justify-between gap-4 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-700/40 text-sm">
+                  <span className="font-semibold text-slate-600 dark:text-slate-300">{t('investments.totalGain')}</span>
+                  <span className={`font-extrabold ${up ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                    {formatCurrency(gain, true)}
+                  </span>
                 </div>
-                <div className="flex items-center justify-between gap-4">
-                  <span className="font-semibold text-slate-600 dark:text-slate-300">{t('investments.marketValue')}</span>
-                  <span className="font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(value)}</span>
-                </div>
-                {form.currentPrice > 0 && form.avgCost > 0 && (
-                  <div className="flex items-center justify-between gap-4">
-                    <span className="font-semibold text-slate-600 dark:text-slate-300">{t('investments.totalGain')}</span>
-                    <span className={`font-extrabold ${up ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                      {formatCurrency(gain, true)}
-                    </span>
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-          <Input
-            label={t('investments.notes')}
-            placeholder={t('investments.notesPlaceholder')}
-            value={form.notes}
-            onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-          />
-          <div className="flex gap-2 pt-1">
-            <Button onClick={handleSave} disabled={saving || !formValid} className="flex-1">
-              {saving ? t('common.saving') : t('investments.saveBtn')}
-            </Button>
-            <Button variant="secondary" onClick={() => setOpen(false)} className="flex-1">
-              {t('investments.cancelBtn')}
-            </Button>
+              );
+            })()}
+            <div className="flex gap-2 pt-1">
+              <Button onClick={saveValue} disabled={saving || !(parseFloat(value) >= 0)} className="flex-1">
+                {saving ? t('common.saving') : t('investments.saveBtn')}
+              </Button>
+              <Button variant="secondary" onClick={close} className="flex-1">{t('investments.cancelBtn')}</Button>
+            </div>
           </div>
-        </div>
+        )}
       </Modal>
     </div>
   );

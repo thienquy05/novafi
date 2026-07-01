@@ -1,56 +1,37 @@
 import { NextResponse } from 'next/server';
-import {
-  getHoldings, upsertHolding, deleteHolding,
-  getAccounts, upsertAccount,
-} from '@/lib/sheets';
-import { invalidateMany, CACHE_TTL, INVESTMENT_CACHES } from '@/lib/cache';
-import { cachedGet, withSession } from '@/lib/apiRoute';
-import { accountInvestmentValue } from '@/lib/investments';
+import { getAccounts, upsertAccount } from '@/lib/sheets';
+import { invalidateMany, INVESTMENT_CACHES } from '@/lib/cache';
+import { withSession } from '@/lib/apiRoute';
 import { roundCents } from '@/lib/calculations';
-import type { Holding } from '@/types';
-
-export const GET = cachedGet({
-  resource: 'holdings',
-  ttl: CACHE_TTL.SHORT,
-  fetch: ({ accessToken, spreadsheetId }) => getHoldings(accessToken, spreadsheetId),
-});
 
 /**
- * Keep an investment account's balance equal to the total market value of the
- * holdings it contains. Called after any holding mutation so net worth, the
- * dashboard, and reports (which all read account.balance) reflect the portfolio
- * with no extra client wiring. Only writes when the balance actually changed,
- * and never touches a non-investment account.
+ * Investments are money flow, not brokerage lots (see lib/investments.ts).
+ *
+ * Contributions and withdrawals are ordinary `transfer` transactions booked
+ * through /api/transactions — that path already debits the source account and
+ * keeps every balance correct, so it isn't duplicated here.
+ *
+ * This route does the one thing transfers can't: set an investment account's
+ * CURRENT VALUE (its balance) directly, so the portfolio can reflect market
+ * movement. Cost basis is derived from the transfers, so it isn't touched here —
+ * only the current value moves, which is exactly what makes gain = value −
+ * invested.
  */
-async function syncAccountBalance(
-  accessToken: string,
-  spreadsheetId: string,
-  accountId: string,
-): Promise<void> {
-  if (!accountId) return;
-  const [accounts, holdings] = await Promise.all([
-    getAccounts(accessToken, spreadsheetId),
-    getHoldings(accessToken, spreadsheetId),
-  ]);
-  const account = accounts.find((a) => a.id === accountId);
-  if (!account || account.type !== 'investment') return;
-  const value = accountInvestmentValue(holdings, accountId);
-  if (roundCents(account.balance) === value) return;
-  await upsertAccount(accessToken, spreadsheetId, { ...account, balance: value });
-}
-
 export const POST = withSession(async ({ accessToken, spreadsheetId, req }) => {
-  const body = (await req.json()) as Holding;
-  await upsertHolding(accessToken, spreadsheetId, body);
-  await syncAccountBalance(accessToken, spreadsheetId, body.accountId);
-  invalidateMany(spreadsheetId, INVESTMENT_CACHES);
-  return NextResponse.json({ ok: true });
-});
+  const { accountId, value } = (await req.json()) as { accountId: string; value: number };
 
-export const DELETE = withSession(async ({ accessToken, spreadsheetId, req }) => {
-  const { id, accountId } = (await req.json()) as { id: string; accountId?: string };
-  await deleteHolding(accessToken, spreadsheetId, id);
-  if (accountId) await syncAccountBalance(accessToken, spreadsheetId, accountId);
-  invalidateMany(spreadsheetId, INVESTMENT_CACHES);
+  const accounts = await getAccounts(accessToken, spreadsheetId);
+  const account = accounts.find((a) => a.id === accountId);
+  if (!account || account.type !== 'investment') {
+    return NextResponse.json({ error: 'not_investment_account' }, { status: 400 });
+  }
+
+  const next = roundCents(Number(value) || 0);
+  // Only write (and bust caches) when the value actually changed.
+  if (roundCents(account.balance) !== next) {
+    await upsertAccount(accessToken, spreadsheetId, { ...account, balance: next });
+    invalidateMany(spreadsheetId, INVESTMENT_CACHES);
+  }
+
   return NextResponse.json({ ok: true });
 });
