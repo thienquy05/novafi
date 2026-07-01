@@ -28,6 +28,7 @@ import {
   predictMonthlyIncome, suggestCardPaymentBudget,
   accountUpcomingBills, assessAccountOverdraft, detectOverdraftRisks, evaluatePaymentSafety,
   isSpendableAccount, OVERDRAFT_HORIZON_DAYS,
+  calcSavingsInterest,
 } from '@/lib/calculations';
 import type { Account, Transaction, Bill, Budget, Loan, Split } from '@/types';
 
@@ -2346,5 +2347,42 @@ describe('overdraft safeguard', () => {
 
   it('exposes a sane default horizon', () => {
     expect(OVERDRAFT_HORIZON_DAYS).toBeGreaterThan(0);
+  });
+});
+
+describe('calcSavingsInterest', () => {
+  it('compounds the APY down to a monthly rate (not naïve APY/12)', () => {
+    // $10,000 at 3.00% APY, credited monthly: (1.03)^(1/12) - 1 ≈ 0.0024663 → $24.66
+    expect(calcSavingsInterest(10000, 3)).toBeCloseTo(24.66, 2);
+  });
+
+  it('is below the naïve simple-interest figure (compounding effect)', () => {
+    const naive = 10000 * (3 / 100) / 12; // 25.00
+    expect(calcSavingsInterest(10000, 3)).toBeLessThan(naive);
+  });
+
+  it('one year of monthly interest compounds up to ~the stated APY', () => {
+    let bal = 10000;
+    for (let i = 0; i < 12; i++) bal += calcSavingsInterest(bal, 3);
+    // 3.00% APY on 10k ≈ +$300 over the year (± rounding of monthly credits)
+    expect(bal).toBeGreaterThan(10298);
+    expect(bal).toBeLessThan(10302);
+  });
+
+  it('supports other crediting frequencies via periodsPerYear', () => {
+    // Annual crediting = the full APY on the balance.
+    expect(calcSavingsInterest(10000, 3, 1)).toBeCloseTo(300, 2);
+  });
+
+  it('returns 0 for a non-positive balance, rate, or period', () => {
+    expect(calcSavingsInterest(0, 3)).toBe(0);
+    expect(calcSavingsInterest(-500, 3)).toBe(0);
+    expect(calcSavingsInterest(10000, 0)).toBe(0);
+    expect(calcSavingsInterest(10000, 3, 0)).toBe(0);
+  });
+
+  it('rounds to whole cents', () => {
+    const v = calcSavingsInterest(12345.67, 3.25);
+    expect(v).toBe(Math.round(v * 100) / 100);
   });
 });

@@ -2502,3 +2502,29 @@ Rewrote `lib/__tests__/investments.test.ts` for the new pure functions (invested
 **Locales** (`en.json`, `vi.json`) — added `settings.timeRegion`, `settings.timeZoneLabel`, `settings.timeZoneDesc`, `settings.useDetectedZone` (vi mirrors en).
 
 **Tests / verification.** `lib/__tests__/tax.test.ts` `BASE_SETTINGS` literal gains `timeZone: 'America/New_York'` (required-field fix). `tsc --noEmit` clean; eslint 0 errors on changed files (only pre-existing load-effect warnings elsewhere); `vitest` **599 passing**.
+
+---
+
+## Savings interest (APY) — set a rate & record bank-paid interest
+
+**Goal.** Let a savings account carry an interest rate (APY) and record the interest the bank credits, calculated from the balance. Motivated by a real 360 Performance Savings account at 3.00% APY.
+
+**Reused the existing `apr` field.** `Account.apr` already persists generically for every account (sheets column L / `r[11]`, read+written by `rowToAccount`/`upsertAccount`), so no schema/persistence change was needed — only the UI gates that decide when it's shown/saved.
+- **`types/index.ts`** — widened the `apr` doc comment: it now covers savings too, where it represents the **APY** used to calculate credited interest (see `calcSavingsInterest`).
+
+**`lib/calculations.ts` — new pure `calcSavingsInterest(balance, apyPct, periodsPerYear = 12)`.** APY is the *effective* annual yield after compounding, so the per-period rate is `(1 + APY)^(1/periods) − 1` (NOT naïve `APY/periods`); interest for one period = `balance × periodicRate`, `roundCents`-ed. Defaults to 12 (monthly crediting — the 360 Performance Savings model). Returns 0 for non-positive balance/rate/period so callers can prefill safely.
+
+**Accounts page (`app/(app)/accounts/page.tsx`).**
+- `handleSave` now keeps `apr` for `savings` too (`credit || loan || savings`), still `Math.max(0, …)`, cleared on other types.
+- New **APY input** rendered only for `type === 'savings'` (reuses `form.apr`), with a hint. Digits+dot sanitized like the credit/loan APR inputs.
+- Savings rows show an emerald **`{rate}% APY` badge** (`accounts.apyBadge`) under the name when `apr` is set.
+
+**Savings page (`app/(app)/savings/page.tsx`) — "Add Interest" flow.**
+- New header action **"Add Interest"** (`Percent` icon, secondary) beside Withdraw/Deposit, shown whenever there are savings accounts.
+- New `InterestForm` state + `EMPTY_INTEREST_FORM`. `openInterest()` prefers an account with a rate set and prefills the amount via `calcSavingsInterest(balance, apr)`. `selectInterestAccount()` re-suggests when the account changes in the modal.
+- `handleInterest()` posts an **`income`** transaction (raises the savings balance — matches `nextBalanceForAccount`/`applyIncomeBalance` for a non-debt account), `category: 'Interest'`, description defaulting to `'Interest'`. Distinct from a manual deposit, which is `category: 'Transfer'`.
+- New **Add Interest modal**: account select, an emerald estimate card (`+$X`, "Estimated interest at {rate}% APY" + hint) when the account has a rate — or a neutral "no rate set" hint pointing to Accounts — an **editable amount** (prefilled from the estimate so it can be matched to the exact figure the statement shows), optional description, and date.
+
+**Locales (`en.json`, `vi.json`).** Added `savings.addInterest`, `savings.interestAmount`, `savings.interestEstimate` ({rate}), `savings.interestEstimateHint`, `savings.noRateHint`; `accounts.apy`, `accounts.apyHint`, `accounts.apyBadge` ({rate}). vi mirrors en.
+
+**Tests / verification.** New `describe('calcSavingsInterest')` in `lib/__tests__/calculations.test.ts`: compounds APY→monthly (≈$24.66 on $10k at 3%), stays below naïve simple interest, 12 monthly credits compound up to ~the stated APY (~+$300/yr), `periodsPerYear=1` = full APY, zero-guards, cent-rounding. `tsc --noEmit` clean; eslint 0 errors (only the pre-existing load-effect `set-state-in-effect` warnings); `vitest` **600 passing**; `next build` succeeds.

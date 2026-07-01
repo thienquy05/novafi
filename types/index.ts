@@ -101,9 +101,11 @@ export interface Account {
   // statement balance, so this drives "pay before your statement closes" nudges.
   // Absent = not set.
   statementDay?: number;
-  // Credit cards AND loans: the APR as a percent (e.g. 24.99 / 6.5). For cards it
-  // powers the Balance-Transfer Optimizer; for loans it drives the amortization /
-  // payoff math. Absent = not set; 0 is a real 0% APR.
+  // Credit cards, loans AND savings: the annual rate as a percent (e.g. 24.99 /
+  // 6.5 / 3.00). For cards it powers the Balance-Transfer Optimizer; for loans it
+  // drives the amortization / payoff math; for savings it is the APY used to
+  // calculate the interest the bank credits (see calcSavingsInterest). Absent =
+  // not set; 0 is a real 0% rate.
   apr?: number;
   // Loan accounts only: the scheduled monthly payment. Drives payoff time, total
   // interest and the "pay extra" advisor. Absent/0 = not set.

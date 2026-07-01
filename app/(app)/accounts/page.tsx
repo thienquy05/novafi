@@ -174,8 +174,9 @@ export default function AccountsPage() {
       // openingBalance, so omitting it here would wipe it. Cleared off non-credit.
       statementDay: form.type === 'credit' ? editTarget?.statementDay : undefined,
       // APR powers the Balance-Transfer Optimizer (credit) and payoff math (loan);
-      // 0 is a valid 0% APR. Kept for both card and loan accounts.
-      apr: (form.type === 'credit' || form.type === 'loan') && form.apr !== '' ? Math.max(0, parseFloat(form.apr)) : undefined,
+      // for savings it's the APY that drives interest calculation. 0 is a valid
+      // 0% rate. Kept for card, loan and savings accounts; cleared on other types.
+      apr: (form.type === 'credit' || form.type === 'loan' || form.type === 'savings') && form.apr !== '' ? Math.max(0, parseFloat(form.apr)) : undefined,
       // Loan-only fields: scheduled monthly payment, original term, and the
       // account payments are drawn from. Cleared on non-loan types.
       monthlyPayment: form.type === 'loan' && form.monthlyPayment !== '' ? Math.max(0, parseBalance(form.monthlyPayment)) : undefined,
@@ -391,6 +392,9 @@ export default function AccountsPage() {
                             {SPENDABLE_ACCOUNT_TYPES.includes(type) && (account.minBalance ?? 0) > 0 && (
                               <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 mt-1">{t('accounts.minBalanceBadge', { amount: formatCurrency(account.minBalance ?? 0) })}</p>
                             )}
+                            {type === 'savings' && account.apr != null && (
+                              <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 mt-1">{t('accounts.apyBadge', { rate: account.apr.toFixed(2) })}</p>
+                            )}
                             {type === 'credit' && (() => {
                               const util = creditUtilization(account.balance, account.creditLimit ?? 0);
                               if (util === null) {
@@ -470,6 +474,12 @@ export default function AccountsPage() {
             <div className="grid grid-cols-2 gap-3">
               <Input label={t('accounts.creditLimit')} type="text" inputMode="decimal" placeholder="0.00" value={form.creditLimit} onChange={(e) => setForm((f) => ({ ...f, creditLimit: e.target.value.replace(/[^0-9.,]/g, '') }))} />
               <Input label={t('accounts.apr')} type="text" inputMode="decimal" placeholder="0.00" value={form.apr} onChange={(e) => setForm((f) => ({ ...f, apr: e.target.value.replace(/[^0-9.]/g, '') }))} />
+            </div>
+          )}
+          {form.type === 'savings' && (
+            <div>
+              <Input label={t('accounts.apy')} type="text" inputMode="decimal" placeholder="3.00" value={form.apr} onChange={(e) => setForm((f) => ({ ...f, apr: e.target.value.replace(/[^0-9.]/g, '') }))} />
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 ml-1">{t('accounts.apyHint')}</p>
             </div>
           )}
           {form.type === 'loan' && (

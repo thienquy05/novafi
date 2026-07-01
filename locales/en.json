@@ -574,7 +574,10 @@
     "paymentFailed": "Couldn't record the payment",
     "minBalance": "Low-balance buffer ($)",
     "minBalanceHint": "We'll warn you before a payment drops this account below this amount (after upcoming bills). Leave blank to only warn on a real overdraft.",
-    "minBalanceBadge": "Keep {amount}"
+    "minBalanceBadge": "Keep {amount}",
+    "apy": "APY (%)",
+    "apyHint": "Annual percentage yield. Used to calculate the interest your bank credits.",
+    "apyBadge": "{rate}% APY"
   },
   "funding": {
     "title": "Funding",
@@ -875,7 +878,12 @@
     "noTransactionsYet": "No savings transactions yet. Make your first deposit!",
     "byDate": "By {date}",
     "saved": "saved",
-    "toGo": "to go"
+    "toGo": "to go",
+    "addInterest": "Add Interest",
+    "interestAmount": "Interest amount",
+    "interestEstimate": "Estimated interest at {rate}% APY",
+    "interestEstimateHint": "Based on the current balance, credited monthly. Adjust to the exact amount your bank paid.",
+    "noRateHint": "No interest rate set for this account. Set its APY on the Accounts page to auto-calculate, or enter the amount below."
   },
   "planning": {
     "title": "Planning",

@@ -1292,6 +1292,22 @@ export function roundCents(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+// ── Savings interest ──────────────────────────────────────────────────────────
+// Interest a savings account earns over ONE crediting period, given its APY
+// (annual percentage yield, as a percent — e.g. 3 for a 3.00% APY account like
+// 360 Performance Savings). APY is the *effective* annual return after
+// compounding, so the per-period rate that compounds up to it is
+// (1 + APY)^(1/periods) − 1 — not a naïve APY/periods. The interest the bank
+// credits on the current balance for one period is therefore balance × that
+// rate. `periodsPerYear` defaults to 12 (interest credited monthly, the model
+// most high-yield savings accounts — including 360 Performance Savings — use).
+// Returns 0 for a non-positive balance or rate so callers can prefill safely.
+export function calcSavingsInterest(balance: number, apyPct: number, periodsPerYear = 12): number {
+  if (!(balance > 0) || !(apyPct > 0) || !(periodsPerYear > 0)) return 0;
+  const periodicRate = Math.pow(1 + apyPct / 100, 1 / periodsPerYear) - 1;
+  return roundCents(balance * periodicRate);
+}
+
 export function applyExpenseBalance(balance: number, amount: number, isDebt: boolean): number {
   return roundCents(isDebt ? balance + amount : balance - amount);
 }
