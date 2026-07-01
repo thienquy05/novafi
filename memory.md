@@ -2,6 +2,12 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-07-01 — Settings: align "Delete All Data" card layout with "Data Storage" (branch claude/delete-data-ui-consistency-xrm9oo)
+
+UI consistency fix on the **About & Data** settings section. The "Delete All Data" (Danger Zone) card was the odd one out: it used a side-by-side `flex items-start justify-between` layout that crammed the description into a narrow left column with the button beside it, so the paragraph wrapped awkwardly. Every sibling card ("Data Storage", "App Update") uses a full-width description paragraph with the action button stacked below it.
+
+- **`app/(app)/settings/page.tsx`** — Danger Zone card now renders `deleteAllDataDesc` as a full-width paragraph followed by the delete button on its own line (`mt-4`), matching the Data Storage / App Update pattern. Removed the `flex justify-between` wrapper and the button's `shrink-0`. Rose color treatment (icon, title, button) intentionally retained to keep the danger semantics; only the layout was normalized.
+
 ## 2026-06-30 — Investments rework: per-unit ↔ total entry + Robinhood MCP assessment (branch claude/investment-robinhood-mcp-1jeunt)
 
 Follow-up to the Investments feature. Two asks: (1) can the newly-linked **Robinhood MCP** drive secure real-time per-user money sync in the deployed app, and (2) if not, let a holding's price/total "chase backwards or forwards" so you can enter whichever figure you actually know.
