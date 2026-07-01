@@ -1,138 +1,120 @@
 import { describe, it, expect } from 'vitest';
 import {
-  hasPrice, holdingValue, holdingCost, holdingGain, holdingGainPct,
-  portfolioStats, accountInvestmentValue, allocationByType, allocationByHolding,
-  totalFromPerUnit, perUnitFromTotal,
+  investedInAccount, accountInvestment, portfolioStats, contributionHistory,
 } from '@/lib/investments';
-import type { Holding } from '@/types';
+import type { Account, Transaction } from '@/types';
 
-function makeHolding(over: Partial<Holding> = {}): Holding {
+function makeAccount(over: Partial<Account> = {}): Account {
   return {
-    id: 'h1',
-    accountId: 'acc1',
-    symbol: 'VOO',
-    name: 'Vanguard S&P 500 ETF',
-    assetType: 'etf',
-    quantity: 10,
-    avgCost: 400,
-    currentPrice: 500,
-    priceUpdatedAt: '2026-06-01',
-    notes: '',
+    id: 'inv1',
+    name: 'Robinhood',
+    type: 'investment',
+    institution: 'Robinhood',
+    balance: 0,
+    last4: '',
+    color: '#6366f1',
     createdAt: '2026-01-01',
+    openingBalance: 0,
     ...over,
   };
 }
 
-describe('holding math', () => {
-  it('computes value, cost, gain and percent', () => {
-    const h = makeHolding();
-    expect(holdingValue(h)).toBe(5000);
-    expect(holdingCost(h)).toBe(4000);
-    expect(holdingGain(h)).toBe(1000);
-    expect(holdingGainPct(h)).toBeCloseTo(25, 5);
+function transfer(over: Partial<Transaction> = {}): Transaction {
+  return {
+    id: Math.random().toString(36).slice(2),
+    date: '2026-02-01',
+    description: 'Contribution',
+    amount: 100,
+    type: 'transfer',
+    category: 'Investment',
+    account: 'checking',
+    toAccount: 'inv1',
+    ...over,
+  };
+}
+
+describe('investedInAccount', () => {
+  it('starts from the opening balance', () => {
+    const acc = makeAccount({ openingBalance: 500 });
+    expect(investedInAccount(acc, [])).toBe(500);
   });
 
-  it('falls back to cost basis when the price is missing', () => {
-    const h = makeHolding({ currentPrice: 0 });
-    expect(hasPrice(h)).toBe(false);
-    expect(holdingValue(h)).toBe(4000); // = cost, so no phantom 100% loss
-    expect(holdingGain(h)).toBe(0);
+  it('adds transfers in and subtracts transfers out', () => {
+    const acc = makeAccount({ openingBalance: 0 });
+    const txs = [
+      transfer({ amount: 100, toAccount: 'inv1', account: 'checking' }), // +100
+      transfer({ amount: 250, toAccount: 'inv1', account: 'savings' }),  // +250
+      transfer({ amount: 50, toAccount: 'checking', account: 'inv1' }),  // −50 (withdrawal)
+    ];
+    expect(investedInAccount(acc, txs)).toBe(300);
   });
 
-  it('returns null percent when there is no cost basis', () => {
-    const h = makeHolding({ avgCost: 0 });
-    expect(holdingGainPct(h)).toBeNull();
-  });
-
-  it('handles a loss', () => {
-    const h = makeHolding({ avgCost: 500, currentPrice: 400 });
-    expect(holdingGain(h)).toBe(-1000);
-    expect(holdingGainPct(h)).toBeCloseTo(-20, 5);
-  });
-
-  it('rounds fractional crypto positions to cents', () => {
-    const h = makeHolding({ assetType: 'crypto', symbol: 'BTC', quantity: 0.13, avgCost: 30000, currentPrice: 60000 });
-    expect(holdingValue(h)).toBe(7800);
-    expect(holdingCost(h)).toBe(3900);
-    expect(holdingGain(h)).toBe(3900);
+  it('ignores non-transfers and transfers for other accounts', () => {
+    const acc = makeAccount();
+    const txs = [
+      transfer({ amount: 100, toAccount: 'other' }),                        // other account
+      { ...transfer({ amount: 100 }), type: 'expense' as const },           // not a transfer
+    ];
+    expect(investedInAccount(acc, txs)).toBe(0);
   });
 });
 
-describe('per-unit / total conversion (chase backwards & forwards)', () => {
-  it('goes forwards: per-unit price × quantity → total', () => {
-    expect(totalFromPerUnit(500, 10)).toBe(5000);
-    expect(totalFromPerUnit(33.333333, 3)).toBe(100); // rounds to cents
+describe('accountInvestment', () => {
+  it('computes value, invested, gain and percent', () => {
+    const acc = makeAccount({ balance: 1200, openingBalance: 0 });
+    const txs = [transfer({ amount: 1000 })]; // invested 1000, value 1200
+    const s = accountInvestment(acc, txs);
+    expect(s.value).toBe(1200);
+    expect(s.invested).toBe(1000);
+    expect(s.gain).toBe(200);
+    expect(s.gainPct).toBeCloseTo(20, 5);
   });
 
-  it('goes backwards: total ÷ quantity → per-unit price', () => {
-    expect(perUnitFromTotal(5000, 10)).toBe(500);
-    expect(perUnitFromTotal(100, 3)).toBeCloseTo(33.333333, 6);
+  it('handles a loss', () => {
+    const acc = makeAccount({ balance: 800, openingBalance: 0 });
+    const s = accountInvestment(acc, [transfer({ amount: 1000 })]);
+    expect(s.gain).toBe(-200);
+    expect(s.gainPct).toBeCloseTo(-20, 5);
   });
 
-  it('round-trips a fractional-crypto total cleanly', () => {
-    const perUnit = perUnitFromTotal(100, 0.13); // ~769.23
-    expect(totalFromPerUnit(perUnit, 0.13)).toBe(100);
-  });
-
-  it('is quantity-safe (no NaN/Infinity) when quantity is missing', () => {
-    expect(perUnitFromTotal(100, 0)).toBe(0);
-    expect(perUnitFromTotal(100, -1)).toBe(0);
-    expect(totalFromPerUnit(NaN, 10)).toBe(0);
-    expect(perUnitFromTotal(100, NaN)).toBe(0);
+  it('returns null percent when nothing is invested', () => {
+    const acc = makeAccount({ balance: 0, openingBalance: 0 });
+    expect(accountInvestment(acc, []).gainPct).toBeNull();
   });
 });
 
 describe('portfolioStats', () => {
-  it('aggregates across holdings', () => {
-    const holdings = [
-      makeHolding({ id: 'a', quantity: 10, avgCost: 400, currentPrice: 500 }), // val 5000 cost 4000
-      makeHolding({ id: 'b', symbol: 'BTC', assetType: 'crypto', quantity: 1, avgCost: 30000, currentPrice: 40000 }), // val 40000 cost 30000
+  it('aggregates across investment accounts', () => {
+    const a = makeAccount({ id: 'a', balance: 1200, openingBalance: 0 });
+    const b = makeAccount({ id: 'b', balance: 5000, openingBalance: 2000 });
+    const txs = [
+      transfer({ amount: 1000, toAccount: 'a' }), // a invested 1000, value 1200
+      transfer({ amount: 1000, toAccount: 'b' }), // b invested 2000+1000=3000, value 5000
     ];
-    const s = portfolioStats(holdings);
-    expect(s.value).toBe(45000);
-    expect(s.cost).toBe(34000);
-    expect(s.gain).toBe(11000);
-    expect(s.gainPct).toBeCloseTo((11000 / 34000) * 100, 5);
+    const s = portfolioStats([a, b], txs);
+    expect(s.value).toBe(6200);
+    expect(s.invested).toBe(4000);
+    expect(s.gain).toBe(2200);
+    expect(s.gainPct).toBeCloseTo((2200 / 4000) * 100, 5);
     expect(s.count).toBe(2);
   });
 
   it('is empty-safe', () => {
-    const s = portfolioStats([]);
-    expect(s).toEqual({ value: 0, cost: 0, gain: 0, gainPct: null, count: 0 });
+    expect(portfolioStats([], [])).toEqual({ value: 0, invested: 0, gain: 0, gainPct: null, count: 0 });
   });
 });
 
-describe('accountInvestmentValue', () => {
-  it('sums only the holdings for the given account', () => {
-    const holdings = [
-      makeHolding({ id: 'a', accountId: 'rh', quantity: 10, avgCost: 400, currentPrice: 500 }), // 5000
-      makeHolding({ id: 'b', accountId: 'rh', quantity: 1, currentPrice: 1000, avgCost: 1000 }), // 1000
-      makeHolding({ id: 'c', accountId: 'other', quantity: 5, currentPrice: 100, avgCost: 100 }), // excluded
+describe('contributionHistory', () => {
+  it('lists the account transfers newest first, tagged by direction', () => {
+    const acc = makeAccount();
+    const txs = [
+      transfer({ id: 't1', date: '2026-01-05', amount: 100, toAccount: 'inv1', account: 'checking' }),
+      transfer({ id: 't2', date: '2026-03-01', amount: 40, toAccount: 'checking', account: 'inv1' }),
+      transfer({ id: 't3', date: '2026-02-01', amount: 200, toAccount: 'other', account: 'checking' }), // unrelated
     ];
-    expect(accountInvestmentValue(holdings, 'rh')).toBe(6000);
-    expect(accountInvestmentValue(holdings, 'missing')).toBe(0);
-  });
-});
-
-describe('allocation', () => {
-  it('breaks down by asset type, largest first', () => {
-    const holdings = [
-      makeHolding({ id: 'a', assetType: 'etf', quantity: 10, avgCost: 100, currentPrice: 100 }), // 1000
-      makeHolding({ id: 'b', assetType: 'crypto', quantity: 1, avgCost: 3000, currentPrice: 3000 }), // 3000
-      makeHolding({ id: 'c', assetType: 'stock', quantity: 1, avgCost: 1000, currentPrice: 1000 }), // 1000
-    ];
-    const slices = allocationByType(holdings);
-    expect(slices.map((s) => s.key)).toEqual(['crypto', 'etf', 'stock']);
-    expect(slices[0].pct).toBeCloseTo((3000 / 5000) * 100, 5);
-  });
-
-  it('breaks down by holding', () => {
-    const holdings = [
-      makeHolding({ id: 'a', symbol: 'VOO', quantity: 10, avgCost: 100, currentPrice: 100 }), // 1000
-      makeHolding({ id: 'b', symbol: 'BTC', quantity: 1, avgCost: 3000, currentPrice: 3000 }), // 3000
-    ];
-    const slices = allocationByHolding(holdings);
-    expect(slices[0].label).toBe('BTC');
-    expect(slices[0].pct).toBeCloseTo(75, 5);
+    const hist = contributionHistory(acc, txs);
+    expect(hist.map((h) => h.tx.id)).toEqual(['t2', 't1']);
+    expect(hist[0].direction).toBe('out');
+    expect(hist[1].direction).toBe('in');
   });
 });

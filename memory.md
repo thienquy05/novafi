@@ -2416,3 +2416,49 @@ Added `accounts.typePool`/`groupPool`; updated `funding.subtitle`; added ~26 `fu
 
 ### Tests / verification
 `lib/__tests__/funding.test.ts` gains real-pool coverage: contribution building (my Transfer vs others' Funding + held), `participantsFromContributions`/`contributionsTotal` (incl. top-ups), `poolProgress`, `isRealPool`, and a full cash-flow scenario asserting pool balance, `calcFundingHeldByAccount`, and the my-portion = balance − held identity. Existing `makePool` helpers (funding + transactions-route tests) updated with `kind: 'virtual'`. `tsc --noEmit` clean; `eslint` 0 errors (only the pre-existing load-effect warnings); `vitest` **567 passing**.
+
+## 2026-07-01 — Investments: simplified to money-flow tracking (branch claude/investment-account-simplify-tcpykc)
+
+Replaced the brokerage-style Holdings tracker (per-lot symbol/quantity/avgCost/currentPrice, live quote refresh, asset-allocation charts, per-holding gain/loss) with a much simpler **money-flow** model. The user found the old feature too fiddly — the per-share prices were the numbers needing constant updates. Confirmed three product decisions via AskUserQuestion: (1) **contributions + current value** model (drop symbols/shares/prices), (2) contributions **record real transfers** (debit a spending account), (3) **no existing data** — retire the old holdings tracker outright.
+
+### New model (money flow, not lots)
+- An `investment`-type Account's **`balance` = its current value** (what it's worth now — the figure you update occasionally). Net worth / dashboard / reports already read `balance`, so they stay correct with no extra wiring.
+- **Invested (cost basis)** is derived, never stored: `openingBalance + Σ(transfers INTO the account) − Σ(transfers OUT)`. Because contributions are ordinary `transfer` transactions, the source account is debited and money flow stays correct — and any transfer made from the normal Transactions page counts too.
+- **Gain = current value − invested**; gainPct = gain / invested (null when nothing invested).
+
+### `types/index.ts`
+Removed the `Holding` interface entirely; replaced its doc comment with a note describing the money-flow model.
+
+### `lib/investments.ts` (rewritten, pure + unit-tested)
+- `CONTRIBUTION_CATEGORY = 'Investment'` — the category transfers are booked under (CategoryIcon already maps `Investment` → TrendingUp).
+- `investedInAccount(account, transactions)` → opening balance + net transfers in/out.
+- `accountInvestment(account, transactions)` → `{ accountId, value, invested, gain, gainPct }`.
+- `portfolioStats(accounts, transactions)` → `{ value, invested, gain, gainPct, count }` across investment accounts.
+- `contributionHistory(account, transactions)` → the account's transfers newest-first, each tagged `direction: 'in' | 'out'`.
+- Deleted all old holding math (hasPrice, holdingValue/Cost/Gain/GainPct, allocationByType/Holding, accountInvestmentValue, totalFromPerUnit/perUnitFromTotal).
+
+### `app/api/investments/route.ts` (rewritten)
+Now a single **POST `{ accountId, value }`** that sets an investment account's current value (its `balance`) directly via `upsertAccount` (guards `type === 'investment'`, only writes + invalidates when the value changed). Removed the old GET (holdings), the holdings POST/DELETE, and `syncAccountBalance`. Contributions/withdrawals are **not** handled here — they go through `/api/transactions` as plain transfers, reusing all existing balance/reconciliation logic.
+- Deleted `app/api/investments/quote/route.ts` (Stooq/CoinGecko price lookups) — no per-share prices anymore.
+
+### `lib/cache.ts`
+`INVESTMENT_CACHES` dropped `'holdings'` → `['accounts', 'dashboard', 'badges']` (a value update changes balance → net worth + badges). Contributions bust caches via the transactions route's own `TX_CACHES`.
+
+### `lib/sheets.ts` — removed the Holdings sheet layer
+Dropped the `Holding` import, `HOLDINGS_HEADER`, `rowToHolding`/`holdingToRow`, and `getHoldings`/`upsertHolding`/`deleteHolding`. Removed `holdings` from `BatchResult`, the `NonBatchableKey` union, `BATCH_KEYS`, and the `batchGetSheets` task list. `deleteAllData` keeps `'Holdings'` in its tab list (guarded by existence) so any legacy tab still gets wiped.
+- `lib/client/api.ts`: removed `Holding` import + `holdings` from `BatchData`.
+- `app/api/batch/route.ts`: removed `holdings` from the per-key TTL map.
+
+### `app/(app)/investments/page.tsx` (rewritten)
+Loads `accounts` + `transactions` (was `holdings` + `accounts`). Shows a portfolio summary (Current Value / Invested / Total Gain + %), then one card per investment account with invested-vs-current-value tiles, gain, a recent money-flow list (`contributionHistory`, in/out arrows), and three actions:
+- **Add money** → Contribute modal (from a spendable account, amount, date, note) → POSTs a `transfer` (source → investment, category `Investment`) to `/api/transactions`.
+- **Withdraw** → same modal, reversed (investment → spendable account).
+- **Update value** → POSTs `{ accountId, value }` to `/api/investments`; shows a live gain preview.
+
+Source/destination accounts are `isSpendableAccount` (checking/savings/cash); a hint shows when none exist. Empty state (no investment account) still points to the Accounts page. `loading.tsx` skeleton unchanged.
+
+### Locales (`locales/en.json`, `locales/vi.json`)
+Replaced the entire `investments.*` block (removed holding/symbol/quantity/price/allocation/quote keys) with the new set: title/subtitle, totalValue/totalInvested/totalGain, invested/currentValue, addMoney/updateValue/withdraw, fromAccount/toAccount/amount/date/note/notePlaceholder, contributeTitle/withdrawTitle/updateValueTitle, contributeHint/withdrawHint/valueHint, flowTitle, noSpendAccount, defaultContributeNote/defaultWithdrawNote ({name}), saveBtn/cancelBtn, toastContributed/toastWithdrawn/toastValueUpdated/toastFailed, plus noAccountTitle/noAccountBody/goToAccounts/unknownAccount. vi mirrors en.
+
+### Tests / verification
+Rewrote `lib/__tests__/investments.test.ts` for the new pure functions (investedInAccount, accountInvestment gain/loss/null, portfolioStats aggregation + empty-safe, contributionHistory ordering/direction). Fixed `lib/__tests__/store.test.ts` fake `BatchData` (removed `holdings`). `tsc --noEmit` clean; `eslint` **0 errors** (only pre-existing warnings, incl. the load-effect setState pattern reused here); `vitest` **594 passing**; `next build` succeeds.

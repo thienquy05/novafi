@@ -1,146 +1,107 @@
-import type { Holding } from '@/types';
+import type { Account, Transaction } from '@/types';
 import { roundCents } from './calculations';
 
 /**
- * Pure investment / portfolio math, independent of the UI and the Sheets layer
- * (mirrors lib/calculations.ts so it can be unit-tested in isolation).
+ * Pure investment math, independent of the UI and the Sheets layer (mirrors
+ * lib/calculations.ts so it can be unit-tested in isolation).
  *
- * A holding's current market value is `quantity × currentPrice`; its cost basis
- * is `quantity × avgCost`; unrealized gain is the difference. When a price hasn't
- * been set yet (currentPrice ≤ 0) we fall back to cost basis as the value so a
- * brand-new, un-priced position never reads as a 100% loss.
+ * The model is deliberately simple — money flow, not brokerage lots:
+ *
+ *   • An `investment`-type Account's `balance` is its CURRENT VALUE — what the
+ *     position is worth right now. You update it occasionally (the number that
+ *     "changes frequently but not necessarily"); net worth, the dashboard, and
+ *     reports all read `balance`, so they stay correct with no extra wiring.
+ *
+ *   • INVESTED (cost basis) is the real money you've put in: the account's
+ *     opening balance plus every `transfer` INTO it, minus every `transfer` OUT.
+ *     Because contributions are ordinary transfers, the source account is
+ *     debited and your money flow stays correct automatically — and any transfer
+ *     you make from the normal Transactions page counts here too.
+ *
+ *   • GAIN = current value − invested. That's the "something to show about the
+ *     investment process" without tracking a single share price.
  */
 
-export type AssetType = Holding['assetType'];
-
-/** Whether a price has actually been provided for this holding. */
-export function hasPrice(h: Holding): boolean {
-  return Number.isFinite(h.currentPrice) && h.currentPrice > 0;
-}
+// Contributions/withdrawals are booked as transfers under this category so they
+// read distinctly in the ledger (CategoryIcon already maps it to a chart icon).
+export const CONTRIBUTION_CATEGORY = 'Investment';
 
 /**
- * Convert between a per-unit price and a total dollar amount so the entry form
- * can "chase" whichever figure the user actually knows: type the price of one
- * share/coin and read off the total (forwards), or type the total you hold and
- * back-solve the price of a single unit (backwards).
- *
- * Both directions are quantity-safe — with no quantity there's nothing to
- * multiply or divide, so they return 0 instead of NaN/Infinity. Per-unit is kept
- * to 6 decimals so fractional-crypto totals round-trip cleanly (e.g. $100 over
- * 3 shares → $33.333333 → back to $100.00), while totals round to cents.
+ * Cost basis of one investment account: opening balance + net transfers in.
+ * A transfer whose `toAccount` is this account adds money; a transfer whose
+ * `account` is this account removes it. Everything is rounded to cents.
  */
-export function totalFromPerUnit(perUnit: number, quantity: number): number {
-  if (!Number.isFinite(perUnit) || !Number.isFinite(quantity)) return 0;
-  return roundCents(perUnit * quantity);
-}
-
-export function perUnitFromTotal(total: number, quantity: number): number {
-  if (!Number.isFinite(total) || !Number.isFinite(quantity) || quantity <= 0) return 0;
-  return Math.round((total / quantity) * 1e6) / 1e6;
-}
-
-/** Current market value of one holding. Falls back to cost basis when un-priced. */
-export function holdingValue(h: Holding): number {
-  const price = hasPrice(h) ? h.currentPrice : h.avgCost;
-  return roundCents(h.quantity * price);
-}
-
-/** Cost basis (total invested) for one holding. */
-export function holdingCost(h: Holding): number {
-  return roundCents(h.quantity * h.avgCost);
-}
-
-/** Unrealized gain/loss in dollars for one holding. */
-export function holdingGain(h: Holding): number {
-  return roundCents(holdingValue(h) - holdingCost(h));
-}
-
-/** Unrealized return as a percent of cost basis. Null when there's no basis. */
-export function holdingGainPct(h: Holding): number | null {
-  const cost = holdingCost(h);
-  if (cost <= 0) return null;
-  return (holdingGain(h) / cost) * 100;
-}
-
-export interface PortfolioStats {
-  value: number;     // total market value
-  cost: number;      // total cost basis
-  gain: number;      // total unrealized gain ($)
-  gainPct: number | null; // total return (%) — null when cost basis is 0
-  count: number;     // number of holdings
-}
-
-/** Aggregate value / cost / gain across a set of holdings. */
-export function portfolioStats(holdings: Holding[]): PortfolioStats {
-  let value = 0;
-  let cost = 0;
-  for (const h of holdings) {
-    value += holdingValue(h);
-    cost += holdingCost(h);
+export function investedInAccount(account: Account, transactions: Transaction[]): number {
+  let invested = account.openingBalance ?? 0;
+  for (const t of transactions) {
+    if (t.type !== 'transfer') continue;
+    if (t.toAccount === account.id) invested += t.amount;
+    else if (t.account === account.id) invested -= t.amount;
   }
-  value = roundCents(value);
-  cost = roundCents(cost);
-  const gain = roundCents(value - cost);
+  return roundCents(invested);
+}
+
+export interface AccountInvestment {
+  accountId: string;
+  value: number;          // current market value (= account.balance)
+  invested: number;       // cost basis (opening balance + net transfers)
+  gain: number;           // value − invested
+  gainPct: number | null; // gain as a % of invested — null when nothing invested
+}
+
+/** Value / invested / gain for a single investment account. */
+export function accountInvestment(account: Account, transactions: Transaction[]): AccountInvestment {
+  const value = roundCents(account.balance);
+  const invested = investedInAccount(account, transactions);
+  const gain = roundCents(value - invested);
   return {
+    accountId: account.id,
     value,
-    cost,
+    invested,
     gain,
-    gainPct: cost > 0 ? (gain / cost) * 100 : null,
-    count: holdings.length,
+    gainPct: invested > 0 ? (gain / invested) * 100 : null,
   };
 }
 
-/** Total market value of the holdings belonging to one account. */
-export function accountInvestmentValue(holdings: Holding[], accountId: string): number {
-  return roundCents(
-    holdings
-      .filter((h) => h.accountId === accountId)
-      .reduce((s, h) => s + holdingValue(h), 0),
-  );
+export interface PortfolioStats {
+  value: number;          // total current value across investment accounts
+  invested: number;       // total cost basis
+  gain: number;           // total gain ($)
+  gainPct: number | null; // total return (%) — null when nothing invested
+  count: number;          // number of investment accounts
 }
 
-export interface AllocationSlice {
-  key: string;        // asset type or symbol
-  label: string;      // display label
-  value: number;      // market value of the slice
-  pct: number;        // share of the whole portfolio (0–100)
-}
-
-const ASSET_TYPE_LABELS: Record<AssetType, string> = {
-  stock: 'Stocks',
-  etf: 'ETFs',
-  crypto: 'Crypto',
-};
-
-/** Breakdown by asset class (stocks / ETFs / crypto), largest first. */
-export function allocationByType(holdings: Holding[]): AllocationSlice[] {
-  const totals = new Map<AssetType, number>();
-  for (const h of holdings) {
-    totals.set(h.assetType, roundCents((totals.get(h.assetType) ?? 0) + holdingValue(h)));
+/** Aggregate value / invested / gain across a set of investment accounts. */
+export function portfolioStats(accounts: Account[], transactions: Transaction[]): PortfolioStats {
+  let value = 0;
+  let invested = 0;
+  for (const a of accounts) {
+    value += roundCents(a.balance);
+    invested += investedInAccount(a, transactions);
   }
-  const total = [...totals.values()].reduce((s, v) => s + v, 0);
-  return [...totals.entries()]
-    .map(([key, value]) => ({
-      key,
-      label: ASSET_TYPE_LABELS[key],
-      value,
-      pct: total > 0 ? (value / total) * 100 : 0,
-    }))
-    .sort((a, b) => b.value - a.value);
+  value = roundCents(value);
+  invested = roundCents(invested);
+  const gain = roundCents(value - invested);
+  return {
+    value,
+    invested,
+    gain,
+    gainPct: invested > 0 ? (gain / invested) * 100 : null,
+    count: accounts.length,
+  };
 }
 
-/** Breakdown by individual holding (symbol), largest first. */
-export function allocationByHolding(holdings: Holding[]): AllocationSlice[] {
-  const total = holdings.reduce((s, h) => s + holdingValue(h), 0);
-  return holdings
-    .map((h) => {
-      const value = holdingValue(h);
-      return {
-        key: h.id,
-        label: h.symbol || h.name,
-        value,
-        pct: total > 0 ? (value / total) * 100 : 0,
-      };
-    })
-    .sort((a, b) => b.value - a.value);
+/**
+ * The transfers that fund (or draw from) one investment account, newest first —
+ * the "money flow" history shown on the account. In = transfer to the account,
+ * out = transfer from it.
+ */
+export function contributionHistory(
+  account: Account,
+  transactions: Transaction[],
+): { tx: Transaction; direction: 'in' | 'out' }[] {
+  return transactions
+    .filter((t) => t.type === 'transfer' && (t.toAccount === account.id || t.account === account.id))
+    .map((t) => ({ tx: t, direction: t.toAccount === account.id ? ('in' as const) : ('out' as const) }))
+    .sort((a, b) => (a.tx.date < b.tx.date ? 1 : a.tx.date > b.tx.date ? -1 : 0));
 }
