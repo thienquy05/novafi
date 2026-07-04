@@ -259,16 +259,18 @@ export default function SubscriptionsPage() {
       {/* Summary cards — shown once there's something to summarise */}
       {activeSubs.length > 0 && (
         <div className="grid grid-cols-3 gap-3">
-          <Card className="p-4 text-center flex flex-col">
-            <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">{t('subscriptions.monthlyCost')}</p>
+          {/* min-w-0 + break-words keep long labels (incl. Vietnamese) inside
+              these narrow 3-col cards instead of spilling past the border. */}
+          <Card className="p-4 text-center flex flex-col min-w-0">
+            <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide break-words mb-2">{t('subscriptions.monthlyCost')}</p>
             <FitText maxSize={20} minSize={12} className="font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(monthlyTotal)}</FitText>
           </Card>
-          <Card className="p-4 text-center flex flex-col">
-            <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">{t('subscriptions.yearlyCost')}</p>
+          <Card className="p-4 text-center flex flex-col min-w-0">
+            <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide break-words mb-2">{t('subscriptions.yearlyCost')}</p>
             <FitText maxSize={20} minSize={12} className="font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(monthlyTotal * 12)}</FitText>
           </Card>
-          <Card className="p-4 text-center flex flex-col">
-            <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">{t('subscriptions.activeSubscriptions')}</p>
+          <Card className="p-4 text-center flex flex-col min-w-0">
+            <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide break-words mb-2">{t('subscriptions.activeSubscriptions')}</p>
             <p className="text-xl font-extrabold text-indigo-600 dark:text-indigo-400">{activeSubs.length}</p>
           </Card>
         </div>

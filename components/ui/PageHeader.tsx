@@ -57,7 +57,10 @@ export function PageHeader({
         </div>
       </div>
       {action && (
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0 w-full md:w-auto">
+        // flex-wrap: three or more actions flow onto a second row on narrow
+        // phones instead of pushing past the viewport (which dragged the whole
+        // page into horizontal scroll — see Savings' 3-button header).
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0 w-full md:w-auto">
           {action}
         </div>
       )}

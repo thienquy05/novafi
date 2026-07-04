@@ -65,7 +65,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             without creating a stacking context — otherwise the fixed pull-to-
             refresh indicator (z-50) inside a page gets trapped beneath the
             sticky mobile header (z-40). */}
-        <main className="flex-1 min-w-0 overflow-auto relative">
+        {/* overflow-x-hidden: no single overflowing element can ever drag the
+            whole page into horizontal scroll on mobile; inner scroll strips
+            keep their own overflow-x-auto containers. */}
+        <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden relative">
           {children}
         </main>
         <MobileNav />

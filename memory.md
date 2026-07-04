@@ -2,6 +2,25 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-07-04 — Mobile overflow follow-up: header actions wrap, summary labels contained, main x-clip (branch claude/project-sync-ui-enhance-kim4e6, restarted from master after PR #125 merged)
+
+Phone screenshots showed two layout bugs surviving the previous pass:
+
+1. **Savings header actions overflowed the viewport** — `PageHeader`'s action slot had no `flex-wrap`, so Savings' three buttons (Add Interest / Withdraw / Deposit) exceeded a ~375px screen: the Deposit button clipped off-screen and the WHOLE page picked up a horizontal scrollbar. "Add Interest" also wrapped to two lines mid-button.
+2. **Subscriptions "ACTIVE SUBSCRIPTIONS" label spilled outside its card** — the 3-col summary card label (`text-xs uppercase tracking-wider`) can't fit the single word "SUBSCRIPTIONS" in a ~100px card and had no wrap/clip guard.
+
+Fixes:
+- **`components/ui/PageHeader.tsx`** — action slot gains `flex-wrap`: 3+ actions flow onto a second row on mobile; desktop (`md:w-auto`) unchanged. Benign for 1–2-action pages.
+- **`components/ui/Button.tsx`** — base classes gain `whitespace-nowrap` so a button label never breaks mid-button; overflow is now handled by wrapping whole buttons instead.
+- **`app/(app)/subscriptions/page.tsx` + `app/(app)/investments/page.tsx`** — the 3-col summary Cards gain `min-w-0`, labels switch `tracking-wider` → `tracking-wide` + `break-words` so long words (incl. Vietnamese labels) wrap/break inside the card instead of spilling past its border.
+- **Locales** — `subscriptions.activeSubscriptions`: "Active Subscriptions" → "Active" (card already shows the count; mirrors the Bills page's "Active" card); vi "Gói đang hoạt động" → "Đang hoạt động".
+- **`app/(app)/layout.tsx`** — `<main>` `overflow-auto` → `overflow-y-auto overflow-x-hidden` (belt-and-braces: no future overflowing element can drag the whole page into horizontal scroll; inner strips keep their own `overflow-x-auto`, pull-to-refresh indicator is `position: fixed` and unaffected).
+
+Branch note: PR #125 had already been merged, so the designated branch was restarted from `origin/master` (`git checkout -B`) and force-with-lease pushed — new PR required; the old one cannot be reopened.
+
+### Verification
+`tsc --noEmit` clean; `eslint` 0 errors; `vitest` 616 passing; `next build` succeeds.
+
 ## 2026-07-04 — Full sync audit fixes + real-time refresh + UI polish + Money-Flow insights (branch claude/project-sync-ui-enhance-kim4e6)
 
 Four-phase pass from a whole-project audit (three parallel explorations: calculation consistency, caching/refresh architecture, UI consistency), plus a user-requested "intelligent finance app" layer.
