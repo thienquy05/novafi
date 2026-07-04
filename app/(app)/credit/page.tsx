@@ -12,8 +12,9 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { AccountsSkeleton } from '@/components/ui/Skeleton';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
+import { StaggerReveal } from '@/components/ui/Reveal';
 import { peekCache, ensureResources } from '@/lib/client/store';
-import { formatCurrency, generateId, today } from '@/lib/utils';
+import { formatCurrency, generateId, today, zonedNow } from '@/lib/utils';
 import { useToast } from '@/lib/toast';
 import {
   buildCreditReport, CREDIT_UTIL_TARGET, CREDIT_UTIL_IDEAL, daysUntilStatement,
@@ -90,8 +91,9 @@ export default function CreditPage() {
   useAutoRefresh(() => load(true));
 
   const report = useMemo(() => buildCreditReport(accounts), [accounts]);
-  const advisories = useMemo(() => buildLimitIncreaseAdvisories(accounts, transactions, new Date()), [accounts, transactions]);
-  const arbitrage = useMemo(() => buildStatementArbitrage(accounts, new Date()), [accounts]);
+  // TZ-aware "now" (nf_tz cookie) so statement-day math matches the dashboard.
+  const advisories = useMemo(() => buildLimitIncreaseAdvisories(accounts, transactions, zonedNow()), [accounts, transactions]);
+  const arbitrage = useMemo(() => buildStatementArbitrage(accounts, zonedNow()), [accounts]);
   const transferAdvice = useMemo(() => buildBalanceTransferAdvice(accounts), [accounts]);
   const hasCards = report.cards.length > 0;
 
@@ -154,7 +156,7 @@ export default function CreditPage() {
   const overOrLimit = report.cardsOverTarget;
 
   return (
-    <div className="p-4 md:p-8 max-w-4xl mx-auto space-y-6 sm:space-y-7 pb-24 md:pb-8">
+    <StaggerReveal className="p-4 md:p-8 max-w-4xl mx-auto space-y-6 sm:space-y-7 pb-24 md:pb-8">
       <PageHeader
         icon={CreditCard}
         tone="rose"
@@ -246,7 +248,7 @@ export default function CreditPage() {
           <TipsCard />
         </>
       )}
-    </div>
+    </StaggerReveal>
   );
 }
 

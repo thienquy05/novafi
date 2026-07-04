@@ -21,7 +21,9 @@ export async function GET() {
   try {
     // The bell reads the same four sheets the sidebar badges do — cache the raw
     // payload so the two requests share one Sheets round trip within the TTL.
-    const dataKey = `badgesData:${session.spreadsheetId}`;
+    // Keyed UNDER the `badges:<id>` prefix so every mutation that invalidates
+    // 'badges' also freshens the bell (prefix-based invalidation).
+    const dataKey = `badges:${session.spreadsheetId}:data`;
     let data = getCache<BadgesData>(dataKey);
     if (!data) {
       data = await batchGetBadgesData(session.accessToken, session.spreadsheetId);

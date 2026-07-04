@@ -7,7 +7,9 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
-import { formatCurrency, generateId, today } from '@/lib/utils';
+import { FitText } from '@/components/ui/FitText';
+import { StaggerReveal } from '@/components/ui/Reveal';
+import { formatCurrency, generateId, today, zonedNow } from '@/lib/utils';
 import { detectSubscriptions } from '@/lib/calculations';
 import type { Subscription } from '@/lib/calculations';
 import { peekCache, ensureResources } from '@/lib/client/store';
@@ -117,7 +119,7 @@ export default function SubscriptionsPage() {
 
   // ── Auto-detected from transactions ──
   const detected: Subscription[] = useMemo(
-    () => detectSubscriptions(transactions, new Date()),
+    () => detectSubscriptions(transactions, zonedNow()),
     [transactions],
   );
 
@@ -137,9 +139,11 @@ export default function SubscriptionsPage() {
   // ── Cancel candidates ──
   // A tracked sub with no matching charge in 90 days AND not currently auto-detected.
   const cutoff = useMemo(() => {
-    const d = new Date();
+    // zonedNow()'s local getters carry the configured zone's wall clock, so build
+    // the YYYY-MM-DD from them (toISOString would shift back toward UTC).
+    const d = zonedNow();
     d.setDate(d.getDate() - 90);
-    return d.toISOString().slice(0, 10);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }, []);
 
   const recentTx = useMemo(() => transactions.filter((tx) => tx.date >= cutoff), [transactions, cutoff]);
@@ -238,7 +242,7 @@ export default function SubscriptionsPage() {
   });
 
   return (
-    <div className="p-4 md:p-8 max-w-3xl mx-auto space-y-6 pb-24 md:pb-8">
+    <StaggerReveal className="p-4 md:p-8 max-w-3xl mx-auto space-y-6 pb-24 md:pb-8">
       <PageHeader
         icon={RefreshCw}
         tone="default"
@@ -257,11 +261,11 @@ export default function SubscriptionsPage() {
         <div className="grid grid-cols-3 gap-3">
           <Card className="p-4 text-center flex flex-col">
             <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">{t('subscriptions.monthlyCost')}</p>
-            <p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(monthlyTotal)}</p>
+            <FitText maxSize={20} minSize={12} className="font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(monthlyTotal)}</FitText>
           </Card>
           <Card className="p-4 text-center flex flex-col">
             <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">{t('subscriptions.yearlyCost')}</p>
-            <p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(monthlyTotal * 12)}</p>
+            <FitText maxSize={20} minSize={12} className="font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(monthlyTotal * 12)}</FitText>
           </Card>
           <Card className="p-4 text-center flex flex-col">
             <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">{t('subscriptions.activeSubscriptions')}</p>
@@ -523,6 +527,6 @@ export default function SubscriptionsPage() {
           </div>
         </div>
       </Modal>
-    </div>
+    </StaggerReveal>
   );
 }

@@ -8,11 +8,14 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
-import { calcSavingsInterest } from '@/lib/calculations';
+import { calcSavingsInterest, calcFundingHeldByAccount } from '@/lib/calculations';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { peekCache, ensureResources } from '@/lib/client/store';
 import type { Account, Transaction, Goal } from '@/types';
 import { FitText } from '@/components/ui/FitText';
+import { SavingsSkeleton } from '@/components/ui/Skeleton';
+import { StaggerReveal } from '@/components/ui/Reveal';
+import { useToast } from '@/lib/toast';
 import { useTranslation } from '@/lib/i18n/context';
 
 const ACCOUNT_COLORS = [
@@ -88,6 +91,7 @@ export default function SavingsPage() {
   const [loading, setLoading] = useState(() => peekCache(['accounts', 'transactions', 'goals']) === null);
   const [saving, setSaving] = useState(false);
   const [visibleCount, setVisibleCount] = useState(SAVINGS_PAGE_SIZE);
+  const toast = useToast();
 
   // Switching the account filter resets the visible window back to one page.
   function selectAccount(id: string) {
@@ -126,7 +130,10 @@ export default function SavingsPage() {
 
   const visibleTx = savingsTx.slice(0, visibleCount);
 
-  const totalSaved = accounts.reduce((s, a) => s + a.balance, 0);
+  // Same as the dashboard's "Total Saved": funding pools can park OTHER people's
+  // cash in a savings account — net it out so the two figures always agree.
+  const fundingHeldByAccount = useMemo(() => calcFundingHeldByAccount(transactions), [transactions]);
+  const totalSaved = accounts.reduce((s, a) => s + a.balance - (fundingHeldByAccount[a.id] ?? 0), 0);
 
   // Money INTO savings = a deposit (income) or a transfer whose destination is a
   // savings account; otherwise it's money out.
@@ -176,16 +183,22 @@ export default function SavingsPage() {
       account: form.accountId,
     };
 
-    await fetch('/api/transactions', {
-      method: 'POST',
-      body: JSON.stringify(tx),
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    setOpen(false);
-    setForm(EMPTY_FORM);
-    await load();
-    setSaving(false);
+    try {
+      const res = await fetch('/api/transactions', {
+        method: 'POST',
+        body: JSON.stringify(tx),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) throw new Error();
+      toast(t('transactions.toastAdded'), 'success');
+      setOpen(false);
+      setForm(EMPTY_FORM);
+      await load();
+    } catch {
+      toast(t('transactions.toastFailedSave'), 'error');
+    } finally {
+      setSaving(false);
+    }
   }
 
   function openAction(type: 'deposit' | 'withdraw') {
@@ -231,16 +244,22 @@ export default function SavingsPage() {
       account: interestForm.accountId,
     };
 
-    await fetch('/api/transactions', {
-      method: 'POST',
-      body: JSON.stringify(tx),
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    setInterestOpen(false);
-    setInterestForm(EMPTY_INTEREST_FORM);
-    await load();
-    setSaving(false);
+    try {
+      const res = await fetch('/api/transactions', {
+        method: 'POST',
+        body: JSON.stringify(tx),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) throw new Error();
+      toast(t('transactions.toastAdded'), 'success');
+      setInterestOpen(false);
+      setInterestForm(EMPTY_INTEREST_FORM);
+      await load();
+    } catch {
+      toast(t('transactions.toastFailedSave'), 'error');
+    } finally {
+      setSaving(false);
+    }
   }
 
   function openEdit(account: Account) {
@@ -260,30 +279,39 @@ export default function SavingsPage() {
       last4: editForm.last4,
       color: editForm.color,
     };
-    await fetch('/api/accounts', { method: 'POST', body: JSON.stringify(updated), headers: { 'Content-Type': 'application/json' } });
-    setEditOpen(false);
-    setEditTarget(null);
-    await load();
-    setSaving(false);
+    try {
+      const res = await fetch('/api/accounts', { method: 'POST', body: JSON.stringify(updated), headers: { 'Content-Type': 'application/json' } });
+      if (!res.ok) throw new Error();
+      toast(t('accounts.toastUpdated'), 'success');
+      setEditOpen(false);
+      setEditTarget(null);
+      await load();
+    } catch {
+      toast(t('accounts.toastFailedSave'), 'error');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleDelete(id: string) {
     if (!confirm(t('accounts.confirmDelete'))) return;
+    const prev = accounts;
     setAccounts((a) => a.filter((acc) => acc.id !== id));
-    await fetch('/api/accounts', { method: 'DELETE', body: JSON.stringify({ id }), headers: { 'Content-Type': 'application/json' } });
-    await load();
+    try {
+      const res = await fetch('/api/accounts', { method: 'DELETE', body: JSON.stringify({ id }), headers: { 'Content-Type': 'application/json' } });
+      if (!res.ok) throw new Error();
+      toast(t('accounts.toastDeleted'), 'success');
+      await load();
+    } catch {
+      setAccounts(prev);
+      toast(t('accounts.toastFailedDelete'), 'error');
+    }
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-indigo-500 border-t-transparent" />
-      </div>
-    );
-  }
+  if (loading) return <SavingsSkeleton />;
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6 sm:space-y-8 pb-24 md:pb-8">
+    <StaggerReveal className="p-4 md:p-8 max-w-5xl mx-auto space-y-6 sm:space-y-8 pb-24 md:pb-8">
       <PageHeader
         icon={PiggyBank}
         tone="purple"
@@ -315,9 +343,10 @@ export default function SavingsPage() {
             <PiggyBank className="w-8 h-8 text-slate-400 dark:text-slate-500" />
           </div>
           <p className="text-slate-900 dark:text-slate-100 font-bold text-lg mb-1">{t('savings.noAccountsYet')}</p>
-          <p className="text-slate-500 dark:text-slate-400 font-medium mb-6">
-            Go to <a href="/accounts" className="text-indigo-600 dark:text-indigo-400 font-bold hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors">Accounts</a> and add a savings account to get started.
-          </p>
+          <p className="text-slate-500 dark:text-slate-400 font-medium mb-6">{t('savings.emptyDesc')}</p>
+          <a href="/accounts" className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-sm transition-colors">
+            {t('savings.goToAccounts')}
+          </a>
         </Card>
       ) : (
         <>
@@ -457,7 +486,7 @@ export default function SavingsPage() {
                   <div key={group.key} className="space-y-3">
                     <div className="flex items-center justify-between px-1">
                       <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{group.label}</h3>
-                      <span className={`text-xs font-bold ${group.net >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                      <span className={`text-xs font-bold whitespace-nowrap ${group.net >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                         {group.net >= 0 ? '+' : '-'}{formatCurrency(Math.abs(group.net))}
                       </span>
                     </div>
@@ -490,7 +519,7 @@ export default function SavingsPage() {
                               <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>
                             </div>
                           </div>
-                          <span className={`text-lg font-extrabold ${isIncoming ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                          <span className={`text-lg font-extrabold whitespace-nowrap ${isIncoming ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                             {isIncoming ? '+' : '-'}{formatCurrency(tx.amount)}
                           </span>
                         </div>
@@ -521,13 +550,13 @@ export default function SavingsPage() {
         <div className="space-y-5 pb-4">
           <Input
             label={t('accounts.accountName')}
-            placeholder="e.g. HYSA"
+            placeholder={t('savings.phName')}
             value={editForm.name}
             onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
           />
           <Input
             label={t('accounts.institution')}
-            placeholder="e.g. Ally, Marcus"
+            placeholder={t('savings.phInstitution')}
             value={editForm.institution}
             onChange={(e) => setEditForm((f) => ({ ...f, institution: e.target.value }))}
           />
@@ -607,7 +636,7 @@ export default function SavingsPage() {
           />
           <Input
             label={t('savings.descriptionOptional')}
-            placeholder={form.type === 'deposit' ? 'e.g. Monthly savings' : 'e.g. Emergency expense'}
+            placeholder={form.type === 'deposit' ? t('savings.phDeposit') : t('savings.phWithdraw')}
             value={form.description}
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
           />
@@ -657,7 +686,7 @@ export default function SavingsPage() {
                 {rate != null && rate > 0 ? (
                   <div className="rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 p-4">
                     <p className="text-xs font-bold text-emerald-700/80 dark:text-emerald-400/80 uppercase tracking-wider">{t('savings.interestEstimate', { rate: rate.toFixed(2) })}</p>
-                    <p className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">+{formatCurrency(suggested)}</p>
+                    <p className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5 whitespace-nowrap">+{formatCurrency(suggested)}</p>
                     <p className="text-xs font-medium text-emerald-700/70 dark:text-emerald-400/70 mt-1">{t('savings.interestEstimateHint')}</p>
                   </div>
                 ) : (
@@ -676,7 +705,7 @@ export default function SavingsPage() {
                 />
                 <Input
                   label={t('savings.descriptionOptional')}
-                  placeholder="e.g. Interest payment"
+                  placeholder={t('savings.phInterest')}
                   value={interestForm.description}
                   onChange={(e) => setInterestForm((f) => ({ ...f, description: e.target.value }))}
                 />
@@ -705,6 +734,6 @@ export default function SavingsPage() {
           );
         })()}
       </Modal>
-    </div>
+    </StaggerReveal>
   );
 }

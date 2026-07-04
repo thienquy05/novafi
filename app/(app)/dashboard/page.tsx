@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { auth } from '@/lib/auth';
 import { batchGetDashboardData, appendNetWorthSnapshot } from '@/lib/sheets';
-import { formatCurrency, formatDate, zonedNow } from '@/lib/utils';
+import { formatCurrency, formatDate, zonedNow, monthShort } from '@/lib/utils';
 import {
   calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
   calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, calcSafeToSpendDaily, calcSpendableCash, pctChange as calcPctChange,
@@ -26,14 +26,15 @@ import { RollingNumber } from '@/components/ui/RollingNumber';
 import { StaggerReveal } from '@/components/ui/Reveal';
 import { Sparkline } from '@/components/ui/Sparkline';
 import { Celebrations } from './Celebrations';
+import { AutoRefreshOnFocus } from '@/components/AutoRefreshOnFocus';
+import { MoneyFlowInsights } from './MoneyFlowInsights';
+import { buildMoneyFlowSummary, topInsights } from '@/lib/insights';
 import { SpendingHeatmap } from './SpendingHeatmap';
 import { HelpHint } from '@/components/ui/HelpHint';
 import { t } from '@/lib/i18n';
 import type { Language } from '@/types';
 
 export const dynamic = 'force-dynamic';
-
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // Credit-utilization status → bar/text colors (literal Tailwind classes, v4).
 const CREDIT_STATUS_BAR: Record<string, string> = {
@@ -157,7 +158,6 @@ export default async function DashboardPage() {
   // Build chart-ready net worth series. Snapshots are deduped by month (keeping
   // the latest write) so a race between concurrent dashboard loads appending
   // the same month twice can't show that month's label more than once.
-  const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const latestPerMonth = new Map<string, typeof netWorthHistory[number]>();
   for (const s of netWorthHistory) latestPerMonth.set(s.month, s);
   const netWorthPoints: NetWorthPoint[] = [...latestPerMonth.values()]
@@ -166,7 +166,7 @@ export default async function DashboardPage() {
       const [yr, mo] = s.month.split('-');
       return {
         month: s.month,
-        label: `${MONTH_SHORT[Number(mo) - 1]} '${yr.slice(2)}`,
+        label: `${monthShort(Number(mo) - 1, lang)} '${yr.slice(2)}`,
         netWorth: s.netWorth,
       };
     });
@@ -239,7 +239,7 @@ export default async function DashboardPage() {
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     const income = monthlyTotals[key]?.income ?? 0;
     const expenses = monthlyTotals[key]?.expense ?? 0;
-    return { month: MONTH_SHORT[d.getMonth()], income, expenses, net: income - expenses };
+    return { month: monthShort(d.getMonth(), lang), income, expenses, net: income - expenses };
   });
 
   // Budget vs actual this month — reuse categorySpend (already computed above)
@@ -279,7 +279,7 @@ export default async function DashboardPage() {
   const netWorthProjection = projectedValues.map((projected, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() + i + 1, 1);
     return {
-      label: `${MONTH_NAMES[d.getMonth()]} '${String(d.getFullYear()).slice(2)}`,
+      label: `${monthShort(d.getMonth(), lang)} '${String(d.getFullYear()).slice(2)}`,
       projected,
     };
   });
@@ -473,8 +473,27 @@ export default async function DashboardPage() {
     },
   ];
 
+  // Money-flow guidance — the rule engine reads the same data through the same
+  // shared calculators as everything above, so its numbers always match the UI.
+  const moneyFlow = buildMoneyFlowSummary(transactions, thisMonth);
+  const insights = topInsights(
+    { accounts, transactions, bills, goals },
+    {
+      now,
+      monthKey: thisMonth,
+      prevMonthKey,
+      daysInMonth,
+      daysElapsed,
+      tr: (k, p) => t(k, lang, p),
+      fmt: formatCurrency,
+    },
+  );
+
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto pb-28 md:pb-8">
+      {/* Server-rendered page: re-pull on tab focus + every 60s so a dashboard
+          left open stays live like every client page. */}
+      <AutoRefreshOnFocus />
       <Celebrations savingsRate={savingsRate} healthScore={healthScore} achievedGoals={achievedGoals} creditUtil={creditReport.overallUtil} />
 
       <StaggerReveal className="space-y-5 sm:space-y-7">
@@ -486,7 +505,7 @@ export default async function DashboardPage() {
           </h1>
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-slate-500 dark:text-slate-400 text-sm md:text-base font-medium">
-              {t('dashboard.monthSummary', lang, { month: MONTH_NAMES[now.getMonth()], year: now.getFullYear(), daysLeft })}
+              {t('dashboard.monthSummary', lang, { month: monthShort(now.getMonth(), lang), year: now.getFullYear(), daysLeft })}
             </p>
             {noSpendStreak >= 2 && (
               <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 border border-amber-100 dark:border-amber-800/50 px-2.5 py-1 rounded-full">
@@ -507,6 +526,10 @@ export default async function DashboardPage() {
         overBudgetCount={overBudgetCount}
         creditAlerts={creditReport.cardsOverTarget}
       />
+
+      {/* Money Flow — plain-language guidance on where this month's money is
+          going, with the top actions to take (lib/insights.ts). */}
+      <MoneyFlowInsights flow={moneyFlow} insights={insights} lang={lang} />
 
       {/* Overdraft risks now live in the notification center (the bell), so the
           dashboard no longer shows a standalone banner for them. */}
@@ -674,7 +697,7 @@ export default async function DashboardPage() {
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700/60 p-4">
           <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('dashboard.emergency', lang)}</p>
           <p className={`text-lg font-extrabold mt-1 tracking-tight ${emergencyFundMonths >= 6 ? 'text-emerald-600 dark:text-emerald-400' : emergencyFundMonths >= 3 ? 'text-indigo-600 dark:text-indigo-400' : emergencyFundMonths >= 1 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>
-            {emergencyFundMonths.toFixed(1)} <span className="text-sm font-bold text-slate-400 dark:text-slate-500">mo</span>
+            {emergencyFundMonths.toFixed(1)} <span className="text-sm font-bold text-slate-400 dark:text-slate-500">{t('charts.monthsShort', lang)}</span>
           </p>
         </div>
       </div>
@@ -937,7 +960,7 @@ export default async function DashboardPage() {
                         <div>
                           <p className="text-sm text-slate-900 dark:text-slate-100 font-bold">{bill.name}</p>
                           <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
-                            {daysUntil === 0 ? t('dashboard.dueToday', lang) : `${daysUntil}d`} · {formatDate(bill.nextDue)}
+                            {daysUntil === 0 ? t('dashboard.dueToday', lang) : `${daysUntil}d`} · {formatDate(bill.nextDue, lang)}
                           </p>
                         </div>
                       </div>

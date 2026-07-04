@@ -11,7 +11,7 @@ import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { BillsSkeleton } from '@/components/ui/Skeleton';
 import { FitText } from '@/components/ui/FitText';
 import { Collapsible } from '@/components/ui/Collapsible';
-import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
+import { formatCurrency, formatDate, generateId, today, zonedNow, dateLocale } from '@/lib/utils';
 import { billToTransactionDefaults, calcPaycheckDeposited, myBillShare, billParticipants, billOthersShare, defaultBillPaymentAmount } from '@/lib/calculations';
 import { buildLoanPaymentTxs } from '@/lib/loanPayments';
 import { buildSplitTx, groupSplits, isOneOffSplit, resolveSplit, splitRemaining } from '@/lib/splits';
@@ -19,6 +19,7 @@ import type { Bill, Account, PaycheckEntry, Transaction, Contact, Split, BillSpl
 import { useCategories } from '@/hooks/useCategories';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { peekCache, ensureResources } from '@/lib/client/store';
 import { useTranslation } from '@/lib/i18n/context';
 
@@ -121,11 +122,11 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-            {now.toLocaleString('default', { month: 'long' })} {year} — {t('bills.cashflow')}
+            {now.toLocaleDateString(dateLocale(), { month: 'long' })} {year} — {t('bills.cashflow')}
           </h2>
           <div className="flex items-center gap-3 mt-1">
-            {totalPaychecksAmt > 0 && <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">+{formatCurrency(totalPaychecksAmt)} in</span>}
-            {totalBillsAmt > 0 && <span className="text-xs font-bold text-rose-600 dark:text-rose-400">-{formatCurrency(totalBillsAmt)} out</span>}
+            {totalPaychecksAmt > 0 && <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">+{formatCurrency(totalPaychecksAmt)} {t('bills.inShort')}</span>}
+            {totalBillsAmt > 0 && <span className="text-xs font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap">-{formatCurrency(totalBillsAmt)} {t('bills.outShort')}</span>}
           </div>
         </div>
         <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
@@ -171,11 +172,11 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
         <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60 flex flex-wrap gap-2">
           {(() => {
             const sortedNum = ([a]: [string, unknown], [b]: [string, unknown]) => Number(a) - Number(b);
-            const monthShort = now.toLocaleString('default', { month: 'short' });
+            const monthShort = now.toLocaleDateString(dateLocale(), { month: 'short' });
             return (
               <>
                 {Object.entries(dayPaychecks).sort(sortedNum).map(([day, pays]) => (
-                  <span key={`pay-${day}`} className="text-xs font-medium bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-800/50 rounded-lg px-2 py-1 flex items-center gap-1">
+                  <span key={`pay-${day}`} className="text-xs font-medium bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-800/50 rounded-lg px-2 py-1 flex items-center gap-1 whitespace-nowrap">
                     <Banknote className="w-3 h-3" />
                     {monthShort} {day} · +{formatCurrency(pays.reduce((s, p) => s + calcPaycheckDeposited(p), 0))}
                   </span>
@@ -229,11 +230,11 @@ function BillsTimeline({ bills, nowMs }: { bills: Bill[]; nowMs: number }) {
     <Card className="p-4 sm:p-5">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('bills.timeline', { month: now.toLocaleString('default', { month: 'long' }) })}</h2>
+          <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('bills.timeline', { month: now.toLocaleDateString(dateLocale(), { month: 'long' }) })}</h2>
           {totalThisMonth > 0 && <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{formatCurrency(totalThisMonth)} {t('bills.dueThisMonth')}</p>}
         </div>
         {Object.keys(dayToBills).length > 0 && (
-          <span className="text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/30 px-2.5 py-1 rounded-lg">{Object.keys(dayToBills).length} bill{Object.keys(dayToBills).length !== 1 ? 's' : ''}</span>
+          <span className="text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/30 px-2.5 py-1 rounded-lg whitespace-nowrap">{Object.keys(dayToBills).length === 1 ? t('bills.billCountOne') : t('bills.billCountMany', { n: Object.keys(dayToBills).length })}</span>
         )}
       </div>
       <div ref={scrollRef} className="overflow-x-auto hide-scrollbar -mx-1 px-1">
@@ -332,6 +333,7 @@ export default function BillsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useAutoRefresh(() => load(true));
   const { pullY, refreshing } = usePullToRefresh(() => load(true));
 
   function resetSplitMode() { setBillMyShare(''); }
@@ -466,8 +468,7 @@ export default function BillsPage() {
     };
     setBills((prev) => prev.map((b) => b.id === bill.id ? updated : b).sort((x, y) => x.nextDue.localeCompare(y.nextDue)));
     await fetch('/api/bills', { method: 'POST', body: JSON.stringify(updated), headers: { 'Content-Type': 'application/json' } });
-    try { sessionStorage.removeItem('nf_badges_cache_v2'); } catch { /* ignore */ }
-    window.dispatchEvent(new CustomEvent('novafi:badges-invalid'));
+    // Badge/notification invalidation: handled by the global write-guard (lib/client/store).
   }
 
   async function handleRecordPayment() {
@@ -708,7 +709,7 @@ export default function BillsPage() {
           <Button size="sm" variant="secondary" className="h-9" onClick={() => openSplitPayback(split)}>
             <HandCoins className="w-4 h-4" />{t('bills.recordSplitPayment')}
           </Button>
-          <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors ml-auto">
+          <button aria-label={t('common.delete')} title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors ml-auto">
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
@@ -775,8 +776,10 @@ export default function BillsPage() {
     }
   }
 
-  const nowMs = useMemo(() => Date.now(), [bills]);
-  const todayMidnight = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, [bills]);
+  // TZ-aware "now" (nf_tz cookie) so due/overdue day math matches the dashboard
+  // even when the browser's zone differs from the configured one.
+  const nowMs = useMemo(() => zonedNow().getTime(), [bills]);
+  const todayMidnight = useMemo(() => { const d = zonedNow(); d.setHours(0, 0, 0, 0); return d; }, [bills]);
   const activeBills = bills.filter((b) => b.isActive);
   const inactiveBills = bills.filter((b) => !b.isActive);
   const monthlyTotal = activeBills.reduce((s, b) => {
@@ -846,6 +849,11 @@ export default function BillsPage() {
         <Card className="p-4 sm:p-5 min-w-0">
           <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('common.monthly')}</p>
           <FitText maxSize={24} minSize={13} className="font-extrabold text-slate-900 dark:text-slate-100 mt-1.5">{formatCurrency(monthlyTotal)}</FitText>
+          {/* The total sums YOUR share of split bills while each row headlines the
+              full amount — say so, so the two numbers visibly reconcile. */}
+          {activeBills.some((b) => billParticipants(b).length > 0) && (
+            <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 mt-0.5">{t('bills.monthlyYourShareNote')}</p>
+          )}
         </Card>
         <Card className="p-4 sm:p-5 min-w-0">
           <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('bills.active')}</p>
@@ -861,7 +869,7 @@ export default function BillsPage() {
         <div className="flex items-start gap-4 px-5 py-4 rounded-3xl bg-rose-50 dark:bg-rose-900/30 border border-rose-200 dark:border-rose-800/50">
           <div className="p-2 bg-white dark:bg-slate-800 rounded-xl shrink-0 shadow-sm"><AlarmClock className="w-5 h-5 text-rose-500 dark:text-rose-400" /></div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-extrabold text-rose-700 dark:text-rose-300">{overdueBills.length} overdue bill{overdueBills.length !== 1 ? 's' : ''}</p>
+            <p className="text-sm font-extrabold text-rose-700 dark:text-rose-300">{overdueBills.length === 1 ? t('bills.overdueCountOne') : t('bills.overdueCountMany', { n: overdueBills.length })}</p>
             <p className="text-xs text-rose-600 dark:text-rose-400 mt-0.5 font-medium truncate">{overdueBills.map((b) => b.name).join(' · ')}</p>
           </div>
           <button onClick={openAdd} className="text-xs font-bold text-rose-600 dark:text-rose-400 bg-white dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-rose-200 dark:border-rose-800/50 shrink-0">Mark Paid</button>
@@ -938,7 +946,7 @@ export default function BillsPage() {
                             <p className="text-base font-bold text-slate-900 dark:text-slate-100">{bill.name}</p>
                             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
                               {FREQUENCY_LABELS[bill.frequency]}{accountName ? ` · ${accountName}` : ''}{' · '}
-                              {isOverdue ? <span className="text-rose-600 dark:text-rose-400 font-bold">{t('common.overdue')} {Math.abs(daysUntil)}d</span> : daysUntil === 0 ? <span className="text-amber-600 dark:text-amber-400 font-bold">Due today</span> : <span>{daysUntil}d ({formatDate(bill.nextDue)})</span>}
+                              {isOverdue ? <span className="text-rose-600 dark:text-rose-400 font-bold">{t('common.overdue')} {Math.abs(daysUntil)}d</span> : daysUntil === 0 ? <span className="text-amber-600 dark:text-amber-400 font-bold">{t('bills.dueToday')}</span> : <span>{daysUntil}d ({formatDate(bill.nextDue)})</span>}
                             </p>
                             {(() => {
                               const parts = billParticipants(bill);
@@ -957,9 +965,9 @@ export default function BillsPage() {
                         <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto pl-16 sm:pl-0 gap-3 sm:gap-5">
                           <span title={bill.variable ? t('bills.variableAmountHint') : undefined} className={`text-base font-extrabold ${isUrgent ? 'text-rose-600 dark:text-rose-400' : isDueSoon ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-slate-100'}`}>{bill.variable ? '~' : ''}{formatCurrency(bill.amount)}</span>
                           <div className="flex gap-1.5">
-                            <button title="Edit" onClick={(e) => { e.stopPropagation(); openEdit(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
-                            <button title="Mark paid" onClick={(e) => { e.stopPropagation(); openPayModal(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-xl transition-colors"><CheckCircle2 className="w-4 h-4" /></button>
-                            <button title="Pause" onClick={(e) => { e.stopPropagation(); handleToggle(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-xl transition-colors"><Circle className="w-4 h-4" /></button>
+                            <button aria-label={t('common.edit')} title={t('common.edit')} onClick={(e) => { e.stopPropagation(); openEdit(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
+                            <button aria-label={t('bills.markPaid')} title={t('bills.markPaid')} onClick={(e) => { e.stopPropagation(); openPayModal(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-xl transition-colors"><CheckCircle2 className="w-4 h-4" /></button>
+                            <button aria-label={t('bills.pause')} title={t('bills.pause')} onClick={(e) => { e.stopPropagation(); handleToggle(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-xl transition-colors"><Circle className="w-4 h-4" /></button>
                           </div>
                         </div>
                       </div>
@@ -972,7 +980,7 @@ export default function BillsPage() {
 
           {inactiveBills.length > 0 && (
             <div className="space-y-3">
-              <h2 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-1">Paused</h2>
+              <h2 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-1">{t('bills.paused')}</h2>
               <div className="space-y-2 opacity-60">
                 {inactiveBills.map((bill) => (
                   <SwipeToDelete key={bill.id} onDelete={() => handleDelete(bill.id)}>
@@ -982,8 +990,8 @@ export default function BillsPage() {
                         <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{FREQUENCY_LABELS[bill.frequency]} · {bill.variable ? '~' : ''}{formatCurrency(bill.amount)}</p>
                       </div>
                       <div className="flex gap-1.5">
-                        <button title="Edit" onClick={(e) => { e.stopPropagation(); openEdit(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
-                        <button title="Resume" onClick={(e) => { e.stopPropagation(); handleToggle(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-xl transition-colors"><CheckCircle2 className="w-4 h-4" /></button>
+                        <button aria-label={t('common.edit')} title={t('common.edit')} onClick={(e) => { e.stopPropagation(); openEdit(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
+                        <button aria-label={t('bills.resume')} title={t('bills.resume')} onClick={(e) => { e.stopPropagation(); handleToggle(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-xl transition-colors"><CheckCircle2 className="w-4 h-4" /></button>
                       </div>
                     </div>
                   </SwipeToDelete>
@@ -1036,7 +1044,7 @@ export default function BillsPage() {
       <Modal open={open} onClose={closeModal} title={editingId ? t('bills.editBill') : t('bills.addBill')}>
         <div className="space-y-4 pb-4">
           {/* ── Basic fields ─────────────────────────────────────────────── */}
-          <Input label={t('bills.billName')} placeholder="e.g. Netflix, Rent, Car Insurance" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+          <Input label={t('bills.billName')} placeholder={t('bills.phBillName')} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
           <div className="grid grid-cols-2 gap-3">
             <Input
               label={form.splitEnabled && !billHasTotal && billTotal > 0 ? t('bills.totalAmountAuto') : form.variable ? t('bills.estimatedAmount') : t('common.amountUsd')}
@@ -1141,7 +1149,7 @@ export default function BillsPage() {
                             </div>
                             {isNew && (
                               <div className="flex gap-2 items-end">
-                                <div className="flex-1"><Input label={t('bills.newContactName')} placeholder="e.g. Alex" value={row.newName} onChange={(e) => updateBillParticipant(row.key, { newName: e.target.value })} /></div>
+                                <div className="flex-1"><Input label={t('bills.newContactName')} placeholder={t('bills.phContactName')} value={row.newName} onChange={(e) => updateBillParticipant(row.key, { newName: e.target.value })} /></div>
                                 <Button type="button" variant="secondary" className="shrink-0" onClick={() => handleAddParticipantContact(row)} disabled={addingContact || !row.newName.trim()}><UserPlus className="w-4 h-4" />{t('bills.addContact')}</Button>
                               </div>
                             )}
@@ -1276,7 +1284,7 @@ export default function BillsPage() {
                             <span title={t('bills.transferred')} className="w-6 h-6 rounded-md bg-emerald-500 text-white flex items-center justify-center shrink-0">
                               <Check className="w-4 h-4" />
                             </span>
-                            <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
+                            <button aria-label={t('common.delete')} title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
@@ -1305,7 +1313,7 @@ export default function BillsPage() {
                                 <span title={t('bills.transferred')} className="w-5 h-5 rounded-md bg-emerald-500 text-white flex items-center justify-center shrink-0">
                                   <Check className="w-3.5 h-3.5" />
                                 </span>
-                                <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
+                                <button aria-label={t('common.delete')} title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
                                   <Trash2 className="w-4 h-4" />
                                 </button>
                               </div>

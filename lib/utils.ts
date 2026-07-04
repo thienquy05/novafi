@@ -42,13 +42,42 @@ export function formatAxisCurrency(value: number): string {
   return `${sign}$${Math.round(abs)}`;
 }
 
-export function formatDate(dateStr: string): string {
+// ── Language ─────────────────────────────────────────────────────────────────
+// Dates and month names follow the app language (money stays $-formatted — a
+// deliberate product choice). Client code can omit `lang`: it's resolved from
+// the nf_lang cookie the settings page maintains, exactly like nf_tz below.
+// Server components should pass their resolved `lang` explicitly.
+
+export function getLanguage(): 'en' | 'vi' {
+  if (typeof document !== 'undefined') {
+    const m = document.cookie.match(/(?:^|;\s*)nf_lang=([^;]+)/);
+    if (m) return m[1] === 'vi' ? 'vi' : 'en';
+  }
+  return 'en';
+}
+
+/** BCP-47 locale for date formatting in the given (or cookie-resolved) app language. */
+export function dateLocale(lang?: 'en' | 'vi'): string {
+  return (lang ?? getLanguage()) === 'vi' ? 'vi-VN' : 'en-US';
+}
+
+export function formatDate(dateStr: string, lang?: 'en' | 'vi'): string {
   const [y, m, d] = dateStr.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString('en-US', {
+  return new Date(y, m - 1, d).toLocaleDateString(dateLocale(lang), {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
   });
+}
+
+/** Localized short month name ("Jan" / "thg 1") for a 0-based month index. */
+export function monthShort(monthIdx: number, lang?: 'en' | 'vi'): string {
+  return new Date(2000, monthIdx, 1).toLocaleDateString(dateLocale(lang), { month: 'short' });
+}
+
+/** Localized long month name ("January" / "Tháng 1") for a 0-based month index. */
+export function monthLong(monthIdx: number, lang?: 'en' | 'vi'): string {
+  return new Date(2000, monthIdx, 1).toLocaleDateString(dateLocale(lang), { month: 'long' });
 }
 
 // ── Time zone ────────────────────────────────────────────────────────────────

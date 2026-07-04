@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowDownLeft, ArrowUpRight, Receipt } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { FitText } from '@/components/ui/FitText';
 import { useIsDark } from '@/hooks/useIsDark';
 import { useTranslation } from '@/lib/i18n/context';
 import { HEATMAP_SCALE, HEATMAP_SCALE_DARK } from '@/lib/colors';
@@ -204,7 +205,9 @@ function SummaryStat({ label, value, tone }: { label: string; value: string; ton
   return (
     <div className="flex-1 min-w-0 rounded-xl bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700/60 px-2.5 py-2 text-center">
       <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider truncate">{label}</p>
-      <p className={`text-sm font-extrabold mt-0.5 font-display truncate ${toneClass}`}>{value}</p>
+      {/* FitText shrinks the amount instead of ellipsizing it, so sign + number
+          always read as one piece on narrow phones. */}
+      <FitText maxSize={14} minSize={10} className={`font-extrabold mt-0.5 font-display ${toneClass}`}>{value}</FitText>
     </div>
   );
 }

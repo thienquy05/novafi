@@ -84,7 +84,7 @@ export function RecentTransactions({
                 </div>
               </div>
               <span
-                className={`text-sm font-extrabold ${isIncome ? 'text-emerald-600 dark:text-emerald-400' : tx.type === 'transfer' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-900 dark:text-slate-100'}`}
+                className={`text-sm font-extrabold whitespace-nowrap ${isIncome ? 'text-emerald-600 dark:text-emerald-400' : tx.type === 'transfer' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-900 dark:text-slate-100'}`}
               >
                 {isIncome ? '+' : tx.type === 'transfer' ? '' : '-'}{formatCurrency(tx.amount)}
               </span>

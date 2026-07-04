@@ -693,9 +693,7 @@ export default function SettingsPage() {
               </div>
             ) : (
               <div>
-                <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-5">
-                  Enter your estimated flat federal rate. Use your marginal bracket rate (e.g. 22%) or your effective rate from last year&apos;s return.
-                </p>
+                <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-5">{t('settings.federalFlatHelp')}</p>
                 <div>
                   <Input
                     label={t('settings.federalRate')}
@@ -706,7 +704,7 @@ export default function SettingsPage() {
                     value={settings.federalRate}
                     onChange={(e) => update('federalRate', Number(e.target.value))}
                   />
-                  <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mt-2 ml-1">e.g. 22 for the 22% bracket</p>
+                  <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mt-2 ml-1">{t('settings.federalFlatEg')}</p>
                 </div>
               </div>
             )}
@@ -717,9 +715,7 @@ export default function SettingsPage() {
             <CardHeader>
               <SectionTitle icon={Building2}>{t('settings.stateLocalTax')}</SectionTitle>
             </CardHeader>
-            <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-5">
-              Most states and cities use flat rates. Find your city rate on your local municipality&apos;s website.
-            </p>
+            <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-5">{t('settings.stateLocalHelp')}</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
               <div>
                 <Input
@@ -731,7 +727,7 @@ export default function SettingsPage() {
                   value={settings.stateRate}
                   onChange={(e) => update('stateRate', Number(e.target.value))}
                 />
-                <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mt-2 ml-1">e.g. 3.125 for Ohio</p>
+                <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mt-2 ml-1">{t('settings.stateRateEg')}</p>
               </div>
               <div>
                 <Input
@@ -743,7 +739,7 @@ export default function SettingsPage() {
                   value={settings.cityRate}
                   onChange={(e) => update('cityRate', Number(e.target.value))}
                 />
-                <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mt-2 ml-1">e.g. 1.5 for Perrysburg</p>
+                <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mt-2 ml-1">{t('settings.cityRateEg')}</p>
               </div>
             </div>
           </Card>

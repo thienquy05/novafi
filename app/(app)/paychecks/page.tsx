@@ -7,12 +7,15 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
-import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
+import { StaggerReveal } from '@/components/ui/Reveal';
+import { formatCurrency, formatDate, generateId, today, zonedNow } from '@/lib/utils';
+import { useToast } from '@/lib/toast';
 import { calcPaycheckTax } from '@/lib/tax';
 import { calcPaycheckTaxToSave, calcPaycheckDeposited } from '@/lib/calculations';
 import type { PaycheckEntry, TaxSettings, Account } from '@/types';
 import { useTranslation } from '@/lib/i18n/context';
 import { peekCache, ensureResources } from '@/lib/client/store';
+import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 
 const EMPTY_FORM = {
   date: today(),
@@ -36,6 +39,7 @@ export default function PaychecksPage() {
   const [loading, setLoading] = useState(() => peekCache(['paychecks', 'settings', 'accounts']) === null);
   const [saving, setSaving] = useState(false);
   const { t } = useTranslation();
+  const toast = useToast();
 
   const load = useCallback(async (force = false) => {
     // One /api/batch round trip; served from the client cache when fresh.
@@ -54,6 +58,7 @@ export default function PaychecksPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useAutoRefresh(() => load(true));
 
   useEffect(() => {
     if (!settings || !form.totalAmount) { setPreview(null); return; }
@@ -93,50 +98,64 @@ export default function PaychecksPage() {
       notes: form.checkingAccountId,
       gratuityAmount: gratuity,
     };
-    await fetch('/api/paychecks', {
-      method: 'POST',
-      body: JSON.stringify(entry),
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    // Auto-create an income transaction: the full amount received (wages + tips)
-    // is deposited as real money. Taxes are tracked separately, not withheld.
-    // The deposit transaction shares the paycheck's id so the paycheck "owns" it:
-    // deleting the paycheck reverses this exact transaction (see DELETE in the API).
-    if (form.checkingAccountId) {
-      await fetch('/api/transactions', {
+    try {
+      const res = await fetch('/api/paychecks', {
         method: 'POST',
-        body: JSON.stringify({
-          id: entry.id,
-          date: form.date,
-          description: 'Paycheck',
-          amount: preview.grossPaycheck + gratuity,
-          type: 'income',
-          category: 'Paycheck',
-          account: form.checkingAccountId,
-        }),
+        body: JSON.stringify(entry),
         headers: { 'Content-Type': 'application/json' },
       });
-    }
+      if (!res.ok) throw new Error();
 
-    setOpen(false);
-    setForm(EMPTY_FORM);
-    setPreview(null);
-    await load();
-    setSaving(false);
+      // Auto-create an income transaction: the full amount received (wages + tips)
+      // is deposited as real money. Taxes are tracked separately, not withheld.
+      // The deposit transaction shares the paycheck's id so the paycheck "owns" it:
+      // deleting the paycheck reverses this exact transaction (see DELETE in the API).
+      if (form.checkingAccountId) {
+        const txRes = await fetch('/api/transactions', {
+          method: 'POST',
+          body: JSON.stringify({
+            id: entry.id,
+            date: form.date,
+            description: 'Paycheck',
+            amount: preview.grossPaycheck + gratuity,
+            type: 'income',
+            category: 'Paycheck',
+            account: form.checkingAccountId,
+          }),
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!txRes.ok) throw new Error();
+      }
+
+      toast(t('paychecks.toastAdded'), 'success');
+      setOpen(false);
+      setForm(EMPTY_FORM);
+      setPreview(null);
+      await load();
+    } catch {
+      toast(t('paychecks.toastFailedSave'), 'error');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleDelete(id: string) {
     if (!confirm(t('paychecks.confirmDelete'))) return;
-    await fetch('/api/paychecks', {
-      method: 'DELETE',
-      body: JSON.stringify({ id }),
-      headers: { 'Content-Type': 'application/json' },
-    });
-    await load();
+    try {
+      const res = await fetch('/api/paychecks', {
+        method: 'DELETE',
+        body: JSON.stringify({ id }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) throw new Error();
+      toast(t('paychecks.toastDeleted'), 'success');
+      await load();
+    } catch {
+      toast(t('paychecks.toastFailedDelete'), 'error');
+    }
   }
 
-  const currentYear = new Date().getFullYear();
+  const currentYear = zonedNow().getFullYear();
   const ytdPaychecks = useMemo(
     () => paychecks.filter((p) => new Date(p.date).getFullYear() === currentYear),
     [paychecks, currentYear],
@@ -161,7 +180,7 @@ export default function PaychecksPage() {
   const accountName = (id: string) => accountMap[id] ?? '';
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6 sm:space-y-8 pb-24 md:pb-8">
+    <StaggerReveal className="p-4 md:p-8 max-w-5xl mx-auto space-y-6 sm:space-y-8 pb-24 md:pb-8">
       <PageHeader
         icon={DollarSign}
         tone="emerald"
@@ -243,13 +262,13 @@ export default function PaychecksPage() {
                 {(p.k401 + p.hsa) > 0 && (
                   <div>
                     <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">401k+HSA</p>
-                    <p className="text-sm font-extrabold text-indigo-600 dark:text-indigo-400 mt-1">-{formatCurrency(p.k401 + p.hsa)}</p>
+                    <p className="text-sm font-extrabold text-indigo-600 dark:text-indigo-400 mt-1 whitespace-nowrap">-{formatCurrency(p.k401 + p.hsa)}</p>
                   </div>
                 )}
                 {(p.gratuityAmount ?? 0) > 0 && (
                   <div>
                     <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Tips</p>
-                    <p className="text-sm font-extrabold text-sky-600 dark:text-sky-400 mt-1">+{formatCurrency(p.gratuityAmount)}</p>
+                    <p className="text-sm font-extrabold text-sky-600 dark:text-sky-400 mt-1 whitespace-nowrap">+{formatCurrency(p.gratuityAmount)}</p>
                   </div>
                 )}
                 <div className="flex flex-row md:flex-col justify-between md:justify-end items-center md:items-end col-span-2 md:col-span-1 border-t border-slate-100 dark:border-slate-700/60 md:border-t-0 pt-4 md:pt-0 mt-2 md:mt-0">
@@ -262,6 +281,7 @@ export default function PaychecksPage() {
                   <Button
                     variant="ghost"
                     size="icon"
+                    aria-label={t('common.delete')}
                     className="text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 md:ml-4 h-10 w-10 rounded-xl"
                     onClick={() => handleDelete(p.id)}
                   >
@@ -330,7 +350,7 @@ export default function PaychecksPage() {
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-600 dark:text-slate-300 font-medium">{t('paychecks.lessTips')}</span>
-                      <span className="text-sky-600 dark:text-sky-400 font-bold">-{formatCurrency(tips)}</span>
+                      <span className="text-sky-600 dark:text-sky-400 font-bold whitespace-nowrap">-{formatCurrency(tips)}</span>
                     </div>
                   </>
                 ) : null;
@@ -339,14 +359,16 @@ export default function PaychecksPage() {
                 { label: t('paychecks.taxableWages'), value: preview.grossPaycheck, cls: 'text-slate-900 dark:text-slate-100 font-extrabold' },
                 {
                   label: settings?.useFederalBrackets
-                    ? `Federal Tax (progressive${preview.marginalRate !== undefined ? ` · ${preview.marginalRate.toFixed(0)}% marginal` : ''})`
-                    : `Federal Tax (${settings?.federalRate}%)`,
+                    ? (preview.marginalRate !== undefined
+                        ? t('paychecks.federalTaxProgressiveMarginal', { rate: preview.marginalRate.toFixed(0) })
+                        : t('paychecks.federalTaxProgressive'))
+                    : t('paychecks.federalTaxFlat', { rate: settings?.federalRate ?? 0 }),
                   value: preview.federalTax,
                   cls: 'text-rose-600 dark:text-rose-400 font-bold',
                 },
-                { label: `State Tax (${settings?.stateRate}%)`, value: preview.stateTax, cls: 'text-rose-600 dark:text-rose-400 font-bold' },
-                { label: `City Tax (${settings?.cityRate}%)`, value: preview.cityTax, cls: 'text-rose-600 dark:text-rose-400 font-bold' },
-                { label: 'FICA (SS + Medicare)', value: preview.ficaSs + preview.ficaMedicare, cls: 'text-rose-600 dark:text-rose-400 font-bold' },
+                { label: t('paychecks.stateTax', { rate: settings?.stateRate ?? 0 }), value: preview.stateTax, cls: 'text-rose-600 dark:text-rose-400 font-bold' },
+                { label: t('paychecks.cityTax', { rate: settings?.cityRate ?? 0 }), value: preview.cityTax, cls: 'text-rose-600 dark:text-rose-400 font-bold' },
+                { label: t('paychecks.fica'), value: preview.ficaSs + preview.ficaMedicare, cls: 'text-rose-600 dark:text-rose-400 font-bold' },
               ].map(({ label, value, cls }) => (
                 <div key={label} className="flex justify-between text-sm">
                   <span className="text-slate-600 dark:text-slate-300 font-medium">{label}</span>
@@ -361,7 +383,7 @@ export default function PaychecksPage() {
                     {gratuity > 0 && (
                       <div className="flex justify-between text-sm">
                         <span className="text-slate-600 dark:text-slate-300 font-medium">{t('paychecks.addBackTips')}</span>
-                        <span className="text-sky-600 dark:text-sky-400 font-bold">+{formatCurrency(gratuity)}</span>
+                        <span className="text-sky-600 dark:text-sky-400 font-bold whitespace-nowrap">+{formatCurrency(gratuity)}</span>
                       </div>
                     )}
                     <div className="border-t border-slate-200 dark:border-slate-700 pt-3 mt-1 flex justify-between items-center">
@@ -396,6 +418,6 @@ export default function PaychecksPage() {
           </div>
         </div>
       </Modal>
-    </div>
+    </StaggerReveal>
   );
 }

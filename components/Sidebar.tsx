@@ -1,7 +1,9 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { BADGES_CACHE_KEY, BADGES_INVALID_EVENT } from '@/lib/client/store';
+import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import {
   LayoutDashboard,
   DollarSign,
@@ -37,13 +39,14 @@ type BadgeCounts = { overdueBills: number; overBudget: number; creditAlerts: num
 
 // Bumped to v2 when creditAlerts was added — invalidates older cached payloads
 // that lack the field so the new badge appears without waiting out the TTL.
-const BADGES_CACHE_KEY = 'nf_badges_cache_v2';
+// Key + invalidation event are shared with the global write-guard in
+// lib/client/store, which busts this cache after EVERY successful API write.
 const BADGES_TTL_MS = 2 * 60 * 1000;
 
 function useBadges(): BadgeCounts {
   const [badges, setBadges] = useState<BadgeCounts>({ overdueBills: 0, overBudget: 0, creditAlerts: 0 });
 
-  function fetchBadges() {
+  const fetchBadges = useCallback(() => {
     fetch('/api/badges')
       .then((r) => r.json())
       .then((data: BadgeCounts) => {
@@ -53,7 +56,7 @@ function useBadges(): BadgeCounts {
         } catch { /* ignore */ }
       })
       .catch(() => {});
-  }
+  }, []);
 
   useEffect(() => {
     try {
@@ -67,13 +70,16 @@ function useBadges(): BadgeCounts {
       }
     } catch { /* sessionStorage unavailable */ }
     fetchBadges();
-  }, []);
+  }, [fetchBadges]);
 
   useEffect(() => {
-    const handler = () => fetchBadges();
-    window.addEventListener('novafi:badges-invalid', handler);
-    return () => window.removeEventListener('novafi:badges-invalid', handler);
-  }, []);
+    window.addEventListener(BADGES_INVALID_EVENT, fetchBadges);
+    return () => window.removeEventListener(BADGES_INVALID_EVENT, fetchBadges);
+  }, [fetchBadges]);
+
+  // Background re-sync (60s interval + tab-focus refetch) — the sidebar never
+  // remounts, so without this the counts would freeze for the whole session.
+  useAutoRefresh(fetchBadges);
 
   return badges;
 }

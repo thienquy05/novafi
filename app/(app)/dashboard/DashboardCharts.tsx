@@ -7,7 +7,7 @@ import {
 } from 'recharts';
 import { AlertTriangle, TrendingUp, Sparkles, DollarSign, Target, CreditCard } from 'lucide-react';
 import { formatCurrency, formatAxisCurrency } from '@/lib/utils';
-import { HEALTH_WEIGHTS } from '@/lib/calculations';
+import { HEALTH_WEIGHTS, calcSavingsRate } from '@/lib/calculations';
 import { animate, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from '@/lib/i18n/context';
 import { useIsDark } from '@/hooks/useIsDark';
@@ -159,7 +159,7 @@ export function HealthBanner({
   creditAlerts?: number; // # of credit cards over the recommended 30% utilization
 }) {
   const { t } = useTranslation();
-  const savingsRate = monthIncome > 0 ? Math.max(0, ((monthIncome - monthSpending) / monthIncome) * 100) : 0;
+  const savingsRate = calcSavingsRate(monthIncome, monthSpending);
 
   type Status = 'great' | 'good' | 'warning' | 'danger' | 'neutral';
   const status: Status =
@@ -248,13 +248,13 @@ export function HealthBanner({
         <div className="flex items-center gap-2 mb-0.5 flex-wrap">
           <p className={`text-base font-extrabold ${cfg.titleColor}`}>{title}</p>
           {monthIncome > 0 && (
-            <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${cfg.pillBg}`}>
-              {savingsRate.toFixed(0)}% saved
+            <span className={`text-xs font-bold px-2 py-0.5 rounded-lg whitespace-nowrap ${cfg.pillBg}`}>
+              {t('charts.savedPct', { pct: savingsRate.toFixed(0) })}
             </span>
           )}
           {overBudgetCount > 0 && (
-            <span className="text-xs font-bold px-2 py-0.5 rounded-lg bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300">
-              {overBudgetCount} over budget
+            <span className="text-xs font-bold px-2 py-0.5 rounded-lg whitespace-nowrap bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300">
+              {t('charts.nOverBudget', { n: overBudgetCount })}
             </span>
           )}
           {creditAlerts > 0 && (
@@ -486,7 +486,7 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM, totalSpend }:
                   </span>
                 )}
                 {rolledOver > 0 && (
-                  <span className="text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 rounded-md">
+                  <span className="text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 rounded-md whitespace-nowrap">
                     +{formatCurrency(rolledOver)} {t('planning.rolledOver')}
                   </span>
                 )}
@@ -525,7 +525,7 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM, totalSpend }:
                     const diff = usage - b.prevMonthSpent;
                     if (Math.abs(diff) < 0.5) return <span className="text-xs font-bold text-slate-400 dark:text-slate-500">{t('charts.sameAsLastMo')}</span>;
                     return (
-                      <span className={`text-xs font-bold ${diff > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                      <span className={`text-xs font-bold whitespace-nowrap ${diff > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                         {diff > 0 ? '+' : ''}{formatCurrency(diff)} {t('charts.vsLastMo')}
                       </span>
                     );
@@ -687,7 +687,7 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
   return (
     <div className="w-full">
       <div className="flex items-center justify-between gap-3 mb-4 px-2">
-        <span className={`text-sm font-extrabold px-3 py-1 rounded-lg ${isPositive ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' : 'bg-rose-50 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300'}`}>
+        <span className={`text-sm font-extrabold px-3 py-1 rounded-lg whitespace-nowrap ${isPositive ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' : 'bg-rose-50 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300'}`}>
           {isPositive ? '+' : ''}{formatCurrency(delta)} {t('charts.since', { label: data[0].label })}
         </span>
         {projection && projection.length > 0 && (
@@ -814,8 +814,8 @@ export function EmergencyFundWidget({
       </div>
       <div className="flex justify-between mt-1">
         <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">0</span>
-        <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">3 mo</span>
-        <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">6 mo</span>
+        <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">3 {t('charts.monthsShort')}</span>
+        <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">6 {t('charts.monthsShort')}</span>
       </div>
       <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 mt-1">
         {formatCurrency(liquidSavings)} {t('charts.liquid')} · {avgMonthlyExpense > 0 ? `${formatCurrency(avgMonthlyExpense)}/${t('charts.avg')}` : t('charts.noExpenseData')}
@@ -891,20 +891,20 @@ export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
 
   const fmtDti = (r: number) => {
     if (!isFinite(r)) return 'n/a';
-    if (r === 0) return 'None';
+    if (r === 0) return t('charts.none');
     if (r >= 10) return `${r.toFixed(1)}×`;
     return `${(r * 100).toFixed(0)}%`;
   };
-  const fmtTrend = (p: number | null) => p === null ? 'n/a' : `${p >= 0 ? '+' : ''}${p.toFixed(1)}%/mo`;
+  const fmtTrend = (p: number | null) => p === null ? 'n/a' : `${p >= 0 ? '+' : ''}${p.toFixed(1)}%/${t('charts.monthsShort')}`;
   const fmtCv = (c: number | null) => c === null ? 'n/a' : `±${(c * 100).toFixed(0)}%`;
 
   const components = [
     { label: t('charts.savingsRate'),      detail: `${savingsRate.toFixed(0)}%`, score: breakdown.savings, max: HEALTH_WEIGHTS.savings },
-    { label: t('charts.emergencyFund'),    detail: `${emergencyFundMonths.toFixed(1)} mo`, score: breakdown.emergency, max: HEALTH_WEIGHTS.emergency },
+    { label: t('charts.emergencyFund'),    detail: `${emergencyFundMonths.toFixed(1)} ${t('charts.monthsShort')}`, score: breakdown.emergency, max: HEALTH_WEIGHTS.emergency },
     { label: t('charts.creditUtil'),       detail: creditUtil === null ? t('charts.noCards') : `${Math.round(creditUtil)}%`, score: breakdown.credit, max: HEALTH_WEIGHTS.credit },
     {
       label: t('charts.budgetControl'),
-      detail: budgetCount === 0 ? 'No budgets' : overBudgetCount === 0 ? 'On track' : `${overBudgetCount} over`,
+      detail: budgetCount === 0 ? t('charts.noBudgetsSet') : overBudgetCount === 0 ? t('charts.onTrack') : `${overBudgetCount} ${t('charts.over')}`,
       score: breakdown.budget,
       max: HEALTH_WEIGHTS.budget,
     },

@@ -5,21 +5,20 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { FitText } from '@/components/ui/FitText';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, zonedNow, monthShort } from '@/lib/utils';
 import { reportToCsv, reportToHtml, type ReportExportData } from '@/lib/report-export';
 import type { Transaction, Budget } from '@/types';
-import { calcSpendingPace, calcRolloverDeficit, normalizeMonthlyBudget } from '@/lib/calculations';
+import { calcSpendingPace, calcRolloverDeficit, normalizeMonthlyBudget, calcSavingsRate } from '@/lib/calculations';
 import { SpendingPaceWidget } from '../dashboard/SpendingPaceWidget';
 import { useTranslation } from '@/lib/i18n/context';
 import { motion, useReducedMotion } from 'framer-motion';
 import { peekCache, ensureResources } from '@/lib/client/store';
+import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { dynamicChart } from '@/lib/dynamicChart';
 
 // Recharts loads lazily so it stays out of the reports route's first-load JS.
 const MonthlyComparisonChart = dynamicChart(() => import('./MonthlyComparisonChart'));
 const TopMerchantsChart = dynamicChart(() => import('./TopMerchantsChart'));
-
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const CATEGORY_COLORS: Record<string, string> = {
   Food: '#f59e0b', Grocery: '#10b981', Entertainment: '#8b5cf6',
@@ -35,7 +34,7 @@ export default function ReportsPage() {
   const [budgetRollover, setBudgetRollover] = useState(() => peekCache(['settings'])?.settings?.budgetRollover === true);
   const [loading, setLoading] = useState(() => peekCache(['transactions', 'budgets', 'settings']) === null);
   const [error, setError] = useState(false);
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedYear, setSelectedYear] = useState(() => zonedNow().getFullYear());
   const reduced = useReducedMotion();
 
   const load = useCallback(async (force = false) => {
@@ -55,13 +54,14 @@ export default function ReportsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useAutoRefresh(() => load(true));
 
   // Derive available years (memoized so it only recalculates when transactions change)
   const years = useMemo(() => {
     const y = [...new Set(transactions.map((tx) => Number(tx.date.slice(0, 4))))]
       .filter((year) => Number.isInteger(year) && year > 1000)
       .sort((a, b) => b - a);
-    if (y.length === 0) y.push(new Date().getFullYear());
+    if (y.length === 0) y.push(zonedNow().getFullYear());
     return y;
   }, [transactions]);
 
@@ -93,7 +93,8 @@ export default function ReportsPage() {
       }
     }
 
-    const monthlyData = MONTH_NAMES.map((month, i) => ({ month, ...monthTotals[i] }));
+    // Localized month labels (nf_lang cookie) so charts read naturally in Vietnamese.
+    const monthlyData = Array.from({ length: 12 }, (_, i) => ({ month: monthShort(i), ...monthTotals[i] }));
     const categoryData = Object.entries(categorySpend)
       .sort((a, b) => b[1] - a[1])
       .map(([name, value]) => ({ name, value }));
@@ -103,7 +104,9 @@ export default function ReportsPage() {
       .map(([name, { total, count }]) => ({ name, total, count }));
 
     const yearSavings = yearIncome - yearExpense;
-    const savingsRate = yearIncome > 0 ? (yearSavings / yearIncome) * 100 : 0;
+    // Shared helper (clamps at 0) so the yearly rate can never disagree in kind
+    // with the dashboard's savings-rate concept.
+    const savingsRate = calcSavingsRate(yearIncome, yearExpense);
 
     const monthsWithData = monthlyData.filter((m) => m.income > 0 || m.expenses > 0);
     const bestSavingsMonth = monthsWithData.length > 0
@@ -120,7 +123,8 @@ export default function ReportsPage() {
 
   // Spending pace — always reflects the current month regardless of selected year
   const { spendingPace, paceDaysLeft } = useMemo(() => {
-    const now = new Date();
+    // TZ-aware "now" (nf_tz cookie) so the pace month matches the dashboard.
+    const now = zonedNow();
     const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const prevMonthKey = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;

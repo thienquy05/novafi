@@ -15,7 +15,8 @@ export const PUT = withSession(async ({ accessToken, spreadsheetId, req }) => {
   await saveSettings(accessToken, spreadsheetId, body);
   // Settings carry dashboard-affecting toggles (liquid net worth, budget rollover,
   // display name, language) and the custom/hidden category lists — so a save must
-  // freshen the settings, categories, and dashboard caches.
-  invalidateMany(spreadsheetId, ['settings', 'categories', 'dashboard']);
+  // freshen the settings, categories, and dashboard caches. 'badges' too: the
+  // rollover toggle changes the over-budget badge/notification math.
+  invalidateMany(spreadsheetId, ['settings', 'categories', 'dashboard', 'badges']);
   return NextResponse.json({ ok: true });
 });

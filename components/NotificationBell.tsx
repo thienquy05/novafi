@@ -5,6 +5,8 @@ import { Bell, Check, X, AlertTriangle, CreditCard, Calendar, PiggyBank, Wallet,
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/lib/i18n/context';
+import { NOTIFICATIONS_CACHE_KEY, NOTIFICATIONS_INVALID_EVENT } from '@/lib/client/store';
+import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import type { NotificationItem, NotificationType } from '@/lib/notifications';
 
 // Read/dismissed state is intentionally device-local (localStorage) — these are
@@ -12,7 +14,10 @@ import type { NotificationItem, NotificationType } from '@/lib/notifications';
 // notification's id is stable (derived from what it warns about), so marking it
 // read/deleted survives reloads; when the underlying problem is resolved its id
 // stops being produced and we prune it from the persisted sets.
-const CACHE_KEY = 'nf_notifications_cache_v1'; // sessionStorage: throttles refetch
+// sessionStorage key throttles refetch; the global write-guard in
+// lib/client/store clears it (and fires NOTIFICATIONS_INVALID_EVENT) after
+// every successful API write so new warnings surface without a reload.
+const CACHE_KEY = NOTIFICATIONS_CACHE_KEY;
 const CACHE_TTL_MS = 2 * 60 * 1000;
 const READ_KEY = 'nf_notif_read';
 const DELETED_KEY = 'nf_notif_deleted';
@@ -70,39 +75,31 @@ export function NotificationBell({ className }: { className?: string }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
 
-  // Fetch notifications (sessionStorage-cached, like the sidebar badges).
+  // Track unmount so late fetch responses never set state on a dead component.
+  const mountedRef = useRef(true);
   useEffect(() => {
-    let active = true;
-    const apply = (list: NotificationItem[]) => {
-      if (!active) return;
-      setItems(list);
-      // Drop persisted ids that no longer correspond to a live warning.
-      const live = new Set(list.map((n) => n.id));
-      setRead((prev) => {
-        const next = new Set([...prev].filter((id) => live.has(id)));
-        writeIdSet(READ_KEY, next);
-        return next;
-      });
-      setDeleted((prev) => {
-        const next = new Set([...prev].filter((id) => live.has(id)));
-        writeIdSet(DELETED_KEY, next);
-        return next;
-      });
-    };
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
-    try {
-      const raw = sessionStorage.getItem(CACHE_KEY);
-      if (raw) {
-        const { data, ts } = JSON.parse(raw) as { data: NotificationItem[]; ts: number };
-        if (Date.now() - ts < CACHE_TTL_MS) {
-          apply(data);
-          return () => { active = false; };
-        }
-      }
-    } catch {
-      /* sessionStorage unavailable */
-    }
+  const apply = useCallback((list: NotificationItem[]) => {
+    if (!mountedRef.current) return;
+    setItems(list);
+    // Drop persisted ids that no longer correspond to a live warning.
+    const live = new Set(list.map((n) => n.id));
+    setRead((prev) => {
+      const next = new Set([...prev].filter((id) => live.has(id)));
+      writeIdSet(READ_KEY, next);
+      return next;
+    });
+    setDeleted((prev) => {
+      const next = new Set([...prev].filter((id) => live.has(id)));
+      writeIdSet(DELETED_KEY, next);
+      return next;
+    });
+  }, []);
 
+  const refresh = useCallback(() => {
     fetch('/api/notifications')
       .then((r) => r.json())
       .then((d: { notifications?: NotificationItem[] }) => {
@@ -115,9 +112,32 @@ export function NotificationBell({ className }: { className?: string }) {
         }
       })
       .catch(() => {});
+  }, [apply]);
 
-    return () => { active = false; };
-  }, []);
+  // Initial load: serve the sessionStorage cache when fresh, else fetch.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(CACHE_KEY);
+      if (raw) {
+        const { data, ts } = JSON.parse(raw) as { data: NotificationItem[]; ts: number };
+        if (Date.now() - ts < CACHE_TTL_MS) {
+          apply(data);
+          return;
+        }
+      }
+    } catch {
+      /* sessionStorage unavailable */
+    }
+    refresh();
+  }, [apply, refresh]);
+
+  // Refetch when any API write lands (global guard event) and in the background
+  // (60s interval + tab-focus) — warnings update without a page reload.
+  useEffect(() => {
+    window.addEventListener(NOTIFICATIONS_INVALID_EVENT, refresh);
+    return () => window.removeEventListener(NOTIFICATIONS_INVALID_EVENT, refresh);
+  }, [refresh]);
+  useAutoRefresh(refresh);
 
   // Sync read/deleted across bell instances (mobile header + desktop sidebar both
   // mount) and across tabs.

@@ -6,8 +6,10 @@ import {
   validateSplit,
   buildSplitTransactions,
   groupLedgerItems,
+  roundCents,
   type SplitLine,
 } from '../tx-split';
+import { roundCents as calcRoundCents } from '../calculations';
 import type { Transaction } from '@/types';
 
 const line = (id: string, category: string, amount: string): SplitLine => ({ id, category, amount });
@@ -18,6 +20,14 @@ describe('splitLineAmount', () => {
     expect(splitLineAmount({ amount: '' })).toBe(0);
     expect(splitLineAmount({ amount: 'abc' })).toBe(0);
     expect(splitLineAmount({ amount: '-5' })).toBe(0);
+  });
+});
+
+describe('roundCents', () => {
+  it('is the single shared implementation (no per-feature rounding drift)', () => {
+    expect(roundCents).toBe(calcRoundCents);
+    expect(roundCents(10.005)).toBe(calcRoundCents(10.005));
+    expect(roundCents(0.1 + 0.2)).toBe(0.3);
   });
 });
 

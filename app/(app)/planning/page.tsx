@@ -12,7 +12,7 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { PlanningSkeleton } from '@/components/ui/Skeleton';
-import { formatCurrency, formatDate, generateId } from '@/lib/utils';
+import { formatCurrency, formatDate, generateId, zonedNow } from '@/lib/utils';
 import {
   calcRolloverDeficit, calcEffectiveSpent,
   suggestBudgetReallocations, denormalizeMonthlyBudget, calcPredictionReadiness, type BudgetReallocation,
@@ -22,6 +22,7 @@ import { useCategories } from '@/hooks/useCategories';
 import { Reorder, useDragControls } from 'framer-motion';
 import { useToast } from '@/lib/toast';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { useTranslation } from '@/lib/i18n/context';
 import { peekCache, ensureResources } from '@/lib/client/store';
 
@@ -91,9 +92,11 @@ export default function PlanningPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useAutoRefresh(() => load(true));
   const { pullY, refreshing } = usePullToRefresh(() => load(true));
 
-  const now = new Date();
+  // TZ-aware "now" (nf_tz cookie) so "this month" matches the dashboard.
+  const now = zonedNow();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const daysElapsed = now.getDate();
@@ -344,7 +347,7 @@ export default function PlanningPage() {
   // there's enough history to be meaningful (same gate as the dashboard forecasts).
   const predictionReady = useMemo(() => calcPredictionReadiness(transactions).ready, [transactions]);
   const reallocations = useMemo(
-    () => (predictionReady ? suggestBudgetReallocations(budgets, transactions, new Date()) : []),
+    () => (predictionReady ? suggestBudgetReallocations(budgets, transactions, zonedNow()) : []),
     [predictionReady, budgets, transactions],
   );
 
@@ -663,7 +666,7 @@ export default function PlanningPage() {
           </div>
           <Input
             label={t('planning.goalName')}
-            placeholder="e.g. Emergency Fund, Down Payment, Vacation"
+            placeholder={t('planning.phGoalName')}
             value={goalForm.name}
             onChange={(e) => setGoalForm((f) => ({ ...f, name: e.target.value }))}
           />
@@ -844,7 +847,7 @@ function BudgetItem({ budget, monthly, rolledOver, spent, usage, prevSpent, roll
             <span className={over ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}>{formatCurrency(usage)}</span>
             <span className="text-slate-400 dark:text-slate-500 font-bold text-xs"> / {formatCurrency(monthly)}</span>
           </p>
-          <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 h-8 w-8 rounded-xl shrink-0" onClick={(e) => { e.stopPropagation(); onEdit(budget); }}>
+          <Button variant="ghost" size="icon" aria-label={t('common.edit')} className="text-slate-400 dark:text-slate-500 h-8 w-8 rounded-xl shrink-0" onClick={(e) => { e.stopPropagation(); onEdit(budget); }}>
             <Pencil className="w-4 h-4" />
           </Button>
         </div>
@@ -855,11 +858,11 @@ function BudgetItem({ budget, monthly, rolledOver, spent, usage, prevSpent, roll
           {budget.period !== 'monthly' && (
             <>
               <span className="text-slate-300 dark:text-slate-600">·</span>
-              <span className="tabular-nums">{formatCurrency(monthly)}/mo</span>
+              <span className="tabular-nums whitespace-nowrap">{formatCurrency(monthly)}/{t('charts.monthsShort')}</span>
             </>
           )}
           {rolledOver > 0 && (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-bold tabular-nums bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400">
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-bold tabular-nums whitespace-nowrap bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400">
               +{formatCurrency(rolledOver)} {t('planning.rolledOver')}
             </span>
           )}
@@ -875,20 +878,20 @@ function BudgetItem({ budget, monthly, rolledOver, spent, usage, prevSpent, roll
         <div className="flex items-center justify-between mt-2">
           <p className="text-xs font-bold">
             {over
-              ? <span className="text-rose-600 dark:text-rose-400">{formatCurrency(Math.abs(remaining))} over</span>
-              : <span className="text-slate-500 dark:text-slate-400">{formatCurrency(remaining)} left · {daysLeft}{t('planning.daysLeft')}</span>
+              ? <span className="text-rose-600 dark:text-rose-400 whitespace-nowrap">{formatCurrency(Math.abs(remaining))} {t('charts.over')}</span>
+              : <span className="text-slate-500 dark:text-slate-400">{formatCurrency(remaining)} {t('charts.left')} · {daysLeft}{t('planning.daysLeft')}</span>
             }
           </p>
           <div className="flex items-center gap-1.5">
             {prevSpent > 0 && Math.abs(momDiff) >= 0.5 && (
-              <span className={`text-xs font-bold flex items-center gap-0.5 ${momDiff > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+              <span className={`text-xs font-bold flex items-center gap-0.5 whitespace-nowrap ${momDiff > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                 {momDiff > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                {momDiff > 0 ? '+' : ''}{formatCurrency(momDiff)} vs last mo
+                {momDiff > 0 ? '+' : ''}{formatCurrency(momDiff)} {t('charts.vsLastMo')}
               </span>
             )}
             {willOvershoot && (
-              <span className="text-xs font-bold text-amber-600 dark:text-amber-400 flex items-center gap-0.5">
-                <TrendingUp className="w-3 h-3" />~{formatCurrency(overshootAmt)} overshoot
+              <span className="text-xs font-bold text-amber-600 dark:text-amber-400 flex items-center gap-0.5 whitespace-nowrap">
+                <TrendingUp className="w-3 h-3" />~{formatCurrency(overshootAmt)} {t('planning.overshoot')}
               </span>
             )}
             {!over && !willOvershoot && pct > 0 && !prevSpent && (
@@ -968,10 +971,10 @@ function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadl
             </div>
           </div>
           <div className="flex items-center gap-1 shrink-0 ml-2">
-            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 h-9 w-9 rounded-xl" onClick={() => onEdit(goal)}>
+            <Button variant="ghost" size="icon" aria-label={t('common.edit')} className="text-slate-400 dark:text-slate-500 h-9 w-9 rounded-xl" onClick={() => onEdit(goal)}>
               <Pencil className="w-4 h-4" />
             </Button>
-            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 h-9 w-9 rounded-xl" onClick={() => onDelete(goal.id)}>
+            <Button variant="ghost" size="icon" aria-label={t('common.delete')} className="text-slate-400 dark:text-slate-500 h-9 w-9 rounded-xl" onClick={() => onDelete(goal.id)}>
               <Trash2 className="w-4 h-4" />
             </Button>
           </div>

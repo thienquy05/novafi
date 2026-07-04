@@ -2,6 +2,45 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-07-04 — Full sync audit fixes + real-time refresh + UI polish + Money-Flow insights (branch claude/project-sync-ui-enhance-kim4e6)
+
+Four-phase pass from a whole-project audit (three parallel explorations: calculation consistency, caching/refresh architecture, UI consistency), plus a user-requested "intelligent finance app" layer.
+
+### Phase 1 — Calculation sync (numbers now match across sections)
+- **Accounts page net worth honors `excludeLoansFromNetWorth`** (HIGH): `app/(app)/accounts/page.tsx` computed net worth inline and ALWAYS subtracted loans, while the dashboard respected the toggle — with it ON the two headline figures disagreed by the full loan total. Now loads `'settings'` via `ensureResources`/`peekCache` and uses the same shared helpers as the dashboard (`calcTraditionalNetWorth`/`calcLiquidNetWorth`/`calcTotalAssets`/`calcTotalDebt` minus total `calcFundingHeldByAccount`).
+- **Reports savings rate clamped**: `reports/page.tsx` inline `(yearSavings/yearIncome)*100` (could go negative) → shared `calcSavingsRate` (clamps ≥ 0).
+- **Savings "Total Saved" nets funding-held**: `savings/page.tsx` summed raw balances; now subtracts `calcFundingHeldByAccount(transactions)[a.id]` exactly like the dashboard.
+- **TZ-aware "now" everywhere**: planning, reports (pace + year init), subscriptions (detect + 90-day cutoff, built from local getters not toISOString), bills (`nowMs`/`todayMidnight`), credit (advisories/arbitrage), paychecks (YTD year) migrated from browser-local `new Date()` to `zonedNow()` (nf_tz cookie) so month/day boundaries match the dashboard.
+- **One rounding primitive**: `lib/tx-split.ts` EPSILON variant and `lib/funding.ts` local `round2` now delegate to `roundCents` from `lib/calculations.ts` (tx-split re-exports it for existing importers). Lock-in test added in `tx-split.test.ts`.
+- **DashboardCharts** HealthBanner uses `calcSavingsRate` instead of an inline copy.
+- **Bills "Monthly" card**: localized "your share only" sub-label when any active bill is split (`bills.monthlyYourShareNote`), so the your-share total visibly reconciles with full-amount rows.
+
+### Phase 2 — Real-time refresh
+- **Global write-guard now busts badges + notifications** (`lib/client/store.ts` `installCacheInvalidation`): after ANY successful non-GET `/api/*`, it clears `nf_badges_cache_v2` + `nf_notifications_cache_v1` and dispatches `'novafi:badges-invalid'` + new `'novafi:notifications-invalid'`. Exported constants (`BADGES_CACHE_KEY`, `NOTIFICATIONS_CACHE_KEY`, `*_INVALID_EVENT`). Removed now-redundant per-page dispatches (QuickAdd, transactions ×2, bills `advanceBillDue`) — previously only 3 of ~15 mutation paths dispatched, so badges froze.
+- **`useBadges` (Sidebar) + `NotificationBell` self-refresh**: both were fetch-once-on-mount; now wrapped with `useAutoRefresh` (60s interval + tab-focus) and the bell listens for the notifications-invalid event. Bell's fetch refactored into a reusable `refresh` callback with a mounted ref.
+- **Server cache-group fixes**: `ACCOUNT_CACHES` += `'badges'` (credit edits move creditAlerts); settings PUT invalidation += `'badges'` (rollover toggle moves overBudget); notifications route raw-data cache key renamed `badgesData:<id>` → `badges:<id>:data` so every existing `badges` prefix-invalidation also freshens the bell.
+- **`useAutoRefresh(() => load(true))` added** to bills, planning, paychecks, reports (settings intentionally skipped — form-heavy).
+- **Dashboard while-open freshness**: new `components/AutoRefreshOnFocus.tsx` (client, renders null, `router.refresh()` via useAutoRefresh) rendered at the top of the dashboard RSC.
+
+### Phase 3 — UI polish
+- **Toast dark mode** (`lib/toast.tsx`): success/error variants gained full `dark:` styling (emerald/rose-900 tints + light text/icons).
+- **Savings + paychecks now toast** on every mutation (deposit/withdraw/interest/edit/delete; paycheck log/delete with rollback-safe try/catch). New `paychecks.toast*` keys.
+- **Investments loading conforms**: `loading` seeded from `peekCache`, bespoke spinner → new shared `InvestmentsSkeleton`; savings' bespoke spinner → `SavingsSkeleton`. New `FundingSkeleton` + missing `app/(app)/funding/loading.tsx`; investments/loading.tsx now uses the shared skeleton.
+- **i18n sweep** (en + vi kept key-synced): paychecks tax-line labels (federal progressive/flat, state, city, FICA); savings empty state (+ CTA button) and all form placeholders; accounts name/institution placeholders + "enter negative" hint; QuickAdd/transactions/bills/planning placeholders; bills "Due today"/"Paused"/bill-count/overdue-count/"in"/"out"; dashboard "% saved"/"{n} over budget"/"mo"/"None"/"On track"; settings tax help paragraphs + e.g. hints; transactions view-toggle titles + "Split into categories".
+- **Locale-aware dates** (user chose dates-only; money stays $ en-US): new `getLanguage()`/`dateLocale()`/`monthShort()`/`monthLong()` in `lib/utils.ts` (nf_lang cookie, mirroring nf_tz); `formatDate` takes optional lang; hardcoded `MONTH_NAMES`/`MONTH_SHORT` arrays removed from dashboard + reports; transactions month label + bills `toLocaleString('default')` → `dateLocale()`.
+- **A11y**: `aria-label` added to icon-only buttons across bills, transactions, accounts, planning, paychecks, QuickAdd FAB (titles localized where hardcoded).
+- **Motion**: `StaggerReveal` entrance applied to investments, savings, paychecks, subscriptions, credit page roots (was dashboard/reports/accounts/transactions/planning only).
+- **Mobile text fit** (user-reported): `whitespace-nowrap` on every sign-prefixed amount ('-' is a browser line-break opportunity, so `-$1,234.56` could wrap after the sign) across bills cashflow chips, planning budget rows, paychecks breakdowns, dashboard charts/RecentTransactions, savings history, investments ledger, transactions rows; SpendingHeatmap SummaryStat + investments/subscriptions summary cards switched from fixed `text-xl` to `FitText` so big balances shrink instead of overflowing; planning strings ("over/left/vs last mo/overshoot", "/mo") localized in the same pass.
+
+### Phase 4 — Money-Flow intelligence (new)
+- **`lib/insights.ts`** — pure rule engine modeled on lib/notifications.ts (stable ids, localized `tr`/`fmt` ctx, deep links, priority sort). Every number comes from the SAME shared calculators as the UI. Rules: cash-flow pulse (kept $ + keep-% vs last month; urgent when negative), month-end crunch vs `calcSpendableCash`/`calcSafeToSpend` (+ daily guide via `calcSafeToSpendDaily`), category spike vs own 3-month average (≥35% and ≥$50 over), credit pay-down (`buildCreditReport` + `calcPaydownToTarget`, statement-aware note via `daysUntilStatement`), subscription creep (`detectSubscriptions` ≥8% of income), savings opportunity (projected surplus via `calcProjectedSpend`, suppressed during a crunch, routes to first goal), goal momentum (needed-per-month vs even split), win (keep-rate ≥20% and not sliding). `buildMoneyFlowSummary` powers the in/out/kept strip. `topInsights` caps at 4.
+- **`app/(app)/dashboard/MoneyFlowInsights.tsx`** — server-rendered widget below the HealthBanner: In/Out/Kept strip (FitText, sign travels with number) + tone-mapped insight cards (emerald/indigo/amber/rose/purple literal Tailwind classes) each deep-linking to the page to act on; leafy "all quiet" empty state.
+- **`lib/__tests__/insights.test.ts`** — 15 tests (summary math, every rule's trigger + negative case, crunch-suppresses-opportunity, priority ordering, top-N cap, empty-safe).
+- **Locales**: full natural-voice `insights.*` block in en + vi (warm, plain-language, matches the notifications/credit-tips tone).
+
+### Verification
+`tsc --noEmit` clean; `eslint` 0 errors (pre-existing warnings only); `vitest` **616 passing** (was 600; +15 insights +1 roundCents); `next build` succeeds (all routes compile, `/dashboard` includes the new widget). Runtime data sits behind each user's Google OAuth, so end-to-end was compile + tests + build.
+
 ## 2026-07-01 — Fix bogus "year 0" report tab + duplicate month label in Net Worth Trend chart (branch claude/2026-button-zero-l2xej8)
 
 Two small UI data bugs reported from screenshots.
