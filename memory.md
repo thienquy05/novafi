@@ -2,6 +2,30 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-07-04 — Money Flow → header modal + systemic "containers stick together" fix + budget-card metric grid (branch claude/money-flow-modal-icon-88gs5u)
+
+Three changes: move the dashboard Money Flow container into a modal behind a new header icon, fix a systemic spacing bug that made cards stick together across pages, and clean up the crammed budget-card metrics.
+
+### 1. Systemic fix — cards "sticking together" across pages (root cause: StaggerReveal + fragments)
+- **Root cause**: `components/ui/Reveal.tsx` → `StaggerReveal` wraps each *direct child* in a `<motion.div>`, and pages supply the gaps via a `space-y-*` class on the container (margins between those wrappers). But Credit, Investments, Savings and Paychecks return their whole body inside a single conditional `<>…</>` fragment. `Children.map` treats that fragment as ONE child → wraps the entire thing in ONE `motion.div` → the sections inside get NO `space-y` and collapse together. (Dashboard/Subscriptions pass direct children, so they looked fine — which is why the bug was page-specific.)
+- **Fix**: `StaggerReveal` now flattens directly-passed React fragments (`flattenItems`, recursive, using `Fragment` from `react`) before mapping, so each real section becomes its own top-level item — a direct child of the `space-y-*` container (gaps apply) AND its own staggered motion item (nicer entrance, matches Dashboard). Non-element children (`false`/`null` conditionals) pass through. Reduced-motion branch renders the flattened array (DOM output unchanged there — fragments were already flat without motion wrappers). Keys preserved via `child.key ?? index`.
+- **Effect**: restores spacing between sections/cards on **Investments** (summary grid + each account card), **Credit** (hero, banners, cards list, advisor, planner, transfer, tips), **Savings**, **Paychecks**. Pages passing direct children are unchanged (no fragment to flatten). Fragments nested inside a child component (e.g. `PageHeader`'s `action` prop) are untouched.
+
+### 2. Budget cards — cleaner rows/columns (`app/(app)/planning/page.tsx`, `BudgetItem`)
+The metrics (`X left · Nd left`, vs-last-mo, overshoot, on-track, `%`, `% of spend`, `3mo avg`) were crammed into a `justify-between` flex row + a second flex row; on mobile the left text wrapped to 3 lines while badges floated mid-card and collided. Replaced with:
+- **Headline row** under the progress bar: left = `remaining left · Nd left` (or `X over`), right = overall `pct%`.
+- **Secondary metrics** in a `grid grid-cols-2 gap-x-4 gap-y-2.5 … border-t` of small labeled cells (uppercase micro-label + colored value): vs last mo, overshoot, Pace (on-track), % of spend, 3mo avg. Cells auto-flow into 2 columns; the grid renders only when ≥1 metric exists. Reuses existing props/i18n keys — no new data/logic. ("% of spend"/"3mo avg" stay hardcoded English as they already were; "Pace" added likewise.)
+
+### 3. Money Flow → modal behind a header icon next to the bell
+- **New `app/api/money-flow/route.ts`**: mirrors the notifications route. `auth()` guard; `batchGetDashboardData` (cached 60s under `moneyflow:<id>:data`); computes `now = zonedNow(settings.timeZone||nf_tz||default)`, `thisMonth`/`prevMonthKey`/`daysInMonth`/`daysElapsed` exactly as the dashboard; returns `{ flow, insights }` via `buildMoneyFlowSummary` + `topInsights` (`lib/insights.ts`), insight strings localized server-side from the `nf_lang` cookie. Same calculators as the dashboard → numbers match.
+- **New `components/MoneyFlowButton.tsx`** (`'use client'`): trigger `<button>` styled like the bell (`ArrowLeftRight` icon, `aria-label`/`title` = `insights.flowTitle`) + a shared `Modal`. Fetches `/api/money-flow` with a sessionStorage cache (`nf_moneyflow_cache_v1`, 2m TTL) + `useAutoRefresh` + refetch on `NOTIFICATIONS_INVALID_EVENT` (fires after any write). Renders the In/Out/Kept strip (`FlowStat`/`FitText`), the insight list (`KIND_ICON`/`TONE_STYLE`, each a `next/link` that closes the modal), and the all-quiet empty state (shows `common.loading` until first load). `KIND_ICON`/`TONE_STYLE`/`FlowStat` moved here from the old component.
+- **`components/Sidebar.tsx`**: `<MoneyFlowButton />` added immediately left of `<NotificationBell />` in both the desktop sidebar and `MobileHeader` (so it's reachable from every page).
+- **`app/(app)/dashboard/page.tsx`**: removed the inline `<MoneyFlowInsights>` render, its `import`, and the now-unused `moneyFlow`/`insights` computations + the `buildMoneyFlowSummary`/`topInsights` import (`moneyFlowSpark` is a separate var, kept).
+- **Deleted `app/(app)/dashboard/MoneyFlowInsights.tsx`** (content moved into the client component).
+
+### Verification
+`tsc --noEmit` clean; `eslint` on changed files = 0 errors (only pre-existing `set-state-in-effect` warnings, same pattern as `NotificationBell`/`Sidebar`); `vitest run lib/__tests__/insights.test.ts` 15/15 pass; `next build` succeeds with `/api/money-flow` registered. (No live signed-in drive — pages require Google Sheets auth.)
+
 ## 2026-07-04 — Mobile overflow follow-up: header actions wrap, summary labels contained, main x-clip (branch claude/project-sync-ui-enhance-kim4e6, restarted from master after PR #125 merged)
 
 Phone screenshots showed two layout bugs surviving the previous pass:

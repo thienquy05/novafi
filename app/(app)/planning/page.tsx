@@ -875,49 +875,64 @@ function BudgetItem({ budget, monthly, rolledOver, spent, usage, prevSpent, roll
           />
         </div>
 
-        <div className="flex items-center justify-between mt-2">
-          <p className="text-xs font-bold">
+        {/* Headline: what's left / over, and the overall % used — one clean row. */}
+        <div className="flex items-center justify-between gap-3 mt-2">
+          <p className="text-xs font-bold min-w-0 truncate">
             {over
               ? <span className="text-rose-600 dark:text-rose-400 whitespace-nowrap">{formatCurrency(Math.abs(remaining))} {t('charts.over')}</span>
-              : <span className="text-slate-500 dark:text-slate-400">{formatCurrency(remaining)} {t('charts.left')} · {daysLeft}{t('planning.daysLeft')}</span>
+              : <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">{formatCurrency(remaining)} {t('charts.left')} · {daysLeft}{t('planning.daysLeft')}</span>
             }
           </p>
-          <div className="flex items-center gap-1.5">
-            {prevSpent > 0 && Math.abs(momDiff) >= 0.5 && (
-              <span className={`text-xs font-bold flex items-center gap-0.5 whitespace-nowrap ${momDiff > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                {momDiff > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                {momDiff > 0 ? '+' : ''}{formatCurrency(momDiff)} {t('charts.vsLastMo')}
-              </span>
-            )}
-            {willOvershoot && (
-              <span className="text-xs font-bold text-amber-600 dark:text-amber-400 flex items-center gap-0.5 whitespace-nowrap">
-                <TrendingUp className="w-3 h-3" />~{formatCurrency(overshootAmt)} {t('planning.overshoot')}
-              </span>
-            )}
-            {!over && !willOvershoot && pct > 0 && !prevSpent && (
-              <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
-                <Zap className="w-3 h-3" />{t('planning.onTrack')}
-              </span>
-            )}
-            <span className="text-xs font-bold text-slate-400 dark:text-slate-500">{pct.toFixed(0)}%</span>
-          </div>
+          <span className="text-xs font-bold text-slate-400 dark:text-slate-500 shrink-0">{pct.toFixed(0)}%</span>
         </div>
 
-        {/* Category % of total + 3-month rolling avg */}
-        {(categoryPct > 0 || rollingAvg > 0) && (
-          <div className="flex items-center gap-3 mt-2 pt-2 border-t border-slate-50 dark:border-slate-700/60">
-            {categoryPct > 0 && (
-              <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
-                {categoryPct.toFixed(0)}% of spend
-              </span>
-            )}
-            {rollingAvg > 0 && (
-              <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
-                3mo avg: <span className={`font-bold ${spent > rollingAvg * 1.1 ? 'text-rose-500 dark:text-rose-400' : spent < rollingAvg * 0.9 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>{formatCurrency(rollingAvg)}</span>
-              </span>
-            )}
-          </div>
-        )}
+        {/* Secondary metrics — a tidy 2-column labeled grid so nothing collides. */}
+        {(() => {
+          const showVsLast = prevSpent > 0 && Math.abs(momDiff) >= 0.5;
+          const showOnTrack = !over && !willOvershoot && pct > 0 && !prevSpent;
+          if (!showVsLast && !willOvershoot && !showOnTrack && !(categoryPct > 0) && !(rollingAvg > 0)) return null;
+          return (
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60">
+              {showVsLast && (
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">{t('charts.vsLastMo')}</p>
+                  <p className={`text-xs font-bold flex items-center gap-1 mt-0.5 ${momDiff > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                    {momDiff > 0 ? <TrendingUp className="w-3 h-3 shrink-0" /> : <TrendingDown className="w-3 h-3 shrink-0" />}
+                    {momDiff > 0 ? '+' : ''}{formatCurrency(momDiff)}
+                  </p>
+                </div>
+              )}
+              {willOvershoot && (
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">{t('planning.overshoot')}</p>
+                  <p className="text-xs font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1 mt-0.5">
+                    <TrendingUp className="w-3 h-3 shrink-0" />~{formatCurrency(overshootAmt)}
+                  </p>
+                </div>
+              )}
+              {showOnTrack && (
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Pace</p>
+                  <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 mt-0.5">
+                    <Zap className="w-3 h-3 shrink-0" />{t('planning.onTrack')}
+                  </p>
+                </div>
+              )}
+              {categoryPct > 0 && (
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">% of spend</p>
+                  <p className="text-xs font-bold text-slate-600 dark:text-slate-300 mt-0.5">{categoryPct.toFixed(0)}%</p>
+                </div>
+              )}
+              {rollingAvg > 0 && (
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">3mo avg</p>
+                  <p className={`text-xs font-bold mt-0.5 ${spent > rollingAvg * 1.1 ? 'text-rose-500 dark:text-rose-400' : spent < rollingAvg * 0.9 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-300'}`}>{formatCurrency(rollingAvg)}</p>
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </Card>
       </SwipeToDelete>
     </Reorder.Item>
