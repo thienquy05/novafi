@@ -1,4 +1,5 @@
 import type { Transaction } from '@/types';
+import { roundCents } from './calculations';
 
 // ── Category split ────────────────────────────────────────────────────────────
 // One purchase split across several budget categories, stored as separate
@@ -24,10 +25,10 @@ export function splitLineAmount(line: { amount: string }): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-/** Round to cents to avoid float dust when summing / comparing. */
-export function roundCents(n: number): number {
-  return Math.round((n + Number.EPSILON) * 100) / 100;
-}
+// Re-exported so existing importers keep working — the app now has exactly ONE
+// round-to-cents implementation (lib/calculations.ts) so no two features can
+// ever round the same value differently.
+export { roundCents };
 
 /** Sum of all line amounts, rounded to cents. */
 export function splitLinesTotal(lines: { amount: string }[]): number {

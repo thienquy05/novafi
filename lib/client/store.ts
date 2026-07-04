@@ -169,13 +169,32 @@ export function subscribeCache(fn: () => void): () => void {
   return () => { subs.delete(fn); };
 }
 
+// Derived-warning caches live OUTSIDE this store (sessionStorage-backed — the
+// sidebar badges and the notification bell). Any write can change what they
+// warn about, so the same global guard busts them and pings their listeners.
+// Centralized here so no mutation path can ever forget to dispatch.
+export const BADGES_CACHE_KEY = 'nf_badges_cache_v2';
+export const NOTIFICATIONS_CACHE_KEY = 'nf_notifications_cache_v1';
+export const BADGES_INVALID_EVENT = 'novafi:badges-invalid';
+export const NOTIFICATIONS_INVALID_EVENT = 'novafi:notifications-invalid';
+
+function invalidateDerivedWarnings(): void {
+  try {
+    sessionStorage.removeItem(BADGES_CACHE_KEY);
+    sessionStorage.removeItem(NOTIFICATIONS_CACHE_KEY);
+  } catch { /* sessionStorage unavailable */ }
+  window.dispatchEvent(new CustomEvent(BADGES_INVALID_EVENT));
+  window.dispatchEvent(new CustomEvent(NOTIFICATIONS_INVALID_EVENT));
+}
+
 /**
  * Install a one-time global guard so writes keep every page correct without each
  * mutation handler touching the cache: after any successful mutating request to
  * our own API (POST/PUT/PATCH/DELETE on `/api/*`, excluding the auth endpoints),
- * drop the client read-cache so the next navigation refetches fresh data. Read
- * navigation between sections stays cache-served; a write is the only thing that
- * busts it. Idempotent and browser-only.
+ * drop the client read-cache so the next navigation refetches fresh data — and
+ * bust the badge/notification caches so their bells refetch too. Read navigation
+ * between sections stays cache-served; a write is the only thing that busts it.
+ * Idempotent and browser-only.
  */
 let guardInstalled = false;
 export function installCacheInvalidation(): void {
@@ -194,7 +213,10 @@ export function installCacheInvalidation(): void {
           typeof input === 'string' ? input
           : input instanceof URL ? input.href
           : input.url;
-        if (url.includes('/api/') && !url.includes('/api/auth')) invalidateClientCache();
+        if (url.includes('/api/') && !url.includes('/api/auth')) {
+          invalidateClientCache();
+          invalidateDerivedWarnings();
+        }
       }
     } catch { /* cache bookkeeping must never break the request */ }
     return res;

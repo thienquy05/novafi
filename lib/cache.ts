@@ -86,7 +86,9 @@ export function invalidateMany(spreadsheetId: string, resources: readonly string
  * their exact semantics are preserved at the call site.
  */
 export const TX_CACHES = ['transactions', 'accounts', 'dashboard', 'badges'] as const; // transactions route, split create
-export const ACCOUNT_CACHES = ['accounts', 'dashboard'] as const;
+// Account edits include credit-card balance/limit/statement changes, which move
+// the creditAlerts badge — so 'badges' must stale too.
+export const ACCOUNT_CACHES = ['accounts', 'dashboard', 'badges'] as const;
 export const BILL_CACHES = ['bills', 'dashboard', 'badges'] as const;
 export const BUDGET_CACHES = ['budgets', 'dashboard', 'badges'] as const; // budget create/delete
 export const GOAL_CACHES = ['goals', 'dashboard'] as const;

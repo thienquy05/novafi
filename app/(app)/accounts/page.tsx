@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { Plus, Trash2, CreditCard, Landmark, PiggyBank, TrendingUp, Pencil, CheckCircle2, RefreshCw, AlertCircle, Banknote, Coins } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { creditUtilization, creditUtilStatus, calcLoanPayoff, calcLoanExtraPaymentImpact, calcFundingHeldByAccount } from '@/lib/calculations';
+import { creditUtilization, creditUtilStatus, calcLoanPayoff, calcLoanExtraPaymentImpact, calcFundingHeldByAccount, calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt } from '@/lib/calculations';
 import { buildLoanPaymentTxs } from '@/lib/loanPayments';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card } from '@/components/ui/Card';
@@ -98,6 +98,9 @@ export default function AccountsPage() {
   // Transactions are needed only to net out funding pools — money those pools hold
   // in real accounts on behalf of OTHERS, which isn't the user's wealth.
   const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
+  // Mirror the dashboard's headline: the "exclude loans from net worth" setting
+  // must produce the SAME net-worth figure here as on the dashboard.
+  const [excludeLoans, setExcludeLoans] = useState(() => peekCache(['settings'])?.settings?.excludeLoansFromNetWorth === true);
   const [open, setOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Account | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -131,9 +134,10 @@ export default function AccountsPage() {
 
   const load = useCallback(async (force = false) => {
     try {
-      const { accounts, transactions } = await ensureResources(['accounts', 'transactions'], { force });
+      const { accounts, transactions, settings } = await ensureResources(['accounts', 'transactions', 'settings'], { force });
       setAccounts(accounts);
       setTransactions(transactions);
+      setExcludeLoans(settings?.excludeLoansFromNetWorth === true);
       setError(false);
     } catch {
       setError(true);
@@ -282,20 +286,16 @@ export default function AccountsPage() {
   const { netWorth, totalAssets, totalDebt } = useMemo(() => {
     // Funding pools park OTHER people's cash in real accounts — it shows up in the
     // raw balance but isn't the user's wealth, so net it out of net worth/assets.
-    const fundingHeld = calcFundingHeldByAccount(transactions);
-    let nw = 0, assets = 0, debt = 0;
-    for (const a of accounts) {
-      if (a.type === 'credit' || a.type === 'loan') {
-        nw -= a.balance;
-        if (a.balance > 0) debt += a.balance;
-      } else {
-        const own = a.balance - (fundingHeld[a.id] ?? 0);
-        nw += own;
-        assets += own;
-      }
-    }
-    return { netWorth: nw, totalAssets: assets, totalDebt: debt };
-  }, [accounts, transactions]);
+    // Same shared helpers (and the same exclude-loans setting) as the dashboard,
+    // so the two headline figures can never disagree.
+    const fundingHeld = Object.values(calcFundingHeldByAccount(transactions)).reduce((s, n) => s + n, 0);
+    const nw = (excludeLoans ? calcLiquidNetWorth(accounts) : calcTraditionalNetWorth(accounts)) - fundingHeld;
+    return {
+      netWorth: nw,
+      totalAssets: calcTotalAssets(accounts) - fundingHeld,
+      totalDebt: calcTotalDebt(accounts),
+    };
+  }, [accounts, transactions, excludeLoans]);
 
   const grouped = useMemo(() => {
     const g: Record<Account['type'], Account[]> = { checking: [], cash: [], savings: [], credit: [], investment: [], loan: [], pool: [] };
@@ -449,10 +449,10 @@ export default function AccountsPage() {
                           </div>
                           <div className="flex gap-2">
                             {type === 'loan' && account.balance > 0 && account.paymentAccountId && (account.monthlyPayment ?? 0) > 0 && (
-                              <Button variant="ghost" size="icon" title={t('accounts.makePayment')} className="text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 h-10 w-10 rounded-xl" onClick={() => makeLoanPayment(account)}><Banknote className="w-4 h-4" /></Button>
+                              <Button variant="ghost" size="icon" aria-label={t('accounts.makePayment')} title={t('accounts.makePayment')} className="text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 h-10 w-10 rounded-xl" onClick={() => makeLoanPayment(account)}><Banknote className="w-4 h-4" /></Button>
                             )}
-                            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 h-10 w-10 rounded-xl" onClick={() => openEdit(account)}><Pencil className="w-4 h-4" /></Button>
-                            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 h-10 w-10 rounded-xl" onClick={() => handleDelete(account.id)}><Trash2 className="w-4 h-4" /></Button>
+                            <Button variant="ghost" size="icon" aria-label={t('common.edit')} className="text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 h-10 w-10 rounded-xl" onClick={() => openEdit(account)}><Pencil className="w-4 h-4" /></Button>
+                            <Button variant="ghost" size="icon" aria-label={t('common.delete')} className="text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 h-10 w-10 rounded-xl" onClick={() => handleDelete(account.id)}><Trash2 className="w-4 h-4" /></Button>
                           </div>
                         </div>
                       </div>
@@ -467,9 +467,9 @@ export default function AccountsPage() {
       <Modal open={open} onClose={() => { setOpen(false); setForm(EMPTY_FORM); setEditTarget(null); }} title={editTarget ? t('accounts.editAccount') : t('accounts.addAccount')}>
         <div className="space-y-5 pb-4">
           <Select label={t('accounts.accountType')} value={form.type} options={Object.entries(ACCOUNT_TYPE_CONFIG).filter(([value]) => value !== 'pool').map(([value]) => ({ value, label: ACCOUNT_TYPE_LABELS[value as Account['type']] }))} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as Account['type'] }))} />
-          <Input label={t('accounts.accountName')} placeholder={form.type === 'checking' ? 'e.g. Chase Checking' : form.type === 'credit' ? 'e.g. Chase Sapphire' : form.type === 'cash' ? 'e.g. Wallet' : 'e.g. HYSA'} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-          <Input label={t('accounts.institution')} placeholder="e.g. Chase, Bank of America" value={form.institution} onChange={(e) => setForm((f) => ({ ...f, institution: e.target.value }))} />
-          <Input label={form.type === 'credit' || form.type === 'loan' ? `${t('accounts.balanceOwed')} — enter negative if bank owes you` : t('accounts.currentBalance')} type="text" inputMode="decimal" placeholder="0.00" value={form.balance} onChange={(e) => setForm((f) => ({ ...f, balance: e.target.value.replace(/[^0-9.,\-]/g, '') }))} />
+          <Input label={t('accounts.accountName')} placeholder={form.type === 'checking' ? t('accounts.phNameChecking') : form.type === 'credit' ? t('accounts.phNameCredit') : form.type === 'cash' ? t('accounts.phNameCash') : t('accounts.phNameOther')} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+          <Input label={t('accounts.institution')} placeholder={t('accounts.phInstitution')} value={form.institution} onChange={(e) => setForm((f) => ({ ...f, institution: e.target.value }))} />
+          <Input label={form.type === 'credit' || form.type === 'loan' ? `${t('accounts.balanceOwed')} — ${t('accounts.balanceNegativeHint')}` : t('accounts.currentBalance')} type="text" inputMode="decimal" placeholder="0.00" value={form.balance} onChange={(e) => setForm((f) => ({ ...f, balance: e.target.value.replace(/[^0-9.,\-]/g, '') }))} />
           {form.type === 'credit' && (
             <div className="grid grid-cols-2 gap-3">
               <Input label={t('accounts.creditLimit')} type="text" inputMode="decimal" placeholder="0.00" value={form.creditLimit} onChange={(e) => setForm((f) => ({ ...f, creditLimit: e.target.value.replace(/[^0-9.,]/g, '') }))} />

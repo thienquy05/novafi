@@ -10,7 +10,7 @@ import { Modal } from '@/components/ui/Modal';
 import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { TransactionsSkeleton } from '@/components/ui/Skeleton';
 import { Collapsible } from '@/components/ui/Collapsible';
-import { formatCurrency, formatCompact, formatDate, generateId, today } from '@/lib/utils';
+import { formatCurrency, formatCompact, formatDate, generateId, today, dateLocale } from '@/lib/utils';
 import { transactionsToCsv } from '@/lib/csv';
 import { calcLoanRemaining } from '@/lib/calculations';
 import { peekCache, ensureResources } from '@/lib/client/store';
@@ -79,7 +79,9 @@ function shiftMonth(ym: string, delta: number): string {
 
 function formatMonthLabel(ym: string): string {
   const [y, m] = ym.split('-').map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  // dateLocale() resolves the app language (nf_lang cookie) so the month name
+  // follows the user's language, not a hardcoded en-US.
+  return new Date(y, m - 1, 1).toLocaleDateString(dateLocale(), { month: 'long', year: 'numeric' });
 }
 
 // ── CSV export ────────────────────────────────────────────────────────────────
@@ -562,8 +564,7 @@ export default function TransactionsPage() {
       const ownerSync = !!(editTarget && managedTxIds.has(editTarget.id) && roundCents(amount) !== roundCents(editTarget.amount));
       if (ownerSync) await syncOwnerAmount(editTarget!, amount);
       toast(editTarget ? t('transactions.toastUpdated') : t('transactions.toastAdded'), 'success');
-      try { sessionStorage.removeItem('nf_badges_cache_v2'); } catch { /* ignore */ }
-      window.dispatchEvent(new CustomEvent('novafi:badges-invalid'));
+      // Badge/notification invalidation: handled by the global write-guard (lib/client/store).
       // Owner-sync also rewrote the loan/split and its other cash leg → full
       // reconcile. Otherwise the row was already inserted optimistically and the
       // POST/PUT returned the authoritative balances, so skip the second round trip.
@@ -602,8 +603,6 @@ export default function TransactionsPage() {
       if (!res.ok) throw new Error();
       const data: { accounts?: Account[] } = await res.json().catch(() => ({}));
       if (data.accounts) setAccounts(data.accounts); // authoritative post-delete balances
-      try { sessionStorage.removeItem('nf_badges_cache_v2'); } catch { /* ignore */ }
-      window.dispatchEvent(new CustomEvent('novafi:badges-invalid'));
       // Offer one-tap undo: re-creating the row also re-applies its balance effects.
       toast(t('transactions.toastDeleted'), 'success', removed ? { label: t('common.undo'), onClick: () => restoreTransaction(removed) } : undefined);
     } catch {
@@ -795,10 +794,10 @@ export default function TransactionsPage() {
           <Button size="sm" variant="secondary" className="h-9" onClick={() => { if (expanded) { setPaybackFor(null); } else { setPaybackFor(loan.id); setPaybackForm({ amount: String(remaining), account: loan.account }); } }}>
             {t('loans.recordPayback')}
           </Button>
-          <button title={t('common.edit')} onClick={() => openEditLoan(loan)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-indigo-500 dark:hover:text-indigo-400 rounded-lg transition-colors ml-auto">
+          <button aria-label={t('common.edit')} title={t('common.edit')} onClick={() => openEditLoan(loan)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-indigo-500 dark:hover:text-indigo-400 rounded-lg transition-colors ml-auto">
             <Pencil className="w-4 h-4" />
           </button>
-          <button title={t('common.delete')} onClick={() => handleDeleteLoan(loan)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
+          <button aria-label={t('common.delete')} title={t('common.delete')} onClick={() => handleDeleteLoan(loan)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
@@ -865,7 +864,7 @@ export default function TransactionsPage() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through">{formatCurrency(loan.principal)}</span>
-          <button title={t('common.delete')} onClick={() => handleDeleteLoan(loan)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
+          <button aria-label={t('common.delete')} title={t('common.delete')} onClick={() => handleDeleteLoan(loan)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
         </div>
       </div>
     );
@@ -1510,7 +1509,7 @@ export default function TransactionsPage() {
           <Button size="sm" variant="secondary" className="h-9" onClick={() => openSplitPayback(split)}>
             <HandCoins className="w-4 h-4" />{t('bills.recordSplitPayment')}
           </Button>
-          <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors ml-auto">
+          <button aria-label={t('common.delete')} title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors ml-auto">
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
@@ -1636,7 +1635,7 @@ export default function TransactionsPage() {
               </div>
               {p.contactId === NEW_CONTACT && (
                 <div className="flex gap-2 items-end">
-                  <div className="flex-1"><Input label={t('bills.newContactName')} placeholder="e.g. Alex" value={p.newName} onChange={(e) => updateParticipant(p.key, { newName: e.target.value })} /></div>
+                  <div className="flex-1"><Input label={t('bills.newContactName')} placeholder={t('bills.phContactName')} value={p.newName} onChange={(e) => updateParticipant(p.key, { newName: e.target.value })} /></div>
                   <Button type="button" variant="secondary" className="shrink-0" onClick={() => handleAddParticipantContact(p)} disabled={addingContact || !p.newName.trim()}><UserPlus className="w-4 h-4" />{t('bills.addContact')}</Button>
                 </div>
               )}
@@ -1867,10 +1866,10 @@ export default function TransactionsPage() {
             {activeFilterCount > 0 ? `${t('transactions.filters')} (${activeFilterCount})` : t('transactions.filters')}
           </button>
           <div className="flex bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden shrink-0">
-            <button onClick={() => setViewMode('list')} className={`px-3 h-11 transition-all duration-200 ${viewMode === 'list' ? 'bg-indigo-600 text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}`} title="List view">
+            <button onClick={() => setViewMode('list')} className={`px-3 h-11 transition-all duration-200 ${viewMode === 'list' ? 'bg-indigo-600 text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}`} aria-label={t('transactions.viewList')} title={t('transactions.viewList')}>
               <List className="w-4 h-4" />
             </button>
-            <button onClick={() => setViewMode('merchant')} className={`px-3 h-11 transition-all duration-200 ${viewMode === 'merchant' ? 'bg-indigo-600 text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}`} title="By merchant">
+            <button onClick={() => setViewMode('merchant')} className={`px-3 h-11 transition-all duration-200 ${viewMode === 'merchant' ? 'bg-indigo-600 text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}`} aria-label={t('transactions.viewMerchant')} title={t('transactions.viewMerchant')}>
               <Users className="w-4 h-4" />
             </button>
           </div>
@@ -1966,10 +1965,10 @@ export default function TransactionsPage() {
                           <p className="text-xs font-medium text-slate-400 dark:text-slate-500 truncate">{tx.category} · {accountName(tx.account)}</p>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className={`text-sm font-extrabold ${tx.type === 'income' ? 'text-emerald-600 dark:text-emerald-400' : tx.type === 'transfer' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-900 dark:text-slate-100'}`}>
+                          <span className={`text-sm font-extrabold whitespace-nowrap ${tx.type === 'income' ? 'text-emerald-600 dark:text-emerald-400' : tx.type === 'transfer' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-900 dark:text-slate-100'}`}>
                             {tx.type === 'income' ? '+' : tx.type === 'transfer' ? '' : '-'}{formatCurrency(tx.amount)}
                           </span>
-                          <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 h-8 w-8 rounded-xl" onClick={() => openEdit(tx)}><Pencil className="w-3.5 h-3.5" /></Button>
+                          <Button variant="ghost" size="icon" aria-label={t('common.edit')} className="text-slate-400 dark:text-slate-500 h-8 w-8 rounded-xl" onClick={() => openEdit(tx)}><Pencil className="w-3.5 h-3.5" /></Button>
                         </div>
                       </div>
                     ))}
@@ -2048,7 +2047,7 @@ export default function TransactionsPage() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input label={t('common.date')} type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
-            <Input label={t('common.description')} placeholder="e.g. Netflix" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
+            <Input label={t('common.description')} placeholder={t('transactions.phDescription')} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {form.type !== 'transfer' && (
@@ -2115,7 +2114,7 @@ export default function TransactionsPage() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input label={t('common.date')} type="date" value={splitShared.date} onChange={(e) => setSplitShared((s) => ({ ...s, date: e.target.value }))} />
-            <Input label={t('common.description')} placeholder="e.g. Target" value={splitShared.description} onChange={(e) => setSplitShared((s) => ({ ...s, description: e.target.value }))} />
+            <Input label={t('common.description')} placeholder={t('transactions.phSplitDescription')} value={splitShared.description} onChange={(e) => setSplitShared((s) => ({ ...s, description: e.target.value }))} />
           </div>
           <Select
             label={t('common.account')}
@@ -2177,7 +2176,7 @@ export default function TransactionsPage() {
               </div>
               <div className="flex items-center gap-2">
                 <Button size="sm" className="h-8" onClick={() => applyTemplate(tpl)}>Use</Button>
-                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30" onClick={() => deleteTemplate(tpl.id)}><X className="w-3.5 h-3.5" /></Button>
+                <Button variant="ghost" size="icon" aria-label={t('common.delete')} className="h-8 w-8 rounded-xl text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30" onClick={() => deleteTemplate(tpl.id)}><X className="w-3.5 h-3.5" /></Button>
               </div>
             </div>
           ))}
@@ -2217,7 +2216,7 @@ export default function TransactionsPage() {
                   />
                   {loanForm.contactId === NEW_CONTACT && (
                     <div className="flex gap-2 items-end">
-                      <div className="flex-1"><Input label={t('bills.newContactName')} placeholder="e.g. Alex" value={newContactName} onChange={(e) => setNewContactName(e.target.value)} /></div>
+                      <div className="flex-1"><Input label={t('bills.newContactName')} placeholder={t('bills.phContactName')} value={newContactName} onChange={(e) => setNewContactName(e.target.value)} /></div>
                       <Button type="button" variant="secondary" className="shrink-0" onClick={handleAddLoanContact} disabled={addingContact || !newContactName.trim()}><UserPlus className="w-4 h-4" />{t('bills.addContact')}</Button>
                     </div>
                   )}
@@ -2258,7 +2257,7 @@ export default function TransactionsPage() {
                       </div>
                       {p.contactId === NEW_CONTACT && (
                         <div className="flex gap-2 items-end">
-                          <div className="flex-1"><Input label={t('bills.newContactName')} placeholder="e.g. Alex" value={p.newName} onChange={(e) => updateLoanParticipant(p.key, { newName: e.target.value })} /></div>
+                          <div className="flex-1"><Input label={t('bills.newContactName')} placeholder={t('bills.phContactName')} value={p.newName} onChange={(e) => updateLoanParticipant(p.key, { newName: e.target.value })} /></div>
                           <Button type="button" variant="secondary" className="shrink-0" onClick={() => handleAddLoanParticipantContact(p)} disabled={addingContact || !p.newName.trim()}><UserPlus className="w-4 h-4" />{t('bills.addContact')}</Button>
                         </div>
                       )}
@@ -2387,7 +2386,7 @@ export default function TransactionsPage() {
                     </div>
                     <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400 ml-2 shrink-0">{formatCurrency(groupRemaining)}</span>
                   </button>
-                  <button title={t('common.edit')} onClick={() => openEditSplitGroup(group)} className="px-3 py-3 text-slate-300 dark:text-slate-600 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors shrink-0">
+                  <button aria-label={t('common.edit')} title={t('common.edit')} onClick={() => openEditSplitGroup(group)} className="px-3 py-3 text-slate-300 dark:text-slate-600 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors shrink-0">
                     <Pencil className="w-4 h-4" />
                   </button>
                 </div>
@@ -2439,7 +2438,7 @@ export default function TransactionsPage() {
                                   <span title={t('bills.transferred')} className="w-5 h-5 rounded-md bg-emerald-500 text-white flex items-center justify-center shrink-0">
                                     <Check className="w-3.5 h-3.5" />
                                   </span>
-                                  <button title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
+                                  <button aria-label={t('common.delete')} title={t('common.delete')} onClick={() => handleDeleteSplit(split)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors">
                                     <Trash2 className="w-4 h-4" />
                                   </button>
                                 </div>
@@ -2674,6 +2673,7 @@ type SwipeRowProps = {
 };
 
 function SwipeableRow({ tx, accountName, onEdit, onDelete, managed, onSplit }: SwipeRowProps) {
+  const { t } = useTranslation();
   return (
     <SwipeToDelete onDelete={() => onDelete(tx.id)} disabled={managed}>
       <div className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 rounded-3xl select-none">
@@ -2693,11 +2693,11 @@ function SwipeableRow({ tx, accountName, onEdit, onDelete, managed, onSplit }: S
             {tx.type === 'income' ? '+' : tx.type === 'transfer' ? '' : '-'}{formatCurrency(tx.amount)}
           </span>
           {onSplit && (
-            <Button variant="ghost" size="icon" title="Split into categories" className="text-slate-400 dark:text-slate-500 h-9 w-9 rounded-xl hover:text-indigo-600 dark:hover:text-indigo-400" onClick={(e) => { e.stopPropagation(); onSplit(tx); }}>
+            <Button variant="ghost" size="icon" aria-label={t('transactions.splitIntoCategories')} title={t('transactions.splitIntoCategories')} className="text-slate-400 dark:text-slate-500 h-9 w-9 rounded-xl hover:text-indigo-600 dark:hover:text-indigo-400" onClick={(e) => { e.stopPropagation(); onSplit(tx); }}>
               <SplitIcon className="w-3.5 h-3.5" />
             </Button>
           )}
-          <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 h-9 w-9 rounded-xl" onClick={(e) => { e.stopPropagation(); onEdit(tx); }}>
+          <Button variant="ghost" size="icon" aria-label={t('common.edit')} className="text-slate-400 dark:text-slate-500 h-9 w-9 rounded-xl" onClick={(e) => { e.stopPropagation(); onEdit(tx); }}>
             <Pencil className="w-3.5 h-3.5" />
           </Button>
         </div>
@@ -2717,6 +2717,7 @@ function SplitGroupRow({ group, accountName, expanded, onToggle, onEdit, onDelet
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const { t } = useTranslation();
   const first = group.transactions[0];
   const n = group.transactions.length;
   return (
@@ -2739,7 +2740,7 @@ function SplitGroupRow({ group, accountName, expanded, onToggle, onEdit, onDelet
           </button>
           <div className="flex items-center gap-1.5 ml-3 shrink-0">
             <span className="text-sm font-extrabold whitespace-nowrap text-slate-900 dark:text-slate-100">-{formatCurrency(group.total)}</span>
-            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 h-9 w-9 rounded-xl" onClick={(e) => { e.stopPropagation(); onEdit(); }}>
+            <Button variant="ghost" size="icon" aria-label={t('common.edit')} className="text-slate-400 dark:text-slate-500 h-9 w-9 rounded-xl" onClick={(e) => { e.stopPropagation(); onEdit(); }}>
               <Pencil className="w-3.5 h-3.5" />
             </Button>
           </div>

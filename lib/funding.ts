@@ -1,5 +1,6 @@
 import type { Funding, FundingContribution, FundingParticipant, FundingRepayment, Transaction } from '@/types';
 import { generateId } from './utils';
+import { roundCents } from './calculations';
 
 // Pure helpers for the Funding (virtual group money pool) feature.
 //   • The pool is virtual: a budget number, not cash parked in an account.
@@ -14,9 +15,9 @@ import { generateId } from './utils';
 // "funding held for others" net-worth adjustment (which only looks at 'Funding').
 export const FUNDING_REPAY_CATEGORY = 'FundingRepay';
 
-function round(n: number): number {
-  return Math.round(n * 100) / 100;
-}
+// Single shared round-to-cents (lib/calculations.ts) so funding math can never
+// round a cent differently from bills/loans/splits.
+const round = roundCents;
 
 export function othersContribution(participants: FundingParticipant[]): number {
   return round(participants.filter((p) => !p.isMe).reduce((s, p) => s + (p.contributed || 0), 0));

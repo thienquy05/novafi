@@ -8,6 +8,9 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
+import { FitText } from '@/components/ui/FitText';
+import { InvestmentsSkeleton } from '@/components/ui/Skeleton';
+import { StaggerReveal } from '@/components/ui/Reveal';
 import { formatCurrency, generateId, today } from '@/lib/utils';
 import { peekCache, ensureResources } from '@/lib/client/store';
 import { useToast } from '@/lib/toast';
@@ -33,7 +36,8 @@ export default function InvestmentsPage() {
 
   const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
   const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
-  const [loading, setLoading] = useState(true);
+  // Warm client cache → skip the skeleton entirely (same pattern as siblings).
+  const [loading, setLoading] = useState(() => peekCache(['accounts', 'transactions']) === null);
   const [saving, setSaving] = useState(false);
 
   const [action, setAction] = useState<Action | null>(null);
@@ -137,19 +141,13 @@ export default function InvestmentsPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-indigo-500 border-t-transparent" />
-      </div>
-    );
-  }
+  if (loading) return <InvestmentsSkeleton />;
 
   const gainPositive = stats.gain >= 0;
   const gainColor = gainPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400';
 
   return (
-    <div className="p-4 md:p-8 max-w-3xl mx-auto space-y-6 pb-24 md:pb-8">
+    <StaggerReveal className="p-4 md:p-8 max-w-3xl mx-auto space-y-6 pb-24 md:pb-8">
       <PageHeader
         icon={TrendingUp}
         tone="emerald"
@@ -175,15 +173,15 @@ export default function InvestmentsPage() {
           <div className="grid grid-cols-3 gap-3">
             <Card className="p-4 text-center flex flex-col">
               <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">{t('investments.totalValue')}</p>
-              <p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(stats.value)}</p>
+              <FitText maxSize={20} minSize={12} className="font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(stats.value)}</FitText>
             </Card>
             <Card className="p-4 text-center flex flex-col">
               <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">{t('investments.totalInvested')}</p>
-              <p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(stats.invested)}</p>
+              <FitText maxSize={20} minSize={12} className="font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(stats.invested)}</FitText>
             </Card>
             <Card className="p-4 text-center flex flex-col">
               <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">{t('investments.totalGain')}</p>
-              <p className={`text-xl font-extrabold ${gainColor}`}>{formatCurrency(stats.gain, true)}</p>
+              <FitText maxSize={20} minSize={12} className={`font-extrabold ${gainColor}`}>{formatCurrency(stats.gain, true)}</FitText>
               <p className={`text-xs font-semibold mt-0.5 ${gainColor}`}>{fmtPct(stats.gainPct)}</p>
             </Card>
           </div>
@@ -205,7 +203,7 @@ export default function InvestmentsPage() {
                     {acc.institution && <p className="text-xs text-slate-400 dark:text-slate-500 truncate">{acc.institution}</p>}
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(s.value)}</p>
+                    <FitText maxSize={20} minSize={12} className="font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(s.value)}</FitText>
                     <p className={`text-xs font-semibold flex items-center justify-end gap-0.5 ${up ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                       {up ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
                       {formatCurrency(s.gain, true)} ({fmtPct(s.gainPct)})
@@ -254,7 +252,7 @@ export default function InvestmentsPage() {
                               : <ArrowDownLeft className="w-3.5 h-3.5 text-rose-500 shrink-0" />}
                             <span className="truncate">{tx.date} · {direction === 'in' ? accountName(tx.account) : accountName(tx.toAccount ?? '')}</span>
                           </span>
-                          <span className={`font-bold shrink-0 ml-2 ${direction === 'in' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                          <span className={`font-bold shrink-0 ml-2 whitespace-nowrap ${direction === 'in' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                             {direction === 'in' ? '+' : '−'}{formatCurrency(tx.amount)}
                           </span>
                         </div>
@@ -348,6 +346,6 @@ export default function InvestmentsPage() {
           </div>
         )}
       </Modal>
-    </div>
+    </StaggerReveal>
   );
 }

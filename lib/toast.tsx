@@ -45,13 +45,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               'data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom-5 data-[state=open]:fade-in-0',
               'data-[state=closed]:animate-out data-[state=closed]:fade-out-80 data-[state=closed]:slide-out-to-right-full',
               'transition-all duration-200',
-              t.type === 'success' && 'bg-emerald-50 border-emerald-200 text-emerald-900',
-              t.type === 'error' && 'bg-rose-50 border-rose-200 text-rose-900',
-              t.type === 'info' && 'bg-slate-900 border-slate-700 text-white',
+              t.type === 'success' && 'bg-emerald-50 border-emerald-200 text-emerald-900 dark:bg-emerald-900/80 dark:border-emerald-700/60 dark:text-emerald-100 dark:backdrop-blur-sm',
+              t.type === 'error' && 'bg-rose-50 border-rose-200 text-rose-900 dark:bg-rose-900/80 dark:border-rose-700/60 dark:text-rose-100 dark:backdrop-blur-sm',
+              t.type === 'info' && 'bg-slate-900 border-slate-700 text-white dark:bg-slate-700 dark:border-slate-600',
             )}
           >
-            {t.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
-            {t.type === 'error' && <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />}
+            {t.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-300 shrink-0" />}
+            {t.type === 'error' && <AlertCircle className="w-4 h-4 text-rose-500 dark:text-rose-300 shrink-0" />}
             {t.type === 'info' && <Info className="w-4 h-4 text-slate-300 shrink-0" />}
             <Toast.Description asChild>
               <span className="flex-1">{t.message}</span>

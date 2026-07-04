@@ -118,8 +118,8 @@ export function QuickAddTransaction({ accounts: accountsProp, bills: billsProp, 
       if (!res.ok) throw new Error();
       Haptics.success();
       toast(t('transactions.toastAdded'), 'success');
-      try { sessionStorage.removeItem('nf_badges_cache_v2'); } catch { /* ignore */ }
-      window.dispatchEvent(new CustomEvent('novafi:badges-invalid'));
+      // Badge/notification invalidation is handled by the global write-guard in
+      // lib/client/store (fires on every successful API write).
     } catch {
       toast(t('transactions.toastFailedSave'), 'error');
     }
@@ -150,6 +150,7 @@ export function QuickAddTransaction({ accounts: accountsProp, bills: billsProp, 
         <Button
           onClick={() => { Haptics.light(); setOpen(true); }}
           size="icon"
+          aria-label={t('quickAdd.quickAddBtn')}
           className="h-14 w-14 rounded-full shadow-[0_8px_30px_rgb(79,70,229,0.3)] bg-indigo-600 hover:bg-indigo-700 text-white"
         >
           <Plus className="w-6 h-6" />
@@ -214,7 +215,7 @@ export function QuickAddTransaction({ accounts: accountsProp, bills: billsProp, 
             />
             <Input
               label={t('common.description')}
-              placeholder="e.g. Netflix"
+              placeholder={t('transactions.phDescription')}
               value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
             />
