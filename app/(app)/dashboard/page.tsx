@@ -27,8 +27,6 @@ import { StaggerReveal } from '@/components/ui/Reveal';
 import { Sparkline } from '@/components/ui/Sparkline';
 import { Celebrations } from './Celebrations';
 import { AutoRefreshOnFocus } from '@/components/AutoRefreshOnFocus';
-import { MoneyFlowInsights } from './MoneyFlowInsights';
-import { buildMoneyFlowSummary, topInsights } from '@/lib/insights';
 import { SpendingHeatmap } from './SpendingHeatmap';
 import { HelpHint } from '@/components/ui/HelpHint';
 import { t } from '@/lib/i18n';
@@ -473,22 +471,6 @@ export default async function DashboardPage() {
     },
   ];
 
-  // Money-flow guidance — the rule engine reads the same data through the same
-  // shared calculators as everything above, so its numbers always match the UI.
-  const moneyFlow = buildMoneyFlowSummary(transactions, thisMonth);
-  const insights = topInsights(
-    { accounts, transactions, bills, goals },
-    {
-      now,
-      monthKey: thisMonth,
-      prevMonthKey,
-      daysInMonth,
-      daysElapsed,
-      tr: (k, p) => t(k, lang, p),
-      fmt: formatCurrency,
-    },
-  );
-
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto pb-28 md:pb-8">
       {/* Server-rendered page: re-pull on tab focus + every 60s so a dashboard
@@ -527,12 +509,9 @@ export default async function DashboardPage() {
         creditAlerts={creditReport.cardsOverTarget}
       />
 
-      {/* Money Flow — plain-language guidance on where this month's money is
-          going, with the top actions to take (lib/insights.ts). */}
-      <MoneyFlowInsights flow={moneyFlow} insights={insights} lang={lang} />
-
-      {/* Overdraft risks now live in the notification center (the bell), so the
-          dashboard no longer shows a standalone banner for them. */}
+      {/* Money Flow now lives in a modal behind the header icon next to the bell
+          (components/MoneyFlowButton.tsx), reachable from every page. Overdraft
+          risks likewise live in the notification center (the bell). */}
 
       {/* Predictions are gated until there's enough history to be meaningful. */}
       {!readiness.ready && (
