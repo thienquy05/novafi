@@ -72,7 +72,7 @@ const EMPTY_FORM: ActionForm = {
 };
 
 // Initial number of savings transactions shown; "Show more" reveals another batch.
-const SAVINGS_PAGE_SIZE = 25;
+const SAVINGS_PAGE_SIZE = 10;
 
 export default function SavingsPage() {
   const { t, lang } = useTranslation();

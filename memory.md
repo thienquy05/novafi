@@ -2625,3 +2625,14 @@ Rewrote `lib/__tests__/investments.test.ts` for the new pure functions (invested
 **Locales (`en.json`, `vi.json`).** Added `savings.addInterest`, `savings.interestAmount`, `savings.interestEstimate` ({rate}), `savings.interestEstimateHint`, `savings.noRateHint`; `accounts.apy`, `accounts.apyHint`, `accounts.apyBadge` ({rate}). vi mirrors en.
 
 **Tests / verification.** New `describe('calcSavingsInterest')` in `lib/__tests__/calculations.test.ts`: compounds APY→monthly (≈$24.66 on $10k at 3%), stays below naïve simple interest, 12 monthly credits compound up to ~the stated APY (~+$300/yr), `periodsPerYear=1` = full APY, zero-guards, cent-rounding. `tsc --noEmit` clean; eslint 0 errors (only the pre-existing load-effect `set-state-in-effect` warnings); `vitest` **600 passing**; `next build` succeeds.
+
+## 2026-07-11 — Paycheck list pagination + tighter Savings history window (branch claude/paycheck-savings-pagination-iamc4d)
+
+**Request:** load only the 4 most recent paychecks on the Paychecks page and only 10 transactions in the Savings page's history, with the rest behind a "Show more" button.
+
+**Done:**
+- `app/(app)/paychecks/page.tsx` — the paycheck list previously rendered every row returned with no windowing at all. Added the same "Show more" pattern already used on Transactions/Savings: `PAYCHECKS_PAGE_SIZE = 4`, `visibleCount` state (not reset on background auto-refresh, so an expanded view doesn't collapse under the user), list render changed from `paychecks.map(...)` to `paychecks.slice(0, visibleCount).map(...)`, and a "Show more" button below the list (reuses `t('transactions.showMore', {count})`) shown only while `paychecks.length > visibleCount`.
+- `app/(app)/savings/page.tsx` — `SAVINGS_PAGE_SIZE` 25 → **10**; no other logic changes, the existing `visibleCount`/`selectAccount()`/"Show more" plumbing from PR6 already did exactly what was asked.
+- Data layer unchanged: `getPaychecks()`/`getTransactions()` in `lib/sheets.ts` still read the full Google Sheets range — this is client-side windowing only (matches the existing pattern for Transactions/Savings), not a server-side limit.
+
+**Verification.** `npm install` (fresh env, no `node_modules` checked in) then `tsc --noEmit` clean for both touched files; `eslint` on both files — 0 errors (only the pre-existing `set-state-in-effect` warnings on unrelated lines); `next build` succeeds, `/paychecks` and `/savings` routes present.

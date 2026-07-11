@@ -26,6 +26,9 @@ const EMPTY_FORM = {
   checkingAccountId: '',
 };
 
+// Initial number of paychecks shown; "Show more" reveals another batch.
+const PAYCHECKS_PAGE_SIZE = 4;
+
 export default function PaychecksPage() {
   const [paychecks, setPaychecks] = useState<PaycheckEntry[]>(() => {
     const pc = peekCache(['paychecks'])?.paychecks;
@@ -38,6 +41,7 @@ export default function PaychecksPage() {
   const [preview, setPreview] = useState<ReturnType<typeof calcPaycheckTax> | null>(null);
   const [loading, setLoading] = useState(() => peekCache(['paychecks', 'settings', 'accounts']) === null);
   const [saving, setSaving] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(PAYCHECKS_PAGE_SIZE);
   const { t } = useTranslation();
   const toast = useToast();
 
@@ -225,7 +229,7 @@ export default function PaychecksPage() {
         </Card>
       ) : (
         <div className="space-y-4">
-          {paychecks.map((p) => (
+          {paychecks.slice(0, visibleCount).map((p) => (
             <div key={p.id} className="group flex flex-col md:flex-row md:items-center justify-between p-4 sm:p-6 rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 hover:shadow-sm transition-all duration-300 gap-4">
               <div className="flex items-center gap-4">
                 <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800/50 shrink-0">
@@ -291,6 +295,13 @@ export default function PaychecksPage() {
               </div>
             </div>
           ))}
+          {paychecks.length > visibleCount && (
+            <div className="flex justify-center pt-2">
+              <Button variant="secondary" onClick={() => setVisibleCount((c) => c + PAYCHECKS_PAGE_SIZE)}>
+                {t('transactions.showMore', { count: paychecks.length - visibleCount })}
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
