@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, Children, type ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
 import { CircleDollarSign, Plus, Trash2, Users, Wallet, RefreshCw, AlertCircle, MinusCircle, UserPlus, Pencil, HandCoins, Archive, ArchiveRestore, ChevronDown, Receipt, Landmark, PartyPopper, Target, Share2, Sparkles, Clock, SlidersHorizontal, CalendarDays } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
@@ -81,6 +82,7 @@ function CappedList({ moreLabel, lessLabel, children }: {
 export default function FundingPage() {
   const { t } = useTranslation();
   const toast = useToast();
+  const router = useRouter();
   const [fundings, setFundings] = useState<Funding[]>(() => peekCache(['funding'])?.funding ?? []);
   const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
   // Only the ledger rows the pools reference (spends + contributions) live here —
@@ -257,6 +259,10 @@ export default function FundingPage() {
     } finally {
       setSaving(false);
       await load(true); // refresh transactions so spend/payment lists stay in lockstep
+      // Real money moved (account balances) — refresh server-rendered pages
+      // (Dashboard, etc.) the same way Quick Add does, so the new balance shows
+      // up platform-wide instead of only on this page until the next full nav.
+      router.refresh();
     }
   }
 
@@ -384,8 +390,13 @@ export default function FundingPage() {
     setContribWho(participant && !participant.isMe ? participant.name : '');
     setContribAmount('');
     setContribDate(today());
-    const holding = f.poolAccountId && depositAccounts.some((a) => a.id === f.poolAccountId) ? f.poolAccountId : '';
-    setContribAccount(holding || depositAccounts[0]?.id || '');
+    // Default to a deposit account OTHER than the vault's own holding account.
+    // Picking the vault's own account as the source records the contribution
+    // without moving any real money (it's treated as "already there"), which is
+    // surprising as a silent default — only fall back to it when it's the only
+    // deposit account the user has.
+    const otherAccount = depositAccounts.find((a) => a.id !== f.poolAccountId)?.id;
+    setContribAccount(otherAccount || depositAccounts[0]?.id || '');
   }
   function openEditContrib(f: Funding, c: FundingContribution) {
     setContribFor(f); setEditingContrib(c);
@@ -638,6 +649,7 @@ export default function FundingPage() {
       toast(t('funding.saveFailed'), 'error');
     } finally {
       await load(true);
+      router.refresh(); // deleting a pool reverses cash rows — refresh other pages' balances too
     }
   }
 
@@ -1279,6 +1291,11 @@ export default function FundingPage() {
                   options={depositAccounts.map((a) => ({ value: a.id, label: a.name }))}
                   onChange={(e) => setContribAccount(e.target.value)}
                 />
+              )}
+              {contribIsMe && contribAccount && contribAccount === contribFor.poolAccountId && (
+                <p className="text-xs font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 rounded-xl px-3 py-2.5">
+                  {t('funding.fundNoTransferNote')}
+                </p>
               )}
               <Input label={t('funding.date')} type="date" value={contribDate} onChange={(e) => setContribDate(e.target.value)} />
             </div>
