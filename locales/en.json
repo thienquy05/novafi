@@ -744,6 +744,7 @@
     "deleteDescEmpty": "This pool has no transactions. Deleting it is safe.",
     "deleteConfirm": "Yes, delete",
     "fundMyShareFrom": "Fund my share from",
+    "fundNoTransferNote": "This is the vault's own account — nothing will actually transfer, we'll just record this as your contribution. Pick a different account to move real money in.",
     "targetOptional": "Savings target (optional)",
     "includeMeReal": "Include me as a member",
     "myContributionReal": "My contribution ($)",

@@ -736,6 +736,7 @@
     "realHint": "Tiền thật nằm trong một tài khoản bạn chọn. Tiền của người khác vào đó như tiền bạn giữ hộ cho nhóm; tiền của bạn đã có sẵn trong đó thì chỉ được đánh dấu dành riêng. Số dư tài khoản đó phản ánh tiền của quỹ vào và ra.",
     "realMembersHint": "Thành viên bắt đầu ở $0 — dùng Thêm tiền trên thẻ để ghi nhận đóng góp thực tế.",
     "fundMyShareFrom": "Góp phần của tôi từ",
+    "fundNoTransferNote": "Đây là tài khoản giữ quỹ của nhóm — sẽ không có tiền nào thực sự được chuyển, chúng tôi chỉ ghi nhận đây là phần đóng góp của bạn. Hãy chọn một tài khoản khác để chuyển tiền thật vào.",
     "targetOptional": "Mục tiêu tiết kiệm (tùy chọn)",
     "includeMeReal": "Thêm tôi vào nhóm",
     "myContributionReal": "Phần đóng góp của tôi ($)",
