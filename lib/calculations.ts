@@ -1,4 +1,8 @@
-import type { Account, Transaction, Bill, Budget, Loan, Split } from '@/types';
+import type {
+  Account, Transaction, Bill, Budget, Loan, Split, Goal, PaycheckEntry, TaxSettings,
+  BudgetBucket, CategoryBucketMap,
+} from '@/types';
+import { BUDGET_BUCKETS, DEFAULT_CATEGORY_BUCKETS, DEFAULT_BUCKET_TARGETS } from '@/types';
 
 // ── Net Worth ─────────────────────────────────────────────────────────────────
 
@@ -1668,6 +1672,447 @@ export function suggestBudgetReallocations(
     });
   }
   return out.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+}
+
+// ── 50/30/20 Buckets ──────────────────────────────────────────────────────────
+// The rule splits TAKE-HOME pay three ways: 50% Needs, 30% Wants, 20% Savings.
+// Everything below is pure — the UI passes in the ledger and gets back a
+// snapshot it can render, or a set of budget rows it can write.
+//
+// Two things make this less trivial than "sum the categories":
+//
+//  1. Savings is not a spend category. It's money that LEFT checking and stayed
+//     yours, so it comes from transfers, plus whatever simply went unspent. The
+//     two overlap (a transfer to savings isn't an expense, so it's already inside
+//     "unspent"), which is why calcBucketSnapshot subtracts before adding.
+//
+//  2. Income means take-home. NovaFi deposits the FULL paycheck and earmarks tax
+//     separately, so the gross deposit overstates what's actually spendable.
+
+// Reserved transfer categories move money that either isn't yours (a Funding
+// pool's cash, a split repayment) or isn't saving (a loan disbursement). A pool
+// can legitimately be held in a savings account, so without this guard other
+// people's contributions would be booked as the user's savings.
+const RESERVED_TRANSFER_CATEGORIES = new Set(['Funding', 'FundingRepay', 'Loan', 'Split']);
+
+// Accounts money must come FROM for a transfer to count as deliberate saving —
+// a real spending account. Excludes savings→savings shuffles (moving money you
+// had already saved) and the empty-`account` external transfers loans use.
+const SAVINGS_SOURCE_TYPES: Account['type'][] = ['checking', 'cash'];
+// … and the account types it must land IN.
+const SAVINGS_DEST_TYPES: Account['type'][] = ['savings', 'investment'];
+
+// ── The one flip point ────────────────────────────────────────────────────────
+// Debt principal (a transfer into a `loan` account) is money you keep, and the
+// classic rule books it under the 20%. We exclude it because NovaFi can't yet
+// split a payment into "minimum" (a need) and "extra" (real debt payoff), so
+// counting the whole thing would flatter the savings bar for anyone with a large
+// required payment. calcDeliberateSavings computes the figure either way — flip
+// this to true to include it, and nothing else needs to change.
+export const DEBT_PAYOFF_IS_SAVINGS = false;
+
+const BUCKET_MAP_PAIR_SEP = '|';
+const BUCKET_MAP_KV_SEP = ':';
+
+// The Settings sheet is flat key/value, so the map is stored as one string:
+//   "Food:wants|Grocery:needs"
+// Category names are percent-encoded because both separators are legal in a
+// user-defined category name. (The older custom-category lists join on '|'
+// unencoded and would corrupt on such a name — don't copy that here.)
+export function serializeCategoryBuckets(map: CategoryBucketMap): string {
+  return Object.keys(map ?? {})
+    .sort()
+    .filter((cat) => cat !== '' && (BUDGET_BUCKETS as readonly string[]).includes(map[cat]))
+    .map((cat) => `${encodeURIComponent(cat)}${BUCKET_MAP_KV_SEP}${map[cat]}`)
+    .join(BUCKET_MAP_PAIR_SEP);
+}
+
+// Never throws: a malformed chunk is skipped, not fatal. A corrupt row would
+// otherwise take down every page that reads Settings.
+export function parseCategoryBuckets(raw: string): CategoryBucketMap {
+  const out: CategoryBucketMap = {};
+  for (const chunk of (raw ?? '').split(BUCKET_MAP_PAIR_SEP)) {
+    if (!chunk) continue;
+    const at = chunk.indexOf(BUCKET_MAP_KV_SEP);
+    if (at <= 0) continue;
+    const bucket = chunk.slice(at + 1);
+    if (!(BUDGET_BUCKETS as readonly string[]).includes(bucket)) continue;
+    let cat: string;
+    try {
+      cat = decodeURIComponent(chunk.slice(0, at));
+    } catch {
+      continue; // invalid escape sequence — drop this pair, keep the rest
+    }
+    if (cat) out[cat] = bucket as BudgetBucket;
+  }
+  return out;
+}
+
+export type BucketTargets = { needs: number; wants: number; savings: number };
+
+// Force the three targets to whole percentages totalling EXACTLY 100, whatever
+// arrived from the sheet (hand-edited rows, an older version, garbage). Scale to
+// 100, floor, then hand the leftover units to the largest fractional remainders.
+export function normalizeBucketTargets(t: BucketTargets): BucketTargets {
+  const keys: (keyof BucketTargets)[] = ['needs', 'wants', 'savings'];
+  const safe = keys.map((k) => (Number.isFinite(t?.[k]) && t[k] > 0 ? t[k] : 0));
+  const sum = safe.reduce((s, v) => s + v, 0);
+  if (sum <= 0) return { ...DEFAULT_BUCKET_TARGETS };
+
+  const scaled = safe.map((v) => (v / sum) * 100);
+  const floors = scaled.map((v) => Math.floor(v));
+  let rem = 100 - floors.reduce((s, v) => s + v, 0);
+  const order = scaled
+    .map((v, i) => ({ i, frac: v - Math.floor(v) }))
+    .sort((a, b) => b.frac - a.frac || a.i - b.i);
+  for (let k = 0; k < order.length && rem > 0; k++, rem--) floors[order[k].i] += 1;
+
+  return { needs: floors[0], wants: floors[1], savings: floors[2] };
+}
+
+/** The bucket a category belongs to, or null when nobody has assigned it yet. */
+export function bucketForCategory(category: string, map: CategoryBucketMap): BudgetBucket | null {
+  return map?.[category] ?? DEFAULT_CATEGORY_BUCKETS[category] ?? null;
+}
+
+// ── Take-home income ──────────────────────────────────────────────────────────
+
+export interface TakeHomeIncome {
+  income: number;        // every income transaction this month
+  taxSetAside: number;   // fed + state + local + FICA earmarked on this month's paychecks
+  takeHome: number;      // max(0, income − taxSetAside)
+  hasIncome: boolean;
+  paycheckCount: number; // 0 → the figure is income transactions only
+}
+
+// A paycheck's deposit transaction is written with the SAME id as the paycheck,
+// and a paycheck logged without a deposit account creates no transaction at all.
+// So we match by id: subtracting the set-aside of a paycheck whose deposit was
+// never recorded would shrink take-home against income that was never counted.
+// The date fallback covers legacy sheets whose deposit rows carry unrelated ids —
+// it only engages when NO paycheck in the month matches by id.
+export function calcTakeHomeIncome(
+  transactions: Transaction[],
+  paychecks: PaycheckEntry[],
+  monthKey: string,
+): TakeHomeIncome {
+  const income = calcMonthIncome(transactions, monthKey);
+
+  const incomeIds = new Set(
+    transactions.filter((t) => t.type === 'income' && t.date.startsWith(monthKey)).map((t) => t.id),
+  );
+  const byId = (paychecks ?? []).filter((p) => p.id && incomeIds.has(p.id));
+  const matched = byId.length > 0 ? byId : (paychecks ?? []).filter((p) => p.date?.startsWith(monthKey));
+
+  const taxSetAside = roundCents(matched.reduce((s, p) => s + calcPaycheckTaxToSave(p), 0));
+  return {
+    income,
+    taxSetAside,
+    takeHome: Math.max(0, roundCents(income - taxSetAside)),
+    hasIncome: income > 0,
+    paycheckCount: matched.length,
+  };
+}
+
+// ── Bucket actuals ────────────────────────────────────────────────────────────
+
+export interface BucketSpend {
+  needs: number;
+  wants: number;
+  savingsCategory: number;        // expense rows the user mapped to 'savings'
+  excluded: number;
+  unassigned: number;             // spend in categories nobody has bucketed
+  unassignedCategories: string[]; // …and their names, so the UI can nag
+  byCategory: Record<string, number>;
+}
+
+export function calcBucketSpend(
+  transactions: Transaction[],
+  monthKey: string,
+  map: CategoryBucketMap,
+): BucketSpend {
+  const byCategory = aggregateCategoryTotals(transactions, monthKey);
+  const out: BucketSpend = {
+    needs: 0, wants: 0, savingsCategory: 0, excluded: 0,
+    unassigned: 0, unassignedCategories: [], byCategory,
+  };
+
+  for (const [category, amount] of Object.entries(byCategory)) {
+    const bucket = bucketForCategory(category, map);
+    if (bucket === 'needs') out.needs = roundCents(out.needs + amount);
+    else if (bucket === 'wants') out.wants = roundCents(out.wants + amount);
+    else if (bucket === 'savings') out.savingsCategory = roundCents(out.savingsCategory + amount);
+    else if (bucket === 'excluded') out.excluded = roundCents(out.excluded + amount);
+    else if (amount > 0) {
+      // Unassigned spend gets its own line. Folding it into needs or wants would
+      // silently make the bars wrong in whichever direction we guessed.
+      out.unassigned = roundCents(out.unassigned + amount);
+      out.unassignedCategories.push(category);
+    }
+  }
+  out.unassignedCategories.sort();
+  return out;
+}
+
+// ── Deliberate savings ────────────────────────────────────────────────────────
+
+export interface DeliberateSavings {
+  transfersToSavings: number; // spending account → savings/investment account
+  goalLinked: number;         // SUBSET of the above landing in a goal-linked account
+  categorySavings: number;    // expense rows the user bucketed as 'savings'
+  debtPrincipal: number;      // 0 unless DEBT_PAYOFF_IS_SAVINGS
+  total: number;
+}
+
+// NOTE: goals are deliberately NOT an input beyond resolving `goalLinked`.
+// `Goal.currentAmount` is a manually-typed cumulative total with no date and no
+// backing transaction, so a manual goal's progress cannot be attributed to a
+// month at all. A goal LINKED to a savings account is already counted here, once,
+// via the transfer that moved the money — adding a goal-side figure on top would
+// double-count it. `goalLinked` exists only so the UI can say "$X of that went
+// toward your goals"; it is never added to `total`.
+export function calcDeliberateSavings(
+  transactions: Transaction[],
+  accounts: Account[],
+  goals: Goal[],
+  monthKey: string,
+  categorySavings = 0,
+): DeliberateSavings {
+  const typeById = new Map(accounts.map((a) => [a.id, a.type]));
+  const goalAccountIds = new Set((goals ?? []).map((g) => g.linkedAccountId).filter(Boolean) as string[]);
+
+  let transfersToSavings = 0;
+  let goalLinked = 0;
+  let debtPrincipal = 0;
+
+  for (const t of transactions) {
+    if (t.type !== 'transfer' || !t.date.startsWith(monthKey)) continue;
+    if (RESERVED_TRANSFER_CATEGORIES.has(t.category)) continue;
+    if (!t.toAccount) continue;
+
+    const from = typeById.get(t.account);
+    const to = typeById.get(t.toAccount);
+    if (!from || !to || !SAVINGS_SOURCE_TYPES.includes(from)) continue;
+
+    if (SAVINGS_DEST_TYPES.includes(to)) {
+      transfersToSavings = roundCents(transfersToSavings + t.amount);
+      if (goalAccountIds.has(t.toAccount)) goalLinked = roundCents(goalLinked + t.amount);
+    } else if (to === 'loan') {
+      // Computed unconditionally so flipping DEBT_PAYOFF_IS_SAVINGS is a one-liner.
+      debtPrincipal = roundCents(debtPrincipal + t.amount);
+    }
+  }
+
+  const countedDebt = DEBT_PAYOFF_IS_SAVINGS ? debtPrincipal : 0;
+  return {
+    transfersToSavings,
+    goalLinked,
+    categorySavings: roundCents(categorySavings),
+    debtPrincipal: countedDebt,
+    total: roundCents(transfersToSavings + categorySavings + countedDebt),
+  };
+}
+
+// ── The snapshot ──────────────────────────────────────────────────────────────
+
+export interface BucketBar {
+  bucket: 'needs' | 'wants' | 'savings';
+  targetPct: number;
+  targetAmount: number;
+  actualAmount: number;
+  actualPct: number;
+  deltaAmount: number; // actual − target (+ = overspent for needs/wants, ahead for savings)
+  deltaPct: number;
+}
+
+export interface BucketSnapshot {
+  monthKey: string;
+  takeHome: TakeHomeIncome;
+  bars: BucketBar[];        // always [needs, wants, savings], in that order
+  savingsMoved: number;     // deliberately moved out of checking
+  savingsUnspent: number;   // left over and simply not spent
+  leftover: number;         // signed — negative means the month ran a deficit
+  deliberate: DeliberateSavings;
+  spend: BucketSpend;
+  hasIncome: boolean;
+  hasAssignments: boolean;  // false → the user hasn't bucketed anything they spend on
+}
+
+export function buildBucketSnapshot(input: {
+  transactions: Transaction[];
+  accounts: Account[];
+  goals: Goal[];
+  paychecks: PaycheckEntry[];
+  monthKey: string;
+  settings: Pick<TaxSettings, 'categoryBuckets' | 'bucketTargetNeeds' | 'bucketTargetWants' | 'bucketTargetSavings'>;
+}): BucketSnapshot {
+  const { transactions, accounts, goals, paychecks, monthKey, settings } = input;
+  const map = settings.categoryBuckets ?? {};
+
+  const takeHome = calcTakeHomeIncome(transactions, paychecks, monthKey);
+  const spend = calcBucketSpend(transactions, monthKey, map);
+  const deliberate = calcDeliberateSavings(transactions, accounts, goals, monthKey, spend.savingsCategory);
+
+  const targets = normalizeBucketTargets({
+    needs: settings.bucketTargetNeeds,
+    wants: settings.bucketTargetWants,
+    savings: settings.bucketTargetSavings,
+  });
+
+  // Leftover is what take-home minus real spending left behind. Excluded and
+  // unassigned spend are NOT subtracted — they're reported separately so the
+  // three bars only ever describe money we can actually classify.
+  const leftover = roundCents(takeHome.takeHome - spend.needs - spend.wants);
+  const moved = deliberate.total;
+  // A transfer to savings is not an expense, so it is already sitting inside
+  // `leftover`. Counting both would double it — subtract before adding back.
+  const unspent = Math.max(0, roundCents(leftover - moved));
+  const savingsActual = roundCents(moved + unspent);
+
+  const bar = (
+    bucket: BucketBar['bucket'],
+    targetPct: number,
+    actualAmount: number,
+  ): BucketBar => {
+    const targetAmount = roundCents((takeHome.takeHome * targetPct) / 100);
+    const actualPct = takeHome.takeHome > 0 ? (actualAmount / takeHome.takeHome) * 100 : 0;
+    return {
+      bucket,
+      targetPct,
+      targetAmount,
+      actualAmount,
+      actualPct,
+      deltaAmount: roundCents(actualAmount - targetAmount),
+      deltaPct: actualPct - targetPct,
+    };
+  };
+
+  const hasAssignments = Object.keys(map).length > 0
+    || Object.keys(spend.byCategory).some((c) => bucketForCategory(c, map) !== null);
+
+  return {
+    monthKey,
+    takeHome,
+    bars: [
+      bar('needs', targets.needs, spend.needs),
+      bar('wants', targets.wants, spend.wants),
+      bar('savings', targets.savings, savingsActual),
+    ],
+    savingsMoved: moved,
+    savingsUnspent: unspent,
+    leftover,
+    deliberate,
+    spend,
+    hasIncome: takeHome.hasIncome,
+    hasAssignments,
+  };
+}
+
+// ── Turning the rule into budgets ─────────────────────────────────────────────
+
+// Split `total` across `weights` so the parts sum to EXACTLY roundCents(total).
+// Naive proportional rounding loses or gains cents (1000/3 → 333.33 × 3 = 999.99),
+// which would make a bucket's rows visibly not add up to its target. Work in
+// integer cents, floor, then hand the remainder to the largest fractional parts.
+// Zero or absent weights fall back to an even split.
+export function allocateProportional(total: number, weights: number[]): number[] {
+  if (!weights || weights.length === 0) return [];
+  const totalCents = Math.round(roundCents(total) * 100);
+  if (!Number.isFinite(totalCents) || totalCents <= 0) return weights.map(() => 0);
+
+  const safe = weights.map((w) => (Number.isFinite(w) && w > 0 ? w : 0));
+  const sumW = safe.reduce((s, w) => s + w, 0);
+  const shares = sumW > 0 ? safe : safe.map(() => 1); // no history at all → even
+  const sumS = shares.reduce((s, w) => s + w, 0);
+
+  const raw = shares.map((w) => (totalCents * w) / sumS);
+  const cents = raw.map((r) => Math.floor(r));
+  let rem = totalCents - cents.reduce((s, c) => s + c, 0);
+  const order = raw
+    .map((r, i) => ({ i, frac: r - Math.floor(r) }))
+    .sort((a, b) => b.frac - a.frac || a.i - b.i);
+  for (let k = 0; k < order.length && rem > 0; k++, rem--) cents[order[k].i] += 1;
+
+  return cents.map((c) => c / 100);
+}
+
+export interface BucketAllocation {
+  category: string;
+  bucket: 'needs' | 'wants' | 'savings';
+  budgetId: string | null;       // null → no budget exists for this category yet
+  period: Budget['period'];      // an existing budget keeps its own period
+  currentMonthly: number | null;
+  suggestedMonthly: number;
+  suggestedAmount: number;       // suggestedMonthly expressed in `period`
+  delta: number;
+  avgSpend: number;              // the 3-month weight behind the suggestion
+  evenSplit: boolean;            // true when the whole bucket had no history
+}
+
+// Turns the rule into concrete budget rows: each bucket's dollar target split
+// across its categories by how the user ACTUALLY spends (last `windowMonths`),
+// so Grocery outranks Health if that's the real pattern. Same window as
+// suggestBudgetReallocations, so the two features agree on "recent".
+export function buildBucketBudgetPlan(input: {
+  budgets: Budget[];
+  transactions: Transaction[];
+  accounts: Account[];
+  goals: Goal[];
+  paychecks: PaycheckEntry[];
+  settings: Pick<TaxSettings, 'categoryBuckets' | 'bucketTargetNeeds' | 'bucketTargetWants' | 'bucketTargetSavings'>;
+  categories: string[];  // from useCategories() — archived/hidden already removed
+  monthKey: string;
+  today?: Date;
+  windowMonths?: number;
+}): { snapshot: BucketSnapshot; allocations: BucketAllocation[] } {
+  const {
+    budgets, transactions, accounts, goals, paychecks, settings,
+    categories, monthKey, today = new Date(), windowMonths = 3,
+  } = input;
+
+  const snapshot = buildBucketSnapshot({ transactions, accounts, goals, paychecks, monthKey, settings });
+  const map = settings.categoryBuckets ?? {};
+  const monthKeys = monthKeysBefore(today, windowMonths);
+  const budgetByCategory = new Map(budgets.map((b) => [b.category, b]));
+
+  const allocations: BucketAllocation[] = [];
+
+  for (const bar of snapshot.bars) {
+    const cats = categories.filter((c) => bucketForCategory(c, map) === bar.bucket);
+    // An empty bucket contributes nothing AND its dollars are not redistributed —
+    // handing them to the other buckets would quietly break the user's ratio.
+    // This is the normal case for `savings`: budgets are expense caps, so the
+    // savings target stays informational unless a category is mapped to it.
+    if (cats.length === 0) continue;
+
+    const avgSpends = cats.map((c) =>
+      roundCents(monthKeys.reduce((s, mk) => s + categorySpendInMonth(transactions, c, mk), 0) / windowMonths),
+    );
+    const evenSplit = avgSpends.reduce((s, v) => s + v, 0) <= 0;
+    const amounts = allocateProportional(bar.targetAmount, avgSpends);
+
+    cats.forEach((category, i) => {
+      const existing = budgetByCategory.get(category);
+      const period = existing?.period ?? 'monthly';
+      const currentMonthly = existing ? normalizeMonthlyBudget(existing.amount, existing.period) : null;
+      const suggestedMonthly = amounts[i];
+      allocations.push({
+        category,
+        bucket: bar.bucket,
+        budgetId: existing?.id ?? null,
+        period,
+        currentMonthly,
+        suggestedMonthly,
+        suggestedAmount: denormalizeMonthlyBudget(suggestedMonthly, period),
+        delta: roundCents(suggestedMonthly - (currentMonthly ?? 0)),
+        avgSpend: avgSpends[i],
+        evenSplit,
+      });
+    });
+  }
+
+  allocations.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  return { snapshot, allocations };
 }
 
 // ── Bill helpers ──────────────────────────────────────────────────────────────

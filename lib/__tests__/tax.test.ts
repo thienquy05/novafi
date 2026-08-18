@@ -25,6 +25,10 @@ const BASE_SETTINGS: TaxSettings = {
   customIncomeCategories: [],
   hiddenExpenseCategories: [],
   hiddenIncomeCategories: [],
+  categoryBuckets: {},
+  bucketTargetNeeds: 50,
+  bucketTargetWants: 30,
+  bucketTargetSavings: 20,
   language: 'en',
   timeZone: 'America/New_York',
 };

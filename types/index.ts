@@ -21,6 +21,11 @@ export interface TaxSettings {
   customIncomeCategories: string[];
   hiddenExpenseCategories: string[];
   hiddenIncomeCategories: string[];
+  // ── 50/30/20 ──────────────────────────────────────────────────────────────
+  categoryBuckets: CategoryBucketMap; // per-category overrides; {} = use DEFAULT_CATEGORY_BUCKETS
+  bucketTargetNeeds: number;          // percent of take-home; the three always total 100
+  bucketTargetWants: number;
+  bucketTargetSavings: number;
   language: Language;
   timeZone: string; // IANA time zone (e.g. 'America/New_York') — anchors every "today"/"now" across the app so server and client agree
 }
@@ -346,6 +351,33 @@ export const INCOME_CATEGORIES = [
 
 export type ExpenseCategory = typeof EXPENSE_CATEGORIES[number];
 export type IncomeCategory = typeof INCOME_CATEGORIES[number];
+
+// ── 50/30/20 buckets ─────────────────────────────────────────────────────────
+// The rule splits take-home pay into Needs (50%), Wants (30%) and Savings (20%).
+// Every expense category belongs to exactly one bucket — or to none, in which
+// case it is "unassigned" and the UI must surface it rather than guess.
+export type BudgetBucket = 'needs' | 'wants' | 'savings' | 'excluded';
+export const BUDGET_BUCKETS = ['needs', 'wants', 'savings', 'excluded'] as const;
+
+/** category name → bucket. A missing key means unassigned, NOT "excluded". */
+export type CategoryBucketMap = Record<string, BudgetBucket>;
+
+// Starting assignments for the built-in categories. `Grocery` is a need and
+// `Food` (dining out) is a want — the distinction the rule hinges on. `Transfer`
+// moves money without spending it, so it counts toward nothing. `Other` is
+// deliberately absent: it's too vague to guess, so the user assigns it.
+export const DEFAULT_CATEGORY_BUCKETS: CategoryBucketMap = {
+  Grocery: 'needs',
+  Bills: 'needs',
+  Transportation: 'needs',
+  Health: 'needs',
+  Food: 'wants',
+  Entertainment: 'wants',
+  Shopping: 'wants',
+  Transfer: 'excluded',
+};
+
+export const DEFAULT_BUCKET_TARGETS = { needs: 50, wants: 30, savings: 20 } as const;
 
 export interface NetWorthSnapshot {
   id: string;

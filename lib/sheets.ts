@@ -15,7 +15,9 @@ import type {
   Funding,
   TrackedSubscription,
 } from '@/types';
+import { DEFAULT_BUCKET_TARGETS } from '@/types';
 import { DEFAULT_TAX_SETTINGS } from './utils';
+import { parseCategoryBuckets, serializeCategoryBuckets } from './calculations';
 import { withRetryProxy } from './retry';
 
 function getSheetsClient(accessToken: string) {
@@ -148,6 +150,10 @@ export function parseSettingsRows(rows: string[][]): TaxSettings {
     customIncomeCategories: get('custom_income_categories', '').split('|').filter(Boolean),
     hiddenExpenseCategories: get('hidden_expense_categories', '').split('|').filter(Boolean),
     hiddenIncomeCategories: get('hidden_income_categories', '').split('|').filter(Boolean),
+    categoryBuckets: parseCategoryBuckets(get('category_buckets', '')),
+    bucketTargetNeeds: Number(get('bucket_target_needs', String(DEFAULT_BUCKET_TARGETS.needs))),
+    bucketTargetWants: Number(get('bucket_target_wants', String(DEFAULT_BUCKET_TARGETS.wants))),
+    bucketTargetSavings: Number(get('bucket_target_savings', String(DEFAULT_BUCKET_TARGETS.savings))),
     language: (get('language', 'en') as Language),
     timeZone: get('time_zone', DEFAULT_TAX_SETTINGS.timeZone),
   };
@@ -193,6 +199,12 @@ export async function saveSettings(
     ['hidden_income_categories', (settings.hiddenIncomeCategories ?? []).join('|')],
     ['language', settings.language ?? 'en'],
     ['time_zone', settings.timeZone || DEFAULT_TAX_SETTINGS.timeZone],
+    // New keys go at the END. This writes positionally from Settings!A2, so
+    // reordering would leave a stale trailing row in every existing sheet.
+    ['category_buckets', serializeCategoryBuckets(settings.categoryBuckets ?? {})],
+    ['bucket_target_needs', String(settings.bucketTargetNeeds ?? DEFAULT_BUCKET_TARGETS.needs)],
+    ['bucket_target_wants', String(settings.bucketTargetWants ?? DEFAULT_BUCKET_TARGETS.wants)],
+    ['bucket_target_savings', String(settings.bucketTargetSavings ?? DEFAULT_BUCKET_TARGETS.savings)],
   ];
   await sheets.spreadsheets.values.update({
     spreadsheetId,
@@ -666,6 +678,10 @@ export async function upsertBill(
 
 // ── Budgets ───────────────────────────────────────────────────────────────────
 
+// Guard-rail for upsertBudgets: the Budgets range holds ~199 rows, and a payload
+// larger than this means a bug upstream, not a real user with 100+ budgets.
+const MAX_BULK_BUDGETS = 100;
+
 export async function getBudgets(
   accessToken: string,
   spreadsheetId: string
@@ -709,6 +725,52 @@ export async function upsertBudget(
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
       values: [[budget.id, budget.category, budget.amount, budget.period, position]],
+    },
+  });
+}
+
+// Write MANY budgets in one shot. `upsertBudget` costs 3 Sheets calls per row
+// (read → deleteRowById → append) and `deleteRowById` resolves a ROW INDEX before
+// deleting — so firing several concurrently races on shifting indices and can
+// delete the wrong budget. The 50/30/20 generator writes a whole bucket at once,
+// so it rewrites the sheet instead: read, merge, clear, write. Three calls total,
+// no index race, whatever the row count.
+//
+// Rows are matched by id, falling back to category — the generator proposes a
+// budget for a category that may already have one under a different id, and two
+// budgets for the same category is a state the UI never intends.
+export async function upsertBudgets(
+  accessToken: string,
+  spreadsheetId: string,
+  incoming: Budget[]
+): Promise<void> {
+  if (incoming.length === 0) return;
+  if (incoming.length > MAX_BULK_BUDGETS) {
+    throw new Error(`Too many budgets in one write (${incoming.length} > ${MAX_BULK_BUDGETS})`);
+  }
+
+  const existing = await getBudgets(accessToken, spreadsheetId);
+  const merged = [...existing];
+  let maxPos = existing.reduce((m, b) => Math.max(m, b.position ?? 0), -1);
+
+  for (const b of incoming) {
+    const at = merged.findIndex((e) => (b.id && e.id === b.id) || e.category === b.category);
+    if (at === -1) {
+      merged.push({ ...b, position: b.position ?? ++maxPos });
+    } else {
+      // Keep the row's existing id and slot so reordering survives the rewrite.
+      merged[at] = { ...merged[at], ...b, id: merged[at].id, position: merged[at].position };
+    }
+  }
+
+  const sheets = getSheetsClient(accessToken);
+  await sheets.spreadsheets.values.clear({ spreadsheetId, range: 'Budgets!A2:E200' });
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: 'Budgets!A2',
+    valueInputOption: 'RAW',
+    requestBody: {
+      values: merged.map((b, i) => [b.id, b.category, b.amount, b.period, b.position ?? i]),
     },
   });
 }

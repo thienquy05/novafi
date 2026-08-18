@@ -36,6 +36,27 @@ describe('parseSettingsRows', () => {
     expect(s.customExpenseCategories).toEqual([]);
     expect(s.language).toBe('en');
   });
+
+  // A sheet written before 50/30/20 shipped has none of the bucket rows. It must
+  // still open on the built-in defaults rather than a broken 0/0/0 split.
+  it('gives a legacy sheet the default bucket map and 50/30/20 targets', () => {
+    const s = parseSettingsRows([['display_name', 'Quy'], ['language', 'en']]);
+    expect(s.categoryBuckets).toEqual({});
+    expect(s.bucketTargetNeeds).toBe(50);
+    expect(s.bucketTargetWants).toBe(30);
+    expect(s.bucketTargetSavings).toBe(20);
+  });
+
+  it('reads a stored bucket map and custom ratio', () => {
+    const s = parseSettingsRows([
+      ['category_buckets', 'Other:wants|Grocery:needs'],
+      ['bucket_target_needs', '60'],
+      ['bucket_target_wants', '20'],
+      ['bucket_target_savings', '20'],
+    ]);
+    expect(s.categoryBuckets).toEqual({ Other: 'wants', Grocery: 'needs' });
+    expect(s.bucketTargetNeeds).toBe(60);
+  });
 });
 
 describe('parseNetWorthRows', () => {

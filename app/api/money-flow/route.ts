@@ -30,7 +30,7 @@ export async function GET() {
       data = await batchGetDashboardData(session.accessToken, session.spreadsheetId);
       setCache(dataKey, data, 60_000);
     }
-    const { accounts, transactions, bills, goals, settings } = data;
+    const { accounts, transactions, bills, goals, settings, paychecks } = data;
 
     // Anchor "now" to the user's chosen time zone (same as the dashboard) so the
     // month/day math lines up with the rest of the app.
@@ -43,7 +43,7 @@ export async function GET() {
 
     const flow = buildMoneyFlowSummary(transactions, thisMonth);
     const insights = topInsights(
-      { accounts, transactions, bills, goals },
+      { accounts, transactions, bills, goals, paychecks, settings },
       {
         now,
         monthKey: thisMonth,

@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import {
   ArrowDownLeft, ArrowUpRight, PiggyBank, ArrowLeftRight, Flame, AlertTriangle,
-  Sparkles, RefreshCw, CreditCard, Target, Trophy, ChevronRight, Leaf,
+  Sparkles, RefreshCw, CreditCard, Target, Trophy, ChevronRight, Leaf, Scale,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -30,6 +30,7 @@ const KIND_ICON: Record<InsightKind, LucideIcon> = {
   opportunity: Sparkles,
   subscriptions: RefreshCw,
   credit: CreditCard,
+  budgetRule: Scale,
   goal: Target,
   win: Trophy,
 };
