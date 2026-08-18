@@ -2,6 +2,62 @@
 
 A running log of changes made to the NovaFi codebase.
 
+## 2026-08-18 — 50/30/20 budgeting: category buckets, snapshot card, budget generator (branch claude/spending-budget-brainstorm-3waxc5)
+
+Adds the 50/30/20 rule (50% of take-home to Needs, 30% Wants, 20% Savings) as a first-class
+planning feature. NovaFi already had per-category budgets but nothing to say how much each
+category *deserves* — every amount was a guess. This supplies the top-down frame and can turn
+it into real budget rows. No new sheet tab and no range changes; the whole model rides on four
+new Settings key/value rows.
+
+### 1. Types (`types/index.ts`, `lib/utils.ts`)
+- `BudgetBucket = 'needs' | 'wants' | 'savings' | 'excluded'`, `BUDGET_BUCKETS`, `CategoryBucketMap = Record<string, BudgetBucket>`.
+- `DEFAULT_CATEGORY_BUCKETS` — needs: Grocery/Bills/Transportation/Health; wants: Food/Entertainment/Shopping; excluded: Transfer. **`Other` is deliberately absent** so it reads as *unassigned* rather than being silently guessed into a bucket. A missing key means unassigned, NOT excluded.
+- `DEFAULT_BUCKET_TARGETS = {needs:50, wants:30, savings:20}`.
+- `TaxSettings` gains `categoryBuckets`, `bucketTargetNeeds/Wants/Savings`; same four added to `DEFAULT_TAX_SETTINGS` in `lib/utils.ts` (which needed a new `@/types` import — `types/index.ts` imports nothing, so no cycle).
+
+### 2. Math (`lib/calculations.ts`, one block inserted after `suggestBudgetReallocations`)
+Placed there deliberately so it can use the file-private `monthKeysBefore` / `categorySpendInMonth` without exporting them.
+- `serializeCategoryBuckets` / `parseCategoryBuckets` — `"Food:wants|Grocery:needs"`, category **percent-encoded** because both separators are legal in a user-defined category name. (The older `customExpenseCategories` `join('|')` corrupts on such a name; this does not inherit that bug.) Parse never throws — malformed chunks, unknown bucket tokens and bad escapes are skipped, not fatal.
+- `normalizeBucketTargets` — forces whole percentages totalling **exactly 100** (scale → floor → hand out the remainder by largest fractional part); falls back to 50/30/20 when nothing usable is stored. A hand-edited sheet row can never produce a broken split.
+- `bucketForCategory(cat, map)` → `map[cat] ?? DEFAULT_CATEGORY_BUCKETS[cat] ?? null`. Single source of truth; user override always wins.
+- `calcTakeHomeIncome(transactions, paychecks, monthKey)` — income minus tax set aside, reusing `calcMonthIncome` and `calcPaycheckTaxToSave` (which already handles the legacy `gross − net − k401 − hsa` shape). **Matched by id**, because a paycheck's deposit transaction carries the same id as the paycheck and a paycheck logged with no deposit account creates no transaction at all — date-matching alone would shrink take-home against income that was never counted. Date matching is a fallback used only when no paycheck in the month matches by id (legacy sheets). Clamped at 0.
+- `calcBucketSpend` — folds `aggregateCategoryTotals` through `bucketForCategory`. Unassigned spend is reported on its own line with its category names; it is never folded into needs or wants.
+- `calcDeliberateSavings` — a transfer counts only when it leaves a `checking`/`cash` account, lands in `savings`/`investment`, and is **not** in the reserved set `{Funding, FundingRepay, Loan, Split}`. That guard matters: a Funding pool can legitimately hold its cash in a savings account, so without it other people's contributions would be booked as the user's savings. `goalLinked` is a *labelled subset* for display and is never added to `total`.
+- `allocateProportional(total, weights)` — integer-cent proportional split with largest-remainder distribution. **Invariant: the parts sum to exactly `roundCents(total)`** (naive rounding gives 333.33 × 3 = 999.99, which would make a bucket visibly not add up). Zero/absent weights fall back to an even split.
+- `buildBucketSnapshot` — the card's view model. Key subtlety: a transfer to savings is not an expense, so it is *already inside* leftover. `unspent = max(0, leftover − moved)` and `savings = moved + unspent` (≡ `max(moved, leftover)`) — subtract before adding back, or the bar doubles. Excluded and unassigned spend are NOT subtracted from leftover; they're reported separately so the three bars only ever describe money we can classify. Zero income yields zeroed percentages with real dollar amounts and no NaN.
+- `buildBucketBudgetPlan` — each bucket's dollar target split across its categories weighted by the last 3 months of real spending (same window as `suggestBudgetReallocations`). An empty bucket contributes nothing **and its dollars are not redistributed** — that would quietly break the user's ratio. This is the normal case for `savings`: budgets are expense caps, so the savings target stays informational unless a category is mapped to it. Existing budgets keep their own period via `denormalizeMonthlyBudget`.
+
+### 3. Two honesty constraints, designed in
+- **Manual goals cannot be counted.** `Goal.currentAmount` is a manually-typed *cumulative* total with no date and no backing transaction, so a manual goal's progress cannot be attributed to a month. A goal **linked** to a savings account is already counted exactly once via the transfer that moved the money. The card's `HelpHint` states this and nudges the user to link the goal — a disclosure requirement, not a nicety.
+- **Debt pay-off is excluded, behind one flag.** `DEBT_PAYOFF_IS_SAVINGS = false` in `lib/calculations.ts`. The classic rule books debt payoff under the 20%, but NovaFi can't yet split a payment into "minimum" (a need) and "extra", so counting the whole thing would flatter the bar for anyone with a large required payment. `calcDeliberateSavings` computes `debtPrincipal` unconditionally behind the flag — flipping it to `true` is the only change needed.
+
+### 4. Persistence (`lib/sheets.ts`)
+- `parseSettingsRows` reads `category_buckets`, `bucket_target_needs/wants/savings` with defaults, so a pre-existing sheet opens on 50/30/20 rather than a broken 0/0/0.
+- `saveSettings` **appends the four rows at the very end**. It writes positionally via `values.update` at `Settings!A2`, so reordering existing rows would strand a stale trailing row in every existing sheet. 21 rows → 25, still far inside `Settings!A2:B100` — no range change.
+- **New `upsertBudgets`** + `MAX_BULK_BUDGETS = 100`. `upsertBudget` costs 3 Sheets calls per row (read → `deleteRowById` → append) and `deleteRowById` resolves a **row index** before deleting — firing several concurrently races on shifting indices and can delete the wrong budget. The generator writes a whole bucket at once, so this reads → merges (by id, falling back to category) → clears → writes: 3 calls total, no index race. Existing rows keep their id and position so drag-order survives the rewrite.
+
+### 5. API — `app/api/budgets/bulk/route.ts` (new)
+`POST { budgets: Budget[] }`, mirrors `app/api/budgets/route.ts` (same `withSession`, same `BUDGET_CACHES` invalidation so the over-budget badge and dashboard recompute). Client cache needs no wiring — `installCacheInvalidation` already clears the store after any non-GET to `/api/*`.
+
+### 6. Planning UI (`app/(app)/planning/page.tsx`)
+- Loads `paychecks` (already a batch key — zero new plumbing) and keeps the whole `settings` object instead of just the rollover boolean.
+- **`BucketRuleCard`** mounted full-width between the 4-card summary grid and the `lg:grid-cols-2` split (a half-width column would squeeze three labelled bars). Three bars with an absolutely-positioned target tick, `$actual / $target` plus an over/under chip, the savings bar annotated "moved / still unspent", an amber unassigned-categories nudge linking to Settings, and a no-income empty state. Bucket colours are **full literal Tailwind class strings** in a `Record` — Tailwind v4 can't template class names (same convention as `components/ui/Card.tsx`).
+- **Preview modal** before the budget modal: rows grouped by bucket with a checkbox each, `current → proposed`, and a per-bucket subtotal proving the picked rows sum to the target. Nothing is written until Apply. Rows allocated **$0** (a category with no recent history) start **unchecked** — a $0 budget reads as instantly over-budget.
+- `applyRulePlan` follows the existing `applyReallocation` shape: optimistic `setBudgets`, one call to `/api/budgets/bulk`, toast, `load(true)`.
+
+### 7. Settings UI (`app/(app)/settings/page.tsx`)
+Second Card in the Categories tab: ratio presets (50/30/20, 60/20/20, 70/20/10) plus three number inputs, an amber warning when they don't total 100, and a Need/Want/Save/Skip segmented control per expense category. Unassigned categories carry an amber dot so they can't hide. `handleSave` runs `normalizeBucketTargets` on the way out, so a bad ratio can never reach the sheet.
+
+### 8. Insight (`lib/insights.ts`, `app/api/money-flow/route.ts`)
+New `budgetRule` insight kind (icon `Scale` in `components/MoneyFlowButton.tsx`). Fires on the single worst bucket only when it's off by **≥5 percentage points AND ≥$50** — percentage alone would nag a low-income month over pocket change, dollars alone would nag a high earner over a rounding error. Suppressed entirely when the user has no bucket assignments. Overshooting *savings* is phrased as a win (`emerald`), not a warning. `InsightData` gains `paychecks` + `settings`; **no new Sheets read** — `DashboardData` already carries both. **`HEALTH_WEIGHTS` deliberately untouched** — a new pillar would silently move every existing user's grade.
+
+### 9. i18n
+~40 keys across `planning.rule*`, `settings.bucket*`, `insights.bucket*` in **both** `locales/en.json` and `locales/vi.json`. Verified in sync and every `t()`/`tr()` key in the repo resolves.
+
+### Verification
+`tsc --noEmit` clean. `vitest run` 669/669 pass (21 files) — 60 new cases covering the serialization round-trip (incl. a category containing both separators), ratio normalization, id-vs-date paycheck matching, the Funding-pool-in-savings exclusion, goal-linked non-double-counting, the `max(moved, leftover)` rule, negative leftover, zero income, and a 200-case randomized property test on `allocateProportional`'s sum-to-total invariant. `eslint` 0 errors / 33 warnings = unchanged baseline. `next build` succeeds with `/api/budgets/bulk` registered. A scratch end-to-end (sheet row → snapshot → budget rows, since deleted) confirmed a realistic month: $5,000 income − $1,000 set aside = $4,000 take-home → targets 2000/1200/800, needs weighted to Bills 1166.68 / Grocery 583.32 / Transportation 250 / Health 0 summing to exactly 2000, wants with no history split evenly 300×4 = 1200. **Not exercised against a live signed-in Drive** — every page requires Google Sheets auth, so the browser flows below are unverified.
+
 ## 2026-07-04 — Money Flow → header modal + systemic "containers stick together" fix + budget-card metric grid (branch claude/money-flow-modal-icon-88gs5u)
 
 Three changes: move the dashboard Money Flow container into a modal behind a new header icon, fix a systemic spacing bug that made cards stick together across pages, and clean up the crammed budget-card metrics.

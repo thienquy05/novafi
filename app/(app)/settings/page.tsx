@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useSession, signOut } from 'next-auth/react';
-import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, User, SlidersHorizontal, Receipt, Tags, Landmark, Building2, Database, ShieldCheck, ChevronDown, LogOut, Users, UserPlus, Trash2, Archive, AlertTriangle, Clock, MapPin } from 'lucide-react';
+import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, User, SlidersHorizontal, Receipt, Tags, Landmark, Building2, Database, ShieldCheck, ChevronDown, LogOut, Users, UserPlus, Trash2, Archive, AlertTriangle, Clock, MapPin, Scale } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { BRACKETS_2026, STANDARD_DEDUCTION_2026 } from '@/lib/tax';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -9,8 +9,9 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { DEFAULT_TAX_SETTINGS, DEFAULT_TIME_ZONE, TZ_COOKIE, formatClock, timeZoneAbbrev, formatDate, today } from '@/lib/utils';
-import type { TaxSettings, Contact } from '@/types';
+import type { TaxSettings, Contact, BudgetBucket } from '@/types';
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '@/types';
+import { bucketForCategory, normalizeBucketTargets } from '@/lib/calculations';
 import { generateId } from '@/lib/utils';
 import { TIME_ZONE_OPTIONS, TIME_ZONE_GROUPS, detectTimeZone, timeZoneLabel } from '@/lib/timezones';
 import { invalidateCategoriesCache } from '@/hooks/useCategories';
@@ -56,6 +57,24 @@ function ToggleRow({ label, desc, checked, onChange, divider = false }: {
 }
 
 // Consistent icon + title header used by every settings card.
+// ── 50/30/20 bucket editor ────────────────────────────────────────────────────
+// Tailwind v4 can't build class names from variables, so every variant is spelled
+// out in full — same convention as components/ui/Card.tsx.
+const BUCKET_PILL: Record<BudgetBucket, string> = {
+  needs:    'bg-indigo-600 text-white border-indigo-600',
+  wants:    'bg-amber-500 text-white border-amber-500',
+  savings:  'bg-emerald-600 text-white border-emerald-600',
+  excluded: 'bg-slate-500 text-white border-slate-500',
+};
+const BUCKET_PILL_IDLE =
+  'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700';
+
+const RATIO_PRESETS = [
+  { needs: 50, wants: 30, savings: 20 },
+  { needs: 60, wants: 20, savings: 20 },
+  { needs: 70, wants: 20, savings: 10 },
+];
+
 function SectionTitle({ icon: Icon, children }: { icon: typeof User; children: React.ReactNode }) {
   return (
     <CardTitle className="flex items-center gap-2.5">
@@ -202,9 +221,24 @@ export default function SettingsPage() {
   async function handleSave() {
     if (!settings) return;
     setSaving(true);
+    // Normalize the 50/30/20 split on the way out so a custom ratio that doesn't
+    // total 100 can never reach the sheet — the warning above the inputs tells the
+    // user it will be rescaled.
+    const targets = normalizeBucketTargets({
+      needs: settings.bucketTargetNeeds,
+      wants: settings.bucketTargetWants,
+      savings: settings.bucketTargetSavings,
+    });
+    const payload: TaxSettings = {
+      ...settings,
+      bucketTargetNeeds: targets.needs,
+      bucketTargetWants: targets.wants,
+      bucketTargetSavings: targets.savings,
+    };
+    setSettings(payload);
     await fetch('/api/settings', {
       method: 'PUT',
-      body: JSON.stringify(settings),
+      body: JSON.stringify(payload),
       headers: { 'Content-Type': 'application/json' },
     });
     invalidateCategoriesCache();
@@ -253,6 +287,16 @@ export default function SettingsPage() {
 
   function restoreIncCat(cat: string) {
     setSettings((s) => s ? { ...s, hiddenIncomeCategories: (s.hiddenIncomeCategories ?? []).filter((c) => c !== cat) } : s);
+  }
+
+  function setCatBucket(cat: string, bucket: BudgetBucket) {
+    setSettings((s) => s ? { ...s, categoryBuckets: { ...(s.categoryBuckets ?? {}), [cat]: bucket } } : s);
+  }
+
+  function setRatio(r: { needs: number; wants: number; savings: number }) {
+    setSettings((s) => s ? {
+      ...s, bucketTargetNeeds: r.needs, bucketTargetWants: r.wants, bucketTargetSavings: r.savings,
+    } : s);
   }
 
   async function handleHardRefresh() {
@@ -869,6 +913,94 @@ export default function SettingsPage() {
               </div>
             </div>
             <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-4">Changes take effect after clicking {t('settings.saveSettings')}.</p>
+          </Card>
+
+          {/* ── 50/30/20 buckets ── */}
+          <Card>
+            <CardHeader>
+              <SectionTitle icon={Scale}>{t('settings.bucketsTitle')}</SectionTitle>
+            </CardHeader>
+            <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-5">{t('settings.bucketsDesc')}</p>
+
+            {/* Ratio */}
+            <p className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-3">{t('settings.bucketRatio')}</p>
+            <div className="flex flex-wrap gap-2 mb-4">
+              {RATIO_PRESETS.map((r) => {
+                const active = settings.bucketTargetNeeds === r.needs
+                  && settings.bucketTargetWants === r.wants
+                  && settings.bucketTargetSavings === r.savings;
+                return (
+                  <button
+                    key={`${r.needs}-${r.wants}-${r.savings}`}
+                    onClick={() => setRatio(r)}
+                    className={`px-3 py-1.5 rounded-xl border text-xs font-bold tabular-nums ${active ? BUCKET_PILL.needs : BUCKET_PILL_IDLE}`}
+                  >
+                    {r.needs}/{r.wants}/{r.savings}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="grid grid-cols-3 gap-3 mb-2">
+              <Input
+                label={t('settings.bucketNeeds')} type="number" min="0" max="100"
+                value={String(settings.bucketTargetNeeds)}
+                onChange={(e) => setSettings((s) => s ? { ...s, bucketTargetNeeds: Number(e.target.value) } : s)}
+              />
+              <Input
+                label={t('settings.bucketWants')} type="number" min="0" max="100"
+                value={String(settings.bucketTargetWants)}
+                onChange={(e) => setSettings((s) => s ? { ...s, bucketTargetWants: Number(e.target.value) } : s)}
+              />
+              <Input
+                label={t('settings.bucketSavings')} type="number" min="0" max="100"
+                value={String(settings.bucketTargetSavings)}
+                onChange={(e) => setSettings((s) => s ? { ...s, bucketTargetSavings: Number(e.target.value) } : s)}
+              />
+            </div>
+            {(() => {
+              const total = (settings.bucketTargetNeeds || 0) + (settings.bucketTargetWants || 0) + (settings.bucketTargetSavings || 0);
+              if (total === 100) return null;
+              return (
+                <p className="text-xs font-bold text-amber-600 dark:text-amber-400 mb-2">
+                  {t('settings.bucketSumWarning', { total: String(total) })}
+                </p>
+              );
+            })()}
+
+            {/* Per-category assignment */}
+            <p className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mt-6 mb-3">{t('settings.bucketAssign')}</p>
+            <div className="space-y-1.5">
+              {[...EXPENSE_CATEGORIES as readonly string[], ...(settings.customExpenseCategories ?? [])]
+                .filter((c) => !(settings.hiddenExpenseCategories ?? []).includes(c))
+                .map((cat) => {
+                  const current = bucketForCategory(cat, settings.categoryBuckets ?? {});
+                  return (
+                    <div key={cat} className="flex items-center justify-between gap-3 flex-wrap py-1.5">
+                      <span className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-300 min-w-0">
+                        {current === null && (
+                          <span
+                            className="w-2 h-2 rounded-full bg-amber-400 shrink-0"
+                            title={t('settings.bucketUnassigned')}
+                          />
+                        )}
+                        <span className="truncate">{cat}</span>
+                      </span>
+                      <div className="flex gap-1.5 shrink-0">
+                        {(['needs', 'wants', 'savings', 'excluded'] as BudgetBucket[]).map((b) => (
+                          <button
+                            key={b}
+                            onClick={() => setCatBucket(cat, b)}
+                            className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold ${current === b ? BUCKET_PILL[b] : BUCKET_PILL_IDLE}`}
+                          >
+                            {t(`settings.bucket${b.charAt(0).toUpperCase()}${b.slice(1)}Short`)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+            <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-4">{t('settings.bucketUnassignedHint')}</p>
           </Card>
         </div>
       )}

@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap, RefreshCw, AlertCircle, GripVertical, ChevronDown } from 'lucide-react';
+import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap, RefreshCw, AlertCircle, GripVertical, ChevronDown, Scale, Wand2 } from 'lucide-react';
+import Link from 'next/link';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { ExpandableCard } from '@/components/ui/ExpandableCard';
@@ -16,8 +17,9 @@ import { formatCurrency, formatDate, generateId, zonedNow } from '@/lib/utils';
 import {
   calcRolloverDeficit, calcEffectiveSpent,
   suggestBudgetReallocations, denormalizeMonthlyBudget, calcPredictionReadiness, type BudgetReallocation,
+  buildBucketSnapshot, buildBucketBudgetPlan, type BucketSnapshot, type BucketAllocation,
 } from '@/lib/calculations';
-import type { Budget, Goal, Transaction, Account } from '@/types';
+import type { Budget, Goal, Transaction, Account, PaycheckEntry, TaxSettings } from '@/types';
 import { useCategories } from '@/hooks/useCategories';
 import { Reorder, useDragControls } from 'framer-motion';
 import { useToast } from '@/lib/toast';
@@ -62,6 +64,11 @@ export default function PlanningPage() {
   const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
   const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
   const [rolloverEnabled, setRolloverEnabled] = useState(() => peekCache(['settings'])?.settings?.budgetRollover === true);
+  const [paychecks, setPaychecks] = useState<PaycheckEntry[]>(() => peekCache(['paychecks'])?.paychecks ?? []);
+  const [settings, setSettings] = useState<TaxSettings | null>(() => peekCache(['settings'])?.settings ?? null);
+  const [planOpen, setPlanOpen] = useState(false);
+  const [planRows, setPlanRows] = useState<BucketAllocation[]>([]);
+  const [planChecked, setPlanChecked] = useState<Record<string, boolean>>({});
 
   const [budgetModalOpen, setBudgetModalOpen] = useState(false);
   const [editBudget, setEditBudget] = useState<Budget | null>(null);
@@ -70,7 +77,7 @@ export default function PlanningPage() {
 
   const [budgetForm, setBudgetForm] = useState(EMPTY_BUDGET_FORM);
   const [goalForm, setGoalForm] = useState(EMPTY_GOAL_FORM);
-  const [loading, setLoading] = useState(() => peekCache(['budgets', 'goals', 'transactions', 'accounts', 'settings']) === null);
+  const [loading, setLoading] = useState(() => peekCache(['budgets', 'goals', 'transactions', 'accounts', 'settings', 'paychecks']) === null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
   const toast = useToast();
@@ -80,9 +87,10 @@ export default function PlanningPage() {
     setError(false);
     try {
       // One /api/batch round trip; served from the client cache when fresh.
-      const { budgets, goals, transactions, accounts, settings } =
-        await ensureResources(['budgets', 'goals', 'transactions', 'accounts', 'settings'], { force });
+      const { budgets, goals, transactions, accounts, settings, paychecks } =
+        await ensureResources(['budgets', 'goals', 'transactions', 'accounts', 'settings', 'paychecks'], { force });
       setBudgets(budgets); setGoals(goals); setTransactions(transactions); setAccounts(accounts);
+      setPaychecks(paychecks); setSettings(settings);
       setRolloverEnabled(settings?.budgetRollover === true);
     } catch {
       setError(true);
@@ -156,6 +164,65 @@ export default function PlanningPage() {
     () => monthExpenses.reduce((s, tx) => s + tx.amount, 0),
     [monthExpenses]
   );
+
+  // ─── 50/30/20 ─────────────────────────────────────────────────────────────
+  const bucketSnapshot = useMemo<BucketSnapshot | null>(() => {
+    if (!settings) return null;
+    return buildBucketSnapshot({ transactions, accounts, goals, paychecks, monthKey: thisMonth, settings });
+  }, [settings, transactions, accounts, goals, paychecks, thisMonth]);
+
+  // Turn the rule into concrete rows, then let the user vet them before anything
+  // is written — the generator can touch every budget at once.
+  function openRulePlan() {
+    if (!settings || !bucketSnapshot?.hasIncome) return;
+    const { allocations } = buildBucketBudgetPlan({
+      budgets, transactions, accounts, goals, paychecks, settings,
+      categories: expenseCategories, monthKey: thisMonth, today: zonedNow(),
+    });
+    setPlanRows(allocations);
+    // A category with no recent spending is allocated $0, and a $0 budget reads as
+    // instantly over-budget — so those start unchecked rather than silently applied.
+    setPlanChecked(Object.fromEntries(allocations.map((a) => [a.category, a.suggestedMonthly > 0])));
+    setPlanOpen(true);
+  }
+
+  async function applyRulePlan() {
+    const picked = planRows.filter((a) => planChecked[a.category]);
+    if (picked.length === 0) return;
+    setSaving(true);
+
+    const next: Budget[] = picked.map((a) => ({
+      id: a.budgetId ?? generateId(),
+      category: a.category,
+      amount: a.suggestedAmount,
+      period: a.period,
+      position: budgets.find((b) => b.id === a.budgetId)?.position,
+    }));
+
+    // Optimistic: replace matching rows, append the new ones.
+    setBudgets((prev) => {
+      const byId = new Map(next.map((b) => [b.id, b]));
+      const merged = prev.map((b) => byId.get(b.id) ?? b);
+      const seen = new Set(merged.map((b) => b.id));
+      return [...merged, ...next.filter((b) => !seen.has(b.id))];
+    });
+    setPlanOpen(false);
+    setSaving(false);
+
+    try {
+      const res = await fetch('/api/budgets/bulk', {
+        method: 'POST',
+        body: JSON.stringify({ budgets: next }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) throw new Error();
+      toast(t('planning.toastRuleApplied', { count: String(next.length) }), 'success');
+      await load(true);
+    } catch {
+      toast(t('planning.toastRuleFailed'), 'error');
+      await load(true);
+    }
+  }
 
   function spentForCategory(cat: string): number { return categorySpendMap[cat] ?? 0; }
   function prevSpentForCategory(cat: string): number { return prevCategorySpendMap[cat] ?? 0; }
@@ -415,6 +482,10 @@ export default function PlanningPage() {
         </Card>
       </div>
 
+      {!loading && !error && bucketSnapshot && (
+        <BucketRuleCard snapshot={bucketSnapshot} onApply={openRulePlan} t={t} />
+      )}
+
       {loading ? (
         <PlanningSkeleton />
       ) : error ? (
@@ -593,6 +664,90 @@ export default function PlanningPage() {
           </div>
         </div>
       )}
+
+      {/* ── 50/30/20 PREVIEW MODAL ────────────────────────────────────────────── */}
+      {/* Nothing is written until Apply — the generator can touch every budget at
+          once, so the user vets each row (and the per-bucket subtotals) first. */}
+      <Modal
+        open={planOpen}
+        onClose={() => setPlanOpen(false)}
+        title={t('planning.rulePreviewTitle')}
+      >
+        <div className="space-y-5 pb-4">
+          <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+            {t('planning.rulePreviewBody', { takeHome: formatCurrency(bucketSnapshot?.takeHome.takeHome ?? 0) })}
+          </p>
+
+          {(['needs', 'wants', 'savings'] as const).map((bucket) => {
+            const rows = planRows.filter((a) => a.bucket === bucket);
+            if (rows.length === 0) return null;
+            const bar = bucketSnapshot?.bars.find((b) => b.bucket === bucket);
+            const pickedTotal = rows
+              .filter((a) => planChecked[a.category])
+              .reduce((sum, a) => sum + a.suggestedMonthly, 0);
+            return (
+              <div key={bucket}>
+                <div className="flex items-baseline justify-between gap-2 mb-2">
+                  <p className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                    {t(BUCKET_LABEL_KEY[bucket])}
+                  </p>
+                  <p className="text-xs font-bold text-slate-400 dark:text-slate-500 tabular-nums">
+                    {t('planning.ruleBucketSubtotal', {
+                      amount: formatCurrency(pickedTotal),
+                      target: formatCurrency(bar?.targetAmount ?? 0),
+                    })}
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  {rows.map((a) => (
+                    <label
+                      key={a.category}
+                      className="flex items-center justify-between gap-3 py-1.5 px-2.5 rounded-xl bg-slate-50 dark:bg-slate-700/50 cursor-pointer"
+                    >
+                      <span className="flex items-center gap-2.5 min-w-0">
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 accent-indigo-600 shrink-0"
+                          checked={planChecked[a.category] ?? false}
+                          onChange={(e) => setPlanChecked((prev) => ({ ...prev, [a.category]: e.target.checked }))}
+                        />
+                        <span className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{a.category}</span>
+                      </span>
+                      <span className="text-xs font-bold tabular-nums whitespace-nowrap text-slate-500 dark:text-slate-400">
+                        {a.currentMonthly === null
+                          ? t('planning.ruleRowNew')
+                          : formatCurrency(a.currentMonthly)}
+                        {' → '}
+                        <span className="text-slate-900 dark:text-slate-100">{formatCurrency(a.suggestedAmount)}</span>
+                        {a.period !== 'monthly' && <span className="opacity-70">/{a.period === 'weekly' ? 'wk' : 'yr'}</span>}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+
+          {planRows.length === 0 && (
+            <p className="text-sm font-bold text-amber-600 dark:text-amber-400">{t('planning.ruleNoCategories')}</p>
+          )}
+          {planRows.some((a) => a.evenSplit) && (
+            <p className="text-xs font-medium text-slate-400 dark:text-slate-500">{t('planning.ruleEvenSplit')}</p>
+          )}
+        </div>
+        <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+          <div className="flex gap-3">
+            <Button variant="secondary" className="flex-1" onClick={() => setPlanOpen(false)}>{t('common.cancel')}</Button>
+            <Button
+              className="flex-1 shadow-sm"
+              onClick={applyRulePlan}
+              disabled={saving || planRows.every((a) => !planChecked[a.category])}
+            >
+              {t('planning.ruleApplyN', { count: String(planRows.filter((a) => planChecked[a.category]).length) })}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* ── BUDGET MODAL ──────────────────────────────────────────────────────── */}
       <Modal
@@ -777,6 +932,124 @@ function UnbudgetedSpendingSection({ categories, spentFor, onSetLimit }: {
 // ── Budget reality check (dynamic reallocation) ───────────────────────────────
 // Surfaces budgets that chronically miss actual spending and offers a one-tap
 // reset to the real average (logic in suggestBudgetReallocations).
+// ── 50/30/20 snapshot ─────────────────────────────────────────────────────────
+// Tailwind v4 can't build class names from variables, so each bucket's colours are
+// spelled out in full (same convention as components/ui/Card.tsx).
+const BUCKET_FILL: Record<'needs' | 'wants' | 'savings', string> = {
+  needs: 'bg-indigo-500',
+  wants: 'bg-amber-500',
+  savings: 'bg-emerald-500',
+};
+const BUCKET_LABEL_KEY: Record<'needs' | 'wants' | 'savings', string> = {
+  needs: 'planning.ruleNeeds',
+  wants: 'planning.ruleWants',
+  savings: 'planning.ruleSavings',
+};
+
+function BucketRuleCard({ snapshot, onApply, t }: {
+  snapshot: BucketSnapshot;
+  onApply: () => void;
+  t: (key: string, params?: Record<string, string>) => string;
+}) {
+  const { bars, takeHome, spend, savingsMoved, savingsUnspent } = snapshot;
+
+  return (
+    <Card tone="indigo" className="p-4 sm:p-5">
+      <div className="flex items-start justify-between gap-3 flex-wrap mb-1">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 text-indigo-500 dark:text-indigo-400 shrink-0">
+            <Scale className="w-4 h-4" />
+          </span>
+          <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
+            {bars.map((b) => b.targetPct).join('/')}
+          </h2>
+          <HelpHint label={t('planning.ruleHelpTitle')} align="left">
+            <p className="font-bold mb-2">{t('planning.ruleHelpTitle')}</p>
+            <p className="mb-2">{t('planning.ruleHelpBody')}</p>
+            <p>{t('planning.ruleHelpGoals')}</p>
+          </HelpHint>
+        </div>
+        {snapshot.hasIncome && (
+          <Button size="sm" onClick={onApply} className="shadow-sm">
+            <Wand2 className="w-4 h-4" /> {t('planning.ruleApply')}
+          </Button>
+        )}
+      </div>
+
+      <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-4">
+        {takeHome.taxSetAside > 0
+          ? t('planning.ruleSubtitleTax', { takeHome: formatCurrency(takeHome.takeHome), tax: formatCurrency(takeHome.taxSetAside) })
+          : t('planning.ruleSubtitle', { takeHome: formatCurrency(takeHome.takeHome) })}
+      </p>
+
+      {!snapshot.hasIncome ? (
+        <div className="py-6 text-center">
+          <p className="text-slate-900 dark:text-slate-100 font-bold text-sm mb-1">{t('planning.ruleNoIncome')}</p>
+          <p className="text-slate-500 dark:text-slate-400 font-medium text-xs">{t('planning.ruleNoIncomeBody')}</p>
+        </div>
+      ) : (
+        <div className="space-y-3.5">
+          {bars.map((bar) => {
+            const over = bar.bucket === 'savings' ? bar.deltaAmount < 0 : bar.deltaAmount > 0;
+            const fillPct = Math.min(100, Math.max(0, bar.actualPct));
+            return (
+              <div key={bar.bucket}>
+                <div className="flex items-baseline justify-between gap-2 mb-1 flex-wrap">
+                  <span className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                    {t(BUCKET_LABEL_KEY[bar.bucket])}
+                    <span className="ml-1.5 text-xs font-bold text-slate-400 dark:text-slate-500 tabular-nums">
+                      {bar.actualPct.toFixed(0)}% / {bar.targetPct}%
+                    </span>
+                  </span>
+                  <span className="text-xs font-bold tabular-nums whitespace-nowrap text-slate-500 dark:text-slate-400">
+                    {formatCurrency(bar.actualAmount)} / {formatCurrency(bar.targetAmount)}
+                    {Math.abs(bar.deltaAmount) >= 1 && (
+                      <span className={`ml-1.5 ${over ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                        {over
+                          ? t('planning.ruleOver', { amount: formatCurrency(Math.abs(bar.deltaAmount)) })
+                          : t('planning.ruleUnder', { amount: formatCurrency(Math.abs(bar.deltaAmount)) })}
+                      </span>
+                    )}
+                  </span>
+                </div>
+                {/* The tick marks the target, so the bar reads against it at a glance. */}
+                <div className="relative w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2.5 overflow-hidden">
+                  <div className={`h-full rounded-full ${BUCKET_FILL[bar.bucket]}`} style={{ width: `${fillPct}%` }} />
+                  <div
+                    className="absolute top-0 bottom-0 w-0.5 bg-slate-900/40 dark:bg-white/50"
+                    style={{ left: `${Math.min(100, bar.targetPct)}%` }}
+                  />
+                </div>
+                {bar.bucket === 'savings' && (
+                  <p className="text-[11px] font-bold text-slate-400 dark:text-slate-500 mt-1 tabular-nums">
+                    {t('planning.ruleSavingsMoved', { amount: formatCurrency(savingsMoved) })}
+                    {' · '}
+                    {t('planning.ruleSavingsUnspent', { amount: formatCurrency(savingsUnspent) })}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {spend.unassignedCategories.length > 0 && (
+        <div className="mt-4 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-100 dark:border-amber-800/50">
+          <p className="text-xs font-bold text-amber-600 dark:text-amber-400">
+            {t('planning.ruleUnassigned', {
+              count: String(spend.unassignedCategories.length),
+              amount: formatCurrency(spend.unassigned),
+            })}
+          </p>
+          <p className="text-[11px] font-medium text-amber-500 dark:text-amber-400/80 mt-0.5">
+            {spend.unassignedCategories.join(', ')} — <Link href="/settings" className="underline">{t('planning.ruleUnassignedCta')}</Link>
+          </p>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function BudgetRealityCard({ suggestions, onApply }: {
   suggestions: BudgetReallocation[];
   onApply: (r: BudgetReallocation) => void;

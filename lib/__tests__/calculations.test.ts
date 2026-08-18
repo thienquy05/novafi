@@ -26,11 +26,14 @@ import {
   calcCreditUtilizationScore, composeHealthScore, daysUntilStatement, HEALTH_WEIGHTS,
   CREDIT_UTIL_TARGET,
   predictMonthlyIncome, suggestCardPaymentBudget,
+  parseCategoryBuckets, serializeCategoryBuckets, normalizeBucketTargets, bucketForCategory,
+  calcTakeHomeIncome, calcBucketSpend, calcDeliberateSavings, allocateProportional,
+  buildBucketSnapshot, buildBucketBudgetPlan, DEBT_PAYOFF_IS_SAVINGS, roundCents,
   accountUpcomingBills, assessAccountOverdraft, detectOverdraftRisks, evaluatePaymentSafety,
   isSpendableAccount, OVERDRAFT_HORIZON_DAYS,
   calcSavingsInterest,
 } from '@/lib/calculations';
-import type { Account, Transaction, Bill, Budget, Loan, Split } from '@/types';
+import type { Account, Transaction, Bill, Budget, Loan, Split, PaycheckEntry, CategoryBucketMap } from '@/types';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -2384,5 +2387,435 @@ describe('calcSavingsInterest', () => {
   it('rounds to whole cents', () => {
     const v = calcSavingsInterest(12345.67, 3.25);
     expect(v).toBe(Math.round(v * 100) / 100);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 50/30/20 buckets
+// ─────────────────────────────────────────────────────────────────────────────
+
+function makePaycheck(o: Partial<PaycheckEntry> & { id: string }): PaycheckEntry {
+  return {
+    date: '2026-05-01', grossAmount: 0,
+    federalWithheld: 0, stateWithheld: 0, localWithheld: 0, ficaWithheld: 0,
+    k401: 0, hsa: 0, netAmount: 0, notes: '', gratuityAmount: 0,
+    ...o,
+  };
+}
+
+const BUCKET_ACCOUNTS: Account[] = [
+  makeAccount({ id: 'chk', type: 'checking' }),
+  makeAccount({ id: 'sav', type: 'savings' }),
+  makeAccount({ id: 'inv', type: 'investment' }),
+  makeAccount({ id: 'lon', type: 'loan' }),
+  makeAccount({ id: 'pool', type: 'savings' }), // a Funding pool held in savings
+];
+
+const BUCKET_SETTINGS = {
+  categoryBuckets: {} as CategoryBucketMap,
+  bucketTargetNeeds: 50, bucketTargetWants: 30, bucketTargetSavings: 20,
+};
+
+describe('serializeCategoryBuckets / parseCategoryBuckets', () => {
+  it('round-trips a normal map', () => {
+    const map: CategoryBucketMap = { Food: 'wants', Grocery: 'needs', Other: 'excluded' };
+    expect(parseCategoryBuckets(serializeCategoryBuckets(map))).toEqual(map);
+  });
+
+  it('empty string parses to an empty map', () => {
+    expect(parseCategoryBuckets('')).toEqual({});
+  });
+
+  it('skips an unknown bucket token but keeps the rest', () => {
+    expect(parseCategoryBuckets('Food:banana|Grocery:needs')).toEqual({ Grocery: 'needs' });
+  });
+
+  it('skips a chunk with no separator', () => {
+    expect(parseCategoryBuckets('Food|Grocery:needs')).toEqual({ Grocery: 'needs' });
+  });
+
+  it('survives a category containing both separators', () => {
+    const map: CategoryBucketMap = { 'Rent|Utils: shared': 'needs' };
+    expect(parseCategoryBuckets(serializeCategoryBuckets(map))).toEqual(map);
+  });
+
+  it('does not throw on an invalid percent-escape', () => {
+    expect(() => parseCategoryBuckets('%E0%A4%A:needs')).not.toThrow();
+  });
+
+  it('writes keys in a stable sorted order', () => {
+    expect(serializeCategoryBuckets({ Zoo: 'wants', Apple: 'needs' }))
+      .toBe('Apple:needs|Zoo:wants');
+  });
+});
+
+describe('normalizeBucketTargets', () => {
+  it('leaves a valid split alone', () => {
+    expect(normalizeBucketTargets({ needs: 50, wants: 30, savings: 20 }))
+      .toEqual({ needs: 50, wants: 30, savings: 20 });
+    expect(normalizeBucketTargets({ needs: 60, wants: 20, savings: 20 }))
+      .toEqual({ needs: 60, wants: 20, savings: 20 });
+  });
+
+  it('falls back to 50/30/20 when nothing usable is given', () => {
+    expect(normalizeBucketTargets({ needs: 0, wants: 0, savings: 0 }))
+      .toEqual({ needs: 50, wants: 30, savings: 20 });
+    expect(normalizeBucketTargets({ needs: NaN, wants: -5, savings: 0 }))
+      .toEqual({ needs: 50, wants: 30, savings: 20 });
+  });
+
+  it('rescales any ratio to total exactly 100', () => {
+    for (const t of [
+      { needs: 1, wants: 1, savings: 1 },
+      { needs: 33, wants: 33, savings: 33 },
+      { needs: 500, wants: 300, savings: 200 },
+      { needs: 7, wants: 2, savings: 1 },
+    ]) {
+      const r = normalizeBucketTargets(t);
+      expect(r.needs + r.wants + r.savings).toBe(100);
+    }
+  });
+});
+
+describe('bucketForCategory', () => {
+  it('uses the built-in defaults', () => {
+    expect(bucketForCategory('Grocery', {})).toBe('needs');
+    expect(bucketForCategory('Food', {})).toBe('wants');
+    expect(bucketForCategory('Transfer', {})).toBe('excluded');
+  });
+
+  it('returns null for a category nobody has assigned', () => {
+    expect(bucketForCategory('Other', {})).toBeNull();
+    expect(bucketForCategory('Pet Grooming', {})).toBeNull();
+  });
+
+  it('lets a user override beat the built-in default', () => {
+    expect(bucketForCategory('Food', { Food: 'needs' })).toBe('needs');
+  });
+});
+
+describe('calcTakeHomeIncome', () => {
+  const income = [makeTx({ id: 'pc1', type: 'income', date: '2026-05-01', amount: 4000 })];
+
+  it('subtracts the set-aside of an id-matched paycheck', () => {
+    const p = [makePaycheck({
+      id: 'pc1', date: '2026-05-01', grossAmount: 4000, netAmount: 4000,
+      federalWithheld: 300, stateWithheld: 100, localWithheld: 50, ficaWithheld: 250,
+    })];
+    const r = calcTakeHomeIncome(income, p, '2026-05');
+    expect(r.income).toBe(4000);
+    expect(r.taxSetAside).toBe(700);
+    expect(r.takeHome).toBe(3300);
+    expect(r.paycheckCount).toBe(1);
+  });
+
+  it('take-home equals income when there are no paychecks at all', () => {
+    const r = calcTakeHomeIncome(income, [], '2026-05');
+    expect(r.takeHome).toBe(4000);
+    expect(r.paycheckCount).toBe(0);
+  });
+
+  it('returns a clean zero for a month with no income', () => {
+    const r = calcTakeHomeIncome([], [], '2026-05');
+    expect(r).toMatchObject({ income: 0, taxSetAside: 0, takeHome: 0, hasIncome: false });
+    expect(Number.isNaN(r.takeHome)).toBe(false);
+  });
+
+  it('never goes negative when the set-aside exceeds recorded income', () => {
+    const p = [makePaycheck({ id: 'pc1', date: '2026-05-01', federalWithheld: 9000 })];
+    expect(calcTakeHomeIncome(income, p, '2026-05').takeHome).toBe(0);
+  });
+
+  it('falls back to date matching when no paycheck matches an income row by id', () => {
+    const p = [makePaycheck({ id: 'legacy', date: '2026-05-03', federalWithheld: 500 })];
+    expect(calcTakeHomeIncome(income, p, '2026-05').takeHome).toBe(3500);
+  });
+
+  it('recovers a legacy paycheck with no explicit withholdings', () => {
+    const p = [makePaycheck({ id: 'pc1', date: '2026-05-01', grossAmount: 4000, netAmount: 3200 })];
+    expect(calcTakeHomeIncome(income, p, '2026-05').taxSetAside).toBe(800);
+  });
+
+  it('ignores paychecks from other months', () => {
+    const p = [makePaycheck({ id: 'old', date: '2026-04-01', federalWithheld: 500 })];
+    expect(calcTakeHomeIncome(income, p, '2026-05').takeHome).toBe(4000);
+  });
+});
+
+describe('calcBucketSpend', () => {
+  const txs = [
+    makeTx({ type: 'expense', date: '2026-05-02', category: 'Grocery', amount: 300 }),
+    makeTx({ type: 'expense', date: '2026-05-03', category: 'Bills', amount: 700 }),
+    makeTx({ type: 'expense', date: '2026-05-04', category: 'Food', amount: 200 }),
+    makeTx({ type: 'expense', date: '2026-05-05', category: 'Shopping', amount: 150 }),
+    makeTx({ type: 'expense', date: '2026-05-06', category: 'Other', amount: 80 }),
+    makeTx({ type: 'expense', date: '2026-05-07', category: 'Transfer', amount: 500 }),
+    makeTx({ type: 'income',  date: '2026-05-08', category: 'Paycheck', amount: 4000 }),
+    makeTx({ type: 'expense', date: '2026-04-09', category: 'Grocery', amount: 999 }),
+  ];
+
+  it('splits spending into needs, wants and excluded', () => {
+    const r = calcBucketSpend(txs, '2026-05', {});
+    expect(r.needs).toBe(1000);
+    expect(r.wants).toBe(350);
+    expect(r.excluded).toBe(500);
+  });
+
+  it('surfaces unassigned spend by name instead of guessing a bucket', () => {
+    const r = calcBucketSpend(txs, '2026-05', {});
+    expect(r.unassigned).toBe(80);
+    expect(r.unassignedCategories).toEqual(['Other']);
+  });
+
+  it('returns clean zeros for an empty ledger', () => {
+    const r = calcBucketSpend([], '2026-05', {});
+    expect(r).toMatchObject({ needs: 0, wants: 0, unassigned: 0 });
+    expect(r.unassignedCategories).toEqual([]);
+  });
+});
+
+describe('calcDeliberateSavings', () => {
+  const t = (o: Partial<Transaction>) =>
+    makeTx({ type: 'transfer', date: '2026-05-10', account: 'chk', category: '', amount: 100, ...o });
+
+  it('counts transfers from a spending account into savings and investment', () => {
+    const r = calcDeliberateSavings(
+      [t({ toAccount: 'sav', amount: 300 }), t({ toAccount: 'inv', amount: 200 })],
+      BUCKET_ACCOUNTS, [], '2026-05',
+    );
+    expect(r.transfersToSavings).toBe(500);
+    expect(r.total).toBe(500);
+  });
+
+  it('ignores a savings→savings shuffle (that money was already saved)', () => {
+    const r = calcDeliberateSavings(
+      [t({ account: 'sav', toAccount: 'inv', amount: 400 })], BUCKET_ACCOUNTS, [], '2026-05',
+    );
+    expect(r.transfersToSavings).toBe(0);
+  });
+
+  it('does NOT count a Funding pool contribution held in a savings account', () => {
+    const r = calcDeliberateSavings(
+      [t({ toAccount: 'pool', category: 'Funding', amount: 250 })], BUCKET_ACCOUNTS, [], '2026-05',
+    );
+    expect(r.total).toBe(0);
+  });
+
+  it('ignores Loan and Split transfers — that money is not yours or not saving', () => {
+    const r = calcDeliberateSavings([
+      t({ toAccount: 'sav', category: 'Loan', amount: 100 }),
+      t({ toAccount: 'sav', category: 'Split', amount: 100 }),
+      t({ toAccount: 'sav', category: 'FundingRepay', amount: 100 }),
+    ], BUCKET_ACCOUNTS, [], '2026-05');
+    expect(r.total).toBe(0);
+  });
+
+  it('ignores an external transfer with no source account', () => {
+    const r = calcDeliberateSavings(
+      [t({ account: '', toAccount: 'sav', amount: 500 })], BUCKET_ACCOUNTS, [], '2026-05',
+    );
+    expect(r.transfersToSavings).toBe(0);
+  });
+
+  it('reports goal-linked transfers as a subset without inflating the total', () => {
+    const goals = [{ id: 'g1', name: 'Trip', targetAmount: 1000, currentAmount: 0,
+      deadline: '', icon: '✈️', linkedAccountId: 'sav' }];
+    const r = calcDeliberateSavings([t({ toAccount: 'sav', amount: 300 })], BUCKET_ACCOUNTS, goals, '2026-05');
+    expect(r.goalLinked).toBe(300);
+    expect(r.total).toBe(300); // NOT 600 — the goal is the same money
+  });
+
+  it('excludes debt principal while DEBT_PAYOFF_IS_SAVINGS is off', () => {
+    const r = calcDeliberateSavings([t({ toAccount: 'lon', amount: 400 })], BUCKET_ACCOUNTS, [], '2026-05');
+    expect(DEBT_PAYOFF_IS_SAVINGS).toBe(false);
+    expect(r.debtPrincipal).toBe(0);
+    expect(r.total).toBe(0);
+  });
+
+  it('folds in categories the user mapped to savings', () => {
+    const r = calcDeliberateSavings([], BUCKET_ACCOUNTS, [], '2026-05', 250);
+    expect(r.total).toBe(250);
+  });
+});
+
+describe('allocateProportional', () => {
+  it('sums to exactly the total despite awkward thirds', () => {
+    const r = allocateProportional(1000, [1, 1, 1]);
+    expect(r.reduce((s, v) => s + v, 0)).toBe(1000);
+  });
+
+  it('splits by weight', () => {
+    const r = allocateProportional(100, [1, 2, 3]);
+    expect(r.reduce((s, v) => s + v, 0)).toBe(100);
+    expect(r[2]).toBe(50);
+  });
+
+  it('falls back to an even split when every weight is zero', () => {
+    const r = allocateProportional(90, [0, 0, 0]);
+    expect(r).toEqual([30, 30, 30]);
+  });
+
+  it('gives a single category the whole target', () => {
+    expect(allocateProportional(750, [42])).toEqual([750]);
+  });
+
+  it('handles degenerate totals', () => {
+    expect(allocateProportional(0, [1, 2])).toEqual([0, 0]);
+    expect(allocateProportional(-50, [1, 2])).toEqual([0, 0]);
+    expect(allocateProportional(100, [])).toEqual([]);
+  });
+
+  it('always sums to the total (randomized)', () => {
+    let seed = 12345;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    for (let i = 0; i < 200; i++) {
+      const total = Math.round(rnd() * 900000) / 100;
+      const weights = Array.from({ length: 1 + Math.floor(rnd() * 7) }, () => Math.round(rnd() * 10000) / 100);
+      const parts = allocateProportional(total, weights);
+      const sum = Math.round(parts.reduce((s, v) => s + v, 0) * 100) / 100;
+      expect(sum).toBe(roundCents(total));
+      expect(parts.every((v) => v >= 0)).toBe(true);
+    }
+  });
+});
+
+describe('buildBucketSnapshot', () => {
+  const base = (txs: Transaction[], settings = BUCKET_SETTINGS) => buildBucketSnapshot({
+    transactions: txs, accounts: BUCKET_ACCOUNTS, goals: [], paychecks: [],
+    monthKey: '2026-05', settings,
+  });
+
+  const income3000 = makeTx({ id: 'i1', type: 'income', date: '2026-05-01', amount: 3000 });
+
+  it('splits savings into money moved and money merely unspent', () => {
+    const s = base([
+      income3000,
+      makeTx({ type: 'expense', date: '2026-05-02', category: 'Bills', amount: 1200 }),
+      makeTx({ type: 'expense', date: '2026-05-03', category: 'Food', amount: 900 }),
+      makeTx({ type: 'transfer', date: '2026-05-04', account: 'chk', toAccount: 'sav', category: '', amount: 500 }),
+    ]);
+    expect(s.leftover).toBe(900);
+    expect(s.savingsMoved).toBe(500);
+    expect(s.savingsUnspent).toBe(400);
+    expect(s.bars[2].actualAmount).toBe(900); // 500 + 400, not 1400
+  });
+
+  it('takes max(moved, leftover) — never their sum', () => {
+    const s = base([
+      income3000,
+      makeTx({ type: 'expense', date: '2026-05-02', category: 'Bills', amount: 1900 }),
+      makeTx({ type: 'expense', date: '2026-05-03', category: 'Food', amount: 900 }),
+      makeTx({ type: 'transfer', date: '2026-05-04', account: 'chk', toAccount: 'sav', category: '', amount: 500 }),
+    ]);
+    expect(s.leftover).toBe(200);
+    expect(s.savingsUnspent).toBe(0);
+    expect(s.bars[2].actualAmount).toBe(500);
+  });
+
+  it('handles an over-spent month without NaN', () => {
+    const s = base([
+      income3000,
+      makeTx({ type: 'expense', date: '2026-05-02', category: 'Bills', amount: 2600 }),
+      makeTx({ type: 'expense', date: '2026-05-03', category: 'Food', amount: 900 }),
+      makeTx({ type: 'transfer', date: '2026-05-04', account: 'chk', toAccount: 'sav', category: '', amount: 100 }),
+    ]);
+    expect(s.leftover).toBe(-500);
+    expect(s.savingsUnspent).toBe(0);
+    expect(s.bars[2].actualAmount).toBe(100);
+    expect(s.bars.every((b) => Number.isFinite(b.actualPct))).toBe(true);
+  });
+
+  it('reports zeroed percentages but real dollars when there is no income', () => {
+    const s = base([makeTx({ type: 'expense', date: '2026-05-02', category: 'Bills', amount: 400 })]);
+    expect(s.hasIncome).toBe(false);
+    expect(s.bars[0].actualAmount).toBe(400);
+    expect(s.bars.every((b) => b.actualPct === 0)).toBe(true);
+  });
+
+  it('keeps unassigned spend out of the needs and wants bars', () => {
+    const s = base([
+      income3000,
+      makeTx({ type: 'expense', date: '2026-05-02', category: 'Other', amount: 400 }),
+    ]);
+    expect(s.bars[0].actualAmount).toBe(0);
+    expect(s.bars[1].actualAmount).toBe(0);
+    expect(s.spend.unassigned).toBe(400);
+  });
+
+  it('honours a custom ratio', () => {
+    const s = base([income3000], { ...BUCKET_SETTINGS,
+      bucketTargetNeeds: 70, bucketTargetWants: 20, bucketTargetSavings: 10 });
+    expect(s.bars.map((b) => b.targetAmount)).toEqual([2100, 600, 300]);
+  });
+});
+
+describe('buildBucketBudgetPlan', () => {
+  const today = new Date(2026, 4, 20); // May 2026
+  const income = makeTx({ id: 'i1', type: 'income', date: '2026-05-01', amount: 3000 });
+
+  const plan = (o: Partial<Parameters<typeof buildBucketBudgetPlan>[0]> = {}) => buildBucketBudgetPlan({
+    budgets: [], transactions: [income], accounts: BUCKET_ACCOUNTS, goals: [], paychecks: [],
+    settings: BUCKET_SETTINGS, categories: ['Grocery', 'Bills', 'Food'],
+    monthKey: '2026-05', today, ...o,
+  });
+
+  it('splits a bucket evenly when there is no history', () => {
+    const { allocations } = plan();
+    const needs = allocations.filter((a) => a.bucket === 'needs');
+    expect(needs.every((a) => a.evenSplit)).toBe(true);
+    expect(needs.reduce((s, a) => s + a.suggestedMonthly, 0)).toBe(1500); // 50% of 3000
+  });
+
+  it('weights a bucket by the last three months of real spending', () => {
+    const history = [
+      makeTx({ type: 'expense', date: '2026-04-05', category: 'Grocery', amount: 900 }),
+      makeTx({ type: 'expense', date: '2026-04-06', category: 'Bills', amount: 300 }),
+    ];
+    const { allocations } = plan({ transactions: [income, ...history] });
+    const grocery = allocations.find((a) => a.category === 'Grocery')!;
+    const bills = allocations.find((a) => a.category === 'Bills')!;
+    expect(grocery.suggestedMonthly).toBe(1125); // 75% of the 1500 needs target
+    expect(bills.suggestedMonthly).toBe(375);
+  });
+
+  it('every bucket sums to exactly its target', () => {
+    const { snapshot, allocations } = plan();
+    for (const bar of snapshot.bars) {
+      const rows = allocations.filter((a) => a.bucket === bar.bucket);
+      if (rows.length === 0) continue;
+      expect(roundCents(rows.reduce((s, a) => s + a.suggestedMonthly, 0))).toBe(bar.targetAmount);
+    }
+  });
+
+  it('keeps an existing budget’s period and converts the amount into it', () => {
+    const budgets = [{ id: 'b1', category: 'Food', amount: 100, period: 'weekly' as const }];
+    const { allocations } = plan({ budgets });
+    const food = allocations.find((a) => a.category === 'Food')!;
+    expect(food.budgetId).toBe('b1');
+    expect(food.period).toBe('weekly');
+    expect(food.suggestedAmount).toBe(denormalizeMonthlyBudget(food.suggestedMonthly, 'weekly'));
+  });
+
+  it('marks a category with no existing budget as new', () => {
+    const grocery = plan().allocations.find((a) => a.category === 'Grocery')!;
+    expect(grocery.budgetId).toBeNull();
+    expect(grocery.currentMonthly).toBeNull();
+  });
+
+  it('does not redistribute an empty bucket into the others', () => {
+    // No category is mapped to savings, so its 20% simply goes unallocated.
+    const { allocations } = plan();
+    expect(allocations.some((a) => a.bucket === 'savings')).toBe(false);
+    expect(roundCents(allocations.reduce((s, a) => s + a.suggestedMonthly, 0))).toBe(2400); // 80% of 3000
+  });
+
+  it('proposes nothing but zeros when there is no take-home income', () => {
+    const { allocations } = plan({ transactions: [] });
+    expect(allocations.every((a) => a.suggestedMonthly === 0)).toBe(true);
+  });
+
+  it('never proposes a category that was filtered out upstream', () => {
+    const { allocations } = plan({ categories: ['Grocery'] });
+    expect(allocations.map((a) => a.category)).toEqual(['Grocery']);
   });
 });

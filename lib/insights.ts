@@ -1,4 +1,4 @@
-import type { Account, Bill, Goal, Transaction } from '@/types';
+import type { Account, Bill, Goal, Transaction, PaycheckEntry, TaxSettings } from '@/types';
 import {
   calcMonthIncome,
   calcMonthExpense,
@@ -14,6 +14,7 @@ import {
   myBillShare,
   roundCents,
   CREDIT_UTIL_TARGET,
+  buildBucketSnapshot,
 } from './calculations';
 
 // ── Money-flow insights ─────────────────────────────────────────────────────
@@ -34,6 +35,7 @@ export type InsightKind =
   | 'subscriptions'
   | 'credit'
   | 'goal'
+  | 'budgetRule'
   | 'win';
 
 /** Visual tone, mapped onto the design system's card accents. */
@@ -70,6 +72,8 @@ export interface InsightData {
   transactions: Transaction[];
   bills: Bill[];
   goals: Goal[];
+  paychecks: PaycheckEntry[];
+  settings: TaxSettings;
 }
 
 /** The in/out/kept strip the widget shows above the insight cards. */
@@ -122,7 +126,7 @@ function categoryMonthlyAverages(
 }
 
 export function buildInsights(data: InsightData, ctx: InsightContext): Insight[] {
-  const { accounts, transactions, bills, goals } = data;
+  const { accounts, transactions, bills, goals, paychecks, settings } = data;
   const { now, monthKey, prevMonthKey, daysInMonth, daysElapsed, tr, fmt } = ctx;
   const items: Insight[] = [];
   const daysLeft = Math.max(0, daysInMonth - daysElapsed);
@@ -332,7 +336,41 @@ export function buildInsights(data: InsightData, ctx: InsightContext): Insight[]
     });
   }
 
-  // 8. Win — celebrate a genuinely strong month (kept ≥ 20% and not sliding).
+  // 8. 50/30/20 drift — the single worst bucket, but only when it's off by enough
+  //    to be worth acting on in BOTH relative and absolute terms. A user with
+  //    unassigned categories gets no verdict, since the bars can't be trusted yet.
+  const ruleSnapshot = buildBucketSnapshot({
+    transactions, accounts, goals, paychecks, monthKey, settings,
+  });
+  if (ruleSnapshot.hasIncome && ruleSnapshot.hasAssignments) {
+    const worst = [...ruleSnapshot.bars].sort(
+      (a, b) => Math.abs(b.deltaAmount) - Math.abs(a.deltaAmount),
+    )[0];
+    const offBy = Math.abs(worst.deltaAmount);
+    if (Math.abs(worst.deltaPct) >= BUCKET_DRIFT_MIN_PCT && offBy >= BUCKET_DRIFT_MIN_DOLLARS) {
+      // Overspending needs/wants is bad; overshooting SAVINGS is a win.
+      const overspending = worst.bucket === 'savings' ? worst.deltaAmount < 0 : worst.deltaAmount > 0;
+      const label = tr(`insights.bucket_${worst.bucket}`);
+      items.push({
+        id: `bucketDrift:${monthKey}:${worst.bucket}`,
+        kind: 'budgetRule',
+        tone: overspending ? 'amber' : 'emerald',
+        title: overspending
+          ? tr('insights.bucketDriftTitle', { bucket: label })
+          : tr('insights.bucketDriftWinTitle', { bucket: label }),
+        body: tr(overspending ? 'insights.bucketDriftOverBody' : 'insights.bucketDriftWinBody', {
+          bucket: label,
+          actual: worst.actualPct.toFixed(0),
+          target: String(worst.targetPct),
+          amount: fmt(offBy),
+        }),
+        href: '/planning',
+        priority: 55,
+      });
+    }
+  }
+
+  // 9. Win — celebrate a genuinely strong month (kept ≥ 20% and not sliding).
   if (flow.income > 0 && flow.keptPct >= 20 && flow.kept > 0 && (prevFlow.income === 0 || flow.keptPct >= prevFlow.keptPct)) {
     items.push({
       id: `win:${monthKey}`,
@@ -347,6 +385,12 @@ export function buildInsights(data: InsightData, ctx: InsightContext): Insight[]
 
   return items.sort((a, b) => b.priority - a.priority);
 }
+
+// A 50/30/20 bucket has to miss its target by BOTH of these to be worth a card —
+// percentage alone would nag a low-income month over a few dollars, dollars alone
+// would nag a high earner over a rounding error.
+const BUCKET_DRIFT_MIN_PCT = 5;
+const BUCKET_DRIFT_MIN_DOLLARS = 50;
 
 /** The widget surfaces at most this many cards — guidance, not a feed. */
 export const MAX_SURFACED_INSIGHTS = 4;

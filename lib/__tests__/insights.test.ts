@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildInsights, buildMoneyFlowSummary, topInsights, type InsightContext, type InsightData } from '../insights';
-import type { Account, Bill, Goal, Transaction } from '@/types';
+import type { Account, Bill, Goal, Transaction, TaxSettings } from '@/types';
+import { DEFAULT_TAX_SETTINGS } from '@/lib/utils';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 // Anchored to July 2026 (mid-month) so month keys and day math are stable.
@@ -69,6 +70,8 @@ const data = (over: Partial<InsightData> = {}): InsightData => ({
   transactions: [],
   bills: [],
   goals: [],
+  paychecks: [],
+  settings: DEFAULT_TAX_SETTINGS as TaxSettings,
   ...over,
 });
 

@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { DEFAULT_BUCKET_TARGETS, type CategoryBucketMap } from '@/types';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -188,6 +189,10 @@ export const DEFAULT_TAX_SETTINGS = {
   customIncomeCategories: [] as string[],
   hiddenExpenseCategories: [] as string[],
   hiddenIncomeCategories: [] as string[],
+  categoryBuckets: {} as CategoryBucketMap,
+  bucketTargetNeeds: DEFAULT_BUCKET_TARGETS.needs as number,
+  bucketTargetWants: DEFAULT_BUCKET_TARGETS.wants as number,
+  bucketTargetSavings: DEFAULT_BUCKET_TARGETS.savings as number,
   language: 'en' as const,
   timeZone: DEFAULT_TIME_ZONE,
 };
