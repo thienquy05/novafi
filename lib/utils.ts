@@ -198,3 +198,16 @@ export const DEFAULT_TAX_SETTINGS = {
   dismissedSubscriptions: [] as string[],
   dismissedCancelReminders: [] as string[],
 };
+
+/** Transactions-page date/amount filter (strings as typed; '' = unbounded). */
+export type TxRange = { from: string; to: string; min: string; max: string };
+
+/** Inclusive date bounds (ISO dates compare lexically) and amount bounds. */
+export function matchesRange(tx: { date: string; amount: number }, r: TxRange): boolean {
+  if (r.from && tx.date < r.from) return false;
+  if (r.to && tx.date > r.to) return false;
+  const min = parseFloat(r.min), max = parseFloat(r.max);
+  if (Number.isFinite(min) && tx.amount < min) return false;
+  if (Number.isFinite(max) && tx.amount > max) return false;
+  return true;
+}

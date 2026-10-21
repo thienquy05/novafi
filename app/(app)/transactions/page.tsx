@@ -11,7 +11,7 @@ import { Modal } from '@/components/ui/Modal';
 import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { TransactionsSkeleton } from '@/components/ui/Skeleton';
 import { Collapsible } from '@/components/ui/Collapsible';
-import { formatCurrency, formatCompact, formatDate, generateId, today, dateLocale } from '@/lib/utils';
+import { formatCurrency, formatCompact, formatDate, generateId, today, dateLocale, matchesRange, type TxRange } from '@/lib/utils';
 import { transactionsToCsv } from '@/lib/csv';
 import { calcLoanRemaining } from '@/lib/calculations';
 import { peekCache, ensureResources } from '@/lib/client/store';
@@ -194,6 +194,10 @@ function sortTransactions(txs: Transaction[]): Transaction[] {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+const EMPTY_RANGE: TxRange = { from: '', to: '', min: '', max: '' };
+const RANGE_INPUT = 'w-full h-11 px-3 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all duration-200';
+const rangeFilterCount = (r: TxRange) => (r.from || r.to ? 1 : 0) + (r.min || r.max ? 1 : 0);
+
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>(() => sortTransactions(peekCache(['transactions'])?.transactions ?? []));
   const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
@@ -223,6 +227,10 @@ export default function TransactionsPage() {
   const [draftFilter, setDraftFilter] = useState<'all' | 'income' | 'expense' | 'transfer'>('all');
   const [draftCategoryFilters, setDraftCategoryFilters] = useState<string[]>([]);
   const [draftAccountFilters, setDraftAccountFilters] = useState<string[]>([]);
+  // Date-range (YYYY-MM-DD, inclusive) and amount (min/max as typed) filters, for
+  // refunds/audits that don't line up with a calendar month. Same draft → apply flow.
+  const [range, setRange] = useState<TxRange>(EMPTY_RANGE);
+  const [draftRange, setDraftRange] = useState<TxRange>(EMPTY_RANGE);
   // "View All" expander for the Custom Accounts row (collapsed to one line until tapped).
   const [showAllCustomAccounts, setShowAllCustomAccounts] = useState(false);
   // Type-to-filter query for the "Card used" picker so the list stays short and
@@ -361,8 +369,8 @@ export default function TransactionsPage() {
     // "Card used": match either leg so transfers between cards surface under both.
     const matchAccount = accountFilters.length === 0 || accountFilters.includes(tx.account) || (!!tx.toAccount && accountFilters.includes(tx.toAccount));
     const matchMonth = selectedMonth === null || tx.date.slice(0, 7) === selectedMonth;
-    return matchSearch && matchFilter && matchCategory && matchAccount && matchMonth;
-  }), [transactions, search, filter, categoryFilters, accountFilters, selectedMonth]);
+    return matchSearch && matchFilter && matchCategory && matchAccount && matchMonth && matchesRange(tx, range);
+  }), [transactions, search, filter, categoryFilters, accountFilters, selectedMonth, range]);
 
   // Committed-state toggles — used by the active-filter chips in the page header,
   // which remove a live filter on tap (the sheet itself edits the draft below).
@@ -385,6 +393,7 @@ export default function TransactionsPage() {
     setDraftFilter(filter);
     setDraftCategoryFilters(categoryFilters);
     setDraftAccountFilters(accountFilters);
+    setDraftRange(range);
     setCardFilterQuery('');
     setShowAllCustomAccounts(false);
     setFilterSheetOpen(true);
@@ -395,14 +404,21 @@ export default function TransactionsPage() {
     setFilter(draftFilter);
     setCategoryFilters(draftCategoryFilters);
     setAccountFilters(draftAccountFilters);
+    setRange(draftRange);
+    // A date range replaces the month scope (they would otherwise intersect).
+    if (draftRange.from || draftRange.to) setSelectedMonth(null);
     setFilterSheetOpen(false);
+  }
+  function clearAllFilters() {
+    setSearch(''); setFilter('all'); setCategoryFilters([]); setAccountFilters([]); setRange(EMPTY_RANGE);
   }
   function clearAllDraft() {
     setDraftFilter('all');
     setDraftCategoryFilters([]);
     setDraftAccountFilters([]);
+    setDraftRange(EMPTY_RANGE);
   }
-  const draftFilterCount = (draftFilter !== 'all' ? 1 : 0) + draftCategoryFilters.length + draftAccountFilters.length;
+  const draftFilterCount = (draftFilter !== 'all' ? 1 : 0) + draftCategoryFilters.length + draftAccountFilters.length + rangeFilterCount(draftRange);
 
   // Accounts split into the two groups the filter sheet shows: "Payment Methods"
   // (what you pay with — checking / credit / cash) and "Custom Accounts" (savings /
@@ -563,7 +579,16 @@ export default function TransactionsPage() {
       // leg) in sync when the amount changed.
       const ownerSync = !!(editTarget && managedTxIds.has(editTarget.id) && roundCents(amount) !== roundCents(editTarget.amount));
       if (ownerSync) await syncOwnerAmount(editTarget!, amount);
-      toast(editTarget ? t('transactions.toastUpdated') : t('transactions.toastAdded'), 'success');
+      // One-tap Undo: a new row is deleted again; a plain edit is written back.
+      // (Loan/split-owned edits also rewrote their owner record, so no undo there.)
+      const original = editTarget;
+      const undo = !original
+        ? () => undoRequest('DELETE', { id: updated.id }, (txs) => txs.filter((tx) => tx.id !== updated.id))
+        : !ownerSync
+          ? () => undoRequest('PUT', { original: updated, updated: original }, (txs) => txs.map((tx) => tx.id === original.id ? original : tx))
+          : null;
+      toast(editTarget ? t('transactions.toastUpdated') : t('transactions.toastAdded'), 'success',
+        undo ? { label: t('common.undo'), onClick: undo } : undefined);
       // Badge/notification invalidation: handled by the global write-guard (lib/client/store).
       // Owner-sync also rewrote the loan/split and its other cash leg → full
       // reconcile. Otherwise the row was already inserted optimistically and the
@@ -575,6 +600,22 @@ export default function TransactionsPage() {
       await load();
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Reverse the last add/edit: optimistic list update, then the API call; the
+  // response carries authoritative balances.
+  async function undoRequest(method: 'DELETE' | 'PUT', body: unknown, apply: (txs: Transaction[]) => Transaction[]) {
+    setTransactions((txs) => apply(txs).sort(txSort));
+    try {
+      const res = await fetch('/api/transactions', { method, body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } });
+      if (!res.ok) throw new Error();
+      const data: { accounts?: Account[] } = await res.json().catch(() => ({}));
+      if (data.accounts) setAccounts(data.accounts);
+      toast(t('transactions.toastUndone'), 'success');
+    } catch {
+      toast(t('transactions.toastFailedUndo'), 'error');
+      load(true);
     }
   }
 
@@ -1691,7 +1732,7 @@ export default function TransactionsPage() {
   const merchantRows = useMemo(() => buildMerchantRows(filtered), [filtered]);
   // Reset paging whenever the active filters change. Adjusting state during
   // render (rather than in an effect) avoids a cascading re-render.
-  const filterKey = `${search}|${filter}|${categoryFilters.join(',')}|${accountFilters.join(',')}|${selectedMonth ?? 'all'}`;
+  const filterKey = `${search}|${filter}|${categoryFilters.join(',')}|${accountFilters.join(',')}|${selectedMonth ?? 'all'}|${JSON.stringify(range)}`;
   if (filterKey !== prevFilterKey) {
     setPrevFilterKey(filterKey);
     setVisibleCount(PAGE_SIZE);
@@ -1707,7 +1748,7 @@ export default function TransactionsPage() {
     }
     return groups;
   }, [visibleTransactions]);
-  const activeFilterCount = (filter !== 'all' ? 1 : 0) + categoryFilters.length + accountFilters.length;
+  const activeFilterCount = (filter !== 'all' ? 1 : 0) + categoryFilters.length + accountFilters.length + rangeFilterCount(range);
 
   const filterLabels: Record<string, string> = {
     all: t('common.all'),
@@ -1885,8 +1926,18 @@ export default function TransactionsPage() {
                 {accountName(id)} <X className="w-3 h-3" />
               </button>
             ))}
+            {(range.from || range.to) && (
+              <button onClick={() => setRange((r) => ({ ...r, from: '', to: '' }))} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold border border-indigo-100 dark:border-indigo-800/50">
+                {range.from ? formatDate(range.from) : '…'} – {range.to ? formatDate(range.to) : '…'} <X className="w-3 h-3" />
+              </button>
+            )}
+            {(range.min || range.max) && (
+              <button onClick={() => setRange((r) => ({ ...r, min: '', max: '' }))} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold border border-indigo-100 dark:border-indigo-800/50">
+                {range.min ? formatCurrency(Number(range.min)) : '…'} – {range.max ? formatCurrency(Number(range.max)) : '…'} <X className="w-3 h-3" />
+              </button>
+            )}
             {activeFilterCount > 1 && (
-              <button onClick={() => { setFilter('all'); setCategoryFilters([]); setAccountFilters([]); }} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 text-xs font-bold border border-rose-100 dark:border-rose-800/50">
+              <button onClick={clearAllFilters} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 text-xs font-bold border border-rose-100 dark:border-rose-800/50">
                 {t('transactions.clearFilters')} <X className="w-3 h-3" />
               </button>
             )}
@@ -1915,7 +1966,7 @@ export default function TransactionsPage() {
             </div>
             <h3 className="text-slate-800 dark:text-slate-200 font-bold text-lg mb-1">{t('transactions.noResultsTitle')}</h3>
             <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">{t('transactions.noResultsBody')}</p>
-            <Button variant="secondary" onClick={() => { setSearch(''); setFilter('all'); setCategoryFilters([]); setAccountFilters([]); }}>
+            <Button variant="secondary" onClick={clearAllFilters}>
               {t('transactions.clearFilters')}
             </Button>
           </div>
@@ -2620,6 +2671,49 @@ export default function TransactionsPage() {
                       )}
                     </section>
                   )}
+
+                  {/* ── Section 4: DATE RANGE + AMOUNT ── */}
+                  <section className="space-y-5">
+                    <div>
+                      <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2.5">{t('transactions.dateRange')}</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        {(['from', 'to'] as const).map((k) => (
+                          <label key={k} className="block min-w-0">
+                            <span className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">{k === 'from' ? t('transactions.dateFrom') : t('transactions.dateTo')}</span>
+                            <input
+                              type="date"
+                              value={draftRange[k]}
+                              min={k === 'to' ? draftRange.from || undefined : undefined}
+                              max={k === 'from' ? draftRange.to || undefined : undefined}
+                              onChange={(e) => setDraftRange((r) => ({ ...r, [k]: e.target.value }))}
+                              className={RANGE_INPUT}
+                            />
+                          </label>
+                        ))}
+                      </div>
+                      <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 mt-1.5">{t('transactions.dateRangeHint')}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2.5">{t('transactions.amountRange')}</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        {(['min', 'max'] as const).map((k) => (
+                          <label key={k} className="block min-w-0">
+                            <span className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">{k === 'min' ? t('transactions.amountMin') : t('transactions.amountMax')}</span>
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              min="0"
+                              step="0.01"
+                              placeholder="$"
+                              value={draftRange[k]}
+                              onChange={(e) => setDraftRange((r) => ({ ...r, [k]: e.target.value }))}
+                              className={RANGE_INPUT}
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </section>
                 </div>
 
                 {/* Fixed action footer */}

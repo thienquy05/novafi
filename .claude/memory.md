@@ -10,6 +10,14 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-10-21 — Convenience: Undo for add/edit/transfer, date + amount filters (branch claude/novafi-ux-perf-networth)
+
+Plan Sections 7.2 + 7.3.
+- WHAT: Transactions page — the "added"/"updated" toast now has Undo: a new row (incl. transfers) is DELETEd again, a plain edit is PUT back to the original (`undoRequest()`, optimistic + authoritative balances from the response). No undo for edits of loan/split-owned rows (their owner record was also rewritten). Quick Add (nav "+") gets the same Undo (DELETE + `router.refresh()`). Keys `transactions.toastUndone/toastFailedUndo`. WHY: only delete had Undo; a fat-fingered add/edit needed a manual fix.
+- WHAT: Transactions filter sheet gets "Date range" (from/to, inclusive, native date inputs) and "Amount" (min/max) — same draft → Apply flow, removable chips, counted in the filter badge, included in "Clear". Applying a date range switches the month picker to "All time" (hint shown) so the two don't intersect. Matching via `matchesRange()` in `lib/utils.ts` (+ tests). `clearAllFilters()` replaces 2 duplicated inline resets. WHY: refunds/audits rarely line up with one calendar month.
+
+---
+
 ## 2026-10-21 — Convenience: pull-to-refresh everywhere (branch claude/novafi-ux-perf-networth)
 
 Plan Section 7.1.
