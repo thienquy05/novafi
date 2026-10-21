@@ -1692,8 +1692,8 @@ describe('buildLimitIncreaseAdvisories', () => {
 });
 
 describe('buildStatementArbitrage', () => {
-  // today = 2026-06-08; statementDay 11 → closes in 3 days.
-  const today = new Date('2026-06-08');
+  // today = 2026-06-08 (local time); statementDay 11 → closes in 3 days.
+  const today = new Date(2026, 5, 8);
 
   it('flags a card closing soon that is over the 30% cap, with paydown to 30%', () => {
     const card = makeAccount({ id: 'cc', type: 'credit', balance: 800, creditLimit: 1000, statementDay: 11 }); // 80%
