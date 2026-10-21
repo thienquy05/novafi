@@ -138,6 +138,10 @@ export interface Account {
   // warns before a payment would breach it. Absent/0 = guard at $0 (warn only on a
   // real overdraft, i.e. projected below zero).
   minBalance?: number;
+  // Credit cards (columns Q/R): payment due day-of-month (1–31) and the
+  // statement's minimum payment. Blank → undefined (no due tracking).
+  dueDay?: number;
+  minPayment?: number;
 }
 
 export interface Budget {

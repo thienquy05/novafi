@@ -441,7 +441,7 @@ export async function getAccounts(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Accounts!A2:P200',
+    range: 'Accounts!A2:R200',
     // Raw cell value: a currency-formatted cell stays a number rather than
     // coming back as "$100.00" → NaN.
     valueRenderOption: 'UNFORMATTED_VALUE',
@@ -478,6 +478,9 @@ function rowToAccount(r: string[]): Account {
     // Column P is optional: the low-balance safeguard buffer (checking/savings/
     // cash). Blank → undefined (not 0 = a real $0 guard the user explicitly set).
     minBalance: r[15] === undefined || r[15] === '' ? undefined : Number(r[15]),
+    // Columns Q/R (credit cards): payment due day and minimum payment.
+    dueDay: r[16] === undefined || r[16] === '' ? undefined : Number(r[16]),
+    minPayment: r[17] === undefined || r[17] === '' ? undefined : Number(r[17]),
   };
 }
 
@@ -494,7 +497,7 @@ export async function upsertAccount(
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
-      values: [[account.id, account.name, account.type, account.institution, account.balance, account.last4, account.color, account.createdAt, account.openingBalance ?? '', account.creditLimit ?? '', account.statementDay ?? '', account.apr ?? '', account.monthlyPayment ?? '', account.termMonths ?? '', account.paymentAccountId ?? '', account.minBalance ?? '']],
+      values: [[account.id, account.name, account.type, account.institution, account.balance, account.last4, account.color, account.createdAt, account.openingBalance ?? '', account.creditLimit ?? '', account.statementDay ?? '', account.apr ?? '', account.monthlyPayment ?? '', account.termMonths ?? '', account.paymentAccountId ?? '', account.minBalance ?? '', account.dueDay ?? '', account.minPayment ?? '']],
     },
   });
 }
@@ -1302,7 +1305,7 @@ function parseDashboardCore(
 const DASHBOARD_CORE_RANGES = [
   'Paychecks!A2:L',
   'Transactions!A2:K',
-  'Accounts!A2:P200',
+  'Accounts!A2:R200',
   'Bills!A2:M200',
   'Budgets!A2:D200',
   'Goals!A2:G200',
@@ -1377,7 +1380,7 @@ const BATCHABLE_SHEETS: Record<
   Exclude<BatchKey, NonBatchableKey>,
   { range: string; parse: (rows: string[][]) => unknown[] }
 > = {
-  accounts:     { range: 'Accounts!A2:P200',  parse: (rows) => rows.map(rowToAccount) },
+  accounts:     { range: 'Accounts!A2:R200',  parse: (rows) => rows.map(rowToAccount) },
   transactions: { range: 'Transactions!A2:K', parse: (rows) => rows.map(rowToTransaction) },
   bills:        { range: 'Bills!A2:M200',     parse: (rows) => rows.map(rowToBill) },
   paychecks:    { range: 'Paychecks!A2:L',    parse: (rows) => rows.map(rowToPaycheck) },

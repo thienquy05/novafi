@@ -22,7 +22,7 @@ import {
   creditUtilization, creditUtilStatus, isOverCreditTarget, availableCredit,
   calcPaydownToTarget, buildCreditReport, calcCreditAlerts, allocateSmartPayment,
   assessCardPaymentHistory, buildLimitIncreaseAdvisories, LIMIT_ADVISOR_TARGET,
-  buildStatementArbitrage, buildBalanceTransferAdvice,
+  buildStatementArbitrage, buildBalanceTransferAdvice, cardPaymentStatus,
   detectSubscriptions, merchantMatches, suggestBudgetReallocations, denormalizeMonthlyBudget,
   calcCreditUtilizationScore, composeHealthScore, daysUntilStatement, HEALTH_WEIGHTS,
   CREDIT_UTIL_TARGET,
@@ -3006,5 +3006,38 @@ describe('buildBucketBudgetPlan', () => {
   it('never proposes a category that was filtered out upstream', () => {
     const { allocations } = plan({ categories: ['Grocery'] });
     expect(allocations.map((a) => a.category)).toEqual(['Grocery']);
+  });
+});
+
+describe('cardPaymentStatus', () => {
+  const card = (o: Partial<Account> = {}) => makeAccount({ id: 'cc', type: 'credit', balance: 500, dueDay: 25, statementDay: 28, minPayment: 35, ...o });
+  const pay = (date: string, amount: number) => makeTx({ type: 'transfer', account: 'chk', toAccount: 'cc', amount, date });
+  const today = new Date(2026, 5, 10); // Jun 10; statement closed May 28 → due Jun 25
+
+  it('returns null for non-cards or cards without a due day', () => {
+    expect(cardPaymentStatus(card({ dueDay: undefined }), [], today)).toBeNull();
+    expect(cardPaymentStatus(makeAccount({ type: 'checking', dueDay: 5 }), [], today)).toBeNull();
+  });
+
+  it('is due (with days left) until payments since the close cover the minimum', () => {
+    const s = cardPaymentStatus(card(), [pay('2026-05-20', 100), pay('2026-06-01', 20)], today)!;
+    expect(s).toMatchObject({ status: 'due', dueDate: '2026-06-25', daysUntilDue: 15, minDue: 35, paidThisCycle: 20 });
+  });
+
+  it('is paid once the minimum is covered, or the balance is cleared', () => {
+    expect(cardPaymentStatus(card(), [pay('2026-06-05', 35)], today)!.status).toBe('paid');
+    expect(cardPaymentStatus(card({ balance: 0 }), [], today)!.status).toBe('paid');
+  });
+
+  it('is overdue after the due date without a payment', () => {
+    const s = cardPaymentStatus(card(), [], new Date(2026, 5, 27))!;
+    expect(s.status).toBe('overdue');
+    expect(s.daysUntilDue).toBe(-2);
+  });
+
+  it('never asks for more than the balance; works without a statement day', () => {
+    const s = cardPaymentStatus(card({ balance: 20, statementDay: undefined }), [], today)!;
+    expect(s.minDue).toBe(20);
+    expect(s.dueDate).toBe('2026-06-25');
   });
 });

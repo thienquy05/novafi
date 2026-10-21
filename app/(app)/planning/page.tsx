@@ -14,9 +14,9 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { PlanningSkeleton } from '@/components/ui/Skeleton';
-import { formatCurrency, formatDate, generateId, zonedNow, dateLocale } from '@/lib/utils';
+import { formatCurrency, formatDate, generateId, zonedNow, dateLocale, today as localToday } from '@/lib/utils';
 import {
-  calcRolloverDeficit, calcEffectiveSpent,
+  calcRolloverDeficit, calcEffectiveSpent, isSpendableAccount,
   suggestBudgetReallocations, denormalizeMonthlyBudget, calcPredictionReadiness, type BudgetReallocation,
   buildBucketSnapshot, buildBucketBudgetPlan, type BucketSnapshot, type BucketAllocation,
 } from '@/lib/calculations';
@@ -336,6 +336,51 @@ export default function PlanningPage() {
     } catch {
       toast(t('planning.toastGoalFailed'), 'error');
       await load();
+    }
+  }
+
+  // ─── Add money to a goal ──────────────────────────────────────────────────
+  // Linked goal: a real transfer into the linked account (balances + net worth
+  // update everywhere). Manual goal: bump its saved amount.
+  const [contribFor, setContribFor] = useState<Goal | null>(null);
+  const [contribAmount, setContribAmount] = useState('');
+  const [contribFrom, setContribFrom] = useState('');
+  const contribSources = accounts.filter((a) => isSpendableAccount(a) && a.id !== contribFor?.linkedAccountId);
+  function openContribute(goal: Goal) {
+    setContribFor(goal);
+    setContribAmount('');
+    setContribFrom(contribSources.find((a) => a.type === 'checking')?.id ?? contribSources[0]?.id ?? '');
+  }
+  async function submitContribute() {
+    const goal = contribFor;
+    const amount = parseFloat(contribAmount);
+    if (!goal || !(amount > 0)) return;
+    const linked = goal.linkedAccountId;
+    if (linked && !contribFrom) return;
+    setSaving(true);
+    try {
+      const res = linked
+        ? await fetch('/api/transactions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: generateId(), date: localToday(), description: goal.name, amount, type: 'transfer',
+              category: 'Transfer', account: contribFrom, toAccount: linked, createdAt: new Date().toISOString(),
+            } satisfies Transaction),
+          })
+        : await fetch('/api/goals', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...goal, currentAmount: Math.round((goal.currentAmount + amount) * 100) / 100 } satisfies Goal),
+          });
+      if (!res.ok) throw new Error();
+      setContribFor(null);
+      toast(t('planning.toastAddedMoney', { amount: formatCurrency(amount), name: goal.name }), 'success');
+      await load(true);
+    } catch {
+      toast(t('planning.toastAddMoneyFailed'), 'error');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -672,6 +717,7 @@ export default function PlanningPage() {
                       onTrack={onTrack}
                       onEdit={openEditGoal}
                       onDelete={deleteGoal}
+                      onContribute={openContribute}
                     />
                   );
                 })}
@@ -810,6 +856,50 @@ export default function PlanningPage() {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      {/* ── ADD MONEY TO GOAL ─────────────────────────────────────────────────── */}
+      <Modal open={contribFor !== null} onClose={() => setContribFor(null)} title={contribFor ? t('planning.addMoneyTitle', { name: contribFor.name }) : ''}>
+        {contribFor && (
+          <>
+            <div className="space-y-4 pb-4">
+              <Input
+                label={t('common.amountUsd')}
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                placeholder="0.00"
+                value={contribAmount}
+                onChange={(e) => setContribAmount(e.target.value)}
+                autoFocus
+              />
+              {contribFor.linkedAccountId ? (
+                <>
+                  <Select
+                    label={t('planning.addMoneyFrom')}
+                    value={contribFrom}
+                    options={contribSources.map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))}
+                    onChange={(e) => setContribFrom(e.target.value)}
+                  />
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                    {t('planning.addMoneyLinkedHint', { account: accounts.find((a) => a.id === contribFor.linkedAccountId)?.name ?? '' })}
+                  </p>
+                </>
+              ) : (
+                <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{t('planning.addMoneyManualHint')}</p>
+              )}
+            </div>
+            <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+              <div className="flex gap-3">
+                <Button variant="secondary" className="flex-1" onClick={() => setContribFor(null)}>{t('common.cancel')}</Button>
+                <Button className="flex-1 shadow-sm" onClick={submitContribute} disabled={saving || !(parseFloat(contribAmount) > 0) || (!!contribFor.linkedAccountId && !contribFrom)}>
+                  {saving ? t('common.saving') : t('planning.addMoney')}
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
       </Modal>
 
       {/* ── GOAL MODAL ────────────────────────────────────────────────────────── */}
@@ -1229,10 +1319,10 @@ function BudgetItem({ budget, monthly, rolledOver, spent, usage, prevSpent, roll
 }
 
 // ── Draggable Goal Card ────────────────────────────────────────────────────────
-function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadline, monthlyNeeded, onTrack, onEdit, onDelete }: {
+function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadline, monthlyNeeded, onTrack, onEdit, onDelete, onContribute }: {
   goal: Goal; linked: { name: string } | null; current: number; pct: number; remaining: number;
   achieved: boolean; daysToDeadline: number | null; monthlyNeeded: number | null;
-  onTrack: string; onEdit: (g: Goal) => void; onDelete: (id: string) => void;
+  onTrack: string; onEdit: (g: Goal) => void; onDelete: (id: string) => void; onContribute: (g: Goal) => void;
 }) {
   const { t } = useTranslation();
   const controls = useDragControls();
@@ -1315,9 +1405,14 @@ function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadl
         {!achieved && remaining > 0 && (
           <div className="flex justify-between items-center mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-700/60">
             <p className="text-xs font-bold text-slate-500 dark:text-slate-400">{formatCurrency(remaining)} {t('planning.toGo')}</p>
-            {monthlyNeeded && (
-              <p className="text-xs font-bold text-slate-400 dark:text-slate-500">{formatCurrency(monthlyNeeded)}{t('planning.moNeeded')}</p>
-            )}
+            <div className="flex items-center gap-2">
+              {monthlyNeeded && (
+                <p className="text-xs font-bold text-slate-400 dark:text-slate-500">{formatCurrency(monthlyNeeded)}{t('planning.moNeeded')}</p>
+              )}
+              <Button size="sm" variant="secondary" className="h-8 px-3 text-xs" onClick={() => onContribute(goal)}>
+                <Plus className="w-3.5 h-3.5" />{t('planning.addMoney')}
+              </Button>
+            </div>
           </div>
         )}
       </Card>

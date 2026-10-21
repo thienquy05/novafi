@@ -178,6 +178,9 @@ export default function AccountsPage() {
       // so preserve the stored value on edit — the API only self-maintains
       // openingBalance, so omitting it here would wipe it. Cleared off non-credit.
       statementDay: form.type === 'credit' ? editTarget?.statementDay : undefined,
+      // Same for the card's payment due day / minimum (edited on the Credit page).
+      dueDay: form.type === 'credit' ? editTarget?.dueDay : undefined,
+      minPayment: form.type === 'credit' ? editTarget?.minPayment : undefined,
       // APR powers the Balance-Transfer Optimizer (credit) and payoff math (loan);
       // for savings it's the APY that drives interest calculation. 0 is a valid
       // 0% rate. Kept for card, loan and savings accounts; cleared on other types.

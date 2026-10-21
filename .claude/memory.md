@@ -10,6 +10,14 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-10-21 — Convenience: goal "Add money" + credit-card minimum due / paid status (branch claude/novafi-ux-perf-networth)
+
+Plan Section 7.8.
+- WHAT (Planning goals): "Add money" button on every unfinished goal (next to the existing "$X/mo needed"). Linked goal → a real `transfer` (from a spendable account into the linked account) via /api/transactions, so balances, net worth and every page update; manual goal → `currentAmount += amount` via /api/goals. Modal with amount + source account. WHY: contributing used to mean leaving the page to log a transfer (Chime pattern).
+- WHAT (cards): `Account.dueDay` / `Account.minPayment` (Accounts sheet columns Q/R, ranges A2:P200 → A2:R200, header in lib/auth.ts). `cardPaymentStatus()` in lib/calculations.ts: last statement close (statementDay, or one month before the due date), this cycle's due date, transfers INTO the card since the close → 'paid' (covers the minimum, or balance ≤ 0) / 'due' (days left) / 'overdue'; minimum capped at the balance (+ tests). Credit page: due day + minimum inputs in each card's editor; chip "Min $35 due in 6d" / "Paid this cycle" / "Payment overdue 2d" (rose when ≤3 days). Accounts page edit preserves both fields (it rebuilds the account object). WHY: utilization advice existed, but not "is this month's payment handled?" (YNAB card targets).
+
+---
+
 ## 2026-10-21 — Convenience: month navigation, chart drill-down, chart data tables (branch claude/novafi-ux-perf-networth)
 
 Plan Section 7.7.

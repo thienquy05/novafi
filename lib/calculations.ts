@@ -1468,6 +1468,58 @@ export function daysUntilStatement(statementDay: number | undefined, today: Date
   return Math.round((stmt.getTime() - todayMid.getTime()) / 86400000);
 }
 
+// ── Card payment due status ───────────────────────────────────────────────────
+// "Is this card's payment handled?" — minimum due, its due date, and whether the
+// payments made since the last statement closed already cover it. Needs the
+// card's due day (Account.dueDay); minimum (Account.minPayment) is optional.
+
+export type CardPaymentStatus = {
+  status: 'paid' | 'due' | 'overdue';
+  dueDate: string;          // YYYY-MM-DD this cycle's due date
+  daysUntilDue: number;     // negative once overdue
+  minDue: number;           // min(minPayment, balance); 0 when not set
+  paidThisCycle: number;    // transfers into the card since the statement closed
+};
+
+function isoDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function dayInMonth(year: number, month: number, day: number): Date {
+  return new Date(year, month, Math.min(day, new Date(year, month + 1, 0).getDate()));
+}
+
+export function cardPaymentStatus(account: Account, transactions: Transaction[], today: Date): CardPaymentStatus | null {
+  if (account.type !== 'credit' || !account.dueDay || account.dueDay < 1 || account.dueDay > 31) return null;
+  const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+  // Last statement close on/before today; without a statement day, assume the
+  // cycle closed one month before the next due date.
+  let lastClose: Date;
+  if (account.statementDay && account.statementDay >= 1 && account.statementDay <= 31) {
+    lastClose = dayInMonth(todayMid.getFullYear(), todayMid.getMonth(), account.statementDay);
+    if (lastClose > todayMid) lastClose = dayInMonth(todayMid.getFullYear(), todayMid.getMonth() - 1, account.statementDay);
+  } else {
+    let next = dayInMonth(todayMid.getFullYear(), todayMid.getMonth(), account.dueDay);
+    if (next < todayMid) next = dayInMonth(todayMid.getFullYear(), todayMid.getMonth() + 1, account.dueDay);
+    lastClose = dayInMonth(next.getFullYear(), next.getMonth() - 1, account.dueDay);
+  }
+  // This cycle's due date = the first due day strictly after the close.
+  let due = dayInMonth(lastClose.getFullYear(), lastClose.getMonth(), account.dueDay);
+  if (due <= lastClose) due = dayInMonth(lastClose.getFullYear(), lastClose.getMonth() + 1, account.dueDay);
+
+  const closeIso = isoDate(lastClose), todayIso = isoDate(todayMid);
+  const paidThisCycle = roundCents(transactions
+    .filter((tx) => tx.type === 'transfer' && tx.toAccount === account.id && tx.date > closeIso && tx.date <= todayIso)
+    .reduce((s, tx) => s + tx.amount, 0));
+  const owed = Math.max(0, account.balance);
+  const minDue = roundCents(Math.min(account.minPayment ?? 0, owed));
+  const daysUntilDue = Math.round((due.getTime() - todayMid.getTime()) / 86400000);
+
+  const covered = owed <= 0 || (minDue > 0 ? paidThisCycle >= minDue : paidThisCycle > 0);
+  const status = covered ? 'paid' : daysUntilDue < 0 ? 'overdue' : 'due';
+  return { status, dueDate: isoDate(due), daysUntilDue, minDue, paidThisCycle };
+}
+
 // ── Transaction Balance Effects ───────────────────────────────────────────────
 
 export function roundCents(n: number): number {

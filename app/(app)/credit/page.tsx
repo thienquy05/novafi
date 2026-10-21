@@ -20,7 +20,7 @@ import { useToast } from '@/lib/toast';
 import {
   buildCreditReport, CREDIT_UTIL_TARGET, CREDIT_UTIL_IDEAL, daysUntilStatement,
   allocateSmartPayment, buildLimitIncreaseAdvisories, buildStatementArbitrage,
-  buildBalanceTransferAdvice, creditUtilStatus, suggestCardPaymentBudget,
+  buildBalanceTransferAdvice, creditUtilStatus, suggestCardPaymentBudget, cardPaymentStatus, type CardPaymentStatus,
   type CreditUtilStatus, type CreditCardReport, type PaymentAllocation, type LimitIncreaseAdvice,
   type StatementArbitrageItem, type BalanceTransferAdvice, type CardPaymentBreakdown,
 } from '@/lib/calculations';
@@ -101,7 +101,7 @@ export default function CreditPage() {
   // Persist a single card's credit fields (limit and/or statement day) —
   // optimistic, reconcile on failure. Sends the full account; the API preserves
   // the server-maintained openingBalance when we leave it as-is.
-  async function saveCard(account: Account, patch: Partial<Pick<Account, 'creditLimit' | 'statementDay'>>) {
+  async function saveCard(account: Account, patch: Partial<Pick<Account, 'creditLimit' | 'statementDay' | 'dueDay' | 'minPayment'>>) {
     const updated: Account = { ...account, ...patch };
     setAccounts((prev) => prev.map((a) => (a.id === account.id ? updated : a)));
     try {
@@ -224,7 +224,7 @@ export default function CreditPage() {
           <div className="space-y-4">
             <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 px-1">{t('credit.yourCards')}</h2>
             {report.cards.map((c) => (
-              <CreditCardItem key={c.account.id} report={c} onSave={saveCard} onRedeem={redeemCashBack} />
+              <CreditCardItem key={c.account.id} report={c} payment={cardPaymentStatus(c.account, transactions, zonedNow())} onSave={saveCard} onRedeem={redeemCashBack} />
             ))}
           </div>
 
@@ -331,13 +331,34 @@ function UtilBar({ util, barClass }: { util: number; barClass: string }) {
 }
 
 // ── Single credit card row ────────────────────────────────────────────────────
+function PaymentChip({ payment }: { payment: CardPaymentStatus }) {
+  const { t } = useTranslation();
+  const { status, daysUntilDue, minDue } = payment;
+  const text = status === 'paid' ? t('credit.paidCycle')
+    : status === 'overdue' ? t('credit.overdueBy', { days: -daysUntilDue })
+    : minDue > 0 ? (daysUntilDue === 0 ? t('credit.minDueToday', { amount: formatCurrency(minDue) }) : t('credit.minDueIn', { amount: formatCurrency(minDue), days: daysUntilDue }))
+    : t('credit.dueIn', { days: daysUntilDue });
+  const tone = status === 'paid' ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+    : status === 'overdue' || daysUntilDue <= 3 ? 'bg-rose-50 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300'
+    : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300';
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-lg ${tone}`}>
+      {status === 'paid' ? <CheckCircle2 className="w-3 h-3" /> : <CalendarClock className="w-3 h-3" />}
+      {text}
+    </span>
+  );
+}
+
 function CreditCardItem({
   report,
+  payment,
   onSave,
   onRedeem,
 }: {
   report: CreditCardReport;
-  onSave: (account: Account, patch: Partial<Pick<Account, 'creditLimit' | 'statementDay'>>) => void;
+  /** This cycle's minimum due / paid status (null when no due day is set). */
+  payment: CardPaymentStatus | null;
+  onSave: (account: Account, patch: Partial<Pick<Account, 'creditLimit' | 'statementDay' | 'dueDay' | 'minPayment'>>) => void;
   onRedeem: (account: Account, amount: number) => void;
 }) {
   const { t } = useTranslation();
@@ -345,6 +366,8 @@ function CreditCardItem({
   const [editing, setEditing] = useState(false);
   const [limitInput, setLimitInput] = useState(account.creditLimit ? String(account.creditLimit) : '');
   const [stmtInput, setStmtInput] = useState(account.statementDay ? String(account.statementDay) : '');
+  const [dueInput, setDueInput] = useState(account.dueDay ? String(account.dueDay) : '');
+  const [minInput, setMinInput] = useState(account.minPayment ? String(account.minPayment) : '');
   const [redeeming, setRedeeming] = useState(false);
   const [redeemInput, setRedeemInput] = useState('');
   const style = status ? STATUS_STYLE[status] : null;
@@ -355,13 +378,20 @@ function CreditCardItem({
   function resetInputs() {
     setLimitInput(account.creditLimit ? String(account.creditLimit) : '');
     setStmtInput(account.statementDay ? String(account.statementDay) : '');
+    setDueInput(account.dueDay ? String(account.dueDay) : '');
+    setMinInput(account.minPayment ? String(account.minPayment) : '');
   }
   function parseStmt(s: string): number | undefined {
     const n = parseInt(s, 10);
     return Number.isFinite(n) && n >= 1 && n <= 31 ? n : undefined;
   }
   function submitFull() {
-    onSave(account, { creditLimit: parseNum(limitInput), statementDay: parseStmt(stmtInput) });
+    onSave(account, {
+      creditLimit: parseNum(limitInput),
+      statementDay: parseStmt(stmtInput),
+      dueDay: parseStmt(dueInput),
+      minPayment: parseNum(minInput) || undefined,
+    });
     setEditing(false);
   }
   function submitRedeem() {
@@ -444,6 +474,25 @@ function CreditCardItem({
                 />
               </div>
               <p className="text-xs text-slate-400 dark:text-slate-500">{t('credit.statementDayHint')}</p>
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  label={t('credit.dueDay')}
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="1–31"
+                  value={dueInput}
+                  onChange={(e) => setDueInput(e.target.value.replace(/[^0-9]/g, '').slice(0, 2))}
+                />
+                <Input
+                  label={t('credit.minPayment')}
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={minInput}
+                  onChange={(e) => setMinInput(e.target.value.replace(/[^0-9.]/g, ''))}
+                />
+              </div>
+              <p className="text-xs text-slate-400 dark:text-slate-500">{t('credit.dueHint')}</p>
               <div className="flex gap-2">
                 <Button size="sm" onClick={submitFull}>{t('credit.save')}</Button>
                 <Button size="sm" variant="ghost" onClick={() => { setEditing(false); resetInputs(); }}>{t('credit.cancel')}</Button>
@@ -455,6 +504,7 @@ function CreditCardItem({
                 <span className="text-slate-500 dark:text-slate-400 font-medium">
                   {t('credit.availableLine', { amount: formatCurrency(available ?? 0) })}
                 </span>
+                {payment && <PaymentChip payment={payment} />}
                 {stmtDays !== null && (
                   <span className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-lg ${stmtSoon ? 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'}`}>
                     <CalendarClock className="w-3 h-3" />
