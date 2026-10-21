@@ -10,6 +10,15 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-10-21 — Convenience: swipe actions on Bills + Accounts (branch claude/novafi-ux-perf-networth)
+
+Plan Section 7.4.
+- WHAT: `components/ui/SwipeToDelete.tsx` generalized (same name/API for existing callers): optional `trailing` action replaces the default Delete on swipe-left; optional `leading` action is revealed on swipe-right (`SwipeAction = {label, icon, tone, onAction}`). Labels 10px → 11px.
+- WHAT: Bills — swipe right = "Mark paid" (opens the existing pay modal), swipe left = Delete (now translated label); row icon buttons get `.hit-area`. Accounts — swipe left = Edit (deliberately no delete-by-gesture for accounts). Accounts' hard-coded English error block → `LoadError`.
+- WHY: the most common row actions become one gesture on phones (Copilot/Monzo pattern).
+
+---
+
 ## 2026-10-21 — Convenience: Undo for add/edit/transfer, date + amount filters (branch claude/novafi-ux-perf-networth)
 
 Plan Sections 7.2 + 7.3.

@@ -928,7 +928,12 @@ export default function BillsPage() {
                   const isDueSoon = daysUntil > 3 && daysUntil <= 7;
                   const accountName = accounts.find((a) => a.id === bill.account)?.name ?? bill.account;
                   return (
-                    <SwipeToDelete key={bill.id} onDelete={() => handleDelete(bill.id)}>
+                    <SwipeToDelete
+                      key={bill.id}
+                      onDelete={() => handleDelete(bill.id)}
+                      label={t('common.delete')}
+                      leading={{ label: t('bills.markPaid'), icon: CheckCircle2, tone: 'emerald', onAction: () => openPayModal(bill) }}
+                    >
                       <div className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-5 rounded-3xl bg-white dark:bg-slate-800 border transition-all duration-200 gap-3 sm:gap-0 ${isUrgent ? 'border-rose-200 dark:border-rose-800/50 bg-rose-50/30' : isDueSoon ? 'border-amber-200 dark:border-amber-800/50 bg-amber-50/30' : 'border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 hover:shadow-sm'}`}>
                         <div className="flex items-center gap-4">
                           <div className={`flex items-center justify-center w-12 h-12 rounded-2xl shrink-0 border ${isUrgent ? 'bg-rose-100 dark:bg-rose-900/40 border-rose-200 dark:border-rose-800/50 pulse-glow' : isDueSoon ? 'bg-amber-100 dark:bg-amber-900/40 border-amber-200 dark:border-amber-800/50' : 'bg-slate-100 dark:bg-slate-700 border-slate-200 dark:border-slate-700'}`}>
@@ -957,9 +962,9 @@ export default function BillsPage() {
                         <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto pl-16 sm:pl-0 gap-3 sm:gap-5">
                           <span title={bill.variable ? t('bills.variableAmountHint') : undefined} className={`text-base font-extrabold ${isUrgent ? 'text-rose-600 dark:text-rose-400' : isDueSoon ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-slate-100'}`}>{bill.variable ? '~' : ''}{formatCurrency(bill.amount)}</span>
                           <div className="flex gap-1.5">
-                            <button aria-label={t('common.edit')} title={t('common.edit')} onClick={(e) => { e.stopPropagation(); openEdit(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
-                            <button aria-label={t('bills.markPaid')} title={t('bills.markPaid')} onClick={(e) => { e.stopPropagation(); openPayModal(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-xl transition-colors"><CheckCircle2 className="w-4 h-4" /></button>
-                            <button aria-label={t('bills.pause')} title={t('bills.pause')} onClick={(e) => { e.stopPropagation(); handleToggle(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-xl transition-colors"><Circle className="w-4 h-4" /></button>
+                            <button aria-label={t('common.edit')} title={t('common.edit')} onClick={(e) => { e.stopPropagation(); openEdit(bill); }} className="hit-area p-2 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
+                            <button aria-label={t('bills.markPaid')} title={t('bills.markPaid')} onClick={(e) => { e.stopPropagation(); openPayModal(bill); }} className="hit-area p-2 text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-xl transition-colors"><CheckCircle2 className="w-4 h-4" /></button>
+                            <button aria-label={t('bills.pause')} title={t('bills.pause')} onClick={(e) => { e.stopPropagation(); handleToggle(bill); }} className="hit-area p-2 text-slate-400 dark:text-slate-500 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-xl transition-colors"><Circle className="w-4 h-4" /></button>
                           </div>
                         </div>
                       </div>
@@ -975,15 +980,15 @@ export default function BillsPage() {
               <h2 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-1">{t('bills.paused')}</h2>
               <div className="space-y-2 opacity-60">
                 {inactiveBills.map((bill) => (
-                  <SwipeToDelete key={bill.id} onDelete={() => handleDelete(bill.id)}>
+                  <SwipeToDelete key={bill.id} onDelete={() => handleDelete(bill.id)} label={t('common.delete')}>
                     <div className="flex items-center justify-between p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700">
                       <div>
                         <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{bill.name}</p>
                         <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{FREQUENCY_LABELS[bill.frequency]} · {bill.variable ? '~' : ''}{formatCurrency(bill.amount)}</p>
                       </div>
                       <div className="flex gap-1.5">
-                        <button aria-label={t('common.edit')} title={t('common.edit')} onClick={(e) => { e.stopPropagation(); openEdit(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
-                        <button aria-label={t('bills.resume')} title={t('bills.resume')} onClick={(e) => { e.stopPropagation(); handleToggle(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-xl transition-colors"><CheckCircle2 className="w-4 h-4" /></button>
+                        <button aria-label={t('common.edit')} title={t('common.edit')} onClick={(e) => { e.stopPropagation(); openEdit(bill); }} className="hit-area p-2 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
+                        <button aria-label={t('bills.resume')} title={t('bills.resume')} onClick={(e) => { e.stopPropagation(); handleToggle(bill); }} className="hit-area p-2 text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-xl transition-colors"><CheckCircle2 className="w-4 h-4" /></button>
                       </div>
                     </div>
                   </SwipeToDelete>

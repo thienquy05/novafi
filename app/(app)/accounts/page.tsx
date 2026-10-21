@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
-import { Plus, Trash2, CreditCard, Landmark, PiggyBank, TrendingUp, Pencil, CheckCircle2, AlertCircle, Banknote, Coins } from 'lucide-react';
+import { Plus, Trash2, CreditCard, Landmark, PiggyBank, TrendingUp, Pencil, CheckCircle2, Banknote, Coins } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { creditUtilization, creditUtilStatus, calcLoanPayoff, calcLoanExtraPaymentImpact, calcFundingHeldByAccount, calcNetWorth, calcTotalAssets, calcTotalDebt } from '@/lib/calculations';
 import { buildLoanPaymentTxs } from '@/lib/loanPayments';
@@ -18,6 +18,8 @@ import { FitText } from '@/components/ui/FitText';
 import { formatCurrency, generateId, today } from '@/lib/utils';
 import { useToast } from '@/lib/toast';
 import { PullToRefresh } from '@/components/PullToRefresh';
+import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
+import { LoadError } from '@/components/ui/LoadError';
 import type { Account, Transaction } from '@/types';
 import { useTranslation } from '@/lib/i18n/context';
 
@@ -339,14 +341,7 @@ export default function AccountsPage() {
       {loading ? (
         <AccountsSkeleton />
       ) : error ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-900/30 flex items-center justify-center mb-4">
-            <AlertCircle className="w-7 h-7 text-rose-400" />
-          </div>
-          <p className="text-slate-700 dark:text-slate-300 font-bold text-base mb-1">Couldn&apos;t load accounts</p>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">Check your connection and try again.</p>
-          <Button variant="secondary" onClick={() => load(true)}>Try Again</Button>
-        </div>
+        <LoadError onRetry={() => load(true)} />
       ) : accounts.length === 0 ? (
         <Card className="text-center py-16 bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700/60">
           <div className="w-16 h-16 rounded-full bg-white dark:bg-slate-800 flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100 dark:border-slate-700/60">
@@ -372,7 +367,14 @@ export default function AccountsPage() {
                   </div>
                   <div className="space-y-3">
                     {list.map((account) => (
-                      <div key={account.id} className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 hover:bg-white dark:hover:bg-slate-800 hover:shadow-sm transition-all duration-300 gap-4 sm:gap-0">
+                      // Swipe left to edit (no delete-by-gesture for accounts —
+                      // removing one is too destructive for a swipe).
+                      <SwipeToDelete
+                        key={account.id}
+                        rounded="rounded-2xl"
+                        trailing={{ label: t('common.edit'), icon: Pencil, tone: 'indigo', onAction: () => openEdit(account) }}
+                      >
+                      <div className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 hover:bg-white dark:hover:bg-slate-800 hover:shadow-sm transition-all duration-300 gap-4 sm:gap-0">
                         <div className="flex items-center gap-4">
                           <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-sm border border-slate-100 dark:border-slate-700/60 bg-white dark:bg-slate-800">
                             <Icon className="w-6 h-6" style={{ color: account.color }} />
@@ -447,6 +449,7 @@ export default function AccountsPage() {
                           </div>
                         </div>
                       </div>
+                      </SwipeToDelete>
                     ))}
                   </div>
                 </div>
