@@ -171,20 +171,34 @@ export function subscribeCache(fn: () => void): () => void {
 
 // Derived-warning caches live OUTSIDE this store (sessionStorage-backed — the
 // sidebar badges and the notification bell). Any write can change what they
-// warn about, so the same global guard busts them and pings their listeners.
+// warn about, so the same global guard busts them and fires DATA_CHANGED_EVENT.
 // Centralized here so no mutation path can ever forget to dispatch.
 export const BADGES_CACHE_KEY = 'nf_badges_cache_v2';
 export const NOTIFICATIONS_CACHE_KEY = 'nf_notifications_cache_v1';
-export const BADGES_INVALID_EVENT = 'novafi:badges-invalid';
-export const NOTIFICATIONS_INVALID_EVENT = 'novafi:notifications-invalid';
+/** Fired after any successful write; every view using useAutoRefresh refreshes. */
+export const DATA_CHANGED_EVENT = 'novafi:data-changed';
+
+/**
+ * Run `fn` once the browser is idle (page data and first paint first), falling
+ * back to a short timeout where requestIdleCallback is missing (Safari). Used for
+ * the shell's secondary fetches (badges, bell) so they don't compete with the
+ * page's own data request on load. Returns a cancel fn.
+ */
+export function afterIdle(fn: () => void, timeoutMs = 1500): () => void {
+  if (typeof window === 'undefined') return () => {};
+  if (typeof window.requestIdleCallback === 'function') {
+    const id = window.requestIdleCallback(fn, { timeout: timeoutMs });
+    return () => window.cancelIdleCallback(id);
+  }
+  const id = setTimeout(fn, 300);
+  return () => clearTimeout(id);
+}
 
 function invalidateDerivedWarnings(): void {
   try {
     sessionStorage.removeItem(BADGES_CACHE_KEY);
     sessionStorage.removeItem(NOTIFICATIONS_CACHE_KEY);
   } catch { /* sessionStorage unavailable */ }
-  window.dispatchEvent(new CustomEvent(BADGES_INVALID_EVENT));
-  window.dispatchEvent(new CustomEvent(NOTIFICATIONS_INVALID_EVENT));
 }
 
 /**
@@ -216,6 +230,7 @@ export function installCacheInvalidation(): void {
         if (url.includes('/api/') && !url.includes('/api/auth')) {
           invalidateClientCache();
           invalidateDerivedWarnings();
+          window.dispatchEvent(new CustomEvent(DATA_CHANGED_EVENT));
         }
       }
     } catch { /* cache bookkeeping must never break the request */ }

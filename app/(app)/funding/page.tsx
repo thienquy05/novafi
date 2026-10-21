@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, Children, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { CircleDollarSign, Plus, Trash2, Users, Wallet, RefreshCw, AlertCircle, MinusCircle, UserPlus, Pencil, HandCoins, Archive, ArchiveRestore, ChevronDown, Receipt, Landmark, PartyPopper, Target, Share2, Sparkles, Clock, SlidersHorizontal, CalendarDays } from 'lucide-react';
+import { LoadError } from '@/components/ui/LoadError';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -12,7 +13,7 @@ import { Collapsible } from '@/components/ui/Collapsible';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
-import { peekCache, ensureResources } from '@/lib/client/store';
+import { peekCache, ensureResources, isFresh } from '@/lib/client/store';
 import { loadTransactionsByIds } from '@/lib/client/api';
 import { useToast } from '@/lib/toast';
 import { useTranslation } from '@/lib/i18n/context';
@@ -178,8 +179,16 @@ export default function FundingPage() {
       // Resolve only the ledger rows these pools reference (spends + the legacy
       // contribution row + real-pool cash-ins) instead of pulling the entire
       // Transactions sheet — keeps the page light no matter how many settled
-      // payments have piled up in the ledger over time.
-      setTransactions(await loadTransactionsByIds(referencedTxIds(data.funding)));
+      // payments have piled up in the ledger over time. When another page already
+      // loaded the ledger recently, filter that copy and skip the second round trip.
+      const ids = referencedTxIds(data.funding);
+      const cachedLedger = !force && isFresh(['transactions']) ? peekCache(['transactions'])?.transactions : null;
+      if (cachedLedger) {
+        const wanted = new Set(ids);
+        setTransactions(cachedLedger.filter((tx) => wanted.has(tx.id)));
+      } else {
+        setTransactions(await loadTransactionsByIds(ids));
+      }
       setError(false);
     } catch {
       setError(true);
@@ -1003,13 +1012,7 @@ export default function FundingPage() {
           <div className="animate-spin rounded-full h-8 w-8 border-2 border-indigo-500 border-t-transparent" />
         </div>
       ) : error ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-900/30 flex items-center justify-center mb-4">
-            <AlertCircle className="w-7 h-7 text-rose-400" />
-          </div>
-          <p className="text-slate-700 dark:text-slate-300 font-bold text-base mb-1">{t('funding.loadError')}</p>
-          <Button variant="secondary" onClick={() => load(true)} className="mt-4">{t('common.tryAgain')}</Button>
-        </div>
+        <LoadError title={t('funding.loadError')} onRetry={() => load(true)} />
       ) : !hasAccounts ? (
         <Card className="text-center py-16 bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700/60">
           <div className="w-16 h-16 rounded-full bg-white dark:bg-slate-800 flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100 dark:border-slate-700/60">

@@ -96,3 +96,72 @@ describe('cachedOrFetch', () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('cross-instance freshness + coalescing', () => {
+  beforeEach(() => {
+    clearCache();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-29T00:00:00Z'));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('treats entries fetched at or before the caller\'s last write as a miss', () => {
+    const t0 = Date.now();
+    setCache('k', 'pre-write', 60_000, t0);
+    expect(getCache('k', t0)).toBeNull();          // write landed at the same instant
+    expect(getCache('k', t0 - 1)).toBe('pre-write'); // entry is newer than the write
+    expect(getCache('k')).toBe('pre-write');         // no write cookie → normal hit
+  });
+
+  it('stamps entries with the fetch START time, not the finish time', async () => {
+    let resolve!: (v: string) => void;
+    const p = cachedOrFetch('k', 60_000, () => new Promise<string>((r) => { resolve = r; }));
+    const startedAt = Date.now();
+    vi.advanceTimersByTime(1000);
+    const writeAt = Date.now();                       // write lands mid-fetch
+    resolve('maybe-pre-write');
+    await p;
+    expect(getCache('k', writeAt)).toBeNull();        // must not be trusted as post-write
+    expect(getCache('k', startedAt - 1)).toBe('maybe-pre-write');
+  });
+
+  it('coalesces concurrent misses into one fetch', async () => {
+    const fetcher = vi.fn(async () => 'v');
+    const [a, b] = await Promise.all([
+      cachedOrFetch('k', 1000, fetcher),
+      cachedOrFetch('k', 1000, fetcher),
+    ]);
+    expect(a).toBe('v');
+    expect(b).toBe('v');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not join an in-flight read that started before the caller\'s write', async () => {
+    let resolveFirst!: (v: string) => void;
+    const first = cachedOrFetch('k', 1000, () => new Promise<string>((r) => { resolveFirst = r; }));
+    vi.advanceTimersByTime(10);
+    const second = cachedOrFetch('k', 1000, async () => 'fresh', Date.now() - 1);
+    resolveFirst('stale');
+    expect(await first).toBe('stale');
+    expect(await second).toBe('fresh');
+  });
+
+  it('an invalidation mid-fetch stops the old read from re-caching pre-write data', async () => {
+    let resolve!: (v: string) => void;
+    const p = cachedOrFetch('dashboard:s1', 1000, () => new Promise<string>((r) => { resolve = r; }));
+    invalidateMany('s1', ['accounts']);
+    resolve('pre-write');
+    await p;
+    expect(getCache('dashboard:s1')).toBeNull();
+  });
+
+  it('invalidateMany always stales the derived dashboard + badges views', () => {
+    setCache('dashboard:s1', 1);
+    setCache('badges:s1', 2);
+    setCache('contacts:s1', 3);
+    invalidateMany('s1', ['contacts']); // a write that never listed them
+    expect(getCache('dashboard:s1')).toBeNull();
+    expect(getCache('badges:s1')).toBeNull();
+    expect(getCache('contacts:s1')).toBeNull();
+  });
+});

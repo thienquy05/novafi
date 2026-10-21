@@ -1196,54 +1196,6 @@ export async function appendNetWorthSnapshot(
 
 // ── Batch reads (reduces quota usage) ────────────────────────────────────────
 
-/**
- * Fetches Bills, Budgets, and Transactions in a single batchGet API call.
- * Used by the /api/badges endpoint instead of 3 separate requests.
- */
-export async function batchGetBadgesData(
-  accessToken: string,
-  spreadsheetId: string
-): Promise<{ bills: Bill[]; budgets: Budget[]; transactions: Transaction[]; accounts: Account[]; settings: TaxSettings }> {
-  const sheets = getSheetsClient(accessToken);
-  const ranges = [
-    'Bills!A2:M200',
-    'Budgets!A2:D200',
-    'Transactions!A2:J',
-    'Accounts!A2:P200',
-    SETTINGS_RANGE,
-  ];
-  const res = await sheets.spreadsheets.values.batchGet({
-    spreadsheetId,
-    ranges,
-    // Numeric cells must come back as numbers — currency-formatted cells
-    // would otherwise return "$100.00" strings that Number() turns into NaN.
-    valueRenderOption: 'UNFORMATTED_VALUE',
-  });
-  const vr = res.data.valueRanges ?? [];
-  const bills: Bill[] = (vr[0]?.values ?? []).map(rowToBill);
-  const budgets: Budget[] = (vr[1]?.values ?? []).map((r) => ({
-    id: r[0] ?? '',
-    category: r[1] ?? '',
-    amount: Number(r[2] ?? 0),
-    period: (r[3] ?? 'monthly') as Budget['period'],
-  }));
-  const transactions: Transaction[] = (vr[2]?.values ?? []).map((r) => ({
-    id: r[0] ?? '',
-    date: r[1] ?? '',
-    description: r[2] ?? '',
-    amount: Number(r[3] ?? 0),
-    type: (r[4] ?? 'expense') as Transaction['type'],
-    category: r[5] ?? '',
-    account: r[6] ?? '',
-    toAccount: r[7] ?? '',
-    createdAt: r[8] ?? '',
-    splitGroupId: r[9] ?? '',
-  }));
-  const accounts: Account[] = (vr[3]?.values ?? []).map((r) => rowToAccount(r as string[]));
-  const settings = parseSettingsRows((vr[4]?.values ?? []) as string[][]);
-  return { bills, budgets, transactions, accounts, settings };
-}
-
 export type DashboardData = {
   paychecks: PaycheckEntry[];
   transactions: Transaction[];

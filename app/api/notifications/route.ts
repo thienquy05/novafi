@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { auth } from '@/lib/auth';
-import { batchGetBadgesData } from '@/lib/sheets';
-import { getCache, setCache } from '@/lib/cache';
+import { getDashboardData, parseWriteVersion, WRITE_VERSION_COOKIE } from '@/lib/apiRoute';
 import { buildNotifications, type NotificationItem } from '@/lib/notifications';
 import { t } from '@/lib/i18n';
 import { formatCurrency, zonedNow, DEFAULT_TIME_ZONE } from '@/lib/utils';
@@ -19,16 +18,13 @@ export async function GET() {
   const timeZone = jar.get('nf_tz')?.value || DEFAULT_TIME_ZONE;
 
   try {
-    // The bell reads the same four sheets the sidebar badges do — cache the raw
-    // payload so the two requests share one Sheets round trip within the TTL.
-    // Keyed UNDER the `badges:<id>` prefix so every mutation that invalidates
-    // 'badges' also freshens the bell (prefix-based invalidation).
-    const dataKey = `badges:${session.spreadsheetId}:data`;
-    let data = getCache<BadgesData>(dataKey);
-    if (!data) {
-      data = await batchGetBadgesData(session.accessToken, session.spreadsheetId);
-      setCache(dataKey, data, 60_000);
-    }
+    // Shares the dashboard payload (a superset of what the bell needs) so the
+    // bell, badges, Money Flow and Home cost one Sheets read between them.
+    const data: BadgesData = await getDashboardData(
+      session.accessToken,
+      session.spreadsheetId,
+      parseWriteVersion(jar.get(WRITE_VERSION_COOKIE)?.value),
+    );
 
     const now = zonedNow(timeZone);
     const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;

@@ -44,6 +44,8 @@
     "use": "Dùng",
     "skip": "Bỏ qua",
     "loading": "Đang tải…",
+    "loadErrorTitle": "Không thể tải dữ liệu",
+    "loadErrorBody": "Kiểm tra kết nối và thử lại.",
     "tryAgain": "Thử lại",
     "proceed": "Tiếp tục",
     "pullToRefresh": "Kéo để làm mới",

@@ -6,7 +6,40 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ## Current Version — NovaFi Web App (Next.js + Google Sheets)
 
-**Last Updated:** June 22, 2026 (rev 2)
+**Last Updated:** October 21, 2026
+
+---
+
+## 2026-10-21 — Speed + platform-wide data sync (branch claude/novafi-ux-perf-networth)
+
+Plan: `~/.claude/plans/dapper-tinkering-book.md` (Claude + Codex reviewed, user-approved). This entry = plan Sections 1 + 6.
+
+### Git cleanup (commit b12f76c)
+- WHAT: deleted `.claude/MEMORY.md`; kept `.claude/memory.md`. WHY: macOS is case-insensitive, so the two tracked files were one file on disk → permanent phantom diff that blocked syncing with master. Old content stays in git history.
+- WHAT: `buildStatementArbitrage` test builds `today` with `new Date(2026, 5, 8)`. WHY: `new Date('2026-06-08')` is UTC midnight = previous evening in US zones → daysUntil 4≠3 → pre-commit hook failed.
+
+### Server cache: one shared dashboard read + cross-instance freshness
+- WHAT: `lib/apiRoute.ts` `getDashboardData()` — dashboard page, `/api/money-flow`, `/api/badges`, `/api/notifications` all read the SAME cached `dashboard:<id>` payload (deleted `batchGetBadgesData`, the `moneyflow:<id>:data` key and the badges result cache). WHY: a cold load ran up to 4 Sheets reads of overlapping data; Money Flow's private key was never invalidated by writes, so the modal could show pre-write numbers for 60s.
+- WHAT: `cachedOrFetch` coalesces concurrent misses (in-flight map). WHY: the dashboard render + shell requests landing together on a cold instance now share one round trip.
+- WHAT: write-version cookie `nf_wv` (set by `withSession` on every successful non-GET); every cached read passes it as `notBefore`, and entries are stamped with their fetch START time. `invalidateCache` also detaches in-flight reads so they can't re-store pre-write data. WHY: on Vercel each lambda has its own memory cache; a write only cleared the instance that handled it, so the next read could hit another instance and show stale data until the TTL.
+- WHAT: `invalidateMany` always also stales `DERIVED_CACHES` = dashboard + badges. WHY: several write routes forgot them (categories, contacts, goals→badges, paychecks POST→badges); Home/bell lagged behind edits.
+
+### Client: instant cross-page sync
+- WHAT: global write guard (`lib/client/store.ts`) now fires `DATA_CHANGED_EVENT`; `useAutoRefresh` listens (debounced 250ms) so every page using it, the dashboard (`AutoRefreshOnFocus` → `router.refresh`), the badges and the bell refresh after ANY write. WHY: no page subscribed to cache changes — e.g. adding a transaction from the nav "+" left Bills/Accounts showing old numbers until a 60s tick.
+- WHAT: `useAutoRefresh` keeps `load` in a ref and skips polls while the tab is hidden. WHY: callers pass inline arrows, so the effect tore down and restarted the 60s interval on every render (background refresh could never fire on an active page); hidden-tab polling wasted Sheets quota.
+- WHAT: removed the per-component `BADGES_INVALID_EVENT` / `NOTIFICATIONS_INVALID_EVENT` listeners (covered by the hook). Badges + bell first fetch deferred with `afterIdle()`; the two mounted bells share one request. WHY: shell requests competed with the page's own data on load.
+- WHAT: Money Flow modal is lazy — fetches only when opened (and refreshes only while open); a write while closed marks it stale. WHY: it fetched on every page mount + every minute although rarely opened.
+
+### Fewer waits
+- WHAT: Funding reuses the ledger from the client cache when fresh instead of the second `?ids=` request. WHY: the page waited on two sequential round trips.
+- WHAT: Settings loads settings + contacts + transactions with one `ensureResources` call (shared client cache) and shows an error/retry state. WHY: three separate uncached fetches; a failed settings read spun forever.
+- WHAT: new `components/ui/LoadError.tsx` (role=alert, retry) replacing the copy-pasted error block on Funding/Reports/Transactions; locale keys `common.loadErrorTitle/Body`.
+
+### Dashboard bundle
+- WHAT: the 4 Recharts widgets moved to `dashboard/DashboardRecharts.tsx`, loaded via `next/dynamic` (still SSR'd, same pulse placeholder until mounted → no visual change). WHY: recharts was in the landing page's first-load JS. Measured (gzipped first-load JS, `next build`): dashboard 291 KB → 171 KB (−41%); other routes unchanged.
+
+### Tests
+- `lib/__tests__/cache.test.ts`: notBefore semantics, fetch-start stamping, coalescing, not joining pre-write in-flight reads, invalidation mid-fetch, derived caches always staled.
 
 ---
 

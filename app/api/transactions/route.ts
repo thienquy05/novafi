@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getTransactions, addTransaction, addTransactions, deleteTransaction, updateTransaction, getAccounts, persistChangedAccounts, getFundings, upsertFunding, getLoans, upsertLoan, getSplits, upsertSplit } from '@/lib/sheets';
 import { invalidateMany, cachedOrFetch, CACHE_TTL, TX_CACHES } from '@/lib/cache';
-import { withSession } from '@/lib/apiRoute';
+import { withSession, writeVersionOf } from '@/lib/apiRoute';
 import { applyTransactionToBalances } from '@/lib/calculations';
 import { syncFundingTxAmount, syncFundingTxRemoval } from '@/lib/funding';
 import { syncLoanTxAmount, syncLoanTxRemoval } from '@/lib/loans';
@@ -21,6 +21,7 @@ export const GET = withSession(async ({ accessToken, spreadsheetId, req }) => {
     `transactions:${spreadsheetId}`,
     CACHE_TTL.SHORT,
     () => getTransactions(accessToken, spreadsheetId),
+    writeVersionOf(req),
   );
   const idsParam = new URL(req.url).searchParams.get('ids');
   if (idsParam === null) return NextResponse.json(all);

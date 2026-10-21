@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { RefreshCw, AlertCircle, BarChart3, TrendingUp, TrendingDown, DollarSign, Calendar, Download, Printer } from 'lucide-react';
+import { RefreshCw, BarChart3, TrendingUp, TrendingDown, DollarSign, Calendar, Download, Printer } from 'lucide-react';
+import { LoadError } from '@/components/ui/LoadError';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -249,11 +250,7 @@ export default function ReportsPage() {
           {[...Array(4)].map((_, i) => <div key={i} className="h-24 rounded-3xl bg-slate-100 dark:bg-slate-700 animate-pulse" />)}
         </div>
       ) : error ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-900/30 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-rose-400" /></div>
-          <p className="text-slate-700 dark:text-slate-300 font-bold text-base mb-1">{t('reports.errorTitle')}</p>
-          <Button variant="secondary" onClick={() => load(true)} className="mt-4">{t('common.tryAgain')}</Button>
-        </div>
+        <LoadError title={t('reports.errorTitle')} onRetry={() => load(true)} />
       ) : (
         <>
           {/* Summary stats */}

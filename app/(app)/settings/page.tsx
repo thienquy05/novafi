@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, User, SlidersHorizontal, Receipt, Tags, Landmark, Building2, Database, ShieldCheck, ChevronDown, LogOut, Users, UserPlus, Trash2, Archive, AlertTriangle, Clock, MapPin, Scale } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -16,6 +16,8 @@ import { generateId } from '@/lib/utils';
 import { TIME_ZONE_OPTIONS, TIME_ZONE_GROUPS, detectTimeZone, timeZoneLabel } from '@/lib/timezones';
 import { invalidateCategoriesCache } from '@/hooks/useCategories';
 import { useToast } from '@/lib/toast';
+import { ensureResources } from '@/lib/client/store';
+import { LoadError } from '@/components/ui/LoadError';
 import { useTranslation } from '@/lib/i18n/context';
 
 type SectionId = 'general' | 'taxes' | 'categories' | 'contacts' | 'about';
@@ -116,10 +118,15 @@ export default function SettingsPage() {
 
   const DELETE_PHRASE = 'I want to delete my data';
 
-  useEffect(() => {
-    fetch('/api/settings')
-      .then((r) => r.json())
-      .then((s: TaxSettings) => {
+  // One request for everything this page reads (settings, contacts, and the
+  // ledger for the category-usage tally) — served instantly from the shared client
+  // cache when another page loaded them recently. Was three separate fetches, and
+  // a failed settings read left the spinner up forever.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const loadAll = useCallback(() => {
+    setLoadFailed(false);
+    ensureResources(['settings', 'contacts', 'transactions'])
+      .then(({ settings: s, contacts: c, transactions: txs }) => {
         const tz = s.timeZone || DEFAULT_TIME_ZONE;
         setSettings({
           ...s,
@@ -136,10 +143,19 @@ export default function SettingsPage() {
         // Keep the cookie in step with the saved zone so server-rendered pages
         // (dashboard, notifications) agree with the client without a save.
         writeTzCookie(tz);
-        setLoading(false);
-      });
+        setContacts([...(c ?? [])].sort((a, b) => a.name.localeCompare(b.name)));
+        // Tally how many transactions reference each category so the remove
+        // dialog can block a hard Delete (and steer to Archive) when history
+        // would be orphaned.
+        const counts: Record<string, number> = {};
+        for (const tx of txs ?? []) counts[tx.category] = (counts[tx.category] ?? 0) + 1;
+        setCatUsage(counts);
+      })
+      .catch(() => setLoadFailed(true))
+      .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => { loadAll(); }, [loadAll]);
 
   // Drive the live clock preview in the Time & Region card.
   useEffect(() => {
@@ -147,25 +163,7 @@ export default function SettingsPage() {
     return () => clearInterval(id);
   }, []);
 
-  useEffect(() => {
-    fetch('/api/contacts')
-      .then((r) => r.json())
-      .then((c: Contact[]) => setContacts([...(c ?? [])].sort((a, b) => a.name.localeCompare(b.name))))
-      .catch(() => { /* tab may not exist yet; created on first add */ });
-  }, []);
 
-  // Tally how many transactions reference each category so the remove dialog can
-  // block a hard Delete (and steer to Archive) when history would be orphaned.
-  useEffect(() => {
-    fetch('/api/transactions')
-      .then((r) => r.json())
-      .then((txs: { category: string }[]) => {
-        const counts: Record<string, number> = {};
-        for (const tx of txs ?? []) counts[tx.category] = (counts[tx.category] ?? 0) + 1;
-        setCatUsage(counts);
-      })
-      .catch(() => { /* leave empty — Delete simply isn't blocked */ });
-  }, []);
 
   // Contacts persist to Google Sheets (shared with the bill-splitting flows), so
   // they're available everywhere — not just this device's local storage.
@@ -356,7 +354,7 @@ export default function SettingsPage() {
     );
   }
 
-  if (!settings) return null;
+  if (!settings) return loadFailed ? <LoadError onRetry={() => { setLoading(true); loadAll(); }} /> : null;
 
   const currentLang = settings.language ?? lang;
 

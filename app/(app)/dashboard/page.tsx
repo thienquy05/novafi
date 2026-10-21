@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { auth } from '@/lib/auth';
-import { batchGetDashboardData, appendNetWorthSnapshot } from '@/lib/sheets';
+import { appendNetWorthSnapshot } from '@/lib/sheets';
+import { getDashboardData, parseWriteVersion, WRITE_VERSION_COOKIE } from '@/lib/apiRoute';
 import { formatCurrency, formatDate, zonedNow, monthShort } from '@/lib/utils';
 import {
   calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
@@ -20,7 +21,6 @@ import { SpendingPieChart, BudgetBars, BudgetVsActualChart, MonthlyBarChart, Goa
 import { RecentTransactions } from './RecentTransactions';
 import { FundingWidget } from './FundingWidget';
 import type { NetWorthPoint } from './DashboardCharts';
-import { cachedOrFetch } from '@/lib/cache';
 import { AnimatedNumber } from '@/components/ui/AnimatedNumber';
 import { RollingNumber } from '@/components/ui/RollingNumber';
 import { StaggerReveal } from '@/components/ui/Reveal';
@@ -56,9 +56,10 @@ export default async function DashboardPage() {
   // One cached Sheets round trip for the whole dashboard (was three: dashboard
   // batch + net-worth history + settings). batchGetDashboardData now folds
   // Settings and NetWorthHistory into a single batchGet.
-  const dashKey = `dashboard:${session.spreadsheetId}`;
-  const dashData = await cachedOrFetch(dashKey, 45_000, () =>
-    batchGetDashboardData(session.accessToken, session.spreadsheetId),
+  const dashData = await getDashboardData(
+    session.accessToken,
+    session.spreadsheetId,
+    parseWriteVersion(jar.get(WRITE_VERSION_COOKIE)?.value),
   );
 
   const { transactions, accounts, bills, budgets, goals, settings, netWorthHistory } = dashData;

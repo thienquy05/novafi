@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { BADGES_CACHE_KEY, BADGES_INVALID_EVENT } from '@/lib/client/store';
+import { BADGES_CACHE_KEY, afterIdle } from '@/lib/client/store';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import {
   LayoutDashboard,
@@ -70,16 +70,12 @@ function useBadges(): BadgeCounts {
         }
       }
     } catch { /* sessionStorage unavailable */ }
-    fetchBadges();
+    // Badges are secondary — let the page's own data load first.
+    return afterIdle(fetchBadges);
   }, [fetchBadges]);
 
-  useEffect(() => {
-    window.addEventListener(BADGES_INVALID_EVENT, fetchBadges);
-    return () => window.removeEventListener(BADGES_INVALID_EVENT, fetchBadges);
-  }, [fetchBadges]);
-
-  // Background re-sync (60s interval + tab-focus refetch) — the sidebar never
-  // remounts, so without this the counts would freeze for the whole session.
+  // Refetch after any write (data-changed event), on tab focus and every 60s —
+  // the sidebar never remounts, so without this the counts would freeze.
   useAutoRefresh(fetchBadges);
 
   return badges;

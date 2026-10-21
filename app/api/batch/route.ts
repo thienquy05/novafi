@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { batchGetSheets, BATCH_KEYS, type BatchKey } from '@/lib/sheets';
 import { getCache, setCache, CACHE_TTL } from '@/lib/cache';
+import { writeVersionOf } from '@/lib/apiRoute';
 
 /**
  * One-round-trip read for pages that need several resources at once (e.g. the
@@ -46,19 +47,21 @@ export async function GET(req: NextRequest) {
 
   const result: Record<string, unknown> = {};
   const misses: BatchKey[] = [];
+  const notBefore = writeVersionOf(req);
 
   for (const key of requested) {
-    const cached = getCache(`${key}:${session.spreadsheetId}`);
+    const cached = getCache(`${key}:${session.spreadsheetId}`, notBefore);
     if (cached !== null) result[key] = cached;
     else misses.push(key);
   }
 
   if (misses.length > 0) {
     try {
+      const fetchedAt = Date.now();
       const fetched = await batchGetSheets(session.accessToken, session.spreadsheetId, misses);
       for (const key of misses) {
         const data = fetched[key] ?? [];
-        setCache(`${key}:${session.spreadsheetId}`, data, TTL[key]);
+        setCache(`${key}:${session.spreadsheetId}`, data, TTL[key], fetchedAt);
         result[key] = data;
       }
     } catch {

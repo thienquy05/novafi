@@ -44,6 +44,8 @@
     "use": "Use",
     "skip": "Skip",
     "loading": "Loading…",
+    "loadErrorTitle": "Couldn't load your data",
+    "loadErrorBody": "Check your connection and try again.",
     "tryAgain": "Try Again",
     "proceed": "Proceed",
     "pullToRefresh": "Pull to refresh",

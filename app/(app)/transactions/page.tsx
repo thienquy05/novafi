@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Search, Pencil, RefreshCw, AlertCircle, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronLeft, ChevronRight, X, Filter, ArrowLeftRight, HandCoins, ArrowUpRight, ArrowDownLeft, UserPlus, Trash2, Check, Archive, Split as SplitIcon } from 'lucide-react';
+import { Plus, Search, Pencil, RefreshCw, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronLeft, ChevronRight, X, Filter, ArrowLeftRight, HandCoins, ArrowUpRight, ArrowDownLeft, UserPlus, Trash2, Check, Archive, Split as SplitIcon } from 'lucide-react';
+import { LoadError } from '@/components/ui/LoadError';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -1904,12 +1905,7 @@ export default function TransactionsPage() {
       {loading ? (
         <TransactionsSkeleton />
       ) : error ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-900/30 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-rose-400" /></div>
-          <p className="text-slate-700 dark:text-slate-300 font-bold text-base mb-1">{t('transactions.errorTitle')}</p>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">{t('transactions.errorBody')}</p>
-          <Button variant="secondary" onClick={() => load(true)}>{t('common.tryAgain')}</Button>
-        </div>
+        <LoadError title={t('transactions.errorTitle')} body={t('transactions.errorBody')} onRetry={() => load(true)} />
       ) : filtered.length === 0 ? (
         transactions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">

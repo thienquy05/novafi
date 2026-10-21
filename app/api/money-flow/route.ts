@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { auth } from '@/lib/auth';
-import { batchGetDashboardData, type DashboardData } from '@/lib/sheets';
-import { getCache, setCache } from '@/lib/cache';
+import { getDashboardData, parseWriteVersion, WRITE_VERSION_COOKIE } from '@/lib/apiRoute';
 import { buildMoneyFlowSummary, topInsights, type Insight, type MoneyFlowSummary } from '@/lib/insights';
 import { t } from '@/lib/i18n';
 import { formatCurrency, zonedNow, DEFAULT_TIME_ZONE } from '@/lib/utils';
@@ -22,14 +21,13 @@ export async function GET() {
   const lang: Language = jar.get('nf_lang')?.value === 'vi' ? 'vi' : 'en';
 
   try {
-    // Cache the raw dashboard payload for a short TTL so repeated modal opens (and
-    // the 60s background refresh) share one Sheets round trip.
-    const dataKey = `moneyflow:${session.spreadsheetId}:data`;
-    let data = getCache<DashboardData>(dataKey);
-    if (!data) {
-      data = await batchGetDashboardData(session.accessToken, session.spreadsheetId);
-      setCache(dataKey, data, 60_000);
-    }
+    // Same cached payload as the dashboard (was a separate `moneyflow:` key that
+    // no write invalidated, so the modal could lag a write by up to 60s).
+    const data = await getDashboardData(
+      session.accessToken,
+      session.spreadsheetId,
+      parseWriteVersion(jar.get(WRITE_VERSION_COOKIE)?.value),
+    );
     const { accounts, transactions, bills, goals, settings, paychecks } = data;
 
     // Anchor "now" to the user's chosen time zone (same as the dashboard) so the
