@@ -1,3 +1,4 @@
+import { MOCK_MODE, createMockSheetsClient } from './devMock';
 import { google } from 'googleapis';
 import type {
   TaxSettings,
@@ -21,6 +22,12 @@ import { parseCategoryBuckets, serializeCategoryBuckets } from './calculations';
 import { withRetryProxy } from './retry';
 
 function getSheetsClient(accessToken: string) {
+  // DEV-ONLY test mode (NOVAFI_MOCK=1, never in production): in-memory Sheets.
+  if (MOCK_MODE) return createMockSheetsClient() as unknown as ReturnType<typeof realSheetsClient>;
+  return realSheetsClient(accessToken);
+}
+
+function realSheetsClient(accessToken: string) {
   const auth = new google.auth.OAuth2();
   auth.setCredentials({ access_token: accessToken });
   // Wrap so every Sheets API call transparently retries transient rate-limit /
@@ -1245,56 +1252,17 @@ export type DashboardData = {
 function parseDashboardCore(
   vr: { values?: unknown[][] | null }[],
 ): Omit<DashboardData, 'netWorthHistory'> {
-  const paychecks: PaycheckEntry[] = (vr[0]?.values ?? []).map((r) => ({
-    id: r[0] ?? '',
-    date: r[1] ?? '',
-    grossAmount: Number(r[2] ?? 0),
-    federalWithheld: Number(r[3] ?? 0),
-    stateWithheld: Number(r[4] ?? 0),
-    localWithheld: Number(r[5] ?? 0),
-    k401: Number(r[6] ?? 0),
-    hsa: Number(r[7] ?? 0),
-    netAmount: Number(r[8] ?? 0),
-    notes: r[9] ?? '',
-    gratuityAmount: Number(r[10] ?? 0),
-    ficaWithheld: Number(r[11] ?? 0),
-  })) as PaycheckEntry[];
-  const transactions: Transaction[] = (vr[1]?.values ?? []).map((r) => rowToTransaction(r as string[]));
-  const accounts: Account[] = (vr[2]?.values ?? []).map((r) => ({
-    id: String(r[0] ?? ''),
-    name: String(r[1] ?? ''),
-    type: (r[2] ?? 'checking') as Account['type'],
-    institution: String(r[3] ?? ''),
-    balance: Number(r[4]) || 0,
-    last4: String(r[5] ?? ''),
-    color: String(r[6] ?? '#6366f1'),
-    createdAt: String(r[7] ?? ''),
-    openingBalance: r[8] === undefined || r[8] === '' ? undefined : Number(r[8]),
-    creditLimit: r[9] === undefined || r[9] === '' ? undefined : Number(r[9]),
-    statementDay: r[10] === undefined || r[10] === '' ? undefined : Number(r[10]),
-    apr: r[11] === undefined || r[11] === '' ? undefined : Number(r[11]),
-    monthlyPayment: r[12] === undefined || r[12] === '' ? undefined : Number(r[12]),
-    termMonths: r[13] === undefined || r[13] === '' ? undefined : Number(r[13]),
-    paymentAccountId: r[14] === undefined || r[14] === '' ? undefined : String(r[14]),
-    minBalance: r[15] === undefined || r[15] === '' ? undefined : Number(r[15]),
-  })) as Account[];
-  const bills: Bill[] = (vr[3]?.values ?? []).map((r) => rowToBill(r as string[]));
-  const budgets: Budget[] = (vr[4]?.values ?? []).map((r) => ({
-    id: r[0] ?? '',
-    category: r[1] ?? '',
-    amount: Number(r[2] ?? 0),
-    period: (r[3] ?? 'monthly') as Budget['period'],
-  })) as Budget[];
-  const goals: Goal[] = (vr[5]?.values ?? []).map((r) => ({
-    id: r[0] ?? '',
-    name: r[1] ?? '',
-    targetAmount: Number(r[2] ?? 0),
-    currentAmount: Number(r[3] ?? 0),
-    deadline: r[4] ?? '',
-    icon: r[5] ?? '🎯',
-    linkedAccountId: r[6] ?? '',
-  })) as Goal[];
-  const settings = parseSettingsRows((vr[6]?.values ?? []) as string[][]);
+  // Same row parsers as the per-resource getters — the dashboard used to carry
+  // its own copies, which silently missed newer columns (card due day/minimum,
+  // budget/goal order), so Home and the bell disagreed with the other pages.
+  const rows = (i: number) => (vr[i]?.values ?? []) as string[][];
+  const paychecks = rows(0).map(rowToPaycheck);
+  const transactions = rows(1).map(rowToTransaction);
+  const accounts = rows(2).map(rowToAccount);
+  const bills = rows(3).map(rowToBill);
+  const budgets = parseBudgets(rows(4));
+  const goals = parseGoals(rows(5));
+  const settings = parseSettingsRows(rows(6));
 
   return { paychecks, transactions, accounts, bills, budgets, goals, settings };
 }
@@ -1313,8 +1281,8 @@ const DASHBOARD_CORE_RANGES = [
   'Transactions!A2:K',
   'Accounts!A2:R200',
   'Bills!A2:M200',
-  'Budgets!A2:D200',
-  'Goals!A2:G200',
+  'Budgets!A2:E200',
+  'Goals!A2:H200',
   SETTINGS_RANGE,
 ];
 
