@@ -78,7 +78,7 @@ async function findOrCreateSpreadsheet(accessToken: string): Promise<string> {
         },
         {
           range: 'Transactions!A1',
-          values: [['id', 'date', 'description', 'amount', 'type', 'category', 'account', 'to_account', 'created_at', 'split_group_id']],
+          values: [['id', 'date', 'description', 'amount', 'type', 'category', 'account', 'to_account', 'created_at', 'split_group_id', 'tags']],
         },
         {
           range: 'Paychecks!A1',

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatAxisCurrency, matchesRange } from '@/lib/utils';
+import { formatAxisCurrency, matchesRange, parseTagInput } from '@/lib/utils';
 
 describe('formatAxisCurrency', () => {
   it('shows real values for small amounts instead of collapsing to $0k', () => {
@@ -47,5 +47,14 @@ describe('matchesRange (transactions date/amount filter)', () => {
     expect(matchesRange(tx, { ...none, min: '50' })).toBe(false);
     expect(matchesRange(tx, { ...none, max: '10' })).toBe(false);
     expect(matchesRange(tx, { ...none, min: 'abc' })).toBe(true);
+  });
+});
+
+describe('parseTagInput', () => {
+  it('splits on commas, trims, drops blanks and case-insensitive duplicates', () => {
+    expect(parseTagInput(' Japan trip, work,, Work ,')).toEqual(['Japan trip', 'work']);
+  });
+  it('strips the storage separator', () => {
+    expect(parseTagInput('a|b')).toEqual(['ab']);
   });
 });

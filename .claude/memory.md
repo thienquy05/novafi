@@ -10,6 +10,17 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-10-21 — Convenience: transaction tags (+ 2,000-row delete bug) (branch claude/novafi-ux-perf-networth)
+
+Plan Section 7.5.
+- WHAT: `Transaction.tags?: string[]`, stored in Transactions column K ('|'-joined; `parseTags`/`transactionRow` in `lib/sheets.ts`); all transaction ranges A2:J → A2:K; new-sheet header gains `tags` (`lib/auth.ts`). The dashboard's duplicated row parser now reuses `rowToTransaction`. CSV export adds a Tags column. WHY: group spending across categories (a trip, a project) without distorting budgets.
+- WHAT (Transactions page): "Tags" field in the add/edit form (comma-separated, `parseTagInput` in `lib/utils.ts`, native `<datalist>` suggestions from existing tags); rows show `#tag` chips; filter sheet "Tags" section lists every tag with its all-time spend (`formatCompact`), single-select; active chip; search also matches tags; included in Clear / counts.
+- FIX: `deleteRowById` scanned only `A2:A2000` → rows past 2,000 could not be deleted, and `updateTransaction` (delete + append) would DUPLICATE them. Now scans the whole column.
+- FIX: editing via the plain form preserved `splitGroupId` (the merchant view could open a category-split row in it and drop the group id).
+- Tests: parseTagInput, CSV tags column.
+
+---
+
 ## 2026-10-21 — Convenience: swipe actions on Bills + Accounts (branch claude/novafi-ux-perf-networth)
 
 Plan Section 7.4.

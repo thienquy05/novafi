@@ -211,3 +211,16 @@ export function matchesRange(tx: { date: string; amount: number }, r: TxRange): 
   if (Number.isFinite(max) && tx.amount > max) return false;
   return true;
 }
+
+/** "Japan trip, work,, Work " → ['Japan trip', 'work'] (trimmed, de-duplicated case-insensitively). */
+export function parseTagInput(input: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of input.split(',')) {
+    const tag = raw.replace(/\|/g, '').trim();
+    if (!tag || seen.has(tag.toLowerCase())) continue;
+    seen.add(tag.toLowerCase());
+    out.push(tag);
+  }
+  return out;
+}

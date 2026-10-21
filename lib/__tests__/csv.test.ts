@@ -10,8 +10,8 @@ describe('transactionsToCsv', () => {
   it('emits a header row plus one row per transaction', () => {
     const csv = transactionsToCsv([makeTx({ type: 'expense', description: 'Coffee', amount: 4.5 })]);
     const lines = csv.split('\n');
-    expect(lines[0]).toBe('"Date","Description","Amount","Type","Category","Account","To Account"');
-    expect(lines[1]).toBe('"2026-05-01","Coffee","4.50","expense","Food","chk",""');
+    expect(lines[0]).toBe('"Date","Description","Amount","Type","Category","Account","To Account","Tags"');
+    expect(lines[1]).toBe('"2026-05-01","Coffee","4.50","expense","Food","chk","",""');
   });
 
   it('maps account ids to names and includes transfer destinations', () => {
@@ -20,7 +20,12 @@ describe('transactionsToCsv', () => {
       [makeTx({ type: 'transfer', description: 'Move', amount: 200, account: 'chk', toAccount: 'sav' })],
       (id) => names[id] ?? id,
     );
-    expect(csv.split('\n')[1]).toBe('"2026-05-01","Move","200.00","transfer","Food","Checking","Savings"');
+    expect(csv.split('\n')[1]).toBe('"2026-05-01","Move","200.00","transfer","Food","Checking","Savings",""');
+  });
+
+  it('exports tags comma-separated', () => {
+    const csv = transactionsToCsv([makeTx({ type: 'expense', amount: 1, tags: ['Japan trip', 'work'] })]);
+    expect(csv.split('\n')[1]).toMatch(/"Japan trip, work"$/);
   });
 
   it('escapes embedded quotes per RFC 4180', () => {

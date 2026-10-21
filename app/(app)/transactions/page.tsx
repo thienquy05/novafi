@@ -11,7 +11,7 @@ import { Modal } from '@/components/ui/Modal';
 import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { TransactionsSkeleton } from '@/components/ui/Skeleton';
 import { Collapsible } from '@/components/ui/Collapsible';
-import { formatCurrency, formatCompact, formatDate, generateId, today, dateLocale, matchesRange, type TxRange } from '@/lib/utils';
+import { formatCurrency, formatCompact, formatDate, generateId, today, dateLocale, matchesRange, parseTagInput, type TxRange } from '@/lib/utils';
 import { transactionsToCsv } from '@/lib/csv';
 import { calcLoanRemaining } from '@/lib/calculations';
 import { peekCache, ensureResources } from '@/lib/client/store';
@@ -111,6 +111,7 @@ const EMPTY_FORM = {
   category: 'Food',
   account: '',
   toAccount: '',
+  tags: '', // comma-separated while editing
 };
 
 // ── Loans / IOUs ───────────────────────────────────────────────────────────────
@@ -231,6 +232,9 @@ export default function TransactionsPage() {
   // refunds/audits that don't line up with a calendar month. Same draft → apply flow.
   const [range, setRange] = useState<TxRange>(EMPTY_RANGE);
   const [draftRange, setDraftRange] = useState<TxRange>(EMPTY_RANGE);
+  // One tag at a time ('' = any) — e.g. "Japan trip" to see everything it cost.
+  const [tagFilter, setTagFilter] = useState('');
+  const [draftTag, setDraftTag] = useState('');
   // "View All" expander for the Custom Accounts row (collapsed to one line until tapped).
   const [showAllCustomAccounts, setShowAllCustomAccounts] = useState(false);
   // Type-to-filter query for the "Card used" picker so the list stays short and
@@ -363,14 +367,25 @@ export default function TransactionsPage() {
   const editManaged = !!editTarget && managedTxIds.has(editTarget.id);
 
   const filtered = useMemo(() => transactions.filter((tx) => {
-    const matchSearch = !search || tx.description.toLowerCase().includes(search.toLowerCase()) || tx.category.toLowerCase().includes(search.toLowerCase());
+    const q = search.toLowerCase();
+    const matchSearch = !search || tx.description.toLowerCase().includes(q) || tx.category.toLowerCase().includes(q) || (tx.tags ?? []).some((tag) => tag.toLowerCase().includes(q));
+    const matchTag = !tagFilter || (tx.tags ?? []).includes(tagFilter);
     const matchFilter = filter === 'all' || tx.type === filter;
     const matchCategory = categoryFilters.length === 0 || categoryFilters.includes(tx.category);
     // "Card used": match either leg so transfers between cards surface under both.
     const matchAccount = accountFilters.length === 0 || accountFilters.includes(tx.account) || (!!tx.toAccount && accountFilters.includes(tx.toAccount));
     const matchMonth = selectedMonth === null || tx.date.slice(0, 7) === selectedMonth;
-    return matchSearch && matchFilter && matchCategory && matchAccount && matchMonth && matchesRange(tx, range);
-  }), [transactions, search, filter, categoryFilters, accountFilters, selectedMonth, range]);
+    return matchSearch && matchTag && matchFilter && matchCategory && matchAccount && matchMonth && matchesRange(tx, range);
+  }), [transactions, search, filter, categoryFilters, accountFilters, selectedMonth, range, tagFilter]);
+
+  // Every tag in use, with its all-time spend — feeds the tag filter + form suggestions.
+  const tagTotals = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const tx of transactions) for (const tag of tx.tags ?? []) {
+      totals.set(tag, (totals.get(tag) ?? 0) + (tx.type === 'expense' ? tx.amount : 0));
+    }
+    return [...totals.entries()].sort((a, b) => b[1] - a[1]);
+  }, [transactions]);
 
   // Committed-state toggles — used by the active-filter chips in the page header,
   // which remove a live filter on tap (the sheet itself edits the draft below).
@@ -394,6 +409,7 @@ export default function TransactionsPage() {
     setDraftCategoryFilters(categoryFilters);
     setDraftAccountFilters(accountFilters);
     setDraftRange(range);
+    setDraftTag(tagFilter);
     setCardFilterQuery('');
     setShowAllCustomAccounts(false);
     setFilterSheetOpen(true);
@@ -405,20 +421,22 @@ export default function TransactionsPage() {
     setCategoryFilters(draftCategoryFilters);
     setAccountFilters(draftAccountFilters);
     setRange(draftRange);
+    setTagFilter(draftTag);
     // A date range replaces the month scope (they would otherwise intersect).
     if (draftRange.from || draftRange.to) setSelectedMonth(null);
     setFilterSheetOpen(false);
   }
   function clearAllFilters() {
-    setSearch(''); setFilter('all'); setCategoryFilters([]); setAccountFilters([]); setRange(EMPTY_RANGE);
+    setSearch(''); setFilter('all'); setCategoryFilters([]); setAccountFilters([]); setRange(EMPTY_RANGE); setTagFilter('');
   }
   function clearAllDraft() {
     setDraftFilter('all');
     setDraftCategoryFilters([]);
     setDraftAccountFilters([]);
     setDraftRange(EMPTY_RANGE);
+    setDraftTag('');
   }
-  const draftFilterCount = (draftFilter !== 'all' ? 1 : 0) + draftCategoryFilters.length + draftAccountFilters.length + rangeFilterCount(draftRange);
+  const draftFilterCount = (draftFilter !== 'all' ? 1 : 0) + draftCategoryFilters.length + draftAccountFilters.length + rangeFilterCount(draftRange) + (draftTag ? 1 : 0);
 
   // Accounts split into the two groups the filter sheet shows: "Payment Methods"
   // (what you pay with — checking / credit / cash) and "Custom Accounts" (savings /
@@ -451,7 +469,7 @@ export default function TransactionsPage() {
   function openAdd() { setEditTarget(null); setForm(EMPTY_FORM); setOpen(true); }
   function openEdit(tx: Transaction) {
     setEditTarget(tx);
-    setForm({ date: tx.date, description: tx.description, amount: String(tx.amount), type: tx.type, category: tx.category, account: tx.account, toAccount: tx.toAccount ?? '' });
+    setForm({ date: tx.date, description: tx.description, amount: String(tx.amount), type: tx.type, category: tx.category, account: tx.account, toAccount: tx.toAccount ?? '', tags: (tx.tags ?? []).join(', ') });
     setOpen(true);
   }
   function closeModal() { setOpen(false); setEditTarget(null); setForm(EMPTY_FORM); }
@@ -462,7 +480,7 @@ export default function TransactionsPage() {
   }
 
   function applyTemplate(tpl: Template) {
-    setForm({ date: today(), description: tpl.description, amount: String(tpl.amount), type: tpl.type, category: tpl.category, account: tpl.account, toAccount: '' });
+    setForm({ date: today(), description: tpl.description, amount: String(tpl.amount), type: tpl.type, category: tpl.category, account: tpl.account, toAccount: '', tags: '' });
     setShowTemplates(false);
     setOpen(true);
   }
@@ -558,6 +576,8 @@ export default function TransactionsPage() {
       account: form.account,
       toAccount: form.type === 'transfer' ? form.toAccount : undefined,
       createdAt: editTarget?.createdAt ?? new Date().toISOString(),
+      splitGroupId: editTarget?.splitGroupId,
+      tags: parseTagInput(form.tags),
     };
 
     if (editTarget) {
@@ -1732,7 +1752,7 @@ export default function TransactionsPage() {
   const merchantRows = useMemo(() => buildMerchantRows(filtered), [filtered]);
   // Reset paging whenever the active filters change. Adjusting state during
   // render (rather than in an effect) avoids a cascading re-render.
-  const filterKey = `${search}|${filter}|${categoryFilters.join(',')}|${accountFilters.join(',')}|${selectedMonth ?? 'all'}|${JSON.stringify(range)}`;
+  const filterKey = `${search}|${filter}|${categoryFilters.join(',')}|${accountFilters.join(',')}|${selectedMonth ?? 'all'}|${JSON.stringify(range)}|${tagFilter}`;
   if (filterKey !== prevFilterKey) {
     setPrevFilterKey(filterKey);
     setVisibleCount(PAGE_SIZE);
@@ -1748,7 +1768,7 @@ export default function TransactionsPage() {
     }
     return groups;
   }, [visibleTransactions]);
-  const activeFilterCount = (filter !== 'all' ? 1 : 0) + categoryFilters.length + accountFilters.length + rangeFilterCount(range);
+  const activeFilterCount = (filter !== 'all' ? 1 : 0) + categoryFilters.length + accountFilters.length + rangeFilterCount(range) + (tagFilter ? 1 : 0);
 
   const filterLabels: Record<string, string> = {
     all: t('common.all'),
@@ -1926,6 +1946,11 @@ export default function TransactionsPage() {
                 {accountName(id)} <X className="w-3 h-3" />
               </button>
             ))}
+            {tagFilter && (
+              <button onClick={() => setTagFilter('')} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold border border-indigo-100 dark:border-indigo-800/50">
+                #{tagFilter} <X className="w-3 h-3" />
+              </button>
+            )}
             {(range.from || range.to) && (
               <button onClick={() => setRange((r) => ({ ...r, from: '', to: '' }))} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold border border-indigo-100 dark:border-indigo-800/50">
                 {range.from ? formatDate(range.from) : '…'} – {range.to ? formatDate(range.to) : '…'} <X className="w-3 h-3" />
@@ -2087,6 +2112,22 @@ export default function TransactionsPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input label={t('common.date')} type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
             <Input label={t('common.description')} placeholder={t('transactions.phDescription')} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
+          </div>
+          <div>
+            <Input
+              label={t('transactions.tags')}
+              placeholder={t('transactions.tagsPlaceholder')}
+              value={form.tags}
+              list="nf-tx-tags"
+              autoComplete="off"
+              onChange={(e) => setForm((f) => ({ ...f, tags: e.target.value }))}
+            />
+            {/* Native suggestions from tags already in use (completes the whole
+                field, so it's most useful for the first/only tag). */}
+            <datalist id="nf-tx-tags">
+              {tagTotals.map(([tag]) => <option key={tag} value={tag} />)}
+            </datalist>
+            <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 mt-1">{t('transactions.tagsHint')}</p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {form.type !== 'transfer' && (
@@ -2672,6 +2713,27 @@ export default function TransactionsPage() {
                     </section>
                   )}
 
+                  {/* ── TAGS (one at a time, with each tag's total spend) ── */}
+                  {tagTotals.length > 0 && (
+                    <section>
+                      <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2.5">{t('transactions.tagsSection')}</p>
+                      <div className="flex gap-2 flex-wrap">
+                        {tagTotals.map(([tag, spent]) => (
+                          <button
+                            key={`tag-${tag}`}
+                            onClick={() => setDraftTag((cur) => (cur === tag ? '' : tag))}
+                            aria-pressed={draftTag === tag}
+                            title={t('transactions.tagSpent', { amount: formatCurrency(spent) })}
+                            className={`px-4 h-9 rounded-full text-[13px] font-semibold transition-all duration-200 whitespace-nowrap inline-flex items-center gap-1.5 ${draftTag === tag ? 'bg-indigo-600 text-white border border-indigo-600' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'}`}
+                          >
+                            #{tag}
+                            <span className={`text-[11px] font-bold ${draftTag === tag ? 'text-indigo-100' : 'text-slate-400 dark:text-slate-500'}`}>{formatCompact(spent)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
                   {/* ── Section 4: DATE RANGE + AMOUNT ── */}
                   <section className="space-y-5">
                     <div>
@@ -2768,6 +2830,13 @@ function SwipeableRow({ tx, accountName, onEdit, onDelete, managed, onSplit }: S
                 {tx.category}{tx.account ? ` · ${accountName(tx.account)}` : ''}{tx.type === 'transfer' && tx.toAccount ? ` → ${accountName(tx.toAccount)}` : ''}
               </p>
             </div>
+            {tx.tags && tx.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1">
+                {tx.tags.map((tag) => (
+                  <span key={tag} className="text-[11px] leading-4 font-bold px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 max-w-[10rem] truncate">#{tag}</span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-1.5 ml-3 shrink-0">

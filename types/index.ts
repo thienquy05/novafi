@@ -86,6 +86,8 @@ export interface Transaction {
   // amount) sharing this id. Absent/'' = a normal standalone transaction. Distinct
   // from the people-split (Split type) which shares a cost across contacts.
   splitGroupId?: string;
+  // Free-form labels (a trip, a project) that cut ACROSS budget categories.
+  tags?: string[];
 }
 
 export interface Account {

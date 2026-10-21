@@ -296,7 +296,7 @@ export async function getTransactions(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Transactions!A2:J',
+    range: 'Transactions!A2:K',
     valueRenderOption: 'UNFORMATTED_VALUE',
   });
   return (res.data.values ?? []).map(rowToTransaction);
@@ -314,12 +314,23 @@ function rowToTransaction(r: string[]): Transaction {
     toAccount: r[7] ?? '',
     createdAt: r[8] ?? '',
     splitGroupId: r[9] ?? '',
+    // Column K (added Oct 2026) — '|'-joined free-form tags; blank on older rows.
+    tags: parseTags(r[10]),
   };
 }
 
-// Serialize one transaction to its sheet row (column order = A..J).
+function parseTags(cell: string | undefined): string[] | undefined {
+  const tags = String(cell ?? '').split('|').map((t) => t.trim()).filter(Boolean);
+  return tags.length > 0 ? tags : undefined;
+}
+
+// Serialize one transaction to its sheet row (column order = A..K).
 function transactionRow(tx: Transaction): (string | number)[] {
-  return [tx.id, tx.date, tx.description, tx.amount, tx.type, tx.category, tx.account, tx.toAccount ?? '', tx.createdAt ?? '', tx.splitGroupId ?? ''];
+  return [
+    tx.id, tx.date, tx.description, tx.amount, tx.type, tx.category, tx.account,
+    tx.toAccount ?? '', tx.createdAt ?? '', tx.splitGroupId ?? '',
+    (tx.tags ?? []).map((t) => t.replace(/\|/g, '').trim()).filter(Boolean).join('|'),
+  ];
 }
 
 export async function addTransaction(
@@ -1237,18 +1248,7 @@ function parseDashboardCore(
     gratuityAmount: Number(r[10] ?? 0),
     ficaWithheld: Number(r[11] ?? 0),
   })) as PaycheckEntry[];
-  const transactions: Transaction[] = (vr[1]?.values ?? []).map((r) => ({
-    id: r[0] ?? '',
-    date: r[1] ?? '',
-    description: r[2] ?? '',
-    amount: Number(r[3] ?? 0),
-    type: (r[4] ?? 'expense') as Transaction['type'],
-    category: r[5] ?? '',
-    account: r[6] ?? '',
-    toAccount: r[7] ?? '',
-    createdAt: r[8] ?? '',
-    splitGroupId: r[9] ?? '',
-  })) as Transaction[];
+  const transactions: Transaction[] = (vr[1]?.values ?? []).map((r) => rowToTransaction(r as string[]));
   const accounts: Account[] = (vr[2]?.values ?? []).map((r) => ({
     id: String(r[0] ?? ''),
     name: String(r[1] ?? ''),
@@ -1299,7 +1299,7 @@ function parseDashboardCore(
  */
 const DASHBOARD_CORE_RANGES = [
   'Paychecks!A2:L',
-  'Transactions!A2:J',
+  'Transactions!A2:K',
   'Accounts!A2:P200',
   'Bills!A2:M200',
   'Budgets!A2:D200',
@@ -1376,7 +1376,7 @@ const BATCHABLE_SHEETS: Record<
   { range: string; parse: (rows: string[][]) => unknown[] }
 > = {
   accounts:     { range: 'Accounts!A2:P200',  parse: (rows) => rows.map(rowToAccount) },
-  transactions: { range: 'Transactions!A2:J', parse: (rows) => rows.map(rowToTransaction) },
+  transactions: { range: 'Transactions!A2:K', parse: (rows) => rows.map(rowToTransaction) },
   bills:        { range: 'Bills!A2:M200',     parse: (rows) => rows.map(rowToBill) },
   paychecks:    { range: 'Paychecks!A2:L',    parse: (rows) => rows.map(rowToPaycheck) },
   budgets:      { range: 'Budgets!A2:E200',   parse: parseBudgets },
@@ -1594,7 +1594,9 @@ async function deleteRowById(
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${sheetName}!A2:A2000`,
+    // Whole column: a fixed A2:A2000 window silently missed every row past 2,000
+    // (updateTransaction = delete + append would then DUPLICATE the row).
+    range: `${sheetName}!A2:A`,
   });
   const ids = (res.data.values ?? []).map((r) => r[0]);
   const rowIndex = ids.indexOf(id);
