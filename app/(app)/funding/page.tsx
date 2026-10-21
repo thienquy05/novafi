@@ -1,7 +1,10 @@
 'use client';
 import { useState, useEffect, useCallback, Children, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { CircleDollarSign, Plus, Trash2, Users, Wallet, RefreshCw, AlertCircle, MinusCircle, UserPlus, Pencil, HandCoins, Archive, ArchiveRestore, ChevronDown, Receipt, Landmark, PartyPopper, Target, Share2, Sparkles, Clock, SlidersHorizontal, CalendarDays } from 'lucide-react';
+import { CircleDollarSign, Plus, Trash2, Users, Wallet, AlertCircle, MinusCircle, UserPlus, Pencil, HandCoins, Archive, ArchiveRestore, ChevronDown, Receipt, Landmark, PartyPopper, Target, Share2, Sparkles, Clock, SlidersHorizontal, CalendarDays } from 'lucide-react';
+import { LoadError } from '@/components/ui/LoadError';
+import { FitText } from '@/components/ui/FitText';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -11,8 +14,8 @@ import { Modal } from '@/components/ui/Modal';
 import { Collapsible } from '@/components/ui/Collapsible';
 import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
-import { usePullToRefresh } from '@/hooks/usePullToRefresh';
-import { peekCache, ensureResources } from '@/lib/client/store';
+import { PullToRefresh } from '@/components/PullToRefresh';
+import { peekCache, ensureResources, isFresh } from '@/lib/client/store';
 import { loadTransactionsByIds } from '@/lib/client/api';
 import { useToast } from '@/lib/toast';
 import { useTranslation } from '@/lib/i18n/context';
@@ -51,6 +54,8 @@ const POOL_SPEND_CATEGORIES = [
 // but capping the rendered rows keeps the DOM light when a single pool builds up
 // a long history over time — only the most recent few matter at a glance.
 const HISTORY_CAP = 20;
+// Emerald "money in" secondary button (add contribution / record payment).
+const EMERALD_BTN = 'text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-50 dark:hover:bg-emerald-900/30';
 
 // Wraps a scrollable history list: renders at most HISTORY_CAP children, with a
 // toggle to reveal the rest. The children are pre-keyed elements (one per row),
@@ -80,7 +85,7 @@ function CappedList({ moreLabel, lessLabel, children }: {
 }
 
 export default function FundingPage() {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const toast = useToast();
   const router = useRouter();
   const [fundings, setFundings] = useState<Funding[]>(() => peekCache(['funding'])?.funding ?? []);
@@ -141,6 +146,12 @@ export default function FundingPage() {
   const [settledFor, setSettledFor] = useState<{ pool: Funding; tx: Transaction; removeTxIds: string[]; wasEditing: boolean } | null>(null);
   // Delete confirmation modal: holds the pool to delete until user confirms.
   const [deleteFor, setDeleteFor] = useState<Funding | null>(null);
+  // In-app confirm (replaces the browser's blocking confirm()): askConfirm()
+  // opens the Modal below and resolves true/false when the user answers.
+  const [confirmAsk, setConfirmAsk] = useState<{ message: string; destructive: boolean; resolve: (ok: boolean) => void } | null>(null);
+  const askConfirm = (message: string, destructive = false) =>
+    new Promise<boolean>((resolve) => setConfirmAsk({ message, destructive, resolve }));
+  const answerConfirm = (ok: boolean) => { confirmAsk?.resolve(ok); setConfirmAsk(null); };
 
   const toggle = (set: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) =>
     set((prev) => {
@@ -178,8 +189,16 @@ export default function FundingPage() {
       // Resolve only the ledger rows these pools reference (spends + the legacy
       // contribution row + real-pool cash-ins) instead of pulling the entire
       // Transactions sheet — keeps the page light no matter how many settled
-      // payments have piled up in the ledger over time.
-      setTransactions(await loadTransactionsByIds(referencedTxIds(data.funding)));
+      // payments have piled up in the ledger over time. When another page already
+      // loaded the ledger recently, filter that copy and skip the second round trip.
+      const ids = referencedTxIds(data.funding);
+      const cachedLedger = !force && isFresh(['transactions']) ? peekCache(['transactions'])?.transactions : null;
+      if (cachedLedger) {
+        const wanted = new Set(ids);
+        setTransactions(cachedLedger.filter((tx) => wanted.has(tx.id)));
+      } else {
+        setTransactions(await loadTransactionsByIds(ids));
+      }
       setError(false);
     } catch {
       setError(true);
@@ -190,7 +209,6 @@ export default function FundingPage() {
 
   useEffect(() => { load(); }, [load]);
   useAutoRefresh(() => load(true));
-  const { pullY, refreshing } = usePullToRefresh(() => load(true));
 
   // Accounts you can CHARGE a spend to: spendable deposits plus credit cards.
   // (Plain derived consts — the React Compiler memoizes them; a manual useMemo here
@@ -370,7 +388,7 @@ export default function FundingPage() {
   }
 
   async function deleteSpend(f: Funding, s: FundingSpend) {
-    if (!confirm(t('funding.confirmDeleteSpend'))) return;
+    if (!(await askConfirm(t('funding.confirmDeleteSpend'), true))) return;
     const updated: Funding = {
       ...f,
       spent: Math.max(0, round2(f.spent - s.amount)),
@@ -441,7 +459,7 @@ export default function FundingPage() {
   }
 
   async function deleteContribution(f: Funding, c: FundingContribution) {
-    if (!confirm(t('funding.confirmDeleteContribution'))) return;
+    if (!(await askConfirm(t('funding.confirmDeleteContribution'), true))) return;
     const contributions = (f.contributions ?? []).filter((x) => x.id !== c.id);
     const updated: Funding = {
       ...f,
@@ -505,7 +523,7 @@ export default function FundingPage() {
   }
 
   async function deletePayment(f: Funding, r: FundingRepayment) {
-    if (!confirm(t('funding.confirmDeletePayment'))) return;
+    if (!(await askConfirm(t('funding.confirmDeletePayment'), true))) return;
     const updated: Funding = { ...f, repayments: f.repayments.filter((x) => x.id !== r.id) };
     setFundings((prev) => prev.map((x) => x.id === updated.id ? updated : x));
     await persist(updated, [], [r.id], 'funding.paymentDeleted');
@@ -516,7 +534,7 @@ export default function FundingPage() {
     const remaining = poolRemaining(f);
     const lines: string[] = [
       `${real ? '🏦' : '📋'} ${f.description} · ${real ? 'Group Vault' : 'Group Tab'}`,
-      `📅 ${formatDate(f.date)}`,
+      `📅 ${formatDate(f.date, lang)}`,
       '',
       `💰 Pool: ${formatCurrency(f.totalContributed)} | Spent: ${formatCurrency(f.spent)} | ${remaining >= 0 ? 'Remaining' : 'Overspent'}: ${formatCurrency(Math.abs(remaining))}`,
     ];
@@ -609,7 +627,7 @@ export default function FundingPage() {
       if (o.origName && o.name.trim() && num(o.amount) > 0) keptRename[o.origName] = o.name.trim();
     }
     const droppedRepaid = editFor.repayments.filter((r) => keptRename[r.participant] === undefined).length;
-    if (droppedRepaid > 0 && !confirm(t('funding.confirmDropPaid', { n: droppedRepaid }))) return;
+    if (droppedRepaid > 0 && !(await askConfirm(t('funding.confirmDropPaid', { n: droppedRepaid })))) return;
     const { funding, addTxs, removeTxIds } = planVirtualPoolEdit(editFor, newParticipants, description, transactions, keptRename);
     setFundings((prev) => prev.map((f) => f.id === funding.id ? funding : f));
     setEditFor(null);
@@ -696,39 +714,42 @@ export default function FundingPage() {
     return (
       <Card key={f.id} tone={real ? 'emerald' : 'indigo'} className={`space-y-4 ${f.closed ? 'opacity-75' : ''}`}>
         <div className="space-y-2">
+          {/* Title gets its own line (wraps to 2 lines max) — badges + date used to
+              share the row and squeeze a long title down to "…" on phones. */}
+          <p className="font-bold text-slate-900 dark:text-slate-100 break-words wrap-anywhere">{f.description}</p>
           <div className="flex items-center gap-2 flex-wrap min-w-0">
-            <p className="font-bold text-slate-900 dark:text-slate-100 truncate flex-1">{f.description}</p>
-            <span className={`shrink-0 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${real ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' : 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300'}`}>
+            <span className={`shrink-0 inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${real ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' : 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300'}`}>
               {real ? <Landmark className="w-3 h-3" /> : <Receipt className="w-3 h-3" />}
               {real ? t('funding.realBadge') : t('funding.virtualBadge')}
             </span>
             {f.closed && (
-              <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full">
+              <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full">
                 <Archive className="w-3 h-3" />{t('funding.archivedBadge')}
               </span>
             )}
-            <span className="shrink-0 text-xs font-medium text-slate-400 dark:text-slate-500">{formatDate(f.date)}</span>
+            <span className="shrink-0 text-xs font-medium text-slate-400 dark:text-slate-500">{formatDate(f.date, lang)}</span>
           </div>
-          <div className="flex items-center gap-1 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {!f.closed && (
               <Button variant="secondary" size="sm" onClick={() => openSpend(f)}>
                 <MinusCircle className="w-4 h-4" />{t('funding.spend')}
               </Button>
             )}
             {real && !f.closed && (
-              <Button variant="secondary" size="sm" className="text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-50 dark:hover:bg-emerald-900/30" onClick={() => openContrib(f)}>
+              <Button variant="secondary" size="sm" className={EMERALD_BTN} onClick={() => openContrib(f)}>
                 <Plus className="w-4 h-4" />{t('funding.addContribution')}
               </Button>
             )}
             {!real && owed > 0 && !f.closed && (
-              <Button variant="secondary" size="sm" className="text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-50 dark:hover:bg-emerald-900/30" onClick={() => openPay(f)}>
+              <Button variant="secondary" size="sm" className={EMERALD_BTN} onClick={() => openPay(f)}>
                 <HandCoins className="w-4 h-4" />{t('funding.recordPayment')}
               </Button>
             )}
-            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 h-9 w-9 rounded-xl" onClick={() => copyPoolSummary(f)} aria-label={t('funding.sharePool')} title={t('funding.sharePool')}><Share2 className="w-4 h-4" /></Button>
-            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 h-9 w-9 rounded-xl" onClick={() => openEdit(f)} aria-label={t('funding.editPool')} title={t('funding.editPool')}><Pencil className="w-4 h-4" /></Button>
-            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 h-9 w-9 rounded-xl" onClick={() => setArchived(f, !f.closed)} aria-label={f.closed ? t('funding.reopen') : t('funding.archive')} title={f.closed ? t('funding.reopen') : t('funding.archive')}>{f.closed ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}</Button>
-            <Button variant="ghost" size="icon" className="text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 h-9 w-9 rounded-xl" onClick={() => setDeleteFor(f)} aria-label={t('common.delete')}><Trash2 className="w-4 h-4" /></Button>
+            <span className="flex-1" aria-hidden />
+            <Button variant="ghost" size="icon" className="hit-area text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 h-9 w-9 rounded-xl" onClick={() => copyPoolSummary(f)} aria-label={t('funding.sharePool')} title={t('funding.sharePool')}><Share2 className="w-4 h-4" /></Button>
+            <Button variant="ghost" size="icon" className="hit-area text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 h-9 w-9 rounded-xl" onClick={() => openEdit(f)} aria-label={t('funding.editPool')} title={t('funding.editPool')}><Pencil className="w-4 h-4" /></Button>
+            <Button variant="ghost" size="icon" className="hit-area text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 h-9 w-9 rounded-xl" onClick={() => setArchived(f, !f.closed)} aria-label={f.closed ? t('funding.reopen') : t('funding.archive')} title={f.closed ? t('funding.reopen') : t('funding.archive')}>{f.closed ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}</Button>
+            <Button variant="ghost" size="icon" className="hit-area text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 h-9 w-9 rounded-xl" onClick={() => setDeleteFor(f)} aria-label={t('common.delete')}><Trash2 className="w-4 h-4" /></Button>
           </div>
         </div>
 
@@ -743,19 +764,20 @@ export default function FundingPage() {
           </div>
         )}
 
-        {/* Pool figures */}
-        <div className="grid grid-cols-3 gap-3">
-          <div className="rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-3">
-            <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('funding.pool')}</p>
-            <p className="text-base font-extrabold text-slate-900 dark:text-slate-100 mt-0.5">{formatCurrency(f.totalContributed)}</p>
+        {/* Pool figures — min-w-0 + FitText so large amounts shrink to fit three
+            narrow columns on a phone instead of overflowing the card. */}
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          <div className="min-w-0 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-3">
+            <p className="stat-label text-slate-500 dark:text-slate-400">{t('funding.pool')}</p>
+            <FitText maxSize={16} minSize={11} className="font-extrabold text-slate-900 dark:text-slate-100 mt-0.5">{formatCurrency(f.totalContributed)}</FitText>
           </div>
-          <div className="rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-3">
-            <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('funding.spent')}</p>
-            <p className="text-base font-extrabold text-rose-600 dark:text-rose-400 mt-0.5">{formatCurrency(f.spent)}</p>
+          <div className="min-w-0 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-3">
+            <p className="stat-label text-slate-500 dark:text-slate-400">{t('funding.spent')}</p>
+            <FitText maxSize={16} minSize={11} className="font-extrabold text-rose-600 dark:text-rose-400 mt-0.5">{formatCurrency(f.spent)}</FitText>
           </div>
-          <div className={`rounded-2xl p-3 border ${remaining < 0 ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-100 dark:border-amber-800/40' : 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800/40'}`}>
-            <p className={`text-[11px] font-bold uppercase tracking-wider ${remaining < 0 ? 'text-amber-700/80 dark:text-amber-400/80' : 'text-emerald-700/80 dark:text-emerald-400/80'}`}>{remaining < 0 ? t('funding.overspent') : real ? t('funding.balance') : t('funding.remaining')}</p>
-            <p className={`text-base font-extrabold mt-0.5 ${remaining < 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{formatCurrency(Math.abs(remaining))}</p>
+          <div className={`min-w-0 rounded-2xl p-3 border ${remaining < 0 ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-100 dark:border-amber-800/40' : 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800/40'}`}>
+            <p className={`stat-label ${remaining < 0 ? 'text-amber-700/80 dark:text-amber-400/80' : 'text-emerald-700/80 dark:text-emerald-400/80'}`}>{remaining < 0 ? t('funding.overspent') : real ? t('funding.balance') : t('funding.remaining')}</p>
+            <FitText maxSize={16} minSize={11} className={`font-extrabold mt-0.5 ${remaining < 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{formatCurrency(Math.abs(remaining))}</FitText>
           </div>
         </div>
 
@@ -841,19 +863,19 @@ export default function FundingPage() {
                   <div key={s.key} className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 px-3 py-2">
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5 mb-0.5">
-                        <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{s.description}</p>
+                        <p className="text-sm font-bold text-slate-700 dark:text-slate-200 wrap-anywhere">{s.description}</p>
                         {s.category && s.category !== 'Other' && (
-                          <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400">{POOL_SPEND_CATEGORIES.find((c) => c.value === s.category)?.label ?? s.category}</span>
+                          <span className="shrink-0 text-[11px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400">{POOL_SPEND_CATEGORIES.find((c) => c.value === s.category)?.label ?? s.category}</span>
                         )}
                       </div>
                       <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
-                        {t('funding.chargedTo', { account: accountName(s.chargedAccount) })}{s.myShare > 0 ? ` · ${t('funding.yourShareOf', { amount: formatCurrency(s.myShare) })}` : ''} · {formatDate(s.date)}
+                        {t('funding.chargedTo', { account: accountName(s.chargedAccount) })}{s.myShare > 0 ? ` · ${t('funding.yourShareOf', { amount: formatCurrency(s.myShare) })}` : ''} · {formatDate(s.date, lang)}
                       </p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <span className="text-sm font-extrabold text-rose-600 dark:text-rose-400">{formatCurrency(s.amount)}</span>
-                      <button onClick={() => openEditSpend(f, s)} className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1.5 rounded-lg" aria-label={t('funding.edit')}><Pencil className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => deleteSpend(f, s)} className="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-1.5 rounded-lg" aria-label={t('common.delete')}><Trash2 className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => openEditSpend(f, s)} className="hit-area text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1.5 rounded-lg" aria-label={t('funding.edit')}><Pencil className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => deleteSpend(f, s)} className="hit-area text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-1.5 rounded-lg" aria-label={t('common.delete')}><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   </div>
                 ))}
@@ -883,13 +905,13 @@ export default function FundingPage() {
                     <div className="min-w-0">
                       <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{c.participant}</p>
                       <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
-                        {c.isMe ? t('funding.fromAccount', { account: accountName(c.account) }) : t('funding.cashHandedIn')} · {formatDate(c.date)}
+                        {c.isMe ? t('funding.fromAccount', { account: accountName(c.account) }) : t('funding.cashHandedIn')} · {formatDate(c.date, lang)}
                       </p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">{formatCurrency(c.amount)}</span>
-                      <button onClick={() => openEditContrib(f, c)} className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1.5 rounded-lg" aria-label={t('funding.edit')}><Pencil className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => deleteContribution(f, c)} className="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-1.5 rounded-lg" aria-label={t('common.delete')}><Trash2 className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => openEditContrib(f, c)} className="hit-area text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1.5 rounded-lg" aria-label={t('funding.edit')}><Pencil className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => deleteContribution(f, c)} className="hit-area text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-1.5 rounded-lg" aria-label={t('common.delete')}><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   </div>
                 ))}
@@ -918,12 +940,12 @@ export default function FundingPage() {
                   <div key={r.id} className="flex items-center justify-between gap-2 rounded-xl bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-800/40 px-3 py-2">
                     <div className="min-w-0">
                       <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{r.participant}</p>
-                      <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">{t('funding.paidInto', { account: accountName(r.account) })} · {formatDate(r.date)}</p>
+                      <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">{t('funding.paidInto', { account: accountName(r.account) })} · {formatDate(r.date, lang)}</p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">{formatCurrency(r.amount)}</span>
-                      <button onClick={() => openEditPay(f, r)} className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1.5 rounded-lg" aria-label={t('funding.edit')}><Pencil className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => deletePayment(f, r)} className="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-1.5 rounded-lg" aria-label={t('common.delete')}><Trash2 className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => openEditPay(f, r)} className="hit-area text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1.5 rounded-lg" aria-label={t('funding.edit')}><Pencil className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => deletePayment(f, r)} className="hit-area text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-1.5 rounded-lg" aria-label={t('common.delete')}><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   </div>
                 ))}
@@ -955,13 +977,13 @@ export default function FundingPage() {
                       <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                         {entry.type === 'created' ? t('funding.activityCreated') : entry.type === 'spend' ? t('funding.activitySpend') : entry.type === 'contribution' ? t('funding.activityContrib') : t('funding.activityRepay')}
                       </p>
-                      <p className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate">{entry.label}</p>
+                      <p className="text-xs font-medium text-slate-700 dark:text-slate-200 wrap-anywhere">{entry.label}</p>
                     </div>
                     <div className="text-right shrink-0">
                       <p className={`text-xs font-extrabold ${entry.type === 'spend' ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                         {entry.type === 'spend' ? '-' : '+'}{formatCurrency(entry.amount)}
                       </p>
-                      <p className="text-[10px] font-medium text-slate-400 dark:text-slate-500">{formatDate(entry.date)}</p>
+                      <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">{formatDate(entry.date, lang)}</p>
                     </div>
                   </div>
                 ))}
@@ -975,14 +997,7 @@ export default function FundingPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto space-y-6 sm:space-y-7 pb-24 md:pb-8">
-      {(pullY > 0 || refreshing) && (
-        <div className="fixed top-0 left-0 right-0 z-50 flex justify-center pt-safe">
-          <div className="flex items-center gap-2 bg-indigo-600 text-white text-xs font-bold px-4 py-2 rounded-full shadow-lg mt-2">
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} style={!refreshing ? { transform: `rotate(${pullY * 180}deg)` } : undefined} />
-            {refreshing ? t('common.refreshing') : pullY >= 1 ? t('common.releaseToRefresh') : t('common.pullToRefresh')}
-          </div>
-        </div>
-      )}
+      <PullToRefresh onRefresh={() => load(true)} />
 
       <PageHeader
         icon={CircleDollarSign}
@@ -991,7 +1006,7 @@ export default function FundingPage() {
         subtitle={t('funding.subtitle')}
         action={
           hasAccounts ? (
-            <Button onClick={openNew} className="flex-1 md:flex-none shadow-sm">
+            <Button onClick={openNew} className="flex-1 lg:flex-none shadow-sm">
               <Plus className="w-5 h-5" />{t('funding.newPool')}
             </Button>
           ) : undefined
@@ -999,17 +1014,11 @@ export default function FundingPage() {
       />
 
       {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-indigo-500 border-t-transparent" />
+        <div className="space-y-3">
+          {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-40 rounded-3xl" />)}
         </div>
       ) : error ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-900/30 flex items-center justify-center mb-4">
-            <AlertCircle className="w-7 h-7 text-rose-400" />
-          </div>
-          <p className="text-slate-700 dark:text-slate-300 font-bold text-base mb-1">{t('funding.loadError')}</p>
-          <Button variant="secondary" onClick={() => load(true)} className="mt-4">{t('common.tryAgain')}</Button>
-        </div>
+        <LoadError title={t('funding.loadError')} onRetry={() => load(true)} />
       ) : !hasAccounts ? (
         <Card className="text-center py-16 bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700/60">
           <div className="w-16 h-16 rounded-full bg-white dark:bg-slate-800 flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100 dark:border-slate-700/60">
@@ -1346,6 +1355,23 @@ export default function FundingPage() {
             <Button className="flex-1 shadow-sm" onClick={() => confirmSettleArchive(true)} disabled={saving}>{saving ? t('common.saving') : t('funding.settledArchive')}</Button>
           </div>
         </div>
+      </Modal>
+
+      {/* ── Generic confirm (row deletes, dropping paid participants) ── */}
+      <Modal open={confirmAsk !== null} onClose={() => answerConfirm(false)} title={t('common.areYouSure')}>
+        {confirmAsk && (
+          <>
+            <p className="text-sm font-medium text-slate-600 dark:text-slate-300 pb-4">{confirmAsk.message}</p>
+            <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+              <div className="flex gap-3">
+                <Button variant="secondary" className="flex-1" onClick={() => answerConfirm(false)}>{t('common.cancel')}</Button>
+                <Button variant={confirmAsk.destructive ? 'danger' : 'primary'} className="flex-1" onClick={() => answerConfirm(true)}>
+                  {confirmAsk.destructive ? t('common.delete') : t('common.proceed')}
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
       </Modal>
 
       {/* ── Delete pool safety guard: show transaction count before confirming ── */}

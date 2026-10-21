@@ -4,6 +4,7 @@ import { signIn } from '@/lib/auth';
 import { cookies } from 'next/headers';
 import { TrendingUp, Shield, Zap, Target } from 'lucide-react';
 import { LogoMark } from '@/components/LogoMark';
+import { Tilt3D } from '@/components/ui/Tilt3D';
 import { t } from '@/lib/i18n';
 import type { Language } from '@/types';
 
@@ -42,7 +43,12 @@ export default async function LoginPage() {
           </div>
         </div>
 
-        {/* Login Card */}
+        {/* Login Card — 2.5D: two offset "cards" stacked behind it give depth on
+            every device; with a mouse the card also tilts toward the pointer. */}
+        <div className="relative">
+          <div aria-hidden className="absolute inset-x-5 -bottom-3 top-3 rounded-3xl bg-indigo-500/10 dark:bg-indigo-400/10 border border-indigo-200/40 dark:border-indigo-400/10" />
+          <div aria-hidden className="absolute inset-x-10 -bottom-6 top-6 rounded-3xl bg-indigo-500/5 dark:bg-indigo-400/5 border border-indigo-200/30 dark:border-indigo-400/5" />
+        <Tilt3D>
         <div className="glass rounded-3xl p-8 md:p-10 shadow-2xl relative overflow-hidden">
           <div className="absolute inset-0 bg-gradient-to-b from-white/50 dark:from-white/5 to-transparent opacity-50 pointer-events-none" />
 
@@ -87,6 +93,8 @@ export default async function LoginPage() {
               ))}
             </div>
           </div>
+        </div>
+        </Tilt3D>
         </div>
       </div>
     </main>

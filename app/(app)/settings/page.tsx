@@ -1,7 +1,7 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSession, signOut } from 'next-auth/react';
-import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, User, SlidersHorizontal, Receipt, Tags, Landmark, Building2, Database, ShieldCheck, ChevronDown, LogOut, Users, UserPlus, Trash2, Archive, AlertTriangle, Clock, MapPin, Scale } from 'lucide-react';
+import { Bell, Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, User, SlidersHorizontal, Receipt, Tags, Landmark, Building2, Database, ShieldCheck, ChevronDown, LogOut, Users, UserPlus, Trash2, Archive, AlertTriangle, Clock, MapPin, Scale } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { BRACKETS_2026, STANDARD_DEDUCTION_2026 } from '@/lib/tax';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -16,6 +16,8 @@ import { generateId } from '@/lib/utils';
 import { TIME_ZONE_OPTIONS, TIME_ZONE_GROUPS, detectTimeZone, timeZoneLabel } from '@/lib/timezones';
 import { invalidateCategoriesCache } from '@/hooks/useCategories';
 import { useToast } from '@/lib/toast';
+import { ensureResources, clearAllClientCaches } from '@/lib/client/store';
+import { LoadError } from '@/components/ui/LoadError';
 import { useTranslation } from '@/lib/i18n/context';
 
 type SectionId = 'general' | 'taxes' | 'categories' | 'contacts' | 'about';
@@ -41,7 +43,7 @@ function ToggleRow({ label, desc, checked, onChange, divider = false }: {
     <div className={`flex items-start justify-between gap-4 ${divider ? 'pt-4 border-t border-slate-100 dark:border-slate-700/60' : ''}`}>
       <div className="min-w-0">
         <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{label}</p>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{desc}</p>
+        {desc && <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{desc}</p>}
       </div>
       <button
         type="button"
@@ -116,10 +118,15 @@ export default function SettingsPage() {
 
   const DELETE_PHRASE = 'I want to delete my data';
 
-  useEffect(() => {
-    fetch('/api/settings')
-      .then((r) => r.json())
-      .then((s: TaxSettings) => {
+  // One request for everything this page reads (settings, contacts, and the
+  // ledger for the category-usage tally) — served instantly from the shared client
+  // cache when another page loaded them recently. Was three separate fetches, and
+  // a failed settings read left the spinner up forever.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const loadAll = useCallback(() => {
+    setLoadFailed(false);
+    ensureResources(['settings', 'contacts', 'transactions'])
+      .then(({ settings: s, contacts: c, transactions: txs }) => {
         const tz = s.timeZone || DEFAULT_TIME_ZONE;
         setSettings({
           ...s,
@@ -136,10 +143,19 @@ export default function SettingsPage() {
         // Keep the cookie in step with the saved zone so server-rendered pages
         // (dashboard, notifications) agree with the client without a save.
         writeTzCookie(tz);
-        setLoading(false);
-      });
+        setContacts([...(c ?? [])].sort((a, b) => a.name.localeCompare(b.name)));
+        // Tally how many transactions reference each category so the remove
+        // dialog can block a hard Delete (and steer to Archive) when history
+        // would be orphaned.
+        const counts: Record<string, number> = {};
+        for (const tx of txs ?? []) counts[tx.category] = (counts[tx.category] ?? 0) + 1;
+        setCatUsage(counts);
+      })
+      .catch(() => setLoadFailed(true))
+      .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => { loadAll(); }, [loadAll]);
 
   // Drive the live clock preview in the Time & Region card.
   useEffect(() => {
@@ -147,25 +163,7 @@ export default function SettingsPage() {
     return () => clearInterval(id);
   }, []);
 
-  useEffect(() => {
-    fetch('/api/contacts')
-      .then((r) => r.json())
-      .then((c: Contact[]) => setContacts([...(c ?? [])].sort((a, b) => a.name.localeCompare(b.name))))
-      .catch(() => { /* tab may not exist yet; created on first add */ });
-  }, []);
 
-  // Tally how many transactions reference each category so the remove dialog can
-  // block a hard Delete (and steer to Archive) when history would be orphaned.
-  useEffect(() => {
-    fetch('/api/transactions')
-      .then((r) => r.json())
-      .then((txs: { category: string }[]) => {
-        const counts: Record<string, number> = {};
-        for (const tx of txs ?? []) counts[tx.category] = (counts[tx.category] ?? 0) + 1;
-        setCatUsage(counts);
-      })
-      .catch(() => { /* leave empty — Delete simply isn't blocked */ });
-  }, []);
 
   // Contacts persist to Google Sheets (shared with the bill-splitting flows), so
   // they're available everywhere — not just this device's local storage.
@@ -324,6 +322,7 @@ export default function SettingsPage() {
   // Guard against a misclick — signing out drops you back to the login screen.
   function handleSignOut() {
     if (!confirm(t('settings.signOutConfirm'))) return;
+    clearAllClientCaches();
     signOut({ callbackUrl: '/' });
   }
 
@@ -356,7 +355,7 @@ export default function SettingsPage() {
     );
   }
 
-  if (!settings) return null;
+  if (!settings) return loadFailed ? <LoadError onRetry={() => { setLoading(true); loadAll(); }} /> : null;
 
   const currentLang = settings.language ?? lang;
 
@@ -378,12 +377,12 @@ export default function SettingsPage() {
         subtitle={t('settings.subtitle')}
         action={
           <>
-            <Button variant="secondary" onClick={handleReset} className="flex-1 md:flex-none shadow-sm">
+            <Button variant="secondary" onClick={handleReset} className="flex-1 lg:flex-none shadow-sm">
               <RotateCcw className="w-4 h-4" />
               <span className="hidden sm:inline">Reset Defaults</span>
               <span className="sm:hidden">Reset</span>
             </Button>
-            <Button onClick={handleSave} disabled={saving} className="flex-1 md:flex-none shadow-sm">
+            <Button onClick={handleSave} disabled={saving} className="flex-1 lg:flex-none shadow-sm">
               <Save className="w-4 h-4" />
               {saving ? t('common.saving') : saved ? t('settings.saved') : t('settings.saveSettings')}
             </Button>
@@ -486,7 +485,7 @@ export default function SettingsPage() {
                     <MapPin className="w-3.5 h-3.5" />
                     {timeZoneLabel(settings.timeZone)}
                   </p>
-                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{formatDate(today(settings.timeZone))}</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{formatDate(today(settings.timeZone), lang)}</p>
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-2xl md:text-3xl font-bold tabular-nums text-slate-900 dark:text-slate-100">{formatClock(settings.timeZone)}</p>
@@ -556,6 +555,45 @@ export default function SettingsPage() {
                 checked={settings.budgetRollover}
                 onChange={() => update('budgetRollover', !settings.budgetRollover)}
               />
+            </div>
+          </Card>
+
+          {/* Notification controls — mute types, budget threshold, bill reminders */}
+          <Card>
+            <CardHeader>
+              <SectionTitle icon={Bell}>{t('settings.notifications')}</SectionTitle>
+            </CardHeader>
+            <p className="text-xs text-slate-500 dark:text-slate-400 -mt-2 mb-4">{t('settings.notificationsDesc')}</p>
+            <div className="space-y-4">
+              {(['overdraft', 'bill', 'budget', 'credit', 'savings'] as const).map((type, i) => {
+                const muted = (settings.mutedNotifications ?? []).includes(type);
+                return (
+                  <ToggleRow
+                    key={type}
+                    divider={i > 0}
+                    label={t(`settings.notifType_${type}`)}
+                    desc=""
+                    checked={!muted}
+                    onChange={() => update('mutedNotifications', muted
+                      ? (settings.mutedNotifications ?? []).filter((x) => x !== type)
+                      : [...(settings.mutedNotifications ?? []), type])}
+                  />
+                );
+              })}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4 border-t border-slate-100 dark:border-slate-700/60">
+                <Select
+                  label={t('settings.budgetAlertPct')}
+                  value={String(settings.budgetAlertPct ?? 100)}
+                  options={[100, 90, 80, 70].map((p) => ({ value: String(p), label: p === 100 ? t('settings.budgetAlertOver') : t('settings.budgetAlertAt', { pct: p }) }))}
+                  onChange={(e) => update('budgetAlertPct', Number(e.target.value))}
+                />
+                <Select
+                  label={t('settings.billReminderDays')}
+                  value={String(settings.billReminderDays ?? 0)}
+                  options={[0, 1, 3, 7].map((d) => ({ value: String(d), label: d === 0 ? t('settings.billReminderOff') : t('settings.billReminderAt', { days: d }) }))}
+                  onChange={(e) => update('billReminderDays', Number(e.target.value))}
+                />
+              </div>
             </div>
           </Card>
 
@@ -1037,7 +1075,7 @@ export default function SettingsPage() {
                   <div key={c.id} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60">
                     <div className="flex items-center gap-3 min-w-0">
                       <span className="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300 text-sm font-bold shrink-0">{c.name.charAt(0).toUpperCase()}</span>
-                      <span className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">{c.name}</span>
+                      <span className="text-sm font-bold text-slate-800 dark:text-slate-200 wrap-anywhere">{c.name}</span>
                     </div>
                     <button onClick={() => removeContact(c)} title={t('common.delete')} className="p-2 text-slate-400 dark:text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors shrink-0">
                       <Trash2 className="w-4 h-4" />

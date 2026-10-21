@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatAxisCurrency } from '@/lib/utils';
+import { formatAxisCurrency, matchesRange, parseTagInput, formatMonthsCovered } from '@/lib/utils';
 
 describe('formatAxisCurrency', () => {
   it('shows real values for small amounts instead of collapsing to $0k', () => {
@@ -28,5 +28,42 @@ describe('formatAxisCurrency', () => {
     expect(formatAxisCurrency(-250)).toBe('-$250');
     expect(formatAxisCurrency(-5_000)).toBe('-$5k');
     expect(formatAxisCurrency(-2_000_000)).toBe('-$2M');
+  });
+});
+
+describe('matchesRange (transactions date/amount filter)', () => {
+  const tx = { date: '2026-03-15', amount: 42.5 };
+  const none = { from: '', to: '', min: '', max: '' };
+  it('passes everything when unbounded', () => {
+    expect(matchesRange(tx, none)).toBe(true);
+  });
+  it('date bounds are inclusive', () => {
+    expect(matchesRange(tx, { ...none, from: '2026-03-15', to: '2026-03-15' })).toBe(true);
+    expect(matchesRange(tx, { ...none, from: '2026-03-16' })).toBe(false);
+    expect(matchesRange(tx, { ...none, to: '2026-03-14' })).toBe(false);
+  });
+  it('amount bounds are inclusive and ignore blanks/junk', () => {
+    expect(matchesRange(tx, { ...none, min: '42.5', max: '42.5' })).toBe(true);
+    expect(matchesRange(tx, { ...none, min: '50' })).toBe(false);
+    expect(matchesRange(tx, { ...none, max: '10' })).toBe(false);
+    expect(matchesRange(tx, { ...none, min: 'abc' })).toBe(true);
+  });
+});
+
+describe('parseTagInput', () => {
+  it('splits on commas, trims, drops blanks and case-insensitive duplicates', () => {
+    expect(parseTagInput(' Japan trip, work,, Work ,')).toEqual(['Japan trip', 'work']);
+  });
+  it('strips the storage separator', () => {
+    expect(parseTagInput('a|b')).toEqual(['ab']);
+  });
+});
+
+describe('formatMonthsCovered', () => {
+  it('shows one decimal and caps huge / non-finite values at 99+', () => {
+    expect(formatMonthsCovered(3.14)).toBe('3.1');
+    expect(formatMonthsCovered(33604.3)).toBe('99+');
+    expect(formatMonthsCovered(Infinity)).toBe('99+');
+    expect(formatMonthsCovered(-2)).toBe('0.0');
   });
 });

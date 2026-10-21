@@ -36,7 +36,7 @@ export function PageHeader({
   className?: string;
 }) {
   return (
-    <div className={cn('flex flex-col md:flex-row md:items-center justify-between gap-4', className)}>
+    <div className={cn('flex flex-col lg:flex-row lg:items-center justify-between gap-4', className)}>
       <div className="flex items-center gap-3 sm:gap-4 min-w-0">
         <span
           className={cn(
@@ -48,7 +48,9 @@ export function PageHeader({
           <Icon className="w-6 h-6 sm:w-7 sm:h-7" strokeWidth={2.25} />
         </span>
         <div className="min-w-0">
-          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100 font-display truncate">
+          {/* Wraps to a second line instead of truncating, so long (e.g. Vietnamese)
+              titles stay readable on phones. */}
+          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100 font-display break-words wrap-anywhere">
             {title}
           </h1>
           {subtitle && (
@@ -60,7 +62,7 @@ export function PageHeader({
         // flex-wrap: three or more actions flow onto a second row on narrow
         // phones instead of pushing past the viewport (which dragged the whole
         // page into horizontal scroll — see Savings' 3-button header).
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0 w-full md:w-auto">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0 w-full lg:w-auto">
           {action}
         </div>
       )}

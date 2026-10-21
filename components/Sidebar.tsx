@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { BADGES_CACHE_KEY, BADGES_INVALID_EVENT } from '@/lib/client/store';
+import { BADGES_CACHE_KEY, afterIdle, clearAllClientCaches } from '@/lib/client/store';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import {
   LayoutDashboard,
@@ -70,16 +70,12 @@ function useBadges(): BadgeCounts {
         }
       }
     } catch { /* sessionStorage unavailable */ }
-    fetchBadges();
+    // Badges are secondary — let the page's own data load first.
+    return afterIdle(fetchBadges);
   }, [fetchBadges]);
 
-  useEffect(() => {
-    window.addEventListener(BADGES_INVALID_EVENT, fetchBadges);
-    return () => window.removeEventListener(BADGES_INVALID_EVENT, fetchBadges);
-  }, [fetchBadges]);
-
-  // Background re-sync (60s interval + tab-focus refetch) — the sidebar never
-  // remounts, so without this the counts would freeze for the whole session.
+  // Refetch after any write (data-changed event), on tab focus and every 60s —
+  // the sidebar never remounts, so without this the counts would freeze.
   useAutoRefresh(fetchBadges);
 
   return badges;
@@ -239,7 +235,7 @@ export function Sidebar() {
       <div className="pt-3 mt-2 border-t border-slate-100 dark:border-slate-700/50 flex flex-col gap-1">
         {renderLink(SETTINGS_ITEM)}
         <button
-          onClick={() => signOut({ callbackUrl: '/' })}
+          onClick={() => { clearAllClientCaches(); signOut({ callbackUrl: '/' }); }}
           className="group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors duration-150 tap-highlight-none select-none"
         >
           <LogOut className="w-5 h-5 shrink-0 group-hover:scale-110 transition-transform duration-150" />

@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Search, Pencil, RefreshCw, AlertCircle, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronLeft, ChevronRight, X, Filter, ArrowLeftRight, HandCoins, ArrowUpRight, ArrowDownLeft, UserPlus, Trash2, Check, Archive, Split as SplitIcon } from 'lucide-react';
+import { Plus, Search, Pencil, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronLeft, ChevronRight, X, Filter, ArrowLeftRight, HandCoins, ArrowUpRight, ArrowDownLeft, UserPlus, Trash2, Check, Archive, Split as SplitIcon } from 'lucide-react';
+import { LoadError } from '@/components/ui/LoadError';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -10,7 +11,7 @@ import { Modal } from '@/components/ui/Modal';
 import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { TransactionsSkeleton } from '@/components/ui/Skeleton';
 import { Collapsible } from '@/components/ui/Collapsible';
-import { formatCurrency, formatCompact, formatDate, generateId, today, dateLocale } from '@/lib/utils';
+import { formatCurrency, formatCompact, formatDate, generateId, today, dateLocale, matchesRange, parseTagInput, type TxRange } from '@/lib/utils';
 import { transactionsToCsv } from '@/lib/csv';
 import { calcLoanRemaining } from '@/lib/calculations';
 import { peekCache, ensureResources } from '@/lib/client/store';
@@ -21,7 +22,7 @@ import { EXPENSE_CATEGORIES } from '@/types';
 import type { Transaction, Account, Contact, Loan, Split } from '@/types';
 import { CategoryIconBadge } from '@/components/CategoryIcon';
 import { useToast } from '@/lib/toast';
-import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { PullToRefresh } from '@/components/PullToRefresh';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { useCategories } from '@/hooks/useCategories';
 import { useTranslation } from '@/lib/i18n/context';
@@ -77,11 +78,11 @@ function shiftMonth(ym: string, delta: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-function formatMonthLabel(ym: string): string {
+function formatMonthLabel(ym: string, lang: 'en' | 'vi'): string {
   const [y, m] = ym.split('-').map(Number);
-  // dateLocale() resolves the app language (nf_lang cookie) so the month name
-  // follows the user's language, not a hardcoded en-US.
-  return new Date(y, m - 1, 1).toLocaleDateString(dateLocale(), { month: 'long', year: 'numeric' });
+  // The app language is passed in (from useTranslation) rather than read from the
+  // cookie, so the server render and the browser agree (hydration).
+  return new Date(y, m - 1, 1).toLocaleDateString(dateLocale(lang), { month: 'long', year: 'numeric' });
 }
 
 // ── CSV export ────────────────────────────────────────────────────────────────
@@ -110,6 +111,7 @@ const EMPTY_FORM = {
   category: 'Food',
   account: '',
   toAccount: '',
+  tags: '', // comma-separated while editing
 };
 
 // ── Loans / IOUs ───────────────────────────────────────────────────────────────
@@ -193,6 +195,10 @@ function sortTransactions(txs: Transaction[]): Transaction[] {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+const EMPTY_RANGE: TxRange = { from: '', to: '', min: '', max: '' };
+const RANGE_INPUT = 'w-full h-11 px-3 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all duration-200';
+const rangeFilterCount = (r: TxRange) => (r.from || r.to ? 1 : 0) + (r.min || r.max ? 1 : 0);
+
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>(() => sortTransactions(peekCache(['transactions'])?.transactions ?? []));
   const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
@@ -222,6 +228,13 @@ export default function TransactionsPage() {
   const [draftFilter, setDraftFilter] = useState<'all' | 'income' | 'expense' | 'transfer'>('all');
   const [draftCategoryFilters, setDraftCategoryFilters] = useState<string[]>([]);
   const [draftAccountFilters, setDraftAccountFilters] = useState<string[]>([]);
+  // Date-range (YYYY-MM-DD, inclusive) and amount (min/max as typed) filters, for
+  // refunds/audits that don't line up with a calendar month. Same draft → apply flow.
+  const [range, setRange] = useState<TxRange>(EMPTY_RANGE);
+  const [draftRange, setDraftRange] = useState<TxRange>(EMPTY_RANGE);
+  // One tag at a time ('' = any) — e.g. "Japan trip" to see everything it cost.
+  const [tagFilter, setTagFilter] = useState('');
+  const [draftTag, setDraftTag] = useState('');
   // "View All" expander for the Custom Accounts row (collapsed to one line until tapped).
   const [showAllCustomAccounts, setShowAllCustomAccounts] = useState(false);
   // Type-to-filter query for the "Card used" picker so the list stays short and
@@ -284,7 +297,7 @@ export default function TransactionsPage() {
 
   const toast = useToast();
   const { expenseCategories, incomeCategories, archivedExpenseCategories, archivedIncomeCategories } = useCategories();
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
 
   const load = useCallback(async (force = false) => {
     setError(false);
@@ -321,7 +334,6 @@ export default function TransactionsPage() {
       .catch(() => {});
   }, [load]);
   useAutoRefresh(() => load(true));
-  const { pullY, refreshing } = usePullToRefresh(() => load(true));
 
   const categories = form.type === 'expense' ? expenseCategories : form.type === 'income' ? incomeCategories : [...EXPENSE_CATEGORIES];
 
@@ -354,15 +366,43 @@ export default function TransactionsPage() {
   }, [loans, splits]);
   const editManaged = !!editTarget && managedTxIds.has(editTarget.id);
 
+  // Deep links from charts elsewhere (Home, Reports, Planning):
+  // /transactions?month=YYYY-MM | from=…&to=… & category=… & type=… & tag=…
+  // Read once on mount (window, not useSearchParams, so no Suspense boundary).
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const month = q.get('month');
+    const from = q.get('from') ?? '', to = q.get('to') ?? '';
+    if (month && /^\d{4}-\d{2}$/.test(month)) setSelectedMonth(month);
+    else if (from || to) { setSelectedMonth(null); setRange((r) => ({ ...r, from, to })); }
+    const category = q.get('category');
+    if (category) setCategoryFilters([category]);
+    const type = q.get('type');
+    if (type === 'income' || type === 'expense' || type === 'transfer') setFilter(type);
+    const tag = q.get('tag');
+    if (tag) setTagFilter(tag);
+  }, []);
+
   const filtered = useMemo(() => transactions.filter((tx) => {
-    const matchSearch = !search || tx.description.toLowerCase().includes(search.toLowerCase()) || tx.category.toLowerCase().includes(search.toLowerCase());
+    const q = search.toLowerCase();
+    const matchSearch = !search || tx.description.toLowerCase().includes(q) || tx.category.toLowerCase().includes(q) || (tx.tags ?? []).some((tag) => tag.toLowerCase().includes(q));
+    const matchTag = !tagFilter || (tx.tags ?? []).includes(tagFilter);
     const matchFilter = filter === 'all' || tx.type === filter;
     const matchCategory = categoryFilters.length === 0 || categoryFilters.includes(tx.category);
     // "Card used": match either leg so transfers between cards surface under both.
     const matchAccount = accountFilters.length === 0 || accountFilters.includes(tx.account) || (!!tx.toAccount && accountFilters.includes(tx.toAccount));
     const matchMonth = selectedMonth === null || tx.date.slice(0, 7) === selectedMonth;
-    return matchSearch && matchFilter && matchCategory && matchAccount && matchMonth;
-  }), [transactions, search, filter, categoryFilters, accountFilters, selectedMonth]);
+    return matchSearch && matchTag && matchFilter && matchCategory && matchAccount && matchMonth && matchesRange(tx, range);
+  }), [transactions, search, filter, categoryFilters, accountFilters, selectedMonth, range, tagFilter]);
+
+  // Every tag in use, with its all-time spend — feeds the tag filter + form suggestions.
+  const tagTotals = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const tx of transactions) for (const tag of tx.tags ?? []) {
+      totals.set(tag, (totals.get(tag) ?? 0) + (tx.type === 'expense' ? tx.amount : 0));
+    }
+    return [...totals.entries()].sort((a, b) => b[1] - a[1]);
+  }, [transactions]);
 
   // Committed-state toggles — used by the active-filter chips in the page header,
   // which remove a live filter on tap (the sheet itself edits the draft below).
@@ -385,6 +425,8 @@ export default function TransactionsPage() {
     setDraftFilter(filter);
     setDraftCategoryFilters(categoryFilters);
     setDraftAccountFilters(accountFilters);
+    setDraftRange(range);
+    setDraftTag(tagFilter);
     setCardFilterQuery('');
     setShowAllCustomAccounts(false);
     setFilterSheetOpen(true);
@@ -395,14 +437,23 @@ export default function TransactionsPage() {
     setFilter(draftFilter);
     setCategoryFilters(draftCategoryFilters);
     setAccountFilters(draftAccountFilters);
+    setRange(draftRange);
+    setTagFilter(draftTag);
+    // A date range replaces the month scope (they would otherwise intersect).
+    if (draftRange.from || draftRange.to) setSelectedMonth(null);
     setFilterSheetOpen(false);
+  }
+  function clearAllFilters() {
+    setSearch(''); setFilter('all'); setCategoryFilters([]); setAccountFilters([]); setRange(EMPTY_RANGE); setTagFilter('');
   }
   function clearAllDraft() {
     setDraftFilter('all');
     setDraftCategoryFilters([]);
     setDraftAccountFilters([]);
+    setDraftRange(EMPTY_RANGE);
+    setDraftTag('');
   }
-  const draftFilterCount = (draftFilter !== 'all' ? 1 : 0) + draftCategoryFilters.length + draftAccountFilters.length;
+  const draftFilterCount = (draftFilter !== 'all' ? 1 : 0) + draftCategoryFilters.length + draftAccountFilters.length + rangeFilterCount(draftRange) + (draftTag ? 1 : 0);
 
   // Accounts split into the two groups the filter sheet shows: "Payment Methods"
   // (what you pay with — checking / credit / cash) and "Custom Accounts" (savings /
@@ -435,7 +486,7 @@ export default function TransactionsPage() {
   function openAdd() { setEditTarget(null); setForm(EMPTY_FORM); setOpen(true); }
   function openEdit(tx: Transaction) {
     setEditTarget(tx);
-    setForm({ date: tx.date, description: tx.description, amount: String(tx.amount), type: tx.type, category: tx.category, account: tx.account, toAccount: tx.toAccount ?? '' });
+    setForm({ date: tx.date, description: tx.description, amount: String(tx.amount), type: tx.type, category: tx.category, account: tx.account, toAccount: tx.toAccount ?? '', tags: (tx.tags ?? []).join(', ') });
     setOpen(true);
   }
   function closeModal() { setOpen(false); setEditTarget(null); setForm(EMPTY_FORM); }
@@ -446,7 +497,7 @@ export default function TransactionsPage() {
   }
 
   function applyTemplate(tpl: Template) {
-    setForm({ date: today(), description: tpl.description, amount: String(tpl.amount), type: tpl.type, category: tpl.category, account: tpl.account, toAccount: '' });
+    setForm({ date: today(), description: tpl.description, amount: String(tpl.amount), type: tpl.type, category: tpl.category, account: tpl.account, toAccount: '', tags: '' });
     setShowTemplates(false);
     setOpen(true);
   }
@@ -542,6 +593,8 @@ export default function TransactionsPage() {
       account: form.account,
       toAccount: form.type === 'transfer' ? form.toAccount : undefined,
       createdAt: editTarget?.createdAt ?? new Date().toISOString(),
+      splitGroupId: editTarget?.splitGroupId,
+      tags: parseTagInput(form.tags),
     };
 
     if (editTarget) {
@@ -563,7 +616,16 @@ export default function TransactionsPage() {
       // leg) in sync when the amount changed.
       const ownerSync = !!(editTarget && managedTxIds.has(editTarget.id) && roundCents(amount) !== roundCents(editTarget.amount));
       if (ownerSync) await syncOwnerAmount(editTarget!, amount);
-      toast(editTarget ? t('transactions.toastUpdated') : t('transactions.toastAdded'), 'success');
+      // One-tap Undo: a new row is deleted again; a plain edit is written back.
+      // (Loan/split-owned edits also rewrote their owner record, so no undo there.)
+      const original = editTarget;
+      const undo = !original
+        ? () => undoRequest('DELETE', { id: updated.id }, (txs) => txs.filter((tx) => tx.id !== updated.id))
+        : !ownerSync
+          ? () => undoRequest('PUT', { original: updated, updated: original }, (txs) => txs.map((tx) => tx.id === original.id ? original : tx))
+          : null;
+      toast(editTarget ? t('transactions.toastUpdated') : t('transactions.toastAdded'), 'success',
+        undo ? { label: t('common.undo'), onClick: undo } : undefined);
       // Badge/notification invalidation: handled by the global write-guard (lib/client/store).
       // Owner-sync also rewrote the loan/split and its other cash leg → full
       // reconcile. Otherwise the row was already inserted optimistically and the
@@ -575,6 +637,22 @@ export default function TransactionsPage() {
       await load();
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Reverse the last add/edit: optimistic list update, then the API call; the
+  // response carries authoritative balances.
+  async function undoRequest(method: 'DELETE' | 'PUT', body: unknown, apply: (txs: Transaction[]) => Transaction[]) {
+    setTransactions((txs) => apply(txs).sort(txSort));
+    try {
+      const res = await fetch('/api/transactions', { method, body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } });
+      if (!res.ok) throw new Error();
+      const data: { accounts?: Account[] } = await res.json().catch(() => ({}));
+      if (data.accounts) setAccounts(data.accounts);
+      toast(t('transactions.toastUndone'), 'success');
+    } catch {
+      toast(t('transactions.toastFailedUndo'), 'error');
+      load(true);
     }
   }
 
@@ -775,7 +853,7 @@ export default function TransactionsPage() {
             )}
             <div className="min-w-0">
               <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{loan.contactName}</p>
-              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 wrap-anywhere">
                 {isLent ? t('loans.lentLabel') : t('loans.borrowedLabel')}{loan.account ? ` · ${accountName(loan.account)}` : ''}{loan.note ? ` · ${loan.note}` : ''}
               </p>
             </div>
@@ -860,7 +938,7 @@ export default function TransactionsPage() {
       <div key={loan.id} className={`flex items-center justify-between ${nested ? 'px-3 py-2.5 rounded-xl bg-white dark:bg-slate-800/60' : 'p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 opacity-75'}`}>
         <div className="min-w-0">
           <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{loan.contactName}</p>
-          <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{loan.direction === 'lent' ? t('loans.lentLabel') : t('loans.borrowedLabel')} · {t('loans.settledOn', { date: formatDate(loan.settledDate || loan.date) })}</p>
+          <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{loan.direction === 'lent' ? t('loans.lentLabel') : t('loans.borrowedLabel')} · {t('loans.settledOn', { date: formatDate(loan.settledDate || loan.date, lang) })}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through">{formatCurrency(loan.principal)}</span>
@@ -1691,7 +1769,7 @@ export default function TransactionsPage() {
   const merchantRows = useMemo(() => buildMerchantRows(filtered), [filtered]);
   // Reset paging whenever the active filters change. Adjusting state during
   // render (rather than in an effect) avoids a cascading re-render.
-  const filterKey = `${search}|${filter}|${categoryFilters.join(',')}|${accountFilters.join(',')}|${selectedMonth ?? 'all'}`;
+  const filterKey = `${search}|${filter}|${categoryFilters.join(',')}|${accountFilters.join(',')}|${selectedMonth ?? 'all'}|${JSON.stringify(range)}|${tagFilter}`;
   if (filterKey !== prevFilterKey) {
     setPrevFilterKey(filterKey);
     setVisibleCount(PAGE_SIZE);
@@ -1707,7 +1785,7 @@ export default function TransactionsPage() {
     }
     return groups;
   }, [visibleTransactions]);
-  const activeFilterCount = (filter !== 'all' ? 1 : 0) + categoryFilters.length + accountFilters.length;
+  const activeFilterCount = (filter !== 'all' ? 1 : 0) + categoryFilters.length + accountFilters.length + rangeFilterCount(range) + (tagFilter ? 1 : 0);
 
   const filterLabels: Record<string, string> = {
     all: t('common.all'),
@@ -1725,14 +1803,7 @@ export default function TransactionsPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
-      {(pullY > 0 || refreshing) && (
-        <div className="fixed top-0 left-0 right-0 z-50 flex justify-center pt-safe">
-          <div className="flex items-center gap-2 bg-indigo-600 text-white text-xs font-bold px-4 py-2 rounded-full shadow-lg mt-2">
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} style={!refreshing ? { transform: `rotate(${pullY * 180}deg)` } : undefined} />
-            {refreshing ? 'Refreshing…' : pullY >= 1 ? 'Release to refresh' : 'Pull to refresh'}
-          </div>
-        </div>
-      )}
+      <PullToRefresh onRefresh={() => load(true)} />
 
       <PageHeader
         icon={ArrowLeftRight}
@@ -1782,7 +1853,7 @@ export default function TransactionsPage() {
             <ChevronLeft className="w-4 h-4" />
           </button>
           <span className={`h-11 px-2 min-w-[8.5rem] flex items-center justify-center text-sm font-bold ${selectedMonth === null ? 'text-slate-400 dark:text-slate-500' : 'text-slate-900 dark:text-slate-100'}`}>
-            {selectedMonth === null ? t('transactions.allTime') : formatMonthLabel(selectedMonth)}
+            {selectedMonth === null ? t('transactions.allTime') : formatMonthLabel(selectedMonth, lang)}
           </span>
           <button
             onClick={() => setSelectedMonth((m) => shiftMonth(m ?? currentMonth(), 1))}
@@ -1803,16 +1874,16 @@ export default function TransactionsPage() {
 
       <div className="grid grid-cols-3 gap-3">
         <Card className="p-4 sm:p-5 min-w-0">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('common.income')}</p>
-          <p className="font-extrabold text-emerald-600 dark:text-emerald-400 mt-1.5 text-base sm:text-lg truncate">{formatCompact(totalIncome)}</p>
+          <p className="stat-label text-slate-500 dark:text-slate-400">{t('common.income')}</p>
+          <p className="font-extrabold text-emerald-600 dark:text-emerald-400 mt-1.5 text-base sm:text-lg wrap-anywhere">{formatCompact(totalIncome)}</p>
         </Card>
         <Card className="p-4 sm:p-5 min-w-0">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('transactions.spending')}</p>
-          <p className="font-extrabold text-rose-600 dark:text-rose-400 mt-1.5 text-base sm:text-lg truncate">{formatCompact(totalExpense)}</p>
+          <p className="stat-label text-slate-500 dark:text-slate-400">{t('transactions.spending')}</p>
+          <p className="font-extrabold text-rose-600 dark:text-rose-400 mt-1.5 text-base sm:text-lg wrap-anywhere">{formatCompact(totalExpense)}</p>
         </Card>
         <Card className="p-4 sm:p-5 min-w-0 border-indigo-100 dark:border-indigo-800/50">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('common.net')}</p>
-          <p className={`font-extrabold mt-1.5 text-base sm:text-lg truncate ${totalIncome - totalExpense >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{formatCompact(totalIncome - totalExpense)}</p>
+          <p className="stat-label text-slate-500 dark:text-slate-400">{t('common.net')}</p>
+          <p className={`font-extrabold mt-1.5 text-base sm:text-lg wrap-anywhere ${totalIncome - totalExpense >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{formatCompact(totalIncome - totalExpense)}</p>
         </Card>
       </div>
 
@@ -1892,8 +1963,23 @@ export default function TransactionsPage() {
                 {accountName(id)} <X className="w-3 h-3" />
               </button>
             ))}
+            {tagFilter && (
+              <button onClick={() => setTagFilter('')} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold border border-indigo-100 dark:border-indigo-800/50">
+                #{tagFilter} <X className="w-3 h-3" />
+              </button>
+            )}
+            {(range.from || range.to) && (
+              <button onClick={() => setRange((r) => ({ ...r, from: '', to: '' }))} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold border border-indigo-100 dark:border-indigo-800/50">
+                {range.from ? formatDate(range.from, lang) : '…'} – {range.to ? formatDate(range.to, lang) : '…'} <X className="w-3 h-3" />
+              </button>
+            )}
+            {(range.min || range.max) && (
+              <button onClick={() => setRange((r) => ({ ...r, min: '', max: '' }))} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold border border-indigo-100 dark:border-indigo-800/50">
+                {range.min ? formatCurrency(Number(range.min)) : '…'} – {range.max ? formatCurrency(Number(range.max)) : '…'} <X className="w-3 h-3" />
+              </button>
+            )}
             {activeFilterCount > 1 && (
-              <button onClick={() => { setFilter('all'); setCategoryFilters([]); setAccountFilters([]); }} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 text-xs font-bold border border-rose-100 dark:border-rose-800/50">
+              <button onClick={clearAllFilters} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 text-xs font-bold border border-rose-100 dark:border-rose-800/50">
                 {t('transactions.clearFilters')} <X className="w-3 h-3" />
               </button>
             )}
@@ -1904,12 +1990,7 @@ export default function TransactionsPage() {
       {loading ? (
         <TransactionsSkeleton />
       ) : error ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-900/30 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-rose-400" /></div>
-          <p className="text-slate-700 dark:text-slate-300 font-bold text-base mb-1">{t('transactions.errorTitle')}</p>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">{t('transactions.errorBody')}</p>
-          <Button variant="secondary" onClick={() => load(true)}>{t('common.tryAgain')}</Button>
-        </div>
+        <LoadError title={t('transactions.errorTitle')} body={t('transactions.errorBody')} onRetry={() => load(true)} />
       ) : filtered.length === 0 ? (
         transactions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
@@ -1927,7 +2008,7 @@ export default function TransactionsPage() {
             </div>
             <h3 className="text-slate-800 dark:text-slate-200 font-bold text-lg mb-1">{t('transactions.noResultsTitle')}</h3>
             <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">{t('transactions.noResultsBody')}</p>
-            <Button variant="secondary" onClick={() => { setSearch(''); setFilter('all'); setCategoryFilters([]); setAccountFilters([]); }}>
+            <Button variant="secondary" onClick={clearAllFilters}>
               {t('transactions.clearFilters')}
             </Button>
           </div>
@@ -1948,7 +2029,7 @@ export default function TransactionsPage() {
                     <CategoryIconBadge category={row.transactions[0]?.category ?? ''} type={row.transactions[0]?.type ?? 'expense'} className="w-10 h-10 rounded-xl" />
                     <div>
                       <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{row.merchant || t('transactions.noDescription')}</p>
-                      <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('transactions.transactionCount', { n: row.count, date: formatDate(row.lastDate) })}</p>
+                      <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('transactions.transactionCount', { n: row.count, date: formatDate(row.lastDate, lang) })}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1961,7 +2042,7 @@ export default function TransactionsPage() {
                     {row.transactions.map((tx) => (
                       <div key={tx.id} className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-bold text-slate-700 dark:text-slate-300 shrink-0">{formatDate(tx.date)}</p>
+                          <p className="text-xs font-bold text-slate-700 dark:text-slate-300 shrink-0">{formatDate(tx.date, lang)}</p>
                           <p className="text-xs font-medium text-slate-400 dark:text-slate-500 truncate">{tx.category} · {accountName(tx.account)}</p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -1984,7 +2065,7 @@ export default function TransactionsPage() {
           {groupedByDate.map(({ date, txs }) => (
             <div key={date}>
               <div className="flex items-center gap-3 px-1 py-2">
-                <span className="text-xs font-bold text-slate-400 dark:text-slate-500 whitespace-nowrap">{formatDate(date)}</span>
+                <span className="text-xs font-bold text-slate-400 dark:text-slate-500 whitespace-nowrap">{formatDate(date, lang)}</span>
                 <div className="flex-1 h-px bg-slate-100 dark:bg-slate-800" />
               </div>
               <div className="space-y-2">
@@ -2048,6 +2129,22 @@ export default function TransactionsPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input label={t('common.date')} type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
             <Input label={t('common.description')} placeholder={t('transactions.phDescription')} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
+          </div>
+          <div>
+            <Input
+              label={t('transactions.tags')}
+              placeholder={t('transactions.tagsPlaceholder')}
+              value={form.tags}
+              list="nf-tx-tags"
+              autoComplete="off"
+              onChange={(e) => setForm((f) => ({ ...f, tags: e.target.value }))}
+            />
+            {/* Native suggestions from tags already in use (completes the whole
+                field, so it's most useful for the first/only tag). */}
+            <datalist id="nf-tx-tags">
+              {tagTotals.map(([tag]) => <option key={tag} value={tag} />)}
+            </datalist>
+            <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 mt-1">{t('transactions.tagsHint')}</p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {form.type !== 'transfer' && (
@@ -2367,8 +2464,8 @@ export default function TransactionsPage() {
             const expanded = expandedSplitGroups.has(group.key);
             const groupRemaining = group.splits.reduce((s, x) => s + splitRemaining(x), 0);
             const subtitle = group.splits.length === 1
-              ? `${group.splits[0].contactName} · ${t('bills.owedSince', { date: formatDate(group.date) })}`
-              : t('bills.groupOwedSince', { n: group.splits.length, date: formatDate(group.date) });
+              ? `${group.splits[0].contactName} · ${t('bills.owedSince', { date: formatDate(group.date, lang) })}`
+              : t('bills.groupOwedSince', { n: group.splits.length, date: formatDate(group.date, lang) });
             // Editing this group: its card is replaced in place by the split form.
             if (editingGroupKey === group.key) {
               return <div key={group.key}>{renderSplitExpenseForm()}</div>;
@@ -2414,8 +2511,8 @@ export default function TransactionsPage() {
                   {settledSplitGroups.slice(0, 10).map((group) => {
                     const expanded = expandedSplitGroups.has(group.key);
                     const subtitle = group.splits.length === 1
-                      ? `${group.splits[0].contactName} · ${t('bills.transferredOn', { date: formatDate(group.settledDate || group.date) })}`
-                      : t('bills.groupTransferredOn', { n: group.splits.length, date: formatDate(group.settledDate || group.date) });
+                      ? `${group.splits[0].contactName} · ${t('bills.transferredOn', { date: formatDate(group.settledDate || group.date, lang) })}`
+                      : t('bills.groupTransferredOn', { n: group.splits.length, date: formatDate(group.settledDate || group.date, lang) });
                     return (
                       <div key={group.key} className="rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 overflow-hidden opacity-90">
                         <button onClick={() => toggleSplitGroup(group.key)} className="w-full flex items-center justify-between px-3.5 py-2.5 text-left">
@@ -2632,6 +2729,70 @@ export default function TransactionsPage() {
                       )}
                     </section>
                   )}
+
+                  {/* ── TAGS (one at a time, with each tag's total spend) ── */}
+                  {tagTotals.length > 0 && (
+                    <section>
+                      <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2.5">{t('transactions.tagsSection')}</p>
+                      <div className="flex gap-2 flex-wrap">
+                        {tagTotals.map(([tag, spent]) => (
+                          <button
+                            key={`tag-${tag}`}
+                            onClick={() => setDraftTag((cur) => (cur === tag ? '' : tag))}
+                            aria-pressed={draftTag === tag}
+                            title={t('transactions.tagSpent', { amount: formatCurrency(spent) })}
+                            className={`px-4 h-9 rounded-full text-[13px] font-semibold transition-all duration-200 whitespace-nowrap inline-flex items-center gap-1.5 ${draftTag === tag ? 'bg-indigo-600 text-white border border-indigo-600' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'}`}
+                          >
+                            #{tag}
+                            <span className={`text-[11px] font-bold ${draftTag === tag ? 'text-indigo-100' : 'text-slate-400 dark:text-slate-500'}`}>{formatCompact(spent)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {/* ── Section 4: DATE RANGE + AMOUNT ── */}
+                  <section className="space-y-5">
+                    <div>
+                      <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2.5">{t('transactions.dateRange')}</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        {(['from', 'to'] as const).map((k) => (
+                          <label key={k} className="block min-w-0">
+                            <span className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">{k === 'from' ? t('transactions.dateFrom') : t('transactions.dateTo')}</span>
+                            <input
+                              type="date"
+                              value={draftRange[k]}
+                              min={k === 'to' ? draftRange.from || undefined : undefined}
+                              max={k === 'from' ? draftRange.to || undefined : undefined}
+                              onChange={(e) => setDraftRange((r) => ({ ...r, [k]: e.target.value }))}
+                              className={RANGE_INPUT}
+                            />
+                          </label>
+                        ))}
+                      </div>
+                      <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 mt-1.5">{t('transactions.dateRangeHint')}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2.5">{t('transactions.amountRange')}</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        {(['min', 'max'] as const).map((k) => (
+                          <label key={k} className="block min-w-0">
+                            <span className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">{k === 'min' ? t('transactions.amountMin') : t('transactions.amountMax')}</span>
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              min="0"
+                              step="0.01"
+                              placeholder="$"
+                              value={draftRange[k]}
+                              onChange={(e) => setDraftRange((r) => ({ ...r, [k]: e.target.value }))}
+                              className={RANGE_INPUT}
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </section>
                 </div>
 
                 {/* Fixed action footer */}
@@ -2673,22 +2834,29 @@ type SwipeRowProps = {
 };
 
 function SwipeableRow({ tx, accountName, onEdit, onDelete, managed, onSplit }: SwipeRowProps) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   return (
     <SwipeToDelete onDelete={() => onDelete(tx.id)} disabled={managed}>
-      <div className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 rounded-3xl select-none">
-        <div className="flex items-center gap-3.5 flex-1 min-w-0">
-          <CategoryIconBadge category={tx.category} type={tx.type} className="w-11 h-11 rounded-2xl" />
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 p-4 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 rounded-3xl select-none">
+        <div className="flex items-center gap-3.5 flex-1 min-w-[min(100%,11rem)]">
+          <CategoryIconBadge category={tx.category} type={tx.type} className="w-11 h-11 rounded-2xl shrink-0" />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{tx.description || tx.category}</p>
+            <p className="text-sm font-bold text-slate-900 dark:text-slate-100 wrap-anywhere">{tx.description || tx.category}</p>
             <div className="flex items-center gap-1 mt-0.5">
               <p className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate min-w-0">
                 {tx.category}{tx.account ? ` · ${accountName(tx.account)}` : ''}{tx.type === 'transfer' && tx.toAccount ? ` → ${accountName(tx.toAccount)}` : ''}
               </p>
             </div>
+            {tx.tags && tx.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1 min-w-0">
+                {tx.tags.map((tag) => (
+                  <span key={tag} className="text-[11px] leading-4 font-bold px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 inline-block max-w-full wrap-anywhere">#{tag}</span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
-        <div className="flex items-center gap-1.5 ml-3 shrink-0">
+        <div className="flex items-center gap-1.5 ml-auto shrink-0">
           <span className={`text-sm font-extrabold whitespace-nowrap ${tx.type === 'income' ? 'text-emerald-600 dark:text-emerald-400' : tx.type === 'transfer' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-900 dark:text-slate-100'}`}>
             {tx.type === 'income' ? '+' : tx.type === 'transfer' ? '' : '-'}{formatCurrency(tx.amount)}
           </span>
@@ -2717,19 +2885,19 @@ function SplitGroupRow({ group, accountName, expanded, onToggle, onEdit, onDelet
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const first = group.transactions[0];
   const n = group.transactions.length;
   return (
     <SwipeToDelete onDelete={onDelete}>
       <div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 rounded-3xl select-none overflow-hidden">
-        <div className="flex items-center justify-between p-4">
-          <button type="button" onClick={onToggle} className="flex items-center gap-3.5 flex-1 min-w-0 text-left tap-highlight-none">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 p-4">
+          <button type="button" onClick={onToggle} className="flex items-center gap-3.5 flex-1 min-w-[min(100%,11rem)] text-left tap-highlight-none">
             <span className="grid place-items-center w-11 h-11 rounded-2xl bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50 text-indigo-600 dark:text-indigo-400 shrink-0">
               <SplitIcon className="w-5 h-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{first.description || `${n} categories`}</p>
+              <p className="text-sm font-bold text-slate-900 dark:text-slate-100 wrap-anywhere">{first.description || `${n} categories`}</p>
               <div className="flex items-center gap-1 mt-0.5">
                 <p className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate min-w-0">
                   <span className="text-indigo-600 dark:text-indigo-400 font-bold">{n}-way split</span>{first.account ? ` · ${accountName(first.account)}` : ''}
@@ -2738,7 +2906,7 @@ function SplitGroupRow({ group, accountName, expanded, onToggle, onEdit, onDelet
               </div>
             </div>
           </button>
-          <div className="flex items-center gap-1.5 ml-3 shrink-0">
+          <div className="flex items-center gap-1.5 ml-auto shrink-0">
             <span className="text-sm font-extrabold whitespace-nowrap text-slate-900 dark:text-slate-100">-{formatCurrency(group.total)}</span>
             <Button variant="ghost" size="icon" aria-label={t('common.edit')} className="text-slate-400 dark:text-slate-500 h-9 w-9 rounded-xl" onClick={(e) => { e.stopPropagation(); onEdit(); }}>
               <Pencil className="w-3.5 h-3.5" />

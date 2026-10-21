@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Plus, Calendar, CheckCircle2, Circle, AlarmClock, Pencil, RefreshCw, AlertCircle, Banknote, Users, UserPlus, HandCoins, Check, Trash2, ChevronDown, Gauge } from 'lucide-react';
+import { Plus, Calendar, CheckCircle2, Circle, AlarmClock, Pencil, AlertCircle, Banknote, Users, UserPlus, HandCoins, Check, Trash2, ChevronDown, Gauge } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -18,7 +18,7 @@ import { buildSplitTx, groupSplits, isOneOffSplit, resolveSplit, splitRemaining 
 import type { Bill, Account, PaycheckEntry, Transaction, Contact, Split, BillSplitParticipant } from '@/types';
 import { useCategories } from '@/hooks/useCategories';
 import { useToast } from '@/lib/toast';
-import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { PullToRefresh } from '@/components/PullToRefresh';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { peekCache, ensureResources } from '@/lib/client/store';
 import { useTranslation } from '@/lib/i18n/context';
@@ -79,7 +79,7 @@ function upsertTemplate(tpl: BillTemplate) {
 
 // ── Cashflow Calendar ──────────────────────────────────────────────────────────
 function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paychecks: PaycheckEntry[]; nowMs: number }) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const now = new Date(nowMs);
   const year = now.getFullYear();
   const month = now.getMonth();
@@ -115,16 +115,18 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
     }
   });
 
-  const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  // Localized weekday initials (was hard-coded English).
+  const weekdayFmt = new Intl.DateTimeFormat(dateLocale(lang), { weekday: 'short' });
+  const DAY_LABELS = Array.from({ length: 7 }, (_, i) => weekdayFmt.format(new Date(2023, 0, 1 + i)).slice(0, 2));
 
   return (
     <Card className="p-4 sm:p-5">
-      <div className="flex items-center justify-between mb-4">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mb-4">
+        <div className="min-w-0">
           <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-            {now.toLocaleDateString(dateLocale(), { month: 'long' })} {year} — {t('bills.cashflow')}
+            {now.toLocaleDateString(dateLocale(lang), { month: 'long' })} {year} — {t('bills.cashflow')}
           </h2>
-          <div className="flex items-center gap-3 mt-1">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1">
             {totalPaychecksAmt > 0 && <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">+{formatCurrency(totalPaychecksAmt)} {t('bills.inShort')}</span>}
             {totalBillsAmt > 0 && <span className="text-xs font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap">-{formatCurrency(totalBillsAmt)} {t('bills.outShort')}</span>}
           </div>
@@ -172,7 +174,7 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
         <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60 flex flex-wrap gap-2">
           {(() => {
             const sortedNum = ([a]: [string, unknown], [b]: [string, unknown]) => Number(a) - Number(b);
-            const monthShort = now.toLocaleDateString(dateLocale(), { month: 'short' });
+            const monthShort = now.toLocaleDateString(dateLocale(lang), { month: 'short' });
             return (
               <>
                 {Object.entries(dayPaychecks).sort(sortedNum).map(([day, pays]) => (
@@ -197,7 +199,7 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
 
 // ── Bills Timeline (horizontal scroll strip) ──────────────────────────────────
 function BillsTimeline({ bills, nowMs }: { bills: Bill[]; nowMs: number }) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const now = new Date(nowMs);
   const year = now.getFullYear();
   const month = now.getMonth();
@@ -230,7 +232,7 @@ function BillsTimeline({ bills, nowMs }: { bills: Bill[]; nowMs: number }) {
     <Card className="p-4 sm:p-5">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('bills.timeline', { month: now.toLocaleDateString(dateLocale(), { month: 'long' }) })}</h2>
+          <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('bills.timeline', { month: now.toLocaleDateString(dateLocale(lang), { month: 'long' }) })}</h2>
           {totalThisMonth > 0 && <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{formatCurrency(totalThisMonth)} {t('bills.dueThisMonth')}</p>}
         </div>
         {Object.keys(dayToBills).length > 0 && (
@@ -266,7 +268,7 @@ function BillsTimeline({ bills, nowMs }: { bills: Bill[]; nowMs: number }) {
 
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function BillsPage() {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const [bills, setBills] = useState<Bill[]>(() => {
     const b = peekCache(['bills'])?.bills;
     return b ? [...b].sort((x, y) => x.nextDue.localeCompare(y.nextDue)) : [];
@@ -334,7 +336,6 @@ export default function BillsPage() {
 
   useEffect(() => { load(); }, [load]);
   useAutoRefresh(() => load(true));
-  const { pullY, refreshing } = usePullToRefresh(() => load(true));
 
   function resetSplitMode() { setBillMyShare(''); }
   function openAdd() { setEditingId(null); setForm(EMPTY_FORM); setBillParticipantRows([emptyParticipant()]); resetSplitMode(); setShowAdvanced(false); setOpen(true); }
@@ -693,7 +694,7 @@ export default function BillsPage() {
             <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
               {split.contactName}{showBill && <> <span className="text-slate-400 dark:text-slate-500 font-medium">·</span> {split.billName}</>}
             </p>
-            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('bills.owedSince', { date: formatDate(split.date) })}</p>
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('bills.owedSince', { date: formatDate(split.date, lang) })}</p>
           </div>
           <div className="text-right shrink-0">
             <p className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">{formatCurrency(remaining)}</p>
@@ -826,14 +827,7 @@ export default function BillsPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
-      {(pullY > 0 || refreshing) && (
-        <div className="fixed top-0 left-0 right-0 z-50 flex justify-center pt-safe">
-          <div className="flex items-center gap-2 bg-indigo-600 text-white text-xs font-bold px-4 py-2 rounded-full shadow-lg mt-2">
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} style={!refreshing ? { transform: `rotate(${pullY * 180}deg)` } : undefined} />
-            {refreshing ? t('accounts.refreshing') : pullY >= 1 ? t('accounts.releaseToRefresh') : t('accounts.pullToRefresh')}
-          </div>
-        </div>
-      )}
+      <PullToRefresh onRefresh={() => load(true)} />
 
       <PageHeader
         icon={Calendar}
@@ -841,13 +835,13 @@ export default function BillsPage() {
         title={t('bills.title')}
         subtitle={t('bills.subtitle')}
         action={
-          <Button onClick={openAdd} className="w-full md:w-auto shadow-sm"><Plus className="w-5 h-5" />{t('bills.addBill')}</Button>
+          <Button onClick={openAdd} className="w-full lg:w-auto shadow-sm"><Plus className="w-5 h-5" />{t('bills.addBill')}</Button>
         }
       />
 
       <div className="grid grid-cols-3 gap-3">
         <Card className="p-4 sm:p-5 min-w-0">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('common.monthly')}</p>
+          <p className="stat-label text-slate-500 dark:text-slate-400">{t('common.monthly')}</p>
           <FitText maxSize={24} minSize={13} className="font-extrabold text-slate-900 dark:text-slate-100 mt-1.5">{formatCurrency(monthlyTotal)}</FitText>
           {/* The total sums YOUR share of split bills while each row headlines the
               full amount — say so, so the two numbers visibly reconcile. */}
@@ -856,11 +850,11 @@ export default function BillsPage() {
           )}
         </Card>
         <Card className="p-4 sm:p-5 min-w-0">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('bills.active')}</p>
+          <p className="stat-label text-slate-500 dark:text-slate-400">{t('bills.active')}</p>
           <FitText maxSize={24} minSize={13} className="font-extrabold text-indigo-600 dark:text-indigo-400 mt-1.5">{String(activeBills.length)}</FitText>
         </Card>
         <Card className={`p-4 sm:p-5 min-w-0 ${overdueBills.length > 0 ? 'border-rose-200 dark:border-rose-800/50' : upcomingCount > 0 ? 'border-amber-200 dark:border-amber-800/50' : ''}`}>
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{overdueBills.length > 0 ? t('bills.overdue') : t('bills.dueSoon')}</p>
+          <p className="stat-label text-slate-500 dark:text-slate-400">{overdueBills.length > 0 ? t('bills.overdue') : t('bills.dueSoon')}</p>
           <FitText maxSize={24} minSize={13} className={`font-extrabold mt-1.5 ${overdueBills.length > 0 ? 'text-rose-600 dark:text-rose-400' : upcomingCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400 dark:text-slate-500'}`}>{String(overdueBills.length > 0 ? overdueBills.length : upcomingCount)}</FitText>
         </Card>
       </div>
@@ -936,7 +930,12 @@ export default function BillsPage() {
                   const isDueSoon = daysUntil > 3 && daysUntil <= 7;
                   const accountName = accounts.find((a) => a.id === bill.account)?.name ?? bill.account;
                   return (
-                    <SwipeToDelete key={bill.id} onDelete={() => handleDelete(bill.id)}>
+                    <SwipeToDelete
+                      key={bill.id}
+                      onDelete={() => handleDelete(bill.id)}
+                      label={t('common.delete')}
+                      leading={{ label: t('bills.markPaid'), icon: CheckCircle2, tone: 'emerald', onAction: () => openPayModal(bill) }}
+                    >
                       <div className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-5 rounded-3xl bg-white dark:bg-slate-800 border transition-all duration-200 gap-3 sm:gap-0 ${isUrgent ? 'border-rose-200 dark:border-rose-800/50 bg-rose-50/30' : isDueSoon ? 'border-amber-200 dark:border-amber-800/50 bg-amber-50/30' : 'border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 hover:shadow-sm'}`}>
                         <div className="flex items-center gap-4">
                           <div className={`flex items-center justify-center w-12 h-12 rounded-2xl shrink-0 border ${isUrgent ? 'bg-rose-100 dark:bg-rose-900/40 border-rose-200 dark:border-rose-800/50 pulse-glow' : isDueSoon ? 'bg-amber-100 dark:bg-amber-900/40 border-amber-200 dark:border-amber-800/50' : 'bg-slate-100 dark:bg-slate-700 border-slate-200 dark:border-slate-700'}`}>
@@ -946,7 +945,7 @@ export default function BillsPage() {
                             <p className="text-base font-bold text-slate-900 dark:text-slate-100">{bill.name}</p>
                             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
                               {FREQUENCY_LABELS[bill.frequency]}{accountName ? ` · ${accountName}` : ''}{' · '}
-                              {isOverdue ? <span className="text-rose-600 dark:text-rose-400 font-bold">{t('common.overdue')} {Math.abs(daysUntil)}d</span> : daysUntil === 0 ? <span className="text-amber-600 dark:text-amber-400 font-bold">{t('bills.dueToday')}</span> : <span>{daysUntil}d ({formatDate(bill.nextDue)})</span>}
+                              {isOverdue ? <span className="text-rose-600 dark:text-rose-400 font-bold">{t('common.overdue')} {Math.abs(daysUntil)}d</span> : daysUntil === 0 ? <span className="text-amber-600 dark:text-amber-400 font-bold">{t('bills.dueToday')}</span> : <span>{daysUntil}d ({formatDate(bill.nextDue, lang)})</span>}
                             </p>
                             {(() => {
                               const parts = billParticipants(bill);
@@ -965,9 +964,9 @@ export default function BillsPage() {
                         <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto pl-16 sm:pl-0 gap-3 sm:gap-5">
                           <span title={bill.variable ? t('bills.variableAmountHint') : undefined} className={`text-base font-extrabold ${isUrgent ? 'text-rose-600 dark:text-rose-400' : isDueSoon ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-slate-100'}`}>{bill.variable ? '~' : ''}{formatCurrency(bill.amount)}</span>
                           <div className="flex gap-1.5">
-                            <button aria-label={t('common.edit')} title={t('common.edit')} onClick={(e) => { e.stopPropagation(); openEdit(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
-                            <button aria-label={t('bills.markPaid')} title={t('bills.markPaid')} onClick={(e) => { e.stopPropagation(); openPayModal(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-xl transition-colors"><CheckCircle2 className="w-4 h-4" /></button>
-                            <button aria-label={t('bills.pause')} title={t('bills.pause')} onClick={(e) => { e.stopPropagation(); handleToggle(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-xl transition-colors"><Circle className="w-4 h-4" /></button>
+                            <button aria-label={t('common.edit')} title={t('common.edit')} onClick={(e) => { e.stopPropagation(); openEdit(bill); }} className="hit-area p-2 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
+                            <button aria-label={t('bills.markPaid')} title={t('bills.markPaid')} onClick={(e) => { e.stopPropagation(); openPayModal(bill); }} className="hit-area p-2 text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-xl transition-colors"><CheckCircle2 className="w-4 h-4" /></button>
+                            <button aria-label={t('bills.pause')} title={t('bills.pause')} onClick={(e) => { e.stopPropagation(); handleToggle(bill); }} className="hit-area p-2 text-slate-400 dark:text-slate-500 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-xl transition-colors"><Circle className="w-4 h-4" /></button>
                           </div>
                         </div>
                       </div>
@@ -983,15 +982,15 @@ export default function BillsPage() {
               <h2 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-1">{t('bills.paused')}</h2>
               <div className="space-y-2 opacity-60">
                 {inactiveBills.map((bill) => (
-                  <SwipeToDelete key={bill.id} onDelete={() => handleDelete(bill.id)}>
+                  <SwipeToDelete key={bill.id} onDelete={() => handleDelete(bill.id)} label={t('common.delete')}>
                     <div className="flex items-center justify-between p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700">
                       <div>
                         <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{bill.name}</p>
                         <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{FREQUENCY_LABELS[bill.frequency]} · {bill.variable ? '~' : ''}{formatCurrency(bill.amount)}</p>
                       </div>
                       <div className="flex gap-1.5">
-                        <button aria-label={t('common.edit')} title={t('common.edit')} onClick={(e) => { e.stopPropagation(); openEdit(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
-                        <button aria-label={t('bills.resume')} title={t('bills.resume')} onClick={(e) => { e.stopPropagation(); handleToggle(bill); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-xl transition-colors"><CheckCircle2 className="w-4 h-4" /></button>
+                        <button aria-label={t('common.edit')} title={t('common.edit')} onClick={(e) => { e.stopPropagation(); openEdit(bill); }} className="hit-area p-2 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
+                        <button aria-label={t('bills.resume')} title={t('bills.resume')} onClick={(e) => { e.stopPropagation(); handleToggle(bill); }} className="hit-area p-2 text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-xl transition-colors"><CheckCircle2 className="w-4 h-4" /></button>
                       </div>
                     </div>
                   </SwipeToDelete>
@@ -1242,7 +1241,7 @@ export default function BillsPage() {
                         <Users className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                         <div className="min-w-0">
                           <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{group.billName}</p>
-                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('bills.groupOwedSince', { n: group.splits.length, date: formatDate(group.date) })}</p>
+                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('bills.groupOwedSince', { n: group.splits.length, date: formatDate(group.date, lang) })}</p>
                         </div>
                       </div>
                       <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400 shrink-0 ml-2">{formatCurrency(groupRemaining)}</span>
@@ -1277,7 +1276,7 @@ export default function BillsPage() {
                         <div key={group.key} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 opacity-75">
                           <div className="min-w-0">
                             <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{split.contactName} · {split.billName}</p>
-                            <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{t('bills.transferredOn', { date: formatDate(split.settledDate || split.date) })}</p>
+                            <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{t('bills.transferredOn', { date: formatDate(split.settledDate || split.date, lang) })}</p>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
                             <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through">{formatCurrency(split.amount)}</span>
@@ -1299,7 +1298,7 @@ export default function BillsPage() {
                             <Users className="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0" />
                             <div className="min-w-0">
                               <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{group.billName}</p>
-                              <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{t('bills.groupTransferredOn', { n: group.splits.length, date: formatDate(group.settledDate || group.date) })}</p>
+                              <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{t('bills.groupTransferredOn', { n: group.splits.length, date: formatDate(group.settledDate || group.date, lang) })}</p>
                             </div>
                           </div>
                           <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through shrink-0 ml-2">{formatCurrency(group.total)}</span>

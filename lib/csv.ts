@@ -1,6 +1,6 @@
 import type { Transaction } from '@/types';
 
-const CSV_HEADERS = ['Date', 'Description', 'Amount', 'Type', 'Category', 'Account', 'To Account'] as const;
+const CSV_HEADERS = ['Date', 'Description', 'Amount', 'Type', 'Category', 'Account', 'To Account', 'Tags'] as const;
 
 // Quotes a single CSV field, escaping embedded quotes per RFC 4180.
 function csvField(value: unknown): string {
@@ -24,6 +24,7 @@ export function transactionsToCsv(
     tx.category,
     accountName(tx.account),
     tx.type === 'transfer' && tx.toAccount ? accountName(tx.toAccount) : '',
+    (tx.tags ?? []).join(', '),
   ]);
   return [CSV_HEADERS, ...rows]
     .map((row) => row.map(csvField).join(','))

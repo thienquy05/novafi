@@ -24,20 +24,34 @@ export const CACHE_TTL = {
   LONG: 60_000,
 } as const;
 
-type Entry<T> = { data: T; expires: number };
+type Entry<T> = { data: T; expires: number; createdAt: number };
 const store = new Map<string, Entry<unknown>>();
+/** In-flight fetches per key so concurrent misses share one Sheets round trip. */
+const inflight = new Map<string, { promise: Promise<unknown>; startedAt: number }>();
 
-export function getCache<T>(key: string): T | null {
+/**
+ * `notBefore` (ms epoch) treats any entry created earlier as a miss. Routes pass
+ * the caller's last-write time (the `nf_wv` cookie, see lib/apiRoute.ts) so a
+ * user never reads a pre-write snapshot from ANOTHER serverless instance, whose
+ * cache this instance's invalidateCache() can't reach.
+ */
+export function getCache<T>(key: string, notBefore = 0): T | null {
   const entry = store.get(key) as Entry<T> | undefined;
   if (!entry || Date.now() > entry.expires) {
     store.delete(key);
     return null;
   }
+  if (entry.createdAt <= notBefore) return null;
   return entry.data;
 }
 
-export function setCache<T>(key: string, data: T, ttlMs: number = CACHE_TTL.MEDIUM): void {
-  store.set(key, { data, expires: Date.now() + ttlMs });
+/**
+ * `fetchedAt` should be when the underlying read STARTED (defaults to now): a
+ * read that began before a write but finished after it must still count as
+ * pre-write data for the `notBefore` check above.
+ */
+export function setCache<T>(key: string, data: T, ttlMs: number = CACHE_TTL.MEDIUM, fetchedAt = Date.now()): void {
+  store.set(key, { data, expires: Date.now() + ttlMs, createdAt: fetchedAt });
 }
 
 /**
@@ -53,12 +67,31 @@ export async function cachedOrFetch<T>(
   key: string,
   ttlMs: number,
   fetcher: () => Promise<T>,
+  notBefore = 0,
 ): Promise<T> {
-  const cached = getCache<T>(key);
+  const cached = getCache<T>(key, notBefore);
   if (cached !== null) return cached;
-  const fresh = await fetcher();
-  setCache(key, fresh, ttlMs);
-  return fresh;
+  // Join an in-flight read for the same key if it started after the caller's
+  // last write — e.g. the dashboard render and the Money Flow request landing
+  // together on a cold instance share one Sheets round trip.
+  const pending = inflight.get(key);
+  if (pending && pending.startedAt > notBefore) return pending.promise as Promise<T>;
+
+  const startedAt = Date.now();
+  const slot: { promise: Promise<unknown>; startedAt: number } = { promise: Promise.resolve(), startedAt };
+  const promise = fetcher().then((fresh) => {
+    // Only cache if no invalidation detached this read while it was running —
+    // otherwise it would re-store pre-write data.
+    if (inflight.get(key) === slot) setCache(key, fresh, ttlMs, startedAt);
+    return fresh;
+  });
+  slot.promise = promise;
+  inflight.set(key, slot);
+  try {
+    return await promise;
+  } finally {
+    if (inflight.get(key)?.promise === promise) inflight.delete(key);
+  }
 }
 
 /** Invalidate all keys that start with the given prefix (e.g. `"accounts:userId"`). */
@@ -66,7 +99,21 @@ export function invalidateCache(prefix: string): void {
   for (const key of store.keys()) {
     if (key.startsWith(prefix)) store.delete(key);
   }
+  // A read already in flight would repopulate with pre-write data; detach it so
+  // the next caller starts a fresh one.
+  for (const key of inflight.keys()) {
+    if (key.startsWith(prefix)) inflight.delete(key);
+  }
 }
+
+/**
+ * Views computed from many sheets at once — the dashboard payload (also served to
+ * the Money Flow modal), and the badges/notification-bell payload. Almost any
+ * write can move them, and a route forgetting one left Home or the bell stale
+ * until the TTL ran out, so every invalidateMany() stales them unconditionally.
+ * Writes are rare next to reads, so the extra refetch is cheap.
+ */
+export const DERIVED_CACHES = ['dashboard', 'badges'] as const;
 
 /**
  * Invalidate several per-user resource caches at once. Replaces the repeated
@@ -75,7 +122,7 @@ export function invalidateCache(prefix: string): void {
  * suffix is appended here. See the `*_CACHES` groups below for the common sets.
  */
 export function invalidateMany(spreadsheetId: string, resources: readonly string[]): void {
-  for (const r of resources) invalidateCache(`${r}:${spreadsheetId}`);
+  for (const r of new Set([...resources, ...DERIVED_CACHES])) invalidateCache(`${r}:${spreadsheetId}`);
 }
 
 /**
@@ -100,4 +147,5 @@ export const INVESTMENT_CACHES = ['accounts', 'dashboard', 'badges'] as const;
 /** Clears the entire cache. Primarily for test isolation. */
 export function clearCache(): void {
   store.clear();
+  inflight.clear();
 }

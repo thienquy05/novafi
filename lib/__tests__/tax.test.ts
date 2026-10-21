@@ -31,6 +31,12 @@ const BASE_SETTINGS: TaxSettings = {
   bucketTargetSavings: 20,
   language: 'en',
   timeZone: 'America/New_York',
+  dismissedSubscriptions: [],
+  dismissedCancelReminders: [],
+  dashboardLayout: [],
+  mutedNotifications: [],
+  budgetAlertPct: 100,
+  billReminderDays: 0,
 };
 
 describe('BRACKETS_2026 and STANDARD_DEDUCTION_2026', () => {

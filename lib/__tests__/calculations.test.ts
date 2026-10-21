@@ -14,15 +14,16 @@ import {
   reverseExpenseBalance, reverseIncomeBalance, reverseTransferFromBalance, reverseTransferToBalance,
   billToTransactionDefaults, calcSplitShares, calcLoanRemaining, myBillShare, billOthersShare, defaultBillPaymentAmount,
   calcOverdueBills, calcOverBudget,
-  calcNetWorthProjection, calcPaycheckTaxToSave, calcLongestUntouchedSavings,
+  calcNetWorth, calcMonthlyNetWorthFlows, buildNetWorthSeries, calcCashFlowProjection, snapshotValue,
+  calcPaycheckTaxToSave, calcLongestUntouchedSavings,
   calcLoanPayoff, calcLoanExtraPaymentImpact, calcLoanPaymentSplit,
   calcActivityMonths, calcPredictionReadiness,
   calcPaycheckDeposited,
   creditUtilization, creditUtilStatus, isOverCreditTarget, availableCredit,
   calcPaydownToTarget, buildCreditReport, calcCreditAlerts, allocateSmartPayment,
   assessCardPaymentHistory, buildLimitIncreaseAdvisories, LIMIT_ADVISOR_TARGET,
-  buildStatementArbitrage, buildBalanceTransferAdvice,
-  detectSubscriptions, suggestBudgetReallocations, denormalizeMonthlyBudget,
+  buildStatementArbitrage, buildBalanceTransferAdvice, cardPaymentStatus,
+  detectSubscriptions, merchantMatches, suggestBudgetReallocations, denormalizeMonthlyBudget,
   calcCreditUtilizationScore, composeHealthScore, daysUntilStatement, HEALTH_WEIGHTS,
   CREDIT_UTIL_TARGET,
   predictMonthlyIncome, suggestCardPaymentBudget,
@@ -486,6 +487,11 @@ describe('pctChange', () => {
 
   it('current = 0, prev > 0 → -100%', () => {
     expect(pctChange(0, 100)).toBeCloseTo(-100, 4);
+  });
+
+  it('keeps the real direction from a negative base', () => {
+    expect(pctChange(-150, -100)).toBeCloseTo(-50, 4); // more debt = worse
+    expect(pctChange(-50, -100)).toBeCloseTo(50, 4);   // less debt = better
   });
 });
 
@@ -1338,32 +1344,136 @@ describe('calcSpendingPace', () => {
   });
 });
 
-// ── Net Worth Projection ──────────────────────────────────────────────────────
+// ── Net worth: definition, history series, cash-flow forecast ────────────────
 
-describe('calcNetWorthProjection', () => {
-  it('returns empty array when fewer than 2 data points', () => {
-    expect(calcNetWorthProjection([], 6)).toEqual([]);
-    expect(calcNetWorthProjection([{ netWorth: 10000 }], 6)).toEqual([]);
+describe('calcNetWorth', () => {
+  it('total counts loans as debt; liquid ignores them; both net out funding held for others', () => {
+    const fundingIn = makeTx({ type: 'transfer', category: 'Funding', account: '', toAccount: 'chk', amount: 300 });
+    expect(calcNetWorth(MIXED_ACCOUNTS, [], 'total')).toBe(5000 + 10000 - 2000 - 20000);
+    expect(calcNetWorth(MIXED_ACCOUNTS, [], 'liquid')).toBe(5000 + 10000 - 2000);
+    expect(calcNetWorth(MIXED_ACCOUNTS, [fundingIn], 'liquid')).toBe(5000 + 10000 - 2000 - 300);
+  });
+});
+
+describe('calcMonthlyNetWorthFlows', () => {
+  const accounts = [makeAccount({ id: 'chk', type: 'checking' }), makeAccount({ id: 'lon', type: 'loan', balance: 1000 })];
+  const txs = [
+    makeTx({ type: 'income', amount: 1000, date: '2026-03-01', account: 'chk' }),
+    makeTx({ type: 'expense', amount: 400, date: '2026-03-05', account: 'chk' }),
+    // loan payment = interest expense + principal transfer into the loan
+    makeTx({ type: 'expense', amount: 10, date: '2026-03-10', account: 'chk', category: 'Loan' }),
+    makeTx({ type: 'transfer', amount: 90, date: '2026-03-10', account: 'chk', toAccount: 'lon', category: 'Loan' }),
+    makeTx({ type: 'transfer', amount: 50, date: '2026-03-12', account: 'chk', toAccount: 'sav' }),
+  ];
+
+  it('total basis: income − expense; transfers are internal', () => {
+    expect(calcMonthlyNetWorthFlows(txs, accounts, 'total').get('2026-03')).toBe(1000 - 400 - 10);
   });
 
-  it('projects correct number of months', () => {
-    const history = [{ netWorth: 10000 }, { netWorth: 11000 }];
-    expect(calcNetWorthProjection(history, 6)).toHaveLength(6);
-    expect(calcNetWorthProjection(history, 3)).toHaveLength(3);
+  it('liquid basis: principal paid into a loan also leaves liquid net worth', () => {
+    expect(calcMonthlyNetWorthFlows(txs, accounts, 'liquid').get('2026-03')).toBe(1000 - 400 - 10 - 90);
+  });
+});
+
+describe('buildNetWorthSeries', () => {
+  const accounts = [makeAccount({ id: 'chk', type: 'checking', balance: 1500 })];
+  const now = new Date(2026, 5, 15); // Jun 2026
+
+  it('ends at today\'s live value and estimates earlier months by walking transactions back', () => {
+    const txs = [
+      makeTx({ type: 'income', amount: 1000, date: '2026-04-02' }),
+      makeTx({ type: 'expense', amount: 200, date: '2026-05-03' }),
+      makeTx({ type: 'income', amount: 700, date: '2026-06-01' }),
+    ];
+    const series = buildNetWorthSeries({ liveNetWorth: 1500, transactions: txs, accounts, snapshots: [], basis: 'total', now });
+    expect(series).toEqual([
+      { month: '2026-04', netWorth: 1000, kind: 'estimated' }, // 1500 − 700 − (−200)
+      { month: '2026-05', netWorth: 800, kind: 'estimated' },  // 1500 − 700
+      { month: '2026-06', netWorth: 1500, kind: 'live' },
+    ]);
   });
 
-  it('flat history (0% MoM) → constant projection', () => {
-    const history = [{ netWorth: 10000 }, { netWorth: 10000 }, { netWorth: 10000 }];
-    const proj = calcNetWorthProjection(history, 3);
-    expect(proj[0]).toBeCloseTo(10000, 0);
-    expect(proj[2]).toBeCloseTo(10000, 0);
+  it('prefers a saved snapshot and re-anchors older estimates on it', () => {
+    const txs = [
+      makeTx({ type: 'income', amount: 100, date: '2026-04-02' }),
+      makeTx({ type: 'income', amount: 100, date: '2026-05-02' }),
+    ];
+    const snapshots = [{ id: 'nw_2026-05', date: '2026-05-31', month: '2026-05', netWorth: 5000, total: 5000, liquid: 5000 }];
+    const series = buildNetWorthSeries({ liveNetWorth: 5200, transactions: txs, accounts, snapshots, basis: 'total', now });
+    expect(series.map((p) => [p.month, p.netWorth, p.kind])).toEqual([
+      ['2026-04', 4900, 'estimated'], // anchored on the May snapshot, minus May's +100
+      ['2026-05', 5000, 'actual'],
+      ['2026-06', 5200, 'live'],
+    ]);
   });
 
-  it('positive growth → increasing projection', () => {
-    const history = [{ netWorth: 10000 }, { netWorth: 11000 }]; // +10% MoM
-    const proj = calcNetWorthProjection(history, 3);
-    expect(proj[0]).toBeGreaterThan(11000); // 11000 * 1.10
-    expect(proj[1]).toBeGreaterThan(proj[0]);
+  it('works for negative net worth and skips months before any history', () => {
+    const txs = [makeTx({ type: 'expense', amount: 300, date: '2026-05-10' })];
+    const series = buildNetWorthSeries({ liveNetWorth: -2000, transactions: txs, accounts, snapshots: [], basis: 'total', now });
+    expect(series).toEqual([
+      { month: '2026-05', netWorth: -2000, kind: 'estimated' },
+      { month: '2026-06', netWorth: -2000, kind: 'live' },
+    ]);
+  });
+
+  it('caps history at monthsBack', () => {
+    const txs = [makeTx({ type: 'income', amount: 1, date: '2024-01-01' })];
+    expect(buildNetWorthSeries({ liveNetWorth: 0, transactions: txs, accounts, snapshots: [], basis: 'total', now, monthsBack: 4 })).toHaveLength(4);
+  });
+
+  it('reads the snapshot value for the CURRENT basis (toggle never mixes definitions)', () => {
+    const snap = { id: 'nw', date: '', month: '2026-05', netWorth: 100, total: 100, liquid: 900 };
+    expect(snapshotValue(snap, 'liquid')).toBe(900);
+    expect(snapshotValue(snap, 'total')).toBe(100);
+    // legacy row (headline only) falls back to the stored headline
+    expect(snapshotValue({ id: 'nw', date: '', month: '2026-04', netWorth: 42 }, 'liquid')).toBe(42);
+  });
+});
+
+describe('calcAvgMomPct', () => {
+  it('averages month-over-month % changes, measured against |previous|', () => {
+    expect(calcAvgMomPct([100, 110, 121])).toBeCloseTo(10, 5);
+    expect(calcAvgMomPct([-100, -50])).toBeCloseTo(50, 5); // debt shrinking = improvement
+  });
+  it('returns null with < 2 points or only zero bases', () => {
+    expect(calcAvgMomPct([5])).toBeNull();
+    expect(calcAvgMomPct([0, 10])).toBeNull();
+  });
+});
+
+describe('calcCashFlowProjection', () => {
+  const now = new Date(2026, 5, 15); // Jun 2026 → window = Dec '25 … May '26
+  const accounts = [makeAccount({ id: 'chk', type: 'checking' }), makeAccount({ id: 'lon', type: 'loan', balance: 250 })];
+  const monthOf = (m: string, income: number, expense: number, principal = 0) => [
+    makeTx({ type: 'income', amount: income, date: `${m}-01` }),
+    makeTx({ type: 'expense', amount: expense, date: `${m}-05` }),
+    ...(principal ? [makeTx({ type: 'transfer', amount: principal, date: `${m}-10`, account: 'chk', toAccount: 'lon' })] : []),
+  ];
+
+  it('needs at least 2 complete active months', () => {
+    expect(calcCashFlowProjection({ liveNetWorth: 0, transactions: monthOf('2026-05', 100, 50), accounts, basis: 'total', now })).toBeNull();
+  });
+
+  it('adds the average monthly net flow linearly — also from a negative base', () => {
+    const txs = [...monthOf('2026-04', 3000, 2000), ...monthOf('2026-05', 3000, 2400)];
+    const f = calcCashFlowProjection({ liveNetWorth: -5000, transactions: txs, accounts, basis: 'total', now, months: 3 })!;
+    expect(f.monthlyChange).toBe(800);
+    expect(f.basedOnMonths).toBe(2);
+    expect(f.values).toEqual([-4200, -3400, -2600]);
+  });
+
+  it('ignores the current partial month', () => {
+    const txs = [...monthOf('2026-04', 1000, 0), ...monthOf('2026-05', 1000, 0), ...monthOf('2026-06', 0, 9000)];
+    expect(calcCashFlowProjection({ liveNetWorth: 0, transactions: txs, accounts, basis: 'total', now, months: 1 })!.values).toEqual([1000]);
+  });
+
+  it('liquid basis deducts loan principal only until the loan is paid off', () => {
+    const txs = [...monthOf('2026-04', 1000, 500, 100), ...monthOf('2026-05', 1000, 500, 100)];
+    const f = calcCashFlowProjection({ liveNetWorth: 0, transactions: txs, accounts, basis: 'liquid', now, months: 4 })!;
+    // +500 savings/mo; principal 100/mo but only 250 left on the loan
+    expect(f.values).toEqual([400, 800, 1250, 1750]);
+    // total basis is unaffected by principal transfers
+    expect(calcCashFlowProjection({ liveNetWorth: 0, transactions: txs, accounts, basis: 'total', now, months: 1 })!.values).toEqual([500]);
   });
 });
 
@@ -1692,8 +1802,8 @@ describe('buildLimitIncreaseAdvisories', () => {
 });
 
 describe('buildStatementArbitrage', () => {
-  // today = 2026-06-08; statementDay 11 → closes in 3 days.
-  const today = new Date('2026-06-08');
+  // today = 2026-06-08 (local time); statementDay 11 → closes in 3 days.
+  const today = new Date(2026, 5, 8);
 
   it('flags a card closing soon that is over the 30% cap, with paydown to 30%', () => {
     const card = makeAccount({ id: 'cc', type: 'credit', balance: 800, creditLimit: 1000, statementDay: 11 }); // 80%
@@ -1818,22 +1928,106 @@ describe('detectSubscriptions', () => {
     expect(detectSubscriptions(txs, today)).toHaveLength(0);
   });
 
-  it('ignores merchants seen in too few months', () => {
+  it('ignores repeat charges with no billing rhythm', () => {
     const txs = [
-      makeTx({ id: '1', type: 'expense', description: 'Spotify', amount: 9.99, date: '2026-05-01' }),
-      makeTx({ id: '2', type: 'expense', description: 'Spotify', amount: 9.99, date: '2026-05-15' }),
-      makeTx({ id: '3', type: 'expense', description: 'Spotify', amount: 9.99, date: '2026-05-28' }),
+      makeTx({ id: '1', type: 'expense', description: 'Spotify', amount: 9.99, category: 'Entertainment', date: '2026-05-01' }),
+      makeTx({ id: '2', type: 'expense', description: 'Spotify', amount: 9.99, category: 'Entertainment', date: '2026-05-03' }),
+      makeTx({ id: '3', type: 'expense', description: 'Spotify', amount: 9.99, category: 'Entertainment', date: '2026-05-28' }),
     ];
-    expect(detectSubscriptions(txs, today)).toHaveLength(0); // 3 charges but only 1 month
+    expect(detectSubscriptions(txs, today)).toHaveLength(0); // gaps of 2 and 25 days
   });
 
   it('marks a stale subscription inactive', () => {
     const txs = [
-      makeTx({ id: '1', type: 'expense', description: 'OldGym', amount: 30, date: '2025-09-05' }),
-      makeTx({ id: '2', type: 'expense', description: 'OldGym', amount: 30, date: '2025-10-05' }),
-      makeTx({ id: '3', type: 'expense', description: 'OldGym', amount: 30, date: '2025-11-05' }),
+      makeTx({ id: '1', type: 'expense', description: 'OldGym', amount: 30, category: 'Health', date: '2025-09-05' }),
+      makeTx({ id: '2', type: 'expense', description: 'OldGym', amount: 30, category: 'Health', date: '2025-10-05' }),
+      makeTx({ id: '3', type: 'expense', description: 'OldGym', amount: 30, category: 'Health', date: '2025-11-05' }),
     ];
     expect(detectSubscriptions(txs, today)[0].isActive).toBe(false);
+  });
+
+  const monthlyCharges = (description: string, amounts: number[], days: number[], category = 'Entertainment') =>
+    amounts.map((amount, i) => makeTx({
+      id: `${description}-${i}`, type: 'expense', description, amount, category,
+      date: `2026-0${i + 2}-${String(days[i]).padStart(2, '0')}`,
+    }));
+
+  it('a restaurant visited every month is NOT a subscription (random dates + amounts)', () => {
+    const txs = monthlyCharges('Chick-fil-A', [12.43, 9.87, 15.2, 11.05], [3, 20, 9, 27], 'Food');
+    expect(detectSubscriptions(txs, today)).toHaveLength(0);
+  });
+
+  it('even a fixed-price monthly meal is skipped in an everyday category', () => {
+    const txs = monthlyCharges("Joe's Diner", [11.49, 11.49, 11.49, 11.49], [5, 5, 5, 5], 'Food');
+    expect(detectSubscriptions(txs, today)).toHaveLength(0);
+  });
+
+  it('a known service in an everyday category is still detected (DoorDash DashPass)', () => {
+    const txs = monthlyCharges('DoorDash DashPass', [9.99, 9.99, 9.99], [12, 12, 12], 'Food');
+    const subs = detectSubscriptions(txs, today);
+    expect(subs).toHaveLength(1);
+    expect(subs[0].confidence).toBe('likely');
+  });
+
+  it('needs at least 3 monthly charges', () => {
+    expect(detectSubscriptions(monthlyCharges('StreamCo', [7, 7], [4, 4]), today)).toHaveLength(0);
+    expect(detectSubscriptions(monthlyCharges('StreamCo', [7, 7, 7], [4, 4, 4]), today)).toHaveLength(1);
+  });
+
+  it('tolerates billing-date drift and one skipped month, but not erratic timing', () => {
+    const drift = [
+      makeTx({ id: 'a', type: 'expense', description: 'CloudBox', amount: 5, category: 'Bills', date: '2026-01-30' }),
+      makeTx({ id: 'b', type: 'expense', description: 'CloudBox', amount: 5, category: 'Bills', date: '2026-03-02' }), // 31d
+      makeTx({ id: 'c', type: 'expense', description: 'CloudBox', amount: 5, category: 'Bills', date: '2026-05-01' }), // 60d (skipped Apr)
+      makeTx({ id: 'd', type: 'expense', description: 'CloudBox', amount: 5, category: 'Bills', date: '2026-05-31' }), // 30d
+    ];
+    expect(detectSubscriptions(drift, today)).toHaveLength(1);
+  });
+
+  it('skips merchants the user dismissed ("Not a subscription")', () => {
+    const txs = monthlyCharges('StreamCo', [7, 7, 7], [4, 4, 4]);
+    const [sub] = detectSubscriptions(txs, today);
+    expect(sub.key).toBe('streamco');
+    expect(detectSubscriptions(txs, today, [sub.key])).toHaveLength(0);
+  });
+
+  it('detects weekly plans and normalizes them to a monthly cost', () => {
+    const txs = ['05-04', '05-11', '05-18', '05-25', '06-01'].map((d, i) =>
+      makeTx({ id: `w${i}`, type: 'expense', description: 'MealKit Weekly', amount: 10, category: 'Other', date: `2026-${d}` }));
+    const [sub] = detectSubscriptions(txs, today);
+    expect(sub.frequency).toBe('weekly');
+    expect(sub.amount).toBe(10);
+    expect(sub.monthlyAmount).toBeCloseTo(43.49, 2);
+  });
+
+  it('detects a yearly plan from two charges a year apart', () => {
+    const txs = [
+      makeTx({ id: 'y1', type: 'expense', description: 'Domain Renewal', amount: 20, category: 'Bills', date: '2025-03-01' }),
+      makeTx({ id: 'y2', type: 'expense', description: 'Domain Renewal', amount: 20, category: 'Bills', date: '2026-03-02' }),
+    ];
+    const [sub] = detectSubscriptions(txs, today);
+    expect(sub.frequency).toBe('yearly');
+    expect(sub.isActive).toBe(true);
+  });
+
+  it('ranks likely subscriptions before possible ones', () => {
+    const txs = [
+      ...monthlyCharges('Netflix', [15.99, 15.99, 15.99], [5, 5, 5]),               // known → likely
+      ...monthlyCharges('Local Club', [80, 85, 90], [1, 1, 1], 'Other'),            // price steps → possible
+    ];
+    expect(detectSubscriptions(txs, today).map((s) => s.confidence)).toEqual(['likely', 'possible']);
+  });
+});
+
+describe('merchantMatches', () => {
+  it('matches the same service despite noise', () => {
+    expect(merchantMatches('Netflix', 'NETFLIX.COM 1234')).toBe(true);
+    expect(merchantMatches('Spotify Premium', 'SPOTIFY PREMIUM P2B3')).toBe(true);
+  });
+  it('does not merge unrelated names that share a prefix or one word', () => {
+    expect(merchantMatches('Chick-fil-A', 'Chicken Express')).toBe(false);
+    expect(merchantMatches('Apple', "Applebee's")).toBe(false);
+    expect(merchantMatches('Amazon Prime', 'Prime Fitness')).toBe(false);
   });
 });
 
@@ -2817,5 +3011,38 @@ describe('buildBucketBudgetPlan', () => {
   it('never proposes a category that was filtered out upstream', () => {
     const { allocations } = plan({ categories: ['Grocery'] });
     expect(allocations.map((a) => a.category)).toEqual(['Grocery']);
+  });
+});
+
+describe('cardPaymentStatus', () => {
+  const card = (o: Partial<Account> = {}) => makeAccount({ id: 'cc', type: 'credit', balance: 500, dueDay: 25, statementDay: 28, minPayment: 35, ...o });
+  const pay = (date: string, amount: number) => makeTx({ type: 'transfer', account: 'chk', toAccount: 'cc', amount, date });
+  const today = new Date(2026, 5, 10); // Jun 10; statement closed May 28 → due Jun 25
+
+  it('returns null for non-cards or cards without a due day', () => {
+    expect(cardPaymentStatus(card({ dueDay: undefined }), [], today)).toBeNull();
+    expect(cardPaymentStatus(makeAccount({ type: 'checking', dueDay: 5 }), [], today)).toBeNull();
+  });
+
+  it('is due (with days left) until payments since the close cover the minimum', () => {
+    const s = cardPaymentStatus(card(), [pay('2026-05-20', 100), pay('2026-06-01', 20)], today)!;
+    expect(s).toMatchObject({ status: 'due', dueDate: '2026-06-25', daysUntilDue: 15, minDue: 35, paidThisCycle: 20 });
+  });
+
+  it('is paid once the minimum is covered, or the balance is cleared', () => {
+    expect(cardPaymentStatus(card(), [pay('2026-06-05', 35)], today)!.status).toBe('paid');
+    expect(cardPaymentStatus(card({ balance: 0 }), [], today)!.status).toBe('paid');
+  });
+
+  it('is overdue after the due date without a payment', () => {
+    const s = cardPaymentStatus(card(), [], new Date(2026, 5, 27))!;
+    expect(s.status).toBe('overdue');
+    expect(s.daysUntilDue).toBe(-2);
+  });
+
+  it('never asks for more than the balance; works without a statement day', () => {
+    const s = cardPaymentStatus(card({ balance: 20, statementDay: undefined }), [], today)!;
+    expect(s.minDue).toBe(20);
+    expect(s.dueDate).toBe('2026-06-25');
   });
 });

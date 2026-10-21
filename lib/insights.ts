@@ -261,7 +261,7 @@ export function buildInsights(data: InsightData, ctx: InsightContext): Insight[]
   }
 
   // 5. Subscription creep — recurring charges eating a meaningful slice of income.
-  const subs = detectSubscriptions(transactions, now).filter((s) => s.isActive);
+  const subs = detectSubscriptions(transactions, now, settings?.dismissedSubscriptions ?? []).filter((s) => s.isActive);
   const subsMonthly = roundCents(subs.reduce((s, x) => s + x.monthlyAmount, 0));
   if (flow.income > 0 && subs.length >= 2) {
     const share = (subsMonthly / flow.income) * 100;

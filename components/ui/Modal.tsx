@@ -1,8 +1,9 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useTranslation } from '@/lib/i18n/context';
 import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 
 interface ModalProps {
@@ -16,6 +17,8 @@ interface ModalProps {
 export function Modal({ open, onClose, title, children, className }: ModalProps) {
   const ref = useRef<HTMLDivElement>(null);
   const dragControls = useDragControls();
+  const titleId = useId();
+  const { t } = useTranslation();
   // Portal to <body> so the modal escapes the app shell's stacking context. The
   // page lives inside <main class="relative z-10">, a sibling of the sticky
   // mobile header (z-40); without the portal the modal's z-[200] only competes
@@ -71,6 +74,10 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
           {/* Sheet panel — drag="y" controlled only from the handle strip */}
           <motion.div
             ref={ref}
+            // Announced as a modal dialog named by its title (screen readers).
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
             drag="y"
             dragControls={dragControls}
             dragListener={false}
@@ -106,9 +113,10 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
 
             {/* Header */}
             <div className="shrink-0 flex items-center justify-between px-6 pt-3 pb-3 sm:px-8 sm:pt-6 sm:pb-4">
-              <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">{title}</h2>
+              <h2 id={titleId} className="text-xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">{title}</h2>
               <button
                 onClick={onClose}
+                aria-label={t('common.close')}
                 className="h-9 w-9 rounded-full flex items-center justify-center text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors duration-150 tap-highlight-none shrink-0"
               >
                 <X className="w-4.5 h-4.5" />

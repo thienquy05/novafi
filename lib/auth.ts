@@ -3,6 +3,9 @@ import Google from 'next-auth/providers/google';
 import { google as googleApis } from 'googleapis';
 import { DEFAULT_TAX_SETTINGS } from './utils';
 import { withRetryProxy } from './retry';
+import { cookies } from 'next/headers';
+import { MOCK_MODE, MOCK_PROFILE_COOKIE, MOCK_PROFILES, mockSpreadsheetId } from './devMock';
+import type { MockProfile } from './devFixture';
 
 const SPREADSHEET_NAME = 'NovaFi Finance Data';
 
@@ -74,11 +77,11 @@ async function findOrCreateSpreadsheet(accessToken: string): Promise<string> {
         },
         {
           range: 'Accounts!A1',
-          values: [['id', 'name', 'type', 'institution', 'balance', 'last4', 'color', 'created_at', 'opening_balance', 'credit_limit', 'statement_day', 'apr', 'monthly_payment', 'term_months', 'payment_account_id', 'min_balance']],
+          values: [['id', 'name', 'type', 'institution', 'balance', 'last4', 'color', 'created_at', 'opening_balance', 'credit_limit', 'statement_day', 'apr', 'monthly_payment', 'term_months', 'payment_account_id', 'min_balance', 'due_day', 'min_payment']],
         },
         {
           range: 'Transactions!A1',
-          values: [['id', 'date', 'description', 'amount', 'type', 'category', 'account', 'to_account', 'created_at', 'split_group_id']],
+          values: [['id', 'date', 'description', 'amount', 'type', 'category', 'account', 'to_account', 'created_at', 'split_group_id', 'tags']],
         },
         {
           range: 'Paychecks!A1',
@@ -129,7 +132,7 @@ declare module 'next-auth' {
 
 // JWT type is extended via the Session/JWT callbacks below
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+const nextAuth = NextAuth({
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID!,
@@ -210,3 +213,24 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     signIn: '/',
   },
 });
+
+export const { handlers, signIn, signOut } = nextAuth;
+
+/**
+ * The session. In the DEV-ONLY test mode (lib/devMock.ts — NOVAFI_MOCK=1, never in
+ * production) this returns a fake signed-in user whose spreadsheet is the
+ * in-memory mock for the profile chosen by the `nf_mock_profile` cookie.
+ */
+export const auth: typeof nextAuth.auth = MOCK_MODE
+  ? ((async () => {
+      const jar = await cookies();
+      const requested = jar.get(MOCK_PROFILE_COOKIE)?.value as MockProfile | undefined;
+      const profile: MockProfile = requested && MOCK_PROFILES.includes(requested) ? requested : 'extreme';
+      return {
+        user: { name: 'Test User', email: 'test@novafi.local' },
+        accessToken: 'mock',
+        spreadsheetId: mockSpreadsheetId(profile),
+        expires: new Date(Date.now() + 86400000).toISOString(),
+      };
+    }) as unknown as typeof nextAuth.auth)
+  : nextAuth.auth;

@@ -45,6 +45,7 @@ export function AnimatedNumber({
 }: AnimatedNumberProps) {
   const ref = useRef<HTMLSpanElement>(null);
   const [fontSize, setFontSize] = useState(maxSize);
+  const [wrap, setWrap] = useState(false);
   const reduce = useReducedMotion();
 
   const fmt = (n: number) => {
@@ -63,13 +64,18 @@ export function AnimatedNumber({
     const fit = () => {
       const mid = el.textContent; // preserve any in-flight animated value
       el.textContent = fmt(value);
+      el.style.whiteSpace = 'nowrap'; // measure on one line
       el.style.fontSize = maxSize + 'px';
       let size = maxSize;
       while (el.scrollWidth > el.clientWidth && size > minSize) {
         size -= 0.5;
         el.style.fontSize = `${size}px`;
       }
+      // Still too wide at minSize → wrap rather than clip (always fully visible).
+      const tooWide = el.scrollWidth > el.clientWidth;
+      el.style.whiteSpace = '';
       setFontSize(size);
+      setWrap(tooWide);
       if (mid !== null) el.textContent = mid;
     };
     fit();
@@ -102,7 +108,7 @@ export function AnimatedNumber({
   return (
     <span
       ref={ref}
-      className={`block whitespace-nowrap overflow-hidden tracking-tight leading-tight ${className}`}
+      className={`block tracking-tight leading-tight ${wrap ? 'whitespace-normal wrap-anywhere' : 'whitespace-nowrap'} ${className}`}
       style={{ fontSize }}
     >
       {fmt(value)}

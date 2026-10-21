@@ -117,7 +117,19 @@ export function QuickAddTransaction({ accounts: accountsProp, bills: billsProp, 
       });
       if (!res.ok) throw new Error();
       Haptics.success();
-      toast(t('transactions.toastAdded'), 'success');
+      // Undo deletes the row again (the API also reverses its balance effects).
+      toast(t('transactions.toastAdded'), 'success', {
+        label: t('common.undo'),
+        onClick: () => {
+          fetch('/api/transactions', { method: 'DELETE', body: JSON.stringify({ id: tx.id }), headers: { 'Content-Type': 'application/json' } })
+            .then((r) => {
+              if (!r.ok) throw new Error();
+              toast(t('transactions.toastUndone'), 'success');
+              router.refresh();
+            })
+            .catch(() => toast(t('transactions.toastFailedUndo'), 'error'));
+        },
+      });
       // Badge/notification invalidation is handled by the global write-guard in
       // lib/client/store (fires on every successful API write).
     } catch {

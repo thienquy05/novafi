@@ -28,7 +28,19 @@ export interface TaxSettings {
   bucketTargetSavings: number;
   language: Language;
   timeZone: string; // IANA time zone (e.g. 'America/New_York') — anchors every "today"/"now" across the app so server and client agree
+  // ── Subscriptions (synced across devices) ─────────────────────────────────
+  dismissedSubscriptions: string[];   // merchant keys the user marked "Not a subscription"
+  dismissedCancelReminders: string[]; // tracked-subscription ids whose "unused?" reminder was dismissed
+  // ── Home layout (synced) ────────────────────────────────────────────────────
+  dashboardLayout: string[]; // ordered card ids, '-' prefix = hidden (lib/dashboardLayout.ts); [] = default
+  // ── Notification controls (synced) ──────────────────────────────────────────
+  mutedNotifications: string[]; // NotificationType values the bell should never show
+  budgetAlertPct: number;       // warn once a budget reaches this % (100 = only when over)
+  billReminderDays: number;     // also warn this many days BEFORE a bill/card is due (0 = only overdue)
 }
+
+/** App-managed settings lists that PATCH /api/settings can change. */
+export type SettingsListKey = 'dismissedSubscriptions' | 'dismissedCancelReminders' | 'dashboardLayout';
 
 export interface TaxResult {
   grossPaycheck: number;
@@ -80,6 +92,8 @@ export interface Transaction {
   // amount) sharing this id. Absent/'' = a normal standalone transaction. Distinct
   // from the people-split (Split type) which shares a cost across contacts.
   splitGroupId?: string;
+  // Free-form labels (a trip, a project) that cut ACROSS budget categories.
+  tags?: string[];
 }
 
 export interface Account {
@@ -128,6 +142,10 @@ export interface Account {
   // warns before a payment would breach it. Absent/0 = guard at $0 (warn only on a
   // real overdraft, i.e. projected below zero).
   minBalance?: number;
+  // Credit cards (columns Q/R): payment due day-of-month (1–31) and the
+  // statement's minimum payment. Blank → undefined (no due tracking).
+  dueDay?: number;
+  minPayment?: number;
 }
 
 export interface Budget {
@@ -387,6 +405,10 @@ export interface NetWorthSnapshot {
   // Overall credit utilization % captured the same month (Smart Credit Report
   // trend). null/absent when no card had a limit set at snapshot time.
   creditUtil?: number | null;
+  // Both definitions, so flipping "exclude loans" never mixes them in one chart.
+  // Absent on rows saved before Oct 2026 (only `netWorth` was stored).
+  total?: number | null;
+  liquid?: number | null;
 }
 
 // A manually-tracked recurring subscription (Netflix, Spotify, etc.).

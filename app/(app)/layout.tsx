@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { auth, signOut } from '@/lib/auth';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
@@ -57,7 +58,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <MotionProvider>
-      <CacheSync />
+      {/* Opaque per-user id: scopes the client caches so one account never sees
+          another's cached numbers in the same browser tab. */}
+      <CacheSync owner={createHash('sha256').update(session.spreadsheetId).digest('hex').slice(0, 16)} />
       <div className="flex flex-col md:flex-row min-h-screen bg-slate-50 dark:bg-slate-900 pb-24 md:pb-0 relative overflow-hidden">
         <MobileHeader />
         <Sidebar />

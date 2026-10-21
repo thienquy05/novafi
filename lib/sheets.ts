@@ -1,3 +1,4 @@
+import { MOCK_MODE, createMockSheetsClient } from './devMock';
 import { google } from 'googleapis';
 import type {
   TaxSettings,
@@ -21,6 +22,12 @@ import { parseCategoryBuckets, serializeCategoryBuckets } from './calculations';
 import { withRetryProxy } from './retry';
 
 function getSheetsClient(accessToken: string) {
+  // DEV-ONLY test mode (NOVAFI_MOCK=1, never in production): in-memory Sheets.
+  if (MOCK_MODE) return createMockSheetsClient() as unknown as ReturnType<typeof realSheetsClient>;
+  return realSheetsClient(accessToken);
+}
+
+function realSheetsClient(accessToken: string) {
   const auth = new google.auth.OAuth2();
   auth.setCredentials({ access_token: accessToken });
   // Wrap so every Sheets API call transparently retries transient rate-limit /
@@ -156,6 +163,12 @@ export function parseSettingsRows(rows: string[][]): TaxSettings {
     bucketTargetSavings: Number(get('bucket_target_savings', String(DEFAULT_BUCKET_TARGETS.savings))),
     language: (get('language', 'en') as Language),
     timeZone: get('time_zone', DEFAULT_TAX_SETTINGS.timeZone),
+    dismissedSubscriptions: get('dismissed_subscriptions', '').split('|').filter(Boolean),
+    dismissedCancelReminders: get('dismissed_cancel_reminders', '').split('|').filter(Boolean),
+    dashboardLayout: get('dashboard_layout', '').split('|').filter(Boolean),
+    mutedNotifications: get('muted_notifications', '').split('|').filter(Boolean),
+    budgetAlertPct: Number(get('budget_alert_pct', '100')) || 100,
+    billReminderDays: Number(get('bill_reminder_days', '0')) || 0,
   };
 }
 
@@ -205,6 +218,12 @@ export async function saveSettings(
     ['bucket_target_needs', String(settings.bucketTargetNeeds ?? DEFAULT_BUCKET_TARGETS.needs)],
     ['bucket_target_wants', String(settings.bucketTargetWants ?? DEFAULT_BUCKET_TARGETS.wants)],
     ['bucket_target_savings', String(settings.bucketTargetSavings ?? DEFAULT_BUCKET_TARGETS.savings)],
+    ['dismissed_subscriptions', (settings.dismissedSubscriptions ?? []).join('|')],
+    ['dismissed_cancel_reminders', (settings.dismissedCancelReminders ?? []).join('|')],
+    ['dashboard_layout', (settings.dashboardLayout ?? []).join('|')],
+    ['muted_notifications', (settings.mutedNotifications ?? []).join('|')],
+    ['budget_alert_pct', String(settings.budgetAlertPct ?? 100)],
+    ['bill_reminder_days', String(settings.billReminderDays ?? 0)],
   ];
   await sheets.spreadsheets.values.update({
     spreadsheetId,
@@ -292,7 +311,7 @@ export async function getTransactions(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Transactions!A2:J',
+    range: 'Transactions!A2:K',
     valueRenderOption: 'UNFORMATTED_VALUE',
   });
   return (res.data.values ?? []).map(rowToTransaction);
@@ -310,12 +329,23 @@ function rowToTransaction(r: string[]): Transaction {
     toAccount: r[7] ?? '',
     createdAt: r[8] ?? '',
     splitGroupId: r[9] ?? '',
+    // Column K (added Oct 2026) — '|'-joined free-form tags; blank on older rows.
+    tags: parseTags(r[10]),
   };
 }
 
-// Serialize one transaction to its sheet row (column order = A..J).
+function parseTags(cell: string | undefined): string[] | undefined {
+  const tags = String(cell ?? '').split('|').map((t) => t.trim()).filter(Boolean);
+  return tags.length > 0 ? tags : undefined;
+}
+
+// Serialize one transaction to its sheet row (column order = A..K).
 function transactionRow(tx: Transaction): (string | number)[] {
-  return [tx.id, tx.date, tx.description, tx.amount, tx.type, tx.category, tx.account, tx.toAccount ?? '', tx.createdAt ?? '', tx.splitGroupId ?? ''];
+  return [
+    tx.id, tx.date, tx.description, tx.amount, tx.type, tx.category, tx.account,
+    tx.toAccount ?? '', tx.createdAt ?? '', tx.splitGroupId ?? '',
+    (tx.tags ?? []).map((t) => t.replace(/\|/g, '').trim()).filter(Boolean).join('|'),
+  ];
 }
 
 export async function addTransaction(
@@ -424,7 +454,7 @@ export async function getAccounts(
   const sheets = getSheetsClient(accessToken);
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'Accounts!A2:P200',
+    range: 'Accounts!A2:R200',
     // Raw cell value: a currency-formatted cell stays a number rather than
     // coming back as "$100.00" → NaN.
     valueRenderOption: 'UNFORMATTED_VALUE',
@@ -461,6 +491,9 @@ function rowToAccount(r: string[]): Account {
     // Column P is optional: the low-balance safeguard buffer (checking/savings/
     // cash). Blank → undefined (not 0 = a real $0 guard the user explicitly set).
     minBalance: r[15] === undefined || r[15] === '' ? undefined : Number(r[15]),
+    // Columns Q/R (credit cards): payment due day and minimum payment.
+    dueDay: r[16] === undefined || r[16] === '' ? undefined : Number(r[16]),
+    minPayment: r[17] === undefined || r[17] === '' ? undefined : Number(r[17]),
   };
 }
 
@@ -477,7 +510,7 @@ export async function upsertAccount(
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
-      values: [[account.id, account.name, account.type, account.institution, account.balance, account.last4, account.color, account.createdAt, account.openingBalance ?? '', account.creditLimit ?? '', account.statementDay ?? '', account.apr ?? '', account.monthlyPayment ?? '', account.termMonths ?? '', account.paymentAccountId ?? '', account.minBalance ?? '']],
+      values: [[account.id, account.name, account.type, account.institution, account.balance, account.last4, account.color, account.createdAt, account.openingBalance ?? '', account.creditLimit ?? '', account.statementDay ?? '', account.apr ?? '', account.monthlyPayment ?? '', account.termMonths ?? '', account.paymentAccountId ?? '', account.minBalance ?? '', account.dueDay ?? '', account.minPayment ?? '']],
     },
   });
 }
@@ -1112,14 +1145,19 @@ async function ensureNetWorthHistorySheet(
     spreadsheetId,
     range: 'NetWorthHistory!A1',
     valueInputOption: 'RAW',
-    requestBody: { values: [['id', 'date', 'month', 'netWorth', 'creditUtil']] },
+    requestBody: { values: [NET_WORTH_HEADER] },
   });
 }
 
+const NET_WORTH_HEADER = ['id', 'date', 'month', 'netWorth', 'creditUtil', 'total', 'liquid'];
+
 // Range that holds the net-worth snapshots. Exported so the dashboard's combined
 // batchGet can request the same range and reuse parseNetWorthRows. Column E
-// (creditUtil) is read alongside for the Smart Credit Report trend.
-export const NET_WORTH_RANGE = 'NetWorthHistory!A2:E';
+// (creditUtil) feeds the Smart Credit Report trend; F/G hold the total and liquid
+// net worth so the chart can follow the "exclude loans" setting either way.
+export const NET_WORTH_RANGE = 'NetWorthHistory!A2:G';
+
+const optionalNumber = (v: string | undefined) => (v === undefined || v === '' ? null : Number(v));
 
 /** Pure row→NetWorthSnapshot parser, shared by getNetWorthHistory and the dashboard batch. */
 export function parseNetWorthRows(rows: string[][]): NetWorthSnapshot[] {
@@ -1130,7 +1168,10 @@ export function parseNetWorthRows(rows: string[][]): NetWorthSnapshot[] {
     netWorth: Number(r[3] ?? 0),
     // Column E optional/legacy — blank on rows snapshotted before this existed
     // or when no card had a limit that month.
-    creditUtil: r[4] === undefined || r[4] === '' ? null : Number(r[4]),
+    creditUtil: optionalNumber(r[4]),
+    // F/G blank on rows saved before Oct 2026.
+    total: optionalNumber(r[5]),
+    liquid: optionalNumber(r[6]),
   }));
 }
 
@@ -1151,98 +1192,49 @@ export async function getNetWorthHistory(
   }
 }
 
-export async function appendNetWorthSnapshot(
+/**
+ * Save this month's net worth, updating the month's row in place (one row per
+ * month, keyed by id `nw_<YYYY-MM>`) so the stored value tracks the latest
+ * balance instead of freezing at the first dashboard visit of the month.
+ */
+export async function upsertNetWorthSnapshot(
   accessToken: string,
   spreadsheetId: string,
   snapshot: NetWorthSnapshot
 ): Promise<void> {
   await ensureNetWorthHistorySheet(accessToken, spreadsheetId);
   const sheets = getSheetsClient(accessToken);
+  const row = [
+    snapshot.id, snapshot.date, snapshot.month, snapshot.netWorth,
+    snapshot.creditUtil ?? '', snapshot.total ?? '', snapshot.liquid ?? '',
+  ];
+  const idsRes = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'NetWorthHistory!A2:A' });
+  const index = (idsRes.data.values ?? []).findIndex((r) => r[0] === snapshot.id);
+  if (index >= 0) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `NetWorthHistory!A${index + 2}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [row] },
+    });
+    return;
+  }
+  // New month: append, and (re)label the header so sheets created before the
+  // total/liquid columns existed get them named.
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: { valueInputOption: 'RAW', data: [{ range: 'NetWorthHistory!A1', values: [NET_WORTH_HEADER] }] },
+  });
   await sheets.spreadsheets.values.append({
     spreadsheetId,
     range: 'NetWorthHistory!A1',
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
-    requestBody: {
-      values: [[snapshot.id, snapshot.date, snapshot.month, snapshot.netWorth, snapshot.creditUtil ?? '']],
-    },
+    requestBody: { values: [row] },
   });
-
-  // When snapshots reach 1000, drop the oldest 500 to keep the sheet lean.
-  const countRes = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: 'NetWorthHistory!A2:A',
-  });
-  const rowCount = (countRes.data.values ?? []).length;
-  if (rowCount >= 1000) {
-    const sheetId = (await getSheetId(sheets, spreadsheetId, 'NetWorthHistory')) ?? 0;
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId,
-      requestBody: {
-        requests: [{
-          deleteDimension: {
-            range: {
-              sheetId,
-              dimension: 'ROWS',
-              startIndex: 1,   // row 2 (oldest data row), 0-indexed
-              endIndex: 501,   // delete 500 rows
-            },
-          },
-        }],
-      },
-    });
-  }
 }
 
 // ── Batch reads (reduces quota usage) ────────────────────────────────────────
-
-/**
- * Fetches Bills, Budgets, and Transactions in a single batchGet API call.
- * Used by the /api/badges endpoint instead of 3 separate requests.
- */
-export async function batchGetBadgesData(
-  accessToken: string,
-  spreadsheetId: string
-): Promise<{ bills: Bill[]; budgets: Budget[]; transactions: Transaction[]; accounts: Account[]; settings: TaxSettings }> {
-  const sheets = getSheetsClient(accessToken);
-  const ranges = [
-    'Bills!A2:M200',
-    'Budgets!A2:D200',
-    'Transactions!A2:J',
-    'Accounts!A2:P200',
-    SETTINGS_RANGE,
-  ];
-  const res = await sheets.spreadsheets.values.batchGet({
-    spreadsheetId,
-    ranges,
-    // Numeric cells must come back as numbers — currency-formatted cells
-    // would otherwise return "$100.00" strings that Number() turns into NaN.
-    valueRenderOption: 'UNFORMATTED_VALUE',
-  });
-  const vr = res.data.valueRanges ?? [];
-  const bills: Bill[] = (vr[0]?.values ?? []).map(rowToBill);
-  const budgets: Budget[] = (vr[1]?.values ?? []).map((r) => ({
-    id: r[0] ?? '',
-    category: r[1] ?? '',
-    amount: Number(r[2] ?? 0),
-    period: (r[3] ?? 'monthly') as Budget['period'],
-  }));
-  const transactions: Transaction[] = (vr[2]?.values ?? []).map((r) => ({
-    id: r[0] ?? '',
-    date: r[1] ?? '',
-    description: r[2] ?? '',
-    amount: Number(r[3] ?? 0),
-    type: (r[4] ?? 'expense') as Transaction['type'],
-    category: r[5] ?? '',
-    account: r[6] ?? '',
-    toAccount: r[7] ?? '',
-    createdAt: r[8] ?? '',
-    splitGroupId: r[9] ?? '',
-  }));
-  const accounts: Account[] = (vr[3]?.values ?? []).map((r) => rowToAccount(r as string[]));
-  const settings = parseSettingsRows((vr[4]?.values ?? []) as string[][]);
-  return { bills, budgets, transactions, accounts, settings };
-}
 
 export type DashboardData = {
   paychecks: PaycheckEntry[];
@@ -1260,67 +1252,17 @@ export type DashboardData = {
 function parseDashboardCore(
   vr: { values?: unknown[][] | null }[],
 ): Omit<DashboardData, 'netWorthHistory'> {
-  const paychecks: PaycheckEntry[] = (vr[0]?.values ?? []).map((r) => ({
-    id: r[0] ?? '',
-    date: r[1] ?? '',
-    grossAmount: Number(r[2] ?? 0),
-    federalWithheld: Number(r[3] ?? 0),
-    stateWithheld: Number(r[4] ?? 0),
-    localWithheld: Number(r[5] ?? 0),
-    k401: Number(r[6] ?? 0),
-    hsa: Number(r[7] ?? 0),
-    netAmount: Number(r[8] ?? 0),
-    notes: r[9] ?? '',
-    gratuityAmount: Number(r[10] ?? 0),
-    ficaWithheld: Number(r[11] ?? 0),
-  })) as PaycheckEntry[];
-  const transactions: Transaction[] = (vr[1]?.values ?? []).map((r) => ({
-    id: r[0] ?? '',
-    date: r[1] ?? '',
-    description: r[2] ?? '',
-    amount: Number(r[3] ?? 0),
-    type: (r[4] ?? 'expense') as Transaction['type'],
-    category: r[5] ?? '',
-    account: r[6] ?? '',
-    toAccount: r[7] ?? '',
-    createdAt: r[8] ?? '',
-    splitGroupId: r[9] ?? '',
-  })) as Transaction[];
-  const accounts: Account[] = (vr[2]?.values ?? []).map((r) => ({
-    id: String(r[0] ?? ''),
-    name: String(r[1] ?? ''),
-    type: (r[2] ?? 'checking') as Account['type'],
-    institution: String(r[3] ?? ''),
-    balance: Number(r[4]) || 0,
-    last4: String(r[5] ?? ''),
-    color: String(r[6] ?? '#6366f1'),
-    createdAt: String(r[7] ?? ''),
-    openingBalance: r[8] === undefined || r[8] === '' ? undefined : Number(r[8]),
-    creditLimit: r[9] === undefined || r[9] === '' ? undefined : Number(r[9]),
-    statementDay: r[10] === undefined || r[10] === '' ? undefined : Number(r[10]),
-    apr: r[11] === undefined || r[11] === '' ? undefined : Number(r[11]),
-    monthlyPayment: r[12] === undefined || r[12] === '' ? undefined : Number(r[12]),
-    termMonths: r[13] === undefined || r[13] === '' ? undefined : Number(r[13]),
-    paymentAccountId: r[14] === undefined || r[14] === '' ? undefined : String(r[14]),
-    minBalance: r[15] === undefined || r[15] === '' ? undefined : Number(r[15]),
-  })) as Account[];
-  const bills: Bill[] = (vr[3]?.values ?? []).map((r) => rowToBill(r as string[]));
-  const budgets: Budget[] = (vr[4]?.values ?? []).map((r) => ({
-    id: r[0] ?? '',
-    category: r[1] ?? '',
-    amount: Number(r[2] ?? 0),
-    period: (r[3] ?? 'monthly') as Budget['period'],
-  })) as Budget[];
-  const goals: Goal[] = (vr[5]?.values ?? []).map((r) => ({
-    id: r[0] ?? '',
-    name: r[1] ?? '',
-    targetAmount: Number(r[2] ?? 0),
-    currentAmount: Number(r[3] ?? 0),
-    deadline: r[4] ?? '',
-    icon: r[5] ?? '🎯',
-    linkedAccountId: r[6] ?? '',
-  })) as Goal[];
-  const settings = parseSettingsRows((vr[6]?.values ?? []) as string[][]);
+  // Same row parsers as the per-resource getters — the dashboard used to carry
+  // its own copies, which silently missed newer columns (card due day/minimum,
+  // budget/goal order), so Home and the bell disagreed with the other pages.
+  const rows = (i: number) => (vr[i]?.values ?? []) as string[][];
+  const paychecks = rows(0).map(rowToPaycheck);
+  const transactions = rows(1).map(rowToTransaction);
+  const accounts = rows(2).map(rowToAccount);
+  const bills = rows(3).map(rowToBill);
+  const budgets = parseBudgets(rows(4));
+  const goals = parseGoals(rows(5));
+  const settings = parseSettingsRows(rows(6));
 
   return { paychecks, transactions, accounts, bills, budgets, goals, settings };
 }
@@ -1336,11 +1278,11 @@ function parseDashboardCore(
  */
 const DASHBOARD_CORE_RANGES = [
   'Paychecks!A2:L',
-  'Transactions!A2:J',
-  'Accounts!A2:P200',
+  'Transactions!A2:K',
+  'Accounts!A2:R200',
   'Bills!A2:M200',
-  'Budgets!A2:D200',
-  'Goals!A2:G200',
+  'Budgets!A2:E200',
+  'Goals!A2:H200',
   SETTINGS_RANGE,
 ];
 
@@ -1412,8 +1354,8 @@ const BATCHABLE_SHEETS: Record<
   Exclude<BatchKey, NonBatchableKey>,
   { range: string; parse: (rows: string[][]) => unknown[] }
 > = {
-  accounts:     { range: 'Accounts!A2:P200',  parse: (rows) => rows.map(rowToAccount) },
-  transactions: { range: 'Transactions!A2:J', parse: (rows) => rows.map(rowToTransaction) },
+  accounts:     { range: 'Accounts!A2:R200',  parse: (rows) => rows.map(rowToAccount) },
+  transactions: { range: 'Transactions!A2:K', parse: (rows) => rows.map(rowToTransaction) },
   bills:        { range: 'Bills!A2:M200',     parse: (rows) => rows.map(rowToBill) },
   paychecks:    { range: 'Paychecks!A2:L',    parse: (rows) => rows.map(rowToPaycheck) },
   budgets:      { range: 'Budgets!A2:E200',   parse: parseBudgets },
@@ -1631,7 +1573,9 @@ async function deleteRowById(
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${sheetName}!A2:A2000`,
+    // Whole column: a fixed A2:A2000 window silently missed every row past 2,000
+    // (updateTransaction = delete + append would then DUPLICATE the row).
+    range: `${sheetName}!A2:A`,
   });
   const ids = (res.data.values ?? []).map((r) => r[0]);
   const rowIndex = ids.indexOf(id);

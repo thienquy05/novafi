@@ -3,6 +3,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { TrendingUp, Plus, ArrowUpRight, ArrowDownRight, ArrowDownLeft, Pencil } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { PullToRefresh } from '@/components/PullToRefresh';
+import { LoadError } from '@/components/ui/LoadError';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -48,11 +50,19 @@ export default function InvestmentsPage() {
   const [note, setNote] = useState('');
   const [value, setValue] = useState('');
 
+  const [error, setError] = useState(false);
   const load = useCallback(async (force = false) => {
-    const data = await ensureResources(['accounts', 'transactions'], { force });
-    setAccounts(data.accounts);
-    setTransactions(data.transactions);
-    setLoading(false);
+    // A failed read shows an error + retry (it used to leave the skeleton forever).
+    try {
+      const data = await ensureResources(['accounts', 'transactions'], { force });
+      setAccounts(data.accounts);
+      setTransactions(data.transactions);
+      setError(false);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -142,12 +152,14 @@ export default function InvestmentsPage() {
   }
 
   if (loading) return <InvestmentsSkeleton />;
+  if (error && accounts.length === 0) return <div className="p-4 md:p-8 max-w-3xl mx-auto"><LoadError onRetry={() => { setLoading(true); load(true); }} /></div>;
 
   const gainPositive = stats.gain >= 0;
   const gainColor = gainPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400';
 
   return (
     <StaggerReveal className="p-4 md:p-8 max-w-3xl mx-auto space-y-6 pb-24 md:pb-8">
+      <PullToRefresh onRefresh={() => load(true)} />
       <PageHeader
         icon={TrendingUp}
         tone="emerald"
@@ -173,15 +185,15 @@ export default function InvestmentsPage() {
           <div className="grid grid-cols-3 gap-3">
             {/* min-w-0 + break-words keep long labels (incl. Vietnamese) inside
                 these narrow 3-col cards instead of spilling past the border. */}
-            <Card className="p-4 text-center flex flex-col min-w-0">
+            <Card className="p-3 sm:p-4 text-center flex flex-col min-w-0">
               <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide break-words mb-2">{t('investments.totalValue')}</p>
               <FitText maxSize={20} minSize={12} className="font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(stats.value)}</FitText>
             </Card>
-            <Card className="p-4 text-center flex flex-col min-w-0">
+            <Card className="p-3 sm:p-4 text-center flex flex-col min-w-0">
               <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide break-words mb-2">{t('investments.totalInvested')}</p>
               <FitText maxSize={20} minSize={12} className="font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(stats.invested)}</FitText>
             </Card>
-            <Card className="p-4 text-center flex flex-col min-w-0">
+            <Card className="p-3 sm:p-4 text-center flex flex-col min-w-0">
               <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide break-words mb-2">{t('investments.totalGain')}</p>
               <FitText maxSize={20} minSize={12} className={`font-extrabold ${gainColor}`}>{formatCurrency(stats.gain, true)}</FitText>
               <p className={`text-xs font-semibold mt-0.5 ${gainColor}`}>{fmtPct(stats.gainPct)}</p>
@@ -215,13 +227,13 @@ export default function InvestmentsPage() {
 
                 {/* Invested vs current value */}
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-700/40">
-                    <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('investments.invested')}</p>
-                    <p className="font-extrabold text-slate-800 dark:text-slate-100 mt-0.5">{formatCurrency(s.invested)}</p>
+                  <div className="min-w-0 p-3 rounded-xl bg-slate-50 dark:bg-slate-700/40">
+                    <p className="stat-label text-slate-500 dark:text-slate-400">{t('investments.invested')}</p>
+                    <FitText maxSize={14} minSize={10} className="font-extrabold text-slate-800 dark:text-slate-100 mt-0.5">{formatCurrency(s.invested)}</FitText>
                   </div>
-                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-700/40">
-                    <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('investments.currentValue')}</p>
-                    <p className="font-extrabold text-slate-800 dark:text-slate-100 mt-0.5">{formatCurrency(s.value)}</p>
+                  <div className="min-w-0 p-3 rounded-xl bg-slate-50 dark:bg-slate-700/40">
+                    <p className="stat-label text-slate-500 dark:text-slate-400">{t('investments.currentValue')}</p>
+                    <FitText maxSize={14} minSize={10} className="font-extrabold text-slate-800 dark:text-slate-100 mt-0.5">{formatCurrency(s.value)}</FitText>
                   </div>
                 </div>
 

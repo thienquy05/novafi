@@ -5,7 +5,7 @@ import { Bell, Check, X, AlertTriangle, CreditCard, Calendar, PiggyBank, Wallet,
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/lib/i18n/context';
-import { NOTIFICATIONS_CACHE_KEY, NOTIFICATIONS_INVALID_EVENT } from '@/lib/client/store';
+import { NOTIFICATIONS_CACHE_KEY, afterIdle } from '@/lib/client/store';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import type { NotificationItem, NotificationType } from '@/lib/notifications';
 
@@ -15,13 +15,25 @@ import type { NotificationItem, NotificationType } from '@/lib/notifications';
 // read/deleted survives reloads; when the underlying problem is resolved its id
 // stops being produced and we prune it from the persisted sets.
 // sessionStorage key throttles refetch; the global write-guard in
-// lib/client/store clears it (and fires NOTIFICATIONS_INVALID_EVENT) after
-// every successful API write so new warnings surface without a reload.
+// lib/client/store clears it (and fires DATA_CHANGED_EVENT, which
+// useAutoRefresh listens for) after every successful API write so new warnings
+// surface without a reload.
 const CACHE_KEY = NOTIFICATIONS_CACHE_KEY;
 const CACHE_TTL_MS = 2 * 60 * 1000;
 const READ_KEY = 'nf_notif_read';
 const DELETED_KEY = 'nf_notif_deleted';
 const SYNC_EVENT = 'nf-notif-change'; // keeps the mobile + desktop bells in step
+
+// The mobile header and desktop sidebar both mount a bell; share one request
+// between them instead of fetching the same list twice.
+let notificationsInflight: Promise<NotificationItem[]> | null = null;
+function fetchNotifications(): Promise<NotificationItem[]> {
+  notificationsInflight ??= fetch('/api/notifications')
+    .then((r) => r.json())
+    .then((d: { notifications?: NotificationItem[] }) => d.notifications ?? [])
+    .finally(() => { notificationsInflight = null; });
+  return notificationsInflight;
+}
 
 function readIdSet(key: string): Set<string> {
   if (typeof window === 'undefined') return new Set();
@@ -100,10 +112,8 @@ export function NotificationBell({ className }: { className?: string }) {
   }, []);
 
   const refresh = useCallback(() => {
-    fetch('/api/notifications')
-      .then((r) => r.json())
-      .then((d: { notifications?: NotificationItem[] }) => {
-        const list = d.notifications ?? [];
+    fetchNotifications()
+      .then((list) => {
         apply(list);
         try {
           sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data: list, ts: Date.now() }));
@@ -128,15 +138,12 @@ export function NotificationBell({ className }: { className?: string }) {
     } catch {
       /* sessionStorage unavailable */
     }
-    refresh();
+    // Secondary to the page's own data — fetch once the browser is idle.
+    return afterIdle(refresh);
   }, [apply, refresh]);
 
-  // Refetch when any API write lands (global guard event) and in the background
-  // (60s interval + tab-focus) — warnings update without a page reload.
-  useEffect(() => {
-    window.addEventListener(NOTIFICATIONS_INVALID_EVENT, refresh);
-    return () => window.removeEventListener(NOTIFICATIONS_INVALID_EVENT, refresh);
-  }, [refresh]);
+  // Refetch after any write (data-changed event), on tab focus and every 60s —
+  // warnings update without a page reload.
   useAutoRefresh(refresh);
 
   // Sync read/deleted across bell instances (mobile header + desktop sidebar both
@@ -312,7 +319,7 @@ export function NotificationBell({ className }: { className?: string }) {
                         onClick={() => { markRead(n.id); setOpen(false); }}
                         className="flex-1 min-w-0"
                       >
-                        <p className={cn('text-sm font-bold truncate', isRead ? 'text-slate-500 dark:text-slate-400' : 'text-slate-900 dark:text-slate-100')}>
+                        <p className={cn('text-sm font-bold wrap-anywhere', isRead ? 'text-slate-500 dark:text-slate-400' : 'text-slate-900 dark:text-slate-100')}>
                           {n.title}
                         </p>
                         <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">{n.body}</p>

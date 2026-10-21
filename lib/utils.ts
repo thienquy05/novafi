@@ -195,4 +195,44 @@ export const DEFAULT_TAX_SETTINGS = {
   bucketTargetSavings: DEFAULT_BUCKET_TARGETS.savings as number,
   language: 'en' as const,
   timeZone: DEFAULT_TIME_ZONE,
+  dismissedSubscriptions: [] as string[],
+  dismissedCancelReminders: [] as string[],
+  dashboardLayout: [] as string[],
+  mutedNotifications: [] as string[],
+  budgetAlertPct: 100,
+  billReminderDays: 0,
 };
+
+/** Transactions-page date/amount filter (strings as typed; '' = unbounded). */
+export type TxRange = { from: string; to: string; min: string; max: string };
+
+/** Inclusive date bounds (ISO dates compare lexically) and amount bounds. */
+export function matchesRange(tx: { date: string; amount: number }, r: TxRange): boolean {
+  if (r.from && tx.date < r.from) return false;
+  if (r.to && tx.date > r.to) return false;
+  const min = parseFloat(r.min), max = parseFloat(r.max);
+  if (Number.isFinite(min) && tx.amount < min) return false;
+  if (Number.isFinite(max) && tx.amount > max) return false;
+  return true;
+}
+
+/** "Japan trip, work,, Work " → ['Japan trip', 'work'] (trimmed, de-duplicated case-insensitively). */
+export function parseTagInput(input: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of input.split(',')) {
+    const tag = raw.replace(/\|/g, '').trim();
+    if (!tag || seen.has(tag.toLowerCase())) continue;
+    seen.add(tag.toLowerCase());
+    out.push(tag);
+  }
+  return out;
+}
+
+/** Months of expenses covered, for display: one decimal, capped at "99+" (a
+ *  huge balance against tiny spending produced e.g. "33604.3 mo", which broke
+ *  narrow cards). Non-finite → "99+" too (no spending yet). */
+export function formatMonthsCovered(months: number): string {
+  if (!Number.isFinite(months) || months >= 99.95) return '99+';
+  return Math.max(0, months).toFixed(1);
+}

@@ -1,9 +1,11 @@
 'use client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap, RefreshCw, AlertCircle, GripVertical, ChevronDown, Scale, Wand2 } from 'lucide-react';
+import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap, GripVertical, ChevronDown, ChevronLeft, ChevronRight, Scale, Wand2 } from 'lucide-react';
 import Link from 'next/link';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { LoadError } from '@/components/ui/LoadError';
 import { Card } from '@/components/ui/Card';
+import { FitText } from '@/components/ui/FitText';
 import { ExpandableCard } from '@/components/ui/ExpandableCard';
 import { Collapsible } from '@/components/ui/Collapsible';
 import { Button } from '@/components/ui/Button';
@@ -13,9 +15,9 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { PlanningSkeleton } from '@/components/ui/Skeleton';
-import { formatCurrency, formatDate, generateId, zonedNow } from '@/lib/utils';
+import { formatCurrency, formatDate, generateId, zonedNow, dateLocale, today as localToday } from '@/lib/utils';
 import {
-  calcRolloverDeficit, calcEffectiveSpent,
+  calcRolloverDeficit, calcEffectiveSpent, isSpendableAccount,
   suggestBudgetReallocations, denormalizeMonthlyBudget, calcPredictionReadiness, type BudgetReallocation,
   buildBucketSnapshot, buildBucketBudgetPlan, type BucketSnapshot, type BucketAllocation,
 } from '@/lib/calculations';
@@ -23,7 +25,7 @@ import type { Budget, Goal, Transaction, Account, PaycheckEntry, TaxSettings } f
 import { useCategories } from '@/hooks/useCategories';
 import { Reorder, useDragControls } from 'framer-motion';
 import { useToast } from '@/lib/toast';
-import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { PullToRefresh } from '@/components/PullToRefresh';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { useTranslation } from '@/lib/i18n/context';
 import { peekCache, ensureResources } from '@/lib/client/store';
@@ -58,7 +60,7 @@ const EMPTY_GOAL_FORM = {
 };
 
 export default function PlanningPage() {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const [budgets, setBudgets] = useState<Budget[]>(() => peekCache(['budgets'])?.budgets ?? []);
   const [goals, setGoals] = useState<Goal[]>(() => peekCache(['goals'])?.goals ?? []);
   const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
@@ -101,14 +103,21 @@ export default function PlanningPage() {
 
   useEffect(() => { load(); }, [load]);
   useAutoRefresh(() => load(true));
-  const { pullY, refreshing } = usePullToRefresh(() => load(true));
 
-  // TZ-aware "now" (nf_tz cookie) so "this month" matches the dashboard.
-  const now = zonedNow();
+  // TZ-aware "today" (nf_tz cookie) so "this month" matches the dashboard.
+  const today = zonedNow();
+  const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  const todayDaysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const todayDaysLeft = todayDaysInMonth - today.getDate();
+  // Month navigation for the budget section: 0 = this month, -1 = last month, …
+  // A past month is evaluated as of its last day — final totals, no pace guess.
+  const [monthOffset, setMonthOffset] = useState(0);
+  const now = monthOffset === 0 ? today : new Date(today.getFullYear(), today.getMonth() + monthOffset + 1, 0);
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const daysElapsed = now.getDate();
   const daysLeft = daysInMonth - daysElapsed;
+  const viewMonthLabel = new Intl.DateTimeFormat(dateLocale(lang), { month: 'long', year: 'numeric' }).format(now);
 
   const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const prevMonthKey = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
@@ -157,7 +166,7 @@ export default function PlanningPage() {
     }
     return avg;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transactions]);
+  }, [transactions, thisMonth]);
 
   // Total spend this month for category %
   const totalMonthSpend = useMemo(
@@ -177,7 +186,7 @@ export default function PlanningPage() {
     if (!settings || !bucketSnapshot?.hasIncome) return;
     const { allocations } = buildBucketBudgetPlan({
       budgets, transactions, accounts, goals, paychecks, settings,
-      categories: expenseCategories, monthKey: thisMonth, today: zonedNow(),
+      categories: expenseCategories, monthKey: currentMonthKey, today: zonedNow(),
     });
     setPlanRows(allocations);
     // A category with no recent spending is allocated $0, and a $0 budget reads as
@@ -331,6 +340,51 @@ export default function PlanningPage() {
     }
   }
 
+  // ─── Add money to a goal ──────────────────────────────────────────────────
+  // Linked goal: a real transfer into the linked account (balances + net worth
+  // update everywhere). Manual goal: bump its saved amount.
+  const [contribFor, setContribFor] = useState<Goal | null>(null);
+  const [contribAmount, setContribAmount] = useState('');
+  const [contribFrom, setContribFrom] = useState('');
+  const contribSources = accounts.filter((a) => isSpendableAccount(a) && a.id !== contribFor?.linkedAccountId);
+  function openContribute(goal: Goal) {
+    setContribFor(goal);
+    setContribAmount('');
+    setContribFrom(contribSources.find((a) => a.type === 'checking')?.id ?? contribSources[0]?.id ?? '');
+  }
+  async function submitContribute() {
+    const goal = contribFor;
+    const amount = parseFloat(contribAmount);
+    if (!goal || !(amount > 0)) return;
+    const linked = goal.linkedAccountId;
+    if (linked && !contribFrom) return;
+    setSaving(true);
+    try {
+      const res = linked
+        ? await fetch('/api/transactions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: generateId(), date: localToday(), description: goal.name, amount, type: 'transfer',
+              category: 'Transfer', account: contribFrom, toAccount: linked, createdAt: new Date().toISOString(),
+            } satisfies Transaction),
+          })
+        : await fetch('/api/goals', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...goal, currentAmount: Math.round((goal.currentAmount + amount) * 100) / 100 } satisfies Goal),
+          });
+      if (!res.ok) throw new Error();
+      setContribFor(null);
+      toast(t('planning.toastAddedMoney', { amount: formatCurrency(amount), name: goal.name }), 'success');
+      await load(true);
+    } catch {
+      toast(t('planning.toastAddMoneyFailed'), 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function deleteGoal(id: string) {
     if (!confirm(t('planning.confirmDeleteGoal'))) return;
     const prev = goals;
@@ -440,42 +494,33 @@ export default function PlanningPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
-      {(pullY > 0 || refreshing) && (
-        <div className="fixed top-0 left-0 right-0 z-50 flex justify-center pt-safe">
-          <div className="flex items-center gap-2 bg-indigo-600 text-white text-xs font-bold px-4 py-2 rounded-full shadow-lg mt-2">
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} style={!refreshing ? { transform: `rotate(${pullY * 180}deg)` } : undefined} />
-            {refreshing ? 'Refreshing…' : pullY >= 1 ? 'Release to refresh' : 'Pull to refresh'}
-          </div>
-        </div>
-      )}
+      <PullToRefresh onRefresh={() => load(true)} />
       {/* Header */}
       <PageHeader
         icon={Target}
         tone="purple"
         className="mb-4 md:mb-6"
         title={t('planning.title')}
-        subtitle={t('planning.subtitle', { daysLeft })}
+        subtitle={t('planning.subtitle', { daysLeft: todayDaysLeft })}
       />
 
       {/* Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card className="p-4 sm:p-5">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('planning.budgetedPerMonth')}</p>
-          <p className="text-xl font-extrabold text-slate-900 dark:text-slate-100 mt-1.5 tracking-tight">{formatCurrency(totalBudgeted)}</p>
+        <Card className="min-w-0 p-4 sm:p-5">
+          <p className="stat-label text-slate-500 dark:text-slate-400">{t('planning.budgetedPerMonth')}</p>
+          <FitText maxSize={20} minSize={12} className={`font-extrabold text-slate-900 dark:text-slate-100 mt-1.5 tracking-tight`}>{formatCurrency(totalBudgeted)}</FitText>
         </Card>
-        <Card className="p-4 sm:p-5">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('planning.spent')}</p>
-          <p className={`text-xl font-extrabold mt-1.5 tracking-tight ${totalSpent > totalBudgeted ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>
-            {formatCurrency(totalSpent)}
-          </p>
+        <Card className="min-w-0 p-4 sm:p-5">
+          <p className="stat-label text-slate-500 dark:text-slate-400">{t('planning.spent')}</p>
+          <FitText maxSize={20} minSize={12} className={`font-extrabold mt-1.5 tracking-tight ${totalSpent > totalBudgeted ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>{formatCurrency(totalSpent)}</FitText>
         </Card>
-        <Card className="p-4 sm:p-5 border-emerald-100 dark:border-emerald-800/50">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('planning.goalsSaved')}</p>
-          <p className="text-xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-1.5 tracking-tight">{formatCurrency(totalGoalSaved)}</p>
-          <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mt-0.5">of {formatCurrency(totalGoalTarget)}</p>
+        <Card className="min-w-0 p-4 sm:p-5 border-emerald-100 dark:border-emerald-800/50">
+          <p className="stat-label text-slate-500 dark:text-slate-400">{t('planning.goalsSaved')}</p>
+          <FitText maxSize={20} minSize={12} className={`font-extrabold text-emerald-600 dark:text-emerald-400 mt-1.5 tracking-tight`}>{formatCurrency(totalGoalSaved)}</FitText>
+          <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mt-0.5 [overflow-wrap:anywhere]">of {formatCurrency(totalGoalTarget)}</p>
         </Card>
         <Card className={`p-4 sm:p-5 ${overBudgetCount > 0 ? 'border-rose-100 dark:border-rose-800/50' : ''}`}>
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('planning.overBudget')}</p>
+          <p className="stat-label text-slate-500 dark:text-slate-400">{t('planning.overBudget')}</p>
           <p className={`text-xl font-extrabold mt-1.5 tracking-tight ${overBudgetCount > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
             {overBudgetCount} <span className="text-sm font-bold opacity-80">{overBudgetCount === 1 ? t('planning.cat') : t('planning.cats')}</span>
           </p>
@@ -489,12 +534,7 @@ export default function PlanningPage() {
       {loading ? (
         <PlanningSkeleton />
       ) : error ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-900/30 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-rose-400" /></div>
-          <p className="text-slate-700 dark:text-slate-300 font-bold text-base mb-1">Couldn&apos;t load planning data</p>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">Check your connection and try again.</p>
-          <Button variant="secondary" onClick={() => load(true)}>Try Again</Button>
-        </div>
+        <LoadError onRetry={() => load(true)} />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-7">
           {/* ── BUDGETS ──────────────────────────────────────────────────── */}
@@ -526,6 +566,26 @@ export default function PlanningPage() {
                 <Plus className="w-4 h-4" /> {t('planning.setBudget')}
               </Button>
             </div>
+            {/* Month switcher — browse how past months' budgets ended up. */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1">
+                <button type="button" onClick={() => setMonthOffset((o) => o - 1)} aria-label={t('planning.prevMonth')} className="hit-area h-9 w-9 rounded-xl flex items-center justify-center text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-sm font-bold text-slate-800 dark:text-slate-100 min-w-[8.5rem] text-center capitalize">{viewMonthLabel}</span>
+                <button type="button" onClick={() => setMonthOffset((o) => Math.min(0, o + 1))} disabled={monthOffset === 0} aria-label={t('planning.nextMonth')} className="hit-area h-9 w-9 rounded-xl flex items-center justify-center text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30">
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+              {monthOffset !== 0 && (
+                <button type="button" onClick={() => setMonthOffset(0)} className="text-xs font-bold text-indigo-600 dark:text-indigo-400 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/30">
+                  {t('planning.thisMonth')}
+                </button>
+              )}
+            </div>
+            {monthOffset !== 0 && (
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 -mt-2">{t('planning.viewingPast', { month: viewMonthLabel })}</p>
+            )}
 
             {budgets.length === 0 ? (
               <Card className="text-center py-12 bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700/60">
@@ -631,7 +691,7 @@ export default function PlanningPage() {
                   const remaining = goal.targetAmount - current;
                   const achieved = current >= goal.targetAmount;
                   const daysToDeadline = goal.deadline
-                    ? Math.ceil((new Date(goal.deadline).getTime() - now.getTime()) / 86400000)
+                    ? Math.ceil((new Date(goal.deadline).getTime() - today.getTime()) / 86400000)
                     : null;
                   const monthsLeft = daysToDeadline && daysToDeadline > 0 ? daysToDeadline / 30.44 : null;
                   const monthlyNeeded = monthsLeft && remaining > 0 ? remaining / monthsLeft : null;
@@ -639,7 +699,7 @@ export default function PlanningPage() {
                     achieved ? 'done'
                     : !goal.deadline ? 'nodl'
                     : daysToDeadline && daysToDeadline <= 0 ? 'overdue'
-                    : pct >= ((daysInMonth - daysLeft) / daysInMonth) * 100 ? 'ontarget'
+                    : pct >= (today.getDate() / todayDaysInMonth) * 100 ? 'ontarget'
                     : 'behind';
 
                   return (
@@ -656,6 +716,7 @@ export default function PlanningPage() {
                       onTrack={onTrack}
                       onEdit={openEditGoal}
                       onDelete={deleteGoal}
+                      onContribute={openContribute}
                     />
                   );
                 })}
@@ -713,7 +774,7 @@ export default function PlanningPage() {
                         />
                         <span className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{a.category}</span>
                       </span>
-                      <span className="text-xs font-bold tabular-nums whitespace-nowrap text-slate-500 dark:text-slate-400">
+                      <span className="text-xs font-bold tabular-nums text-slate-500 dark:text-slate-400 text-right">
                         {a.currentMonthly === null
                           ? t('planning.ruleRowNew')
                           : formatCurrency(a.currentMonthly)}
@@ -794,6 +855,50 @@ export default function PlanningPage() {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      {/* ── ADD MONEY TO GOAL ─────────────────────────────────────────────────── */}
+      <Modal open={contribFor !== null} onClose={() => setContribFor(null)} title={contribFor ? t('planning.addMoneyTitle', { name: contribFor.name }) : ''}>
+        {contribFor && (
+          <>
+            <div className="space-y-4 pb-4">
+              <Input
+                label={t('common.amountUsd')}
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                placeholder="0.00"
+                value={contribAmount}
+                onChange={(e) => setContribAmount(e.target.value)}
+                autoFocus
+              />
+              {contribFor.linkedAccountId ? (
+                <>
+                  <Select
+                    label={t('planning.addMoneyFrom')}
+                    value={contribFrom}
+                    options={contribSources.map((a) => ({ value: a.id, label: `${a.name} (${formatCurrency(a.balance)})` }))}
+                    onChange={(e) => setContribFrom(e.target.value)}
+                  />
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                    {t('planning.addMoneyLinkedHint', { account: accounts.find((a) => a.id === contribFor.linkedAccountId)?.name ?? '' })}
+                  </p>
+                </>
+              ) : (
+                <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{t('planning.addMoneyManualHint')}</p>
+              )}
+            </div>
+            <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
+              <div className="flex gap-3">
+                <Button variant="secondary" className="flex-1" onClick={() => setContribFor(null)}>{t('common.cancel')}</Button>
+                <Button className="flex-1 shadow-sm" onClick={submitContribute} disabled={saving || !(parseFloat(contribAmount) > 0) || (!!contribFor.linkedAccountId && !contribFrom)}>
+                  {saving ? t('common.saving') : t('planning.addMoney')}
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
       </Modal>
 
       {/* ── GOAL MODAL ────────────────────────────────────────────────────────── */}
@@ -890,7 +995,7 @@ function UnbudgetedSpendingSection({ categories, spentFor, onSetLimit }: {
   spentFor: (c: string) => number;
   onSetLimit: (c: string) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const [open, setOpen] = useState(false);
   return (
     <div className="mt-2 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
@@ -1001,10 +1106,11 @@ function BucketRuleCard({ snapshot, onApply, t }: {
                       {bar.actualPct.toFixed(0)}% / {bar.targetPct}%
                     </span>
                   </span>
-                  <span className="text-xs font-bold tabular-nums whitespace-nowrap text-slate-500 dark:text-slate-400">
-                    {formatCurrency(bar.actualAmount)} / {formatCurrency(bar.targetAmount)}
+                  {/* Pieces stay whole; the line may break between them on small screens. */}
+                  <span className="text-xs font-bold tabular-nums text-slate-500 dark:text-slate-400 flex flex-wrap justify-end gap-x-1.5 min-w-0">
+                    <span className="whitespace-nowrap">{formatCurrency(bar.actualAmount)} / {formatCurrency(bar.targetAmount)}</span>
                     {Math.abs(bar.deltaAmount) >= 1 && (
-                      <span className={`ml-1.5 ${over ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                      <span className={`whitespace-nowrap ${over ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                         {over
                           ? t('planning.ruleOver', { amount: formatCurrency(Math.abs(bar.deltaAmount)) })
                           : t('planning.ruleUnder', { amount: formatCurrency(Math.abs(bar.deltaAmount)) })}
@@ -1054,7 +1160,7 @@ function BudgetRealityCard({ suggestions, onApply }: {
   suggestions: BudgetReallocation[];
   onApply: (r: BudgetReallocation) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   return (
     <ExpandableCard
       icon={<Zap className="w-5 h-5" />}
@@ -1100,14 +1206,15 @@ function BudgetItem({ budget, monthly, rolledOver, spent, usage, prevSpent, roll
   pct: number; over: boolean; remaining: number; willOvershoot: boolean; overshootAmt: number; daysLeft: number;
   onEdit: (b: Budget) => void; onDelete: (id: string) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const controls = useDragControls();
   return (
     <Reorder.Item value={budget} dragListener={false} dragControls={controls} className="list-none">
       <SwipeToDelete onDelete={() => onDelete(budget.id)}>
       <Card className={`transition-all p-4 sm:p-5 ${over ? 'border-rose-100 dark:border-rose-800/50' : willOvershoot ? 'border-amber-100 dark:border-amber-800/50' : ''}`}>
-        {/* Header: grip · category · spent/limit · edit */}
-        <div className="flex items-center gap-2 mb-2">
+        {/* Header: grip · category · spent/limit · edit — wraps the amounts onto
+            their own line when they don't fit (big numbers on small phones). */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-2">
           <button
             className="touch-none cursor-grab active:cursor-grabbing text-slate-300 dark:text-slate-600 shrink-0 p-1 -ml-1"
             onPointerDown={(e) => { e.stopPropagation(); controls.start(e); }}
@@ -1116,9 +1223,10 @@ function BudgetItem({ budget, monthly, rolledOver, spent, usage, prevSpent, roll
             <GripVertical className="w-4 h-4" />
           </button>
           <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate flex-1 min-w-0">{budget.category}</p>
-          <p className="text-sm font-extrabold shrink-0 text-right tabular-nums whitespace-nowrap">
-            <span className={over ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}>{formatCurrency(usage)}</span>
-            <span className="text-slate-400 dark:text-slate-500 font-bold text-xs"> / {formatCurrency(monthly)}</span>
+          {/* Each amount stays whole; the pair may break before "/" on tiny screens. */}
+          <p className="text-sm font-extrabold ml-auto text-right tabular-nums flex flex-wrap justify-end items-baseline gap-x-1 min-w-0">
+            <span className={`whitespace-nowrap ${over ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>{formatCurrency(usage)}</span>
+            <span className="text-slate-400 dark:text-slate-500 font-bold text-xs whitespace-nowrap">/ {formatCurrency(monthly)}</span>
           </p>
           <Button variant="ghost" size="icon" aria-label={t('common.edit')} className="text-slate-400 dark:text-slate-500 h-8 w-8 rounded-xl shrink-0" onClick={(e) => { e.stopPropagation(); onEdit(budget); }}>
             <Pencil className="w-4 h-4" />
@@ -1150,10 +1258,10 @@ function BudgetItem({ budget, monthly, rolledOver, spent, usage, prevSpent, roll
 
         {/* Headline: what's left / over, and the overall % used — one clean row. */}
         <div className="flex items-center justify-between gap-3 mt-2">
-          <p className="text-xs font-bold min-w-0 truncate">
+          <p className="text-xs font-bold min-w-0 [overflow-wrap:anywhere]">
             {over
-              ? <span className="text-rose-600 dark:text-rose-400 whitespace-nowrap">{formatCurrency(Math.abs(remaining))} {t('charts.over')}</span>
-              : <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">{formatCurrency(remaining)} {t('charts.left')} · {daysLeft}{t('planning.daysLeft')}</span>
+              ? <span className="text-rose-600 dark:text-rose-400">{formatCurrency(Math.abs(remaining))} {t('charts.over')}</span>
+              : <span className="text-slate-500 dark:text-slate-400">{formatCurrency(remaining)} {t('charts.left')} · {daysLeft}{t('planning.daysLeft')}</span>
             }
           </p>
           <span className="text-xs font-bold text-slate-400 dark:text-slate-500 shrink-0">{pct.toFixed(0)}%</span>
@@ -1169,7 +1277,7 @@ function BudgetItem({ budget, monthly, rolledOver, spent, usage, prevSpent, roll
               {showVsLast && (
                 <div className="min-w-0">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">{t('charts.vsLastMo')}</p>
-                  <p className={`text-xs font-bold flex items-center gap-1 mt-0.5 ${momDiff > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                  <p className={`text-xs font-bold flex flex-wrap items-center gap-1 mt-0.5 [overflow-wrap:anywhere] ${momDiff > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                     {momDiff > 0 ? <TrendingUp className="w-3 h-3 shrink-0" /> : <TrendingDown className="w-3 h-3 shrink-0" />}
                     {momDiff > 0 ? '+' : ''}{formatCurrency(momDiff)}
                   </p>
@@ -1213,12 +1321,12 @@ function BudgetItem({ budget, monthly, rolledOver, spent, usage, prevSpent, roll
 }
 
 // ── Draggable Goal Card ────────────────────────────────────────────────────────
-function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadline, monthlyNeeded, onTrack, onEdit, onDelete }: {
+function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadline, monthlyNeeded, onTrack, onEdit, onDelete, onContribute }: {
   goal: Goal; linked: { name: string } | null; current: number; pct: number; remaining: number;
   achieved: boolean; daysToDeadline: number | null; monthlyNeeded: number | null;
-  onTrack: string; onEdit: (g: Goal) => void; onDelete: (id: string) => void;
+  onTrack: string; onEdit: (g: Goal) => void; onDelete: (id: string) => void; onContribute: (g: Goal) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const controls = useDragControls();
   return (
     <Reorder.Item value={goal} dragListener={false} dragControls={controls} className="list-none">
@@ -1249,11 +1357,11 @@ function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadl
                   </span>
                 )}
               </p>
-              {linked && <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('planning.linked')} {linked.name}</p>}
+              {linked && <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 wrap-anywhere [overflow-wrap:anywhere]">{t('planning.linked')} {linked.name}</p>}
               {goal.deadline && daysToDeadline !== null && (
                 <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                   {daysToDeadline > 0 ? `${daysToDeadline}${t('planning.daysLeft')} · ` : `${t('planning.deadlinePassed')} · `}
-                  {formatDate(goal.deadline)}
+                  {formatDate(goal.deadline, lang)}
                 </p>
               )}
             </div>
@@ -1284,7 +1392,7 @@ function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadl
           )}
         </div>
 
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
           <div className="flex items-baseline gap-1.5">
             <span className={`text-base font-extrabold ${achieved ? 'text-emerald-600 dark:text-emerald-400' : current < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>
               {formatCurrency(current)}
@@ -1297,11 +1405,16 @@ function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadl
         </div>
 
         {!achieved && remaining > 0 && (
-          <div className="flex justify-between items-center mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-700/60">
+          <div className="flex flex-wrap justify-between items-center gap-x-3 gap-y-2 mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-700/60">
             <p className="text-xs font-bold text-slate-500 dark:text-slate-400">{formatCurrency(remaining)} {t('planning.toGo')}</p>
-            {monthlyNeeded && (
-              <p className="text-xs font-bold text-slate-400 dark:text-slate-500">{formatCurrency(monthlyNeeded)}{t('planning.moNeeded')}</p>
-            )}
+            <div className="flex flex-wrap items-center justify-end gap-2 ml-auto">
+              {monthlyNeeded && (
+                <p className="text-xs font-bold text-slate-400 dark:text-slate-500">{formatCurrency(monthlyNeeded)}{t('planning.moNeeded')}</p>
+              )}
+              <Button size="sm" variant="secondary" className="h-8 px-3 text-xs" onClick={() => onContribute(goal)}>
+                <Plus className="w-3.5 h-3.5" />{t('planning.addMoney')}
+              </Button>
+            </div>
           </div>
         )}
       </Card>

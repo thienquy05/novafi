@@ -58,13 +58,56 @@ function persist(): void {
   } catch { /* quota / unavailable — cache simply doesn't survive reload */ }
 }
 
-let hydrated = false;
-/** Lazily restore the sessionStorage mirror into module memory, once per session. */
-function hydrate(): void {
-  if (hydrated) return;
-  hydrated = true;
+// ── Per-user scoping ──────────────────────────────────────────────────────────
+// sessionStorage outlives a sign-out → Google sign-in round trip in the same tab,
+// so without an owner check a second account could briefly render the previous
+// account's cached balances. Every NovaFi session cache uses the `nf_` prefix.
+const OWNER_KEY = 'nf_store_owner';
+const SESSION_PREFIX = 'nf_';
+let owner: string | null = null;
+
+/** Wipe every NovaFi client cache (module memory + `nf_*` sessionStorage). */
+export function clearAllClientCaches(): void {
+  mem.clear();
+  inflight.clear();
   if (typeof sessionStorage === 'undefined') return;
   try {
+    for (const k of Object.keys(sessionStorage)) if (k.startsWith(SESSION_PREFIX)) sessionStorage.removeItem(k);
+  } catch { /* unavailable */ }
+}
+
+/**
+ * Bind the client caches to the signed-in user (an opaque id from the server).
+ * CacheSync calls this while rendering — it renders before any page body, so it
+ * runs before the first peekCache(). A different or unknown previous owner wipes
+ * all caches first. Idempotent.
+ */
+export function setCacheOwner(id: string): void {
+  if (typeof window === 'undefined' || owner === id) return;
+  owner = id;
+  try {
+    if (sessionStorage.getItem(OWNER_KEY) !== id) {
+      clearAllClientCaches();
+      sessionStorage.setItem(OWNER_KEY, id);
+    }
+  } catch { /* unavailable — nothing persisted to leak */ }
+}
+
+let hydrated = false;
+let appHydrated = false;
+/** Called once by CacheSync after the first client commit (see peekCache). */
+export function markAppHydrated(): void {
+  appHydrated = true;
+}
+/** Lazily restore the sessionStorage mirror into module memory, once per session —
+ *  only once the owner is known and matches the mirror's owner. */
+function hydrate(): void {
+  if (hydrated) return;
+  if (typeof sessionStorage === 'undefined') { hydrated = true; return; }
+  if (owner === null) return; // not bound yet → serve nothing persisted
+  hydrated = true;
+  try {
+    if (sessionStorage.getItem(OWNER_KEY) !== owner) return;
     const raw = sessionStorage.getItem(PERSIST_KEY);
     if (!raw) return;
     const obj = JSON.parse(raw) as Record<string, Entry>;
@@ -79,6 +122,11 @@ function hydrate(): void {
  * background revalidation runs alongside.
  */
 export function peekCache<K extends BatchKey>(keys: readonly K[]): Pick<BatchData, K> | null {
+  // During React's hydration render the server had no cache, so returning data
+  // here made the first client render differ from the server HTML ("Hydration
+  // failed … tree will be regenerated" on every client page after a reload).
+  // Serve cached data only once the app has hydrated (client-side navigations).
+  if (!appHydrated) return null;
   hydrate();
   const out = {} as Record<string, unknown>;
   for (const k of keys) {
@@ -171,20 +219,34 @@ export function subscribeCache(fn: () => void): () => void {
 
 // Derived-warning caches live OUTSIDE this store (sessionStorage-backed — the
 // sidebar badges and the notification bell). Any write can change what they
-// warn about, so the same global guard busts them and pings their listeners.
+// warn about, so the same global guard busts them and fires DATA_CHANGED_EVENT.
 // Centralized here so no mutation path can ever forget to dispatch.
 export const BADGES_CACHE_KEY = 'nf_badges_cache_v2';
 export const NOTIFICATIONS_CACHE_KEY = 'nf_notifications_cache_v1';
-export const BADGES_INVALID_EVENT = 'novafi:badges-invalid';
-export const NOTIFICATIONS_INVALID_EVENT = 'novafi:notifications-invalid';
+/** Fired after any successful write; every view using useAutoRefresh refreshes. */
+export const DATA_CHANGED_EVENT = 'novafi:data-changed';
+
+/**
+ * Run `fn` once the browser is idle (page data and first paint first), falling
+ * back to a short timeout where requestIdleCallback is missing (Safari). Used for
+ * the shell's secondary fetches (badges, bell) so they don't compete with the
+ * page's own data request on load. Returns a cancel fn.
+ */
+export function afterIdle(fn: () => void, timeoutMs = 1500): () => void {
+  if (typeof window === 'undefined') return () => {};
+  if (typeof window.requestIdleCallback === 'function') {
+    const id = window.requestIdleCallback(fn, { timeout: timeoutMs });
+    return () => window.cancelIdleCallback(id);
+  }
+  const id = setTimeout(fn, 300);
+  return () => clearTimeout(id);
+}
 
 function invalidateDerivedWarnings(): void {
   try {
     sessionStorage.removeItem(BADGES_CACHE_KEY);
     sessionStorage.removeItem(NOTIFICATIONS_CACHE_KEY);
   } catch { /* sessionStorage unavailable */ }
-  window.dispatchEvent(new CustomEvent(BADGES_INVALID_EVENT));
-  window.dispatchEvent(new CustomEvent(NOTIFICATIONS_INVALID_EVENT));
 }
 
 /**
@@ -216,6 +278,7 @@ export function installCacheInvalidation(): void {
         if (url.includes('/api/') && !url.includes('/api/auth')) {
           invalidateClientCache();
           invalidateDerivedWarnings();
+          window.dispatchEvent(new CustomEvent(DATA_CHANGED_EVENT));
         }
       }
     } catch { /* cache bookkeeping must never break the request */ }
@@ -229,4 +292,5 @@ export function __resetCacheForTests(): void {
   inflight.clear();
   subs.clear();
   hydrated = true; // skip sessionStorage hydration in node tests
+  appHydrated = true;
 }

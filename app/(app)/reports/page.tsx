@@ -1,7 +1,10 @@
 'use client';
+import Link from 'next/link';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { RefreshCw, AlertCircle, BarChart3, TrendingUp, TrendingDown, DollarSign, Calendar, Download, Printer } from 'lucide-react';
+import { RefreshCw, BarChart3, TrendingUp, TrendingDown, DollarSign, Calendar, Download, Printer } from 'lucide-react';
+import { LoadError } from '@/components/ui/LoadError';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { PullToRefresh } from '@/components/PullToRefresh';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { FitText } from '@/components/ui/FitText';
@@ -213,6 +216,7 @@ export default function ReportsPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
+      <PullToRefresh onRefresh={() => load(true)} />
       <PageHeader
         icon={BarChart3}
         tone="indigo"
@@ -249,11 +253,7 @@ export default function ReportsPage() {
           {[...Array(4)].map((_, i) => <div key={i} className="h-24 rounded-3xl bg-slate-100 dark:bg-slate-700 animate-pulse" />)}
         </div>
       ) : error ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-900/30 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-rose-400" /></div>
-          <p className="text-slate-700 dark:text-slate-300 font-bold text-base mb-1">{t('reports.errorTitle')}</p>
-          <Button variant="secondary" onClick={() => load(true)} className="mt-4">{t('common.tryAgain')}</Button>
-        </div>
+        <LoadError title={t('reports.errorTitle')} onRetry={() => load(true)} />
       ) : (
         <>
           {/* Summary stats */}
@@ -338,8 +338,17 @@ export default function ReportsPage() {
               <CardTitle>{t('reports.monthlyCashFlow', { year: selectedYear })}</CardTitle>
             </CardHeader>
             <figure className="h-64 w-full mt-4" role="img" aria-label={t('reports.monthlyCashFlow', { year: selectedYear })}>
-              <MonthlyComparisonChart data={monthlyData} />
+              <MonthlyComparisonChart data={monthlyData} year={selectedYear} />
             </figure>
+            <table className="sr-only">
+              <caption>{t('reports.monthlyCashFlow', { year: selectedYear })}</caption>
+              <thead><tr><th scope="col">{t('common.month')}</th><th scope="col">{t('common.income')}</th><th scope="col">{t('common.expenses')}</th></tr></thead>
+              <tbody>
+                {monthlyData.map((m) => (
+                  <tr key={m.month}><th scope="row">{m.month}</th><td>{formatCurrency(m.income)}</td><td>{formatCurrency(m.expenses)}</td></tr>
+                ))}
+              </tbody>
+            </table>
           </Card>
 
           {/* Category breakdown + Top merchants */}
@@ -352,8 +361,13 @@ export default function ReportsPage() {
                 <div className="mt-4 space-y-3 max-h-72 overflow-y-auto hide-scrollbar pr-1">
                   {categoryData.map((c) => {
                     const pct = yearExpense > 0 ? (c.value / yearExpense) * 100 : 0;
+                    // Tap a category to open that year's transactions in it.
                     return (
-                      <div key={c.name}>
+                      <Link
+                        key={c.name}
+                        href={`/transactions?${new URLSearchParams({ from: `${selectedYear}-01-01`, to: `${selectedYear}-12-31`, category: c.name, type: 'expense' })}`}
+                        className="block rounded-xl -mx-2 px-2 py-1 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors"
+                      >
                         <div className="flex items-center justify-between mb-1.5">
                           <div className="flex items-center gap-2">
                             <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: CATEGORY_COLORS[c.name] ?? DEFAULT_COLOR }} />
@@ -361,7 +375,7 @@ export default function ReportsPage() {
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-bold text-slate-400 dark:text-slate-500">{pct.toFixed(0)}%</span>
-                            <span className="text-sm font-extrabold text-slate-900 dark:text-slate-100 w-20 text-right">{formatCurrency(c.value)}</span>
+                            <span className="text-sm font-extrabold text-slate-900 dark:text-slate-100 min-w-20 text-right whitespace-nowrap tabular-nums">{formatCurrency(c.value)}</span>
                           </div>
                         </div>
                         <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
@@ -373,7 +387,7 @@ export default function ReportsPage() {
                             style={{ backgroundColor: CATEGORY_COLORS[c.name] ?? DEFAULT_COLOR }}
                           />
                         </div>
-                      </div>
+                      </Link>
                     );
                   })}
                 </div>

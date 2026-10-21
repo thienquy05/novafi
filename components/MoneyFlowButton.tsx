@@ -12,7 +12,7 @@ import { FitText } from '@/components/ui/FitText';
 import { formatCurrency } from '@/lib/utils';
 import { useTranslation } from '@/lib/i18n/context';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
-import { NOTIFICATIONS_INVALID_EVENT } from '@/lib/client/store';
+import { DATA_CHANGED_EVENT } from '@/lib/client/store';
 import type { Insight, InsightKind, InsightTone, MoneyFlowSummary } from '@/lib/insights';
 
 // The Money Flow modal — the app reading this month's money flow back to you in
@@ -75,11 +75,16 @@ export function MoneyFlowButton({ className }: { className?: string }) {
     return () => { mountedRef.current = false; };
   }, []);
 
+  // Lazy: nothing is fetched until the modal is first opened (it used to load on
+  // every page mount, competing with the page's own data). A write while closed
+  // only marks it stale; the next open refetches.
+  const staleRef = useRef(true);
   const refresh = useCallback(() => {
     fetch('/api/money-flow')
       .then((r) => r.json())
       .then((d: { flow?: MoneyFlowSummary | null; insights?: Insight[] }) => {
         if (!mountedRef.current) return;
+        staleRef.current = false;
         setFlow(d.flow ?? null);
         setInsights(d.insights ?? []);
         setLoaded(true);
@@ -92,7 +97,7 @@ export function MoneyFlowButton({ className }: { className?: string }) {
       .catch(() => {});
   }, []);
 
-  // Initial load: serve the sessionStorage cache when fresh, else fetch.
+  // Seed from the sessionStorage cache (no network) so a reopen is instant.
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem(CACHE_KEY);
@@ -102,22 +107,29 @@ export function MoneyFlowButton({ className }: { className?: string }) {
           setFlow(data.flow);
           setInsights(data.insights);
           setLoaded(true);
-          return;
+          staleRef.current = false;
         }
       }
     } catch {
       /* sessionStorage unavailable */
     }
-    refresh();
-  }, [refresh]);
+  }, []);
 
-  // Refetch when any API write lands (global guard event) and in the background
-  // (60s interval + tab-focus) — numbers stay live without a reload.
   useEffect(() => {
-    window.addEventListener(NOTIFICATIONS_INVALID_EVENT, refresh);
-    return () => window.removeEventListener(NOTIFICATIONS_INVALID_EVENT, refresh);
-  }, [refresh]);
-  useAutoRefresh(refresh);
+    const markStale = () => {
+      staleRef.current = true;
+      try { sessionStorage.removeItem(CACHE_KEY); } catch { /* ignore */ }
+    };
+    window.addEventListener(DATA_CHANGED_EVENT, markStale);
+    return () => window.removeEventListener(DATA_CHANGED_EVENT, markStale);
+  }, []);
+
+  useEffect(() => {
+    if (open && staleRef.current) refresh();
+  }, [open, refresh]);
+
+  // While open: refresh after writes, on tab focus and every 60s.
+  useAutoRefresh(refresh, 60_000, open);
 
   return (
     <div className={cn('relative', className)}>
