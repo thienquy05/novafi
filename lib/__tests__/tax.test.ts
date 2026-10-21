@@ -34,6 +34,9 @@ const BASE_SETTINGS: TaxSettings = {
   dismissedSubscriptions: [],
   dismissedCancelReminders: [],
   dashboardLayout: [],
+  mutedNotifications: [],
+  budgetAlertPct: 100,
+  billReminderDays: 0,
 };
 
 describe('BRACKETS_2026 and STANDARD_DEDUCTION_2026', () => {

@@ -5,9 +5,9 @@ import { getDashboardData, parseWriteVersion, WRITE_VERSION_COOKIE } from '@/lib
 import { buildNotifications, type NotificationItem } from '@/lib/notifications';
 import { t } from '@/lib/i18n';
 import { formatCurrency, zonedNow, DEFAULT_TIME_ZONE } from '@/lib/utils';
-import type { Account, Bill, Budget, Transaction, Language } from '@/types';
+import type { Account, Bill, Budget, Transaction, Language, TaxSettings } from '@/types';
 
-type BadgesData = { bills: Bill[]; budgets: Budget[]; transactions: Transaction[]; accounts: Account[] };
+type BadgesData = { bills: Bill[]; budgets: Budget[]; transactions: Transaction[]; accounts: Account[]; settings: TaxSettings };
 
 export async function GET() {
   const session = await auth();
@@ -33,7 +33,7 @@ export async function GET() {
       monthKey,
       tr: (k, p) => t(k, lang, p),
       fmt: (n) => formatCurrency(n),
-    });
+    }, data.settings);
     return NextResponse.json({ notifications });
   } catch {
     return NextResponse.json({ notifications: [] as NotificationItem[] });

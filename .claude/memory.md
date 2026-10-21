@@ -10,6 +10,16 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-10-21 — Convenience: notification controls (branch claude/novafi-ux-perf-networth)
+
+Plan Section 7.9.
+- WHAT: settings `mutedNotifications` (types), `budgetAlertPct` (100 = only when over; 90/80/70 = "approaching" info alert), `billReminderDays` (0 = only overdue; 1/3/7 = "due in Nd"/"due today" info alerts). Sheet keys `muted_notifications`, `budget_alert_pct`, `bill_reminder_days`. Settings → General → new "Notifications" card (a switch per type + two selects); saved with the page's normal Save.
+- WHAT: `buildNotifications(data, ctx, prefs)` applies them; new card-payment alerts from `cardPaymentStatus` (overdue → critical; due within max(3, reminder days) → warning; links to /credit). `/api/notifications` passes `data.settings`. Near/soon alert ids include the month/due date so a dismissal doesn't hide next cycle's alert. Existing per-item dismiss (device-local, auto-pruned when resolved) unchanged.
+- WHY: the bell's rules were fixed — users couldn't silence what they don't care about or get warned BEFORE a bill/budget problem.
+- Tests: threshold, reminders, card overdue/paid, muting.
+
+---
+
 ## 2026-10-21 — Convenience: goal "Add money" + credit-card minimum due / paid status (branch claude/novafi-ux-perf-networth)
 
 Plan Section 7.8.

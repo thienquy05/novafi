@@ -130,3 +130,40 @@ describe('buildNotifications', () => {
     expect(first.map((n) => n.id)).toEqual(second.map((n) => n.id));
   });
 });
+
+describe('buildNotifications — user controls', () => {
+  const food = (amount: number): Transaction => ({ id: `t${amount}`, date: '2026-06-05', description: '', amount, type: 'expense', category: 'Food', account: 'a1' });
+  const budgets: Budget[] = [{ id: 'bud1', category: 'Food', amount: 100, period: 'monthly' }];
+
+  it('budget threshold: warns at the chosen % before going over', () => {
+    expect(buildNotifications({ accounts: [], bills: [], budgets, transactions: [food(85)] }, ctx)).toEqual([]);
+    const near = buildNotifications({ accounts: [], bills: [], budgets, transactions: [food(85)] }, ctx, { budgetAlertPct: 80 });
+    expect(near).toHaveLength(1);
+    expect(near[0].id).toBe('budgetnear:bud1:2026-06');
+    expect(near[0].severity).toBe('info');
+  });
+
+  it('bill reminders: also lists bills due within N days', () => {
+    const bills = [bill({ id: 'b1', nextDue: '2026-06-13' }), bill({ id: 'b2', nextDue: '2026-06-25' })];
+    const base = { accounts: [acc({ id: 'a1', balance: 10_000 })], bills, budgets: [], transactions: [] };
+    expect(buildNotifications(base, ctx).filter((n) => n.type === 'bill')).toEqual([]);
+    const soon = buildNotifications(base, ctx, { billReminderDays: 3 }).filter((n) => n.type === 'bill');
+    expect(soon.map((n) => n.id)).toEqual(['billsoon:b1:2026-06-13']);
+  });
+
+  it('card payments: overdue card is critical; paid card is quiet', () => {
+    const card = acc({ id: 'c1', type: 'credit', balance: 200, dueDay: 5, statementDay: 20, minPayment: 25 });
+    const overdue = buildNotifications({ accounts: [card], bills: [], budgets: [], transactions: [] }, ctx);
+    expect(overdue.find((n) => n.id.startsWith('carddue:c1'))?.severity).toBe('critical');
+    const paid = buildNotifications({
+      accounts: [card], bills: [], budgets: [],
+      transactions: [{ id: 'p', date: '2026-05-25', description: '', amount: 25, type: 'transfer', category: 'Transfer', account: 'a1', toAccount: 'c1' }],
+    }, ctx);
+    expect(paid.some((n) => n.id.startsWith('carddue:'))).toBe(false);
+  });
+
+  it('muted types never reach the bell', () => {
+    const out = buildNotifications({ accounts: [], bills: [], budgets, transactions: [food(150)] }, ctx, { mutedNotifications: ['budget'] });
+    expect(out).toEqual([]);
+  });
+});

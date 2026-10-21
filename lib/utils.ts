@@ -198,6 +198,9 @@ export const DEFAULT_TAX_SETTINGS = {
   dismissedSubscriptions: [] as string[],
   dismissedCancelReminders: [] as string[],
   dashboardLayout: [] as string[],
+  mutedNotifications: [] as string[],
+  budgetAlertPct: 100,
+  billReminderDays: 0,
 };
 
 /** Transactions-page date/amount filter (strings as typed; '' = unbounded). */

@@ -33,6 +33,10 @@ export interface TaxSettings {
   dismissedCancelReminders: string[]; // tracked-subscription ids whose "unused?" reminder was dismissed
   // ── Home layout (synced) ────────────────────────────────────────────────────
   dashboardLayout: string[]; // ordered card ids, '-' prefix = hidden (lib/dashboardLayout.ts); [] = default
+  // ── Notification controls (synced) ──────────────────────────────────────────
+  mutedNotifications: string[]; // NotificationType values the bell should never show
+  budgetAlertPct: number;       // warn once a budget reaches this % (100 = only when over)
+  billReminderDays: number;     // also warn this many days BEFORE a bill/card is due (0 = only overdue)
 }
 
 /** App-managed settings lists that PATCH /api/settings can change. */

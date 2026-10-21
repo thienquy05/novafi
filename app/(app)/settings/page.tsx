@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { useSession, signOut } from 'next-auth/react';
-import { Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, User, SlidersHorizontal, Receipt, Tags, Landmark, Building2, Database, ShieldCheck, ChevronDown, LogOut, Users, UserPlus, Trash2, Archive, AlertTriangle, Clock, MapPin, Scale } from 'lucide-react';
+import { Bell, Save, RotateCcw, ExternalLink, Plus, X, Info, Globe, RefreshCw, User, SlidersHorizontal, Receipt, Tags, Landmark, Building2, Database, ShieldCheck, ChevronDown, LogOut, Users, UserPlus, Trash2, Archive, AlertTriangle, Clock, MapPin, Scale } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { BRACKETS_2026, STANDARD_DEDUCTION_2026 } from '@/lib/tax';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -43,7 +43,7 @@ function ToggleRow({ label, desc, checked, onChange, divider = false }: {
     <div className={`flex items-start justify-between gap-4 ${divider ? 'pt-4 border-t border-slate-100 dark:border-slate-700/60' : ''}`}>
       <div className="min-w-0">
         <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{label}</p>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{desc}</p>
+        {desc && <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{desc}</p>}
       </div>
       <button
         type="button"
@@ -555,6 +555,45 @@ export default function SettingsPage() {
                 checked={settings.budgetRollover}
                 onChange={() => update('budgetRollover', !settings.budgetRollover)}
               />
+            </div>
+          </Card>
+
+          {/* Notification controls — mute types, budget threshold, bill reminders */}
+          <Card>
+            <CardHeader>
+              <SectionTitle icon={Bell}>{t('settings.notifications')}</SectionTitle>
+            </CardHeader>
+            <p className="text-xs text-slate-500 dark:text-slate-400 -mt-2 mb-4">{t('settings.notificationsDesc')}</p>
+            <div className="space-y-4">
+              {(['overdraft', 'bill', 'budget', 'credit', 'savings'] as const).map((type, i) => {
+                const muted = (settings.mutedNotifications ?? []).includes(type);
+                return (
+                  <ToggleRow
+                    key={type}
+                    divider={i > 0}
+                    label={t(`settings.notifType_${type}`)}
+                    desc=""
+                    checked={!muted}
+                    onChange={() => update('mutedNotifications', muted
+                      ? (settings.mutedNotifications ?? []).filter((x) => x !== type)
+                      : [...(settings.mutedNotifications ?? []), type])}
+                  />
+                );
+              })}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4 border-t border-slate-100 dark:border-slate-700/60">
+                <Select
+                  label={t('settings.budgetAlertPct')}
+                  value={String(settings.budgetAlertPct ?? 100)}
+                  options={[100, 90, 80, 70].map((p) => ({ value: String(p), label: p === 100 ? t('settings.budgetAlertOver') : t('settings.budgetAlertAt', { pct: p }) }))}
+                  onChange={(e) => update('budgetAlertPct', Number(e.target.value))}
+                />
+                <Select
+                  label={t('settings.billReminderDays')}
+                  value={String(settings.billReminderDays ?? 0)}
+                  options={[0, 1, 3, 7].map((d) => ({ value: String(d), label: d === 0 ? t('settings.billReminderOff') : t('settings.billReminderAt', { days: d }) }))}
+                  onChange={(e) => update('billReminderDays', Number(e.target.value))}
+                />
+              </div>
             </div>
           </Card>
 

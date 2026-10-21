@@ -1,6 +1,7 @@
-import type { Account, Bill, Budget, Transaction } from '@/types';
+import type { Account, Bill, Budget, Transaction, TaxSettings } from '@/types';
 import {
   detectOverdraftRisks,
+  cardPaymentStatus,
   buildCreditReport,
   calcLongestUntouchedSavings,
   normalizeMonthlyBudget,
@@ -39,13 +40,25 @@ export interface NotificationContext {
 // nudge agree on when an account counts as "hasn't grown lately".
 const STALE_SAVINGS_DAYS = 45;
 
+/** User notification controls (Settings → Notifications). All optional. */
+export type NotificationPrefs = Partial<Pick<TaxSettings, 'mutedNotifications' | 'budgetAlertPct' | 'billReminderDays'>>;
+
+const dayIndex = (iso: string) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return Math.round(Date.UTC(y, m - 1, d) / 86400000);
+};
+
 export function buildNotifications(
   data: { accounts: Account[]; bills: Bill[]; budgets: Budget[]; transactions: Transaction[] },
   ctx: NotificationContext,
+  prefs: NotificationPrefs = {},
 ): NotificationItem[] {
   const { accounts, bills, budgets, transactions } = data;
   const { now, monthKey, tr, fmt } = ctx;
   const items: NotificationItem[] = [];
+  const reminderDays = Math.max(0, prefs.billReminderDays ?? 0);
+  const budgetPct = Math.min(100, Math.max(50, prefs.budgetAlertPct ?? 100));
+  const todayIdx = Math.round(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86400000);
 
   // 1. Account overdraft risks. The wording is split into three plain-language
   //    cases so the numbers make sense at a glance:
@@ -112,17 +125,51 @@ export function buildNotifications(
     items.push({ id: `overdraft:${risk.account.id}`, type: 'overdraft', severity, title, body, href: '/accounts' });
   }
 
-  // 2. Overdue bills (sidebar "overdueBills" badge, expanded to one item each).
+  // 2. Overdue bills (sidebar "overdueBills" badge, expanded to one item each),
+  //    plus — when the user asked for reminders — bills due within N days.
   for (const bill of bills) {
     if (!bill.isActive) continue;
-    if (new Date(bill.nextDue) >= now) continue;
+    if (new Date(bill.nextDue) < now) {
+      items.push({
+        id: `bill:${bill.id}`,
+        type: 'bill',
+        severity: 'warning',
+        title: tr('notifications.billTitle', { name: bill.name }),
+        body: tr('notifications.billBody', { amount: fmt(bill.amount), date: bill.nextDue }),
+        href: '/bills',
+      });
+      continue;
+    }
+    const daysUntil = dayIndex(bill.nextDue) - todayIdx;
+    if (reminderDays > 0 && daysUntil >= 0 && daysUntil <= reminderDays) {
+      items.push({
+        id: `billsoon:${bill.id}:${bill.nextDue}`,
+        type: 'bill',
+        severity: 'info',
+        title: daysUntil === 0 ? tr('notifications.billTodayTitle', { name: bill.name }) : tr('notifications.billSoonTitle', { name: bill.name, days: daysUntil }),
+        body: tr('notifications.billSoonBody', { amount: fmt(bill.amount), date: bill.nextDue }),
+        href: '/bills',
+      });
+    }
+  }
+
+  // 2b. Credit-card payments (due day set on the card): overdue always, due
+  //     soon within the reminder window (at least 3 days).
+  for (const account of accounts) {
+    const pay = cardPaymentStatus(account, transactions, now);
+    if (!pay || pay.status === 'paid') continue;
+    if (pay.status === 'due' && pay.daysUntilDue > Math.max(3, reminderDays)) continue;
     items.push({
-      id: `bill:${bill.id}`,
+      id: `carddue:${account.id}:${pay.dueDate}`,
       type: 'bill',
-      severity: 'warning',
-      title: tr('notifications.billTitle', { name: bill.name }),
-      body: tr('notifications.billBody', { amount: fmt(bill.amount), date: bill.nextDue }),
-      href: '/bills',
+      severity: pay.status === 'overdue' ? 'critical' : 'warning',
+      title: pay.status === 'overdue'
+        ? tr('notifications.cardOverdueTitle', { name: account.name })
+        : tr('notifications.cardDueTitle', { name: account.name, days: pay.daysUntilDue }),
+      body: pay.minDue > 0
+        ? tr('notifications.cardDueBodyMin', { amount: fmt(pay.minDue), date: pay.dueDate })
+        : tr('notifications.cardDueBody', { date: pay.dueDate }),
+      href: '/credit',
     });
   }
 
@@ -138,12 +185,16 @@ export function buildNotifications(
     const spent = monthExpenses
       .filter((t) => t.category === b.category)
       .reduce((s, t) => s + t.amount, 0);
-    if (spent <= monthly) continue;
+    const over = spent > monthly;
+    // Alert once spending crosses the user's threshold (default: only when over).
+    if (!over && (budgetPct >= 100 || monthly <= 0 || spent < monthly * (budgetPct / 100))) continue;
     items.push({
-      id: `budget:${b.id || b.category}`,
+      id: over ? `budget:${b.id || b.category}` : `budgetnear:${b.id || b.category}:${monthKey}`,
       type: 'budget',
-      severity: 'warning',
-      title: tr('notifications.budgetTitle', { category: b.category }),
+      severity: over ? 'warning' : 'info',
+      title: over
+        ? tr('notifications.budgetTitle', { category: b.category })
+        : tr('notifications.budgetNearTitle', { category: b.category, pct: Math.round((spent / monthly) * 100) }),
       body: tr('notifications.budgetBody', { spent: fmt(spent), budget: fmt(monthly) }),
       href: '/planning',
     });
@@ -177,5 +228,7 @@ export function buildNotifications(
     });
   }
 
-  return items;
+  // Types the user muted never reach the bell.
+  const muted = new Set(prefs.mutedNotifications ?? []);
+  return muted.size ? items.filter((i) => !muted.has(i.type)) : items;
 }

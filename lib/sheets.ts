@@ -159,6 +159,9 @@ export function parseSettingsRows(rows: string[][]): TaxSettings {
     dismissedSubscriptions: get('dismissed_subscriptions', '').split('|').filter(Boolean),
     dismissedCancelReminders: get('dismissed_cancel_reminders', '').split('|').filter(Boolean),
     dashboardLayout: get('dashboard_layout', '').split('|').filter(Boolean),
+    mutedNotifications: get('muted_notifications', '').split('|').filter(Boolean),
+    budgetAlertPct: Number(get('budget_alert_pct', '100')) || 100,
+    billReminderDays: Number(get('bill_reminder_days', '0')) || 0,
   };
 }
 
@@ -211,6 +214,9 @@ export async function saveSettings(
     ['dismissed_subscriptions', (settings.dismissedSubscriptions ?? []).join('|')],
     ['dismissed_cancel_reminders', (settings.dismissedCancelReminders ?? []).join('|')],
     ['dashboard_layout', (settings.dashboardLayout ?? []).join('|')],
+    ['muted_notifications', (settings.mutedNotifications ?? []).join('|')],
+    ['budget_alert_pct', String(settings.budgetAlertPct ?? 100)],
+    ['bill_reminder_days', String(settings.billReminderDays ?? 0)],
   ];
   await sheets.spreadsheets.values.update({
     spreadsheetId,
