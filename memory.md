@@ -54,6 +54,11 @@ Settings (key/value) · Accounts `A:R` · Transactions `A:K` · Paychecks · Bud
 
 # Change log (newest first)
 
+## 2026-10-21 — Net worth trend: label every month on the x-axis (branch claude/intelligent-euler-72c25f)
+
+- WHAT: `NetWorthTrendChart` (`app/(app)/dashboard/DashboardRecharts.tsx`) — `XAxis` now has `interval={0}` so every month (up to 12 history + projected) is labeled. Recharts' default `preserveEnd` silently skipped ticks it judged crowded, so users saw gaps like "Jan, Mar, May…". A `ResizeObserver` on the chart `<figure>` measures the plot width; when a label slot is narrower than ~50px (phones) the labels tilt −45° (11px, axis height 52, chart height `h-60`) instead of being dropped. Wide screens keep the horizontal 12px labels.
+- WHY (user): "for the net worth trend, make sure the horizontal bar has the full months" — confirmed they meant *show every month label* (not full month names, not padding to 12 months).
+
 ## 2026-10-21 — Self-testing: dev test mode, Codex edge-case tests, Playwright audit + the bugs they found (branch claude/novafi-ux-perf-networth)
 
 WHY: the user's `npm run dev` showed "server error" — that was the sandbox (no DNS: `getaddrinfo ENOTFOUND fonts.googleapis.com`, then next-auth `fetch failed` → `/api/auth/error?error=Configuration` 500), not app code. Google sign-in can't run there, so the app got a way to test itself end-to-end with extreme data for different kinds of users.
