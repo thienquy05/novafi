@@ -184,6 +184,7 @@
     "creditUtil": "Mức sử dụng tín dụng",
     "loansExcl": "Không tính khoản vay · xem Nợ phải trả",
     "fundingExcluded": "Không tính {amount} giữ hộ người khác (quỹ chung)",
+    "owedToYouSeparate": "người khác nợ bạn · không tính vào tài sản ròng",
     "vsLastMonth": "% so tháng trước",
     "spendingPace": "Tốc độ chi tiêu",
     "spendingPaceSubtitle": "Dự báo chi tiêu cuối tháng theo danh mục",

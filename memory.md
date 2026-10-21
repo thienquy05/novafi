@@ -31,6 +31,7 @@ Settings (key/value) · Accounts `A:R` · Transactions `A:K` · Paychecks · Bud
 
 ## Key domain logic (`lib/calculations.ts` unless noted)
 - **Net worth:** `calcNetWorth(accounts, txs, 'total'|'liquid')`. `buildNetWorthSeries` ends at the live value; estimated months come from transactions. `calcCashFlowProjection` = average monthly net flow (+ loan payoff on the liquid basis).
+- **Net worth is "mine only":** fronted cash (loans lent, split shares, funding-tab spends) leaves the account balance and the IOU is never added back; cash held for others in funding pools is subtracted (`calcFundingHeld`). What people owe the user is reported SEPARATELY by `calcOwedToYou(splits, fundings)` (`lib/receivables.ts`: bill + one-off split remainders + unpaid pledges on open virtual funding tabs; personal 'lent' loans are intentionally not included) and shown under the dashboard net worth hero — never added to the figure, the chart or the saved NetWorthHistory snapshot.
 - **Subscriptions:** `detectSubscriptions(txs, today, dismissed)` needs a billing rhythm + fixed price + a non-everyday category (or a known service). `merchantMatches` does whole-word matching.
 - **Cards:** `cardPaymentStatus` gives paid/due/overdue from the due day + minimum.
 - **Notifications:** `lib/notifications.ts` `buildNotifications(data, ctx, prefs)` honours mute, budget-% and reminder-day settings.
@@ -55,6 +56,12 @@ Settings (key/value) · Accounts `A:R` · Transactions `A:K` · Paychecks · Bud
 ---
 
 # Change log (newest first)
+
+## 2026-10-21 — Dashboard: show money owed to you separately from net worth (branch claude/jolly-heisenberg-wep341)
+
+- WHAT: new `lib/receivables.ts` `calcOwedToYou(splits, fundings)` → `{ splits, funding, total }`. Splits = `splitRemaining` over every `Split` row (recurring bill splits AND one-off expense splits share the sheet), funding = `totalOwed` over open (`!closed`) non-real (virtual) pools. The dashboard server component now also reads `splits` + `funding` (same `cachedOrFetch` keys/TTL/write-version as their API routes; a failed read falls back to `[]` so Home never breaks) and the net worth hero shows a line "$X owed to you · not counted in net worth" (only when > 0). New i18n key `dashboard.owedToYouSeparate` (en + vi). Tests: `lib/__tests__/receivables.test.ts`.
+- WHY: the user wants the liquid net worth to be their own money only, with what others owe them kept visibly apart. Audit result: net worth already excluded receivables (lending/fronting moves the cash out of the balance and the IOU is never added back; funding-held cash is subtracted), so no calculation changed — the gap was that the owed amount was shown nowhere near net worth. Personal 'lent' loans were deliberately left out of the figure (the user picked splits + funding only). The figure is not saved into NetWorthHistory (placement was dashboard card only).
+- Verified in `NOVAFI_MOCK=1` dev mode: a $120 one-off split with $20 repaid renders "$100.00 owed to you…"; with no splits the line is hidden. Typecheck, 752 tests and lint clean.
 
 ## 2026-10-21 — Net worth trend: label every month on the x-axis (branch claude/intelligent-euler-72c25f)
 

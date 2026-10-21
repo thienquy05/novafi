@@ -184,6 +184,7 @@
     "creditUtil": "Credit Utilization",
     "loansExcl": "Loans excl. · see Liabilities",
     "fundingExcluded": "Excl. {amount} held for others (funding)",
+    "owedToYouSeparate": "owed to you · not counted in net worth",
     "vsLastMonth": "% vs last mo",
     "spendingPace": "Spending Pace",
     "spendingPaceSubtitle": "Projected end-of-month by category",

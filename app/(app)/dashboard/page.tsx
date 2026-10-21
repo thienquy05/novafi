@@ -3,8 +3,10 @@ import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { auth } from '@/lib/auth';
 import { after } from 'next/server';
-import { upsertNetWorthSnapshot } from '@/lib/sheets';
+import { upsertNetWorthSnapshot, getSplits, getFundings } from '@/lib/sheets';
 import { getDashboardData, parseWriteVersion, WRITE_VERSION_COOKIE } from '@/lib/apiRoute';
+import { cachedOrFetch, CACHE_TTL } from '@/lib/cache';
+import { calcOwedToYou } from '@/lib/receivables';
 import { formatCurrency, formatDate, zonedNow, monthShort, formatMonthsCovered } from '@/lib/utils';
 import {
   calcNetWorth, buildNetWorthSeries, calcCashFlowProjection, type NetWorthBasis, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
@@ -71,11 +73,16 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // One cached Sheets round trip for the whole dashboard (was three: dashboard
   // batch + net-worth history + settings). batchGetDashboardData now folds
   // Settings and NetWorthHistory into a single batchGet.
-  const dashData = await getDashboardData(
-    session.accessToken,
-    session.spreadsheetId,
-    parseWriteVersion(jar.get(WRITE_VERSION_COOKIE)?.value),
-  );
+  const writeVersion = parseWriteVersion(jar.get(WRITE_VERSION_COOKIE)?.value);
+  const { accessToken: token, spreadsheetId: sheetId } = session;
+  // What others owe the user sits beside net worth, never inside it. Splits and
+  // Funding share the cache keys of their API routes, and a failed read just
+  // hides the line (it must never take the dashboard down).
+  const [dashData, splits, fundings] = await Promise.all([
+    getDashboardData(token, sheetId, writeVersion),
+    cachedOrFetch(`splits:${sheetId}`, CACHE_TTL.SHORT, () => getSplits(token, sheetId), writeVersion).catch(() => []),
+    cachedOrFetch(`funding:${sheetId}`, CACHE_TTL.SHORT, () => getFundings(token, sheetId), writeVersion).catch(() => []),
+  ]);
 
   const { transactions, accounts, bills, budgets, goals, settings, netWorthHistory } = dashData;
 
@@ -126,6 +133,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const netWorth = basis === 'liquid' ? liquidNetWorth : totalNetWorth;
   const totalAssets = calcTotalAssets(accounts) - fundingHeld;
   const totalDebt = calcTotalDebt(accounts);
+  // Other people's money owed back to the user — shown next to, not in, net worth.
+  const owedToYou = calcOwedToYou(splits, fundings);
   const totalLoanDebt = accounts.filter((a) => a.type === 'loan' && a.balance > 0).reduce((s, a) => s + a.balance, 0);
   const totalSaved = accounts
     .filter((a) => a.type === 'savings')
@@ -1060,6 +1069,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             minSize={26}
             className={`font-display font-extrabold ${heroStat.valueColor}`}
           />
+          {owedToYou.total > 0 && (
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 wrap-anywhere">
+              <span className="text-emerald-600 dark:text-emerald-400 font-bold">{formatCurrency(owedToYou.total)}</span>{' '}
+              {t('dashboard.owedToYouSeparate', lang)}
+            </p>
+          )}
           {heroStat.spark && (
             <div className={heroStat.valueColor}>
               <Sparkline data={heroStat.spark} height={42} strokeWidth={2.5} animate />
