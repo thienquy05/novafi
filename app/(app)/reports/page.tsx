@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { RefreshCw, BarChart3, TrendingUp, TrendingDown, DollarSign, Calendar, Download, Printer } from 'lucide-react';
 import { LoadError } from '@/components/ui/LoadError';
@@ -337,8 +338,17 @@ export default function ReportsPage() {
               <CardTitle>{t('reports.monthlyCashFlow', { year: selectedYear })}</CardTitle>
             </CardHeader>
             <figure className="h-64 w-full mt-4" role="img" aria-label={t('reports.monthlyCashFlow', { year: selectedYear })}>
-              <MonthlyComparisonChart data={monthlyData} />
+              <MonthlyComparisonChart data={monthlyData} year={selectedYear} />
             </figure>
+            <table className="sr-only">
+              <caption>{t('reports.monthlyCashFlow', { year: selectedYear })}</caption>
+              <thead><tr><th scope="col">{t('common.month')}</th><th scope="col">{t('common.income')}</th><th scope="col">{t('common.expenses')}</th></tr></thead>
+              <tbody>
+                {monthlyData.map((m) => (
+                  <tr key={m.month}><th scope="row">{m.month}</th><td>{formatCurrency(m.income)}</td><td>{formatCurrency(m.expenses)}</td></tr>
+                ))}
+              </tbody>
+            </table>
           </Card>
 
           {/* Category breakdown + Top merchants */}
@@ -351,8 +361,13 @@ export default function ReportsPage() {
                 <div className="mt-4 space-y-3 max-h-72 overflow-y-auto hide-scrollbar pr-1">
                   {categoryData.map((c) => {
                     const pct = yearExpense > 0 ? (c.value / yearExpense) * 100 : 0;
+                    // Tap a category to open that year's transactions in it.
                     return (
-                      <div key={c.name}>
+                      <Link
+                        key={c.name}
+                        href={`/transactions?${new URLSearchParams({ from: `${selectedYear}-01-01`, to: `${selectedYear}-12-31`, category: c.name, type: 'expense' })}`}
+                        className="block rounded-xl -mx-2 px-2 py-1 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors"
+                      >
                         <div className="flex items-center justify-between mb-1.5">
                           <div className="flex items-center gap-2">
                             <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: CATEGORY_COLORS[c.name] ?? DEFAULT_COLOR }} />
@@ -372,7 +387,7 @@ export default function ReportsPage() {
                             style={{ backgroundColor: CATEGORY_COLORS[c.name] ?? DEFAULT_COLOR }}
                           />
                         </div>
-                      </div>
+                      </Link>
                     );
                   })}
                 </div>

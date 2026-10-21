@@ -1,4 +1,5 @@
 import { Fragment } from 'react';
+import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { auth } from '@/lib/auth';
 import { after } from 'next/server';
@@ -18,7 +19,7 @@ import {
   calcFundingHeldByAccount,
 } from '@/lib/calculations';
 import { Card, CardHeader, CardTitle, CardIcon, type CardTone } from '@/components/ui/Card';
-import { TrendingUp, TrendingDown, Calendar, PiggyBank, Wallet, BarChart3, ArrowLeftRight, Flame, CalendarDays, CreditCard, Target } from 'lucide-react';
+import { ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Calendar, PiggyBank, Wallet, BarChart3, ArrowLeftRight, Flame, CalendarDays, CreditCard, Target } from 'lucide-react';
 import { SpendingPieChart, BudgetBars, BudgetVsActualChart, MonthlyBarChart, GoalsSummary, NetWorthTrendChart, HealthBanner, EmergencyFundWidget, FinancialHealthScore, SavingsRateGauge } from './DashboardCharts';
 import { RecentTransactions } from './RecentTransactions';
 import { FundingWidget } from './FundingWidget';
@@ -58,7 +59,7 @@ const CREDIT_STATUS_TEXT: Record<string, string> = {
 };
 
 
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ m?: string }> }) {
   const session = await auth();
   if (!session?.accessToken || !session.spreadsheetId) return null;
 
@@ -260,7 +261,7 @@ export default async function DashboardPage() {
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     const income = monthlyTotals[key]?.income ?? 0;
     const expenses = monthlyTotals[key]?.expense ?? 0;
-    return { month: monthShort(d.getMonth(), lang), income, expenses, net: income - expenses };
+    return { month: monthShort(d.getMonth(), lang), key, income, expenses, net: income - expenses };
   });
 
   // Budget vs actual this month — reuse categorySpend (already computed above)
@@ -398,9 +399,41 @@ export default async function DashboardPage() {
     if (!b.nextDue.startsWith(thisMonth)) continue;
     (dailyBills[b.nextDue] ??= []).push({ name: b.name, amount: myBillShare(b) });
   }
-  const heatmapDays = Array.from({ length: daysInMonth }, (_, i) => {
-    const date = `${thisMonth}-${String(i + 1).padStart(2, '0')}`;
-    return { date, total: dailySpend[date] ?? 0, income: dailyIncome[date] ?? 0, bills: dailyBills[date] ?? [] };
+  // The "This Month" card group can browse back to a past month (?m=YYYY-MM):
+  // calendar + where-the-money-went for that month. Everything else on Home
+  // (net worth, safe-to-spend, budgets…) stays live.
+  const { m: requestedMonth } = await searchParams;
+  const calMonth = requestedMonth && /^\d{4}-\d{2}$/.test(requestedMonth) && requestedMonth < thisMonth ? requestedMonth : thisMonth;
+  const isCalPast = calMonth !== thisMonth;
+  const [calY, calM] = calMonth.split('-').map(Number);
+  const calDaysInMonth = new Date(calY, calM, 0).getDate();
+  const calSpend: Record<string, number> = isCalPast ? {} : dailySpend;
+  const calIncome: Record<string, number> = isCalPast ? {} : dailyIncome;
+  const calCategorySpend: Record<string, number> = isCalPast ? {} : categorySpend;
+  if (isCalPast) {
+    for (const tx of transactions) {
+      if (!tx.date.startsWith(calMonth)) continue;
+      if (tx.type === 'expense') {
+        calSpend[tx.date] = (calSpend[tx.date] ?? 0) + tx.amount;
+        calCategorySpend[tx.category] = (calCategorySpend[tx.category] ?? 0) + tx.amount;
+      } else if (tx.type === 'income') calIncome[tx.date] = (calIncome[tx.date] ?? 0) + tx.amount;
+    }
+  }
+  const calCategoryData = isCalPast
+    ? Object.entries(calCategorySpend).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value }))
+    : categoryData;
+  const calSpentTotal = Object.values(calCategorySpend).reduce((s, v) => s + v, 0);
+  const shiftMonth = (key: string, d: number) => {
+    const [y, mo] = key.split('-').map(Number);
+    const x = new Date(y, mo - 1 + d, 1);
+    return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}`;
+  };
+  const prevCalMonth = shiftMonth(calMonth, -1);
+  const nextCalMonth = shiftMonth(calMonth, 1);
+  const calLabel = `${monthShort(calM - 1, lang)} ${calY}`;
+  const heatmapDays = Array.from({ length: calDaysInMonth }, (_, i) => {
+    const date = `${calMonth}-${String(i + 1).padStart(2, '0')}`;
+    return { date, total: calSpend[date] ?? 0, income: calIncome[date] ?? 0, bills: isCalPast ? [] : dailyBills[date] ?? [] };
   });
 
   // ── Hero money-flow line: daily running net worth across THIS month ───────
@@ -520,6 +553,20 @@ export default async function DashboardPage() {
                   <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('dashboard.spendingCalendarSub', lang)}</p>
                 </div>
               </div>
+              {/* ‹ month › — browse past months' calendar + breakdown */}
+              <div className="flex items-center gap-0.5 shrink-0">
+                <Link href={`/dashboard?m=${prevCalMonth}`} scroll={false} aria-label={t('dashboard.prevMonth', lang)} className="hit-area h-8 w-8 rounded-lg flex items-center justify-center text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700">
+                  <ChevronLeft className="w-4 h-4" />
+                </Link>
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-200 min-w-[4.5rem] text-center">{calLabel}</span>
+                {isCalPast ? (
+                  <Link href={nextCalMonth >= thisMonth ? '/dashboard' : `/dashboard?m=${nextCalMonth}`} scroll={false} aria-label={t('dashboard.nextMonth', lang)} className="hit-area h-8 w-8 rounded-lg flex items-center justify-center text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700">
+                    <ChevronRight className="w-4 h-4" />
+                  </Link>
+                ) : (
+                  <span className="h-8 w-8 flex items-center justify-center text-slate-300 dark:text-slate-600" aria-hidden><ChevronRight className="w-4 h-4" /></span>
+                )}
+              </div>
             </CardHeader>
             <div className="flex-1 mt-1">
               <SpendingHeatmap days={heatmapDays} todayIso={todayIso} />
@@ -533,12 +580,12 @@ export default async function DashboardPage() {
                 <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">{t('dashboard.whereMoneyWent', lang)}</p>
               </div>
               <div className="text-right">
-                <span className="text-xl font-extrabold text-slate-900 dark:text-slate-100 font-display">{formatCurrency(readiness.ready ? projectedSpend : monthSpending)}</span>
-                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mt-0.5">{readiness.ready ? t('dashboard.projectedSpend', lang) : t('dashboard.spentSoFar', lang)}</p>
+                <span className="text-xl font-extrabold text-slate-900 dark:text-slate-100 font-display">{formatCurrency(isCalPast ? calSpentTotal : readiness.ready ? projectedSpend : monthSpending)}</span>
+                <p className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mt-0.5">{isCalPast ? `${t('dashboard.spentInMonth', lang)} · ${calLabel}` : readiness.ready ? t('dashboard.projectedSpend', lang) : t('dashboard.spentSoFar', lang)}</p>
               </div>
             </CardHeader>
             <div className="flex-1 flex items-center justify-center">
-              <SpendingPieChart data={categoryData} />
+              <SpendingPieChart data={calCategoryData} month={calMonth} />
             </div>
           </Card>
         </div>

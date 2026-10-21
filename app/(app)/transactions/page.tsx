@@ -366,6 +366,23 @@ export default function TransactionsPage() {
   }, [loans, splits]);
   const editManaged = !!editTarget && managedTxIds.has(editTarget.id);
 
+  // Deep links from charts elsewhere (Home, Reports, Planning):
+  // /transactions?month=YYYY-MM | from=…&to=… & category=… & type=… & tag=…
+  // Read once on mount (window, not useSearchParams, so no Suspense boundary).
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const month = q.get('month');
+    const from = q.get('from') ?? '', to = q.get('to') ?? '';
+    if (month && /^\d{4}-\d{2}$/.test(month)) setSelectedMonth(month);
+    else if (from || to) { setSelectedMonth(null); setRange((r) => ({ ...r, from, to })); }
+    const category = q.get('category');
+    if (category) setCategoryFilters([category]);
+    const type = q.get('type');
+    if (type === 'income' || type === 'expense' || type === 'transfer') setFilter(type);
+    const tag = q.get('tag');
+    if (tag) setTagFilter(tag);
+  }, []);
+
   const filtered = useMemo(() => transactions.filter((tx) => {
     const q = search.toLowerCase();
     const matchSearch = !search || tx.description.toLowerCase().includes(q) || tx.category.toLowerCase().includes(q) || (tx.tags ?? []).some((tag) => tag.toLowerCase().includes(q));

@@ -10,6 +10,18 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-10-21 — Convenience: month navigation, chart drill-down, chart data tables (branch claude/novafi-ux-perf-networth)
+
+Plan Section 7.7.
+- WHAT (Planning): ‹ month › switcher above the budget list (`monthOffset`); a past month is evaluated as of its last day (final totals, no pace guess) with a "Showing final totals for …" note and a "This month" reset. Goals, the page subtitle and the 50/30/20 plan generator keep using TODAY (`today`, `currentMonthKey`); the 3-month rolling average now follows the viewed month. Hard-coded English error block → `LoadError`.
+- WHAT (Home): the "This Month" card group (calendar + where your money went) gets ‹ month › links via `?m=YYYY-MM` (server `searchParams`); past months show that month's calendar, category breakdown and "Spent · Mon YYYY" total. Everything else on Home stays live by design (net worth, safe-to-spend, budgets are "now" numbers).
+- WHAT (Reports): already has a year selector (its natural period) — no month nav added.
+- WHAT (drill-down): Transactions reads `?month=` | `?from=&to=` plus `category`, `type`, `tag` on mount (window.location, no Suspense needed). Links: Home pie slices + category rows → that month's category; Home cash-flow bars → that month; Reports monthly bars → that month; Reports category rows → that year's category (from/to).
+- WHAT (a11y): screen-reader `<table class="sr-only">` with the numbers behind Home's cash-flow chart and Reports' monthly chart (the charts are role=img). Reports chart series names translated (were hard-coded "Income"/"Expenses"). Key `common.month`.
+- WHY: browse how past months ended (YNAB/Monarch center on the month); one tap from a chart to the transactions behind it (Empower).
+
+---
+
 ## 2026-10-21 — Convenience: customizable Home (branch claude/novafi-ux-perf-networth)
 
 Plan Section 7.6.

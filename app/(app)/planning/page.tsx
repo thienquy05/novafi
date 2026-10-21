@@ -1,8 +1,9 @@
 'use client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap, AlertCircle, GripVertical, ChevronDown, Scale, Wand2 } from 'lucide-react';
+import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap, GripVertical, ChevronDown, ChevronLeft, ChevronRight, Scale, Wand2 } from 'lucide-react';
 import Link from 'next/link';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { LoadError } from '@/components/ui/LoadError';
 import { Card } from '@/components/ui/Card';
 import { ExpandableCard } from '@/components/ui/ExpandableCard';
 import { Collapsible } from '@/components/ui/Collapsible';
@@ -13,7 +14,7 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { PlanningSkeleton } from '@/components/ui/Skeleton';
-import { formatCurrency, formatDate, generateId, zonedNow } from '@/lib/utils';
+import { formatCurrency, formatDate, generateId, zonedNow, dateLocale } from '@/lib/utils';
 import {
   calcRolloverDeficit, calcEffectiveSpent,
   suggestBudgetReallocations, denormalizeMonthlyBudget, calcPredictionReadiness, type BudgetReallocation,
@@ -102,12 +103,20 @@ export default function PlanningPage() {
   useEffect(() => { load(); }, [load]);
   useAutoRefresh(() => load(true));
 
-  // TZ-aware "now" (nf_tz cookie) so "this month" matches the dashboard.
-  const now = zonedNow();
+  // TZ-aware "today" (nf_tz cookie) so "this month" matches the dashboard.
+  const today = zonedNow();
+  const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  const todayDaysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const todayDaysLeft = todayDaysInMonth - today.getDate();
+  // Month navigation for the budget section: 0 = this month, -1 = last month, …
+  // A past month is evaluated as of its last day — final totals, no pace guess.
+  const [monthOffset, setMonthOffset] = useState(0);
+  const now = monthOffset === 0 ? today : new Date(today.getFullYear(), today.getMonth() + monthOffset + 1, 0);
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const daysElapsed = now.getDate();
   const daysLeft = daysInMonth - daysElapsed;
+  const viewMonthLabel = new Intl.DateTimeFormat(dateLocale(), { month: 'long', year: 'numeric' }).format(now);
 
   const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const prevMonthKey = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
@@ -156,7 +165,7 @@ export default function PlanningPage() {
     }
     return avg;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transactions]);
+  }, [transactions, thisMonth]);
 
   // Total spend this month for category %
   const totalMonthSpend = useMemo(
@@ -176,7 +185,7 @@ export default function PlanningPage() {
     if (!settings || !bucketSnapshot?.hasIncome) return;
     const { allocations } = buildBucketBudgetPlan({
       budgets, transactions, accounts, goals, paychecks, settings,
-      categories: expenseCategories, monthKey: thisMonth, today: zonedNow(),
+      categories: expenseCategories, monthKey: currentMonthKey, today: zonedNow(),
     });
     setPlanRows(allocations);
     // A category with no recent spending is allocated $0, and a $0 budget reads as
@@ -446,7 +455,7 @@ export default function PlanningPage() {
         tone="purple"
         className="mb-4 md:mb-6"
         title={t('planning.title')}
-        subtitle={t('planning.subtitle', { daysLeft })}
+        subtitle={t('planning.subtitle', { daysLeft: todayDaysLeft })}
       />
 
       {/* Summary */}
@@ -481,12 +490,7 @@ export default function PlanningPage() {
       {loading ? (
         <PlanningSkeleton />
       ) : error ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-900/30 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-rose-400" /></div>
-          <p className="text-slate-700 dark:text-slate-300 font-bold text-base mb-1">Couldn&apos;t load planning data</p>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">Check your connection and try again.</p>
-          <Button variant="secondary" onClick={() => load(true)}>Try Again</Button>
-        </div>
+        <LoadError onRetry={() => load(true)} />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-7">
           {/* ── BUDGETS ──────────────────────────────────────────────────── */}
@@ -518,6 +522,26 @@ export default function PlanningPage() {
                 <Plus className="w-4 h-4" /> {t('planning.setBudget')}
               </Button>
             </div>
+            {/* Month switcher — browse how past months' budgets ended up. */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1">
+                <button type="button" onClick={() => setMonthOffset((o) => o - 1)} aria-label={t('planning.prevMonth')} className="hit-area h-9 w-9 rounded-xl flex items-center justify-center text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-sm font-bold text-slate-800 dark:text-slate-100 min-w-[8.5rem] text-center capitalize">{viewMonthLabel}</span>
+                <button type="button" onClick={() => setMonthOffset((o) => Math.min(0, o + 1))} disabled={monthOffset === 0} aria-label={t('planning.nextMonth')} className="hit-area h-9 w-9 rounded-xl flex items-center justify-center text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30">
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+              {monthOffset !== 0 && (
+                <button type="button" onClick={() => setMonthOffset(0)} className="text-xs font-bold text-indigo-600 dark:text-indigo-400 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/30">
+                  {t('planning.thisMonth')}
+                </button>
+              )}
+            </div>
+            {monthOffset !== 0 && (
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 -mt-2">{t('planning.viewingPast', { month: viewMonthLabel })}</p>
+            )}
 
             {budgets.length === 0 ? (
               <Card className="text-center py-12 bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700/60">
@@ -623,7 +647,7 @@ export default function PlanningPage() {
                   const remaining = goal.targetAmount - current;
                   const achieved = current >= goal.targetAmount;
                   const daysToDeadline = goal.deadline
-                    ? Math.ceil((new Date(goal.deadline).getTime() - now.getTime()) / 86400000)
+                    ? Math.ceil((new Date(goal.deadline).getTime() - today.getTime()) / 86400000)
                     : null;
                   const monthsLeft = daysToDeadline && daysToDeadline > 0 ? daysToDeadline / 30.44 : null;
                   const monthlyNeeded = monthsLeft && remaining > 0 ? remaining / monthsLeft : null;
@@ -631,7 +655,7 @@ export default function PlanningPage() {
                     achieved ? 'done'
                     : !goal.deadline ? 'nodl'
                     : daysToDeadline && daysToDeadline <= 0 ? 'overdue'
-                    : pct >= ((daysInMonth - daysLeft) / daysInMonth) * 100 ? 'ontarget'
+                    : pct >= (today.getDate() / todayDaysInMonth) * 100 ? 'ontarget'
                     : 'behind';
 
                   return (

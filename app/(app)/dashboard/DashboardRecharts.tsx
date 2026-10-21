@@ -1,5 +1,7 @@
 'use client';
 import { useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   ComposedChart, BarChart, Bar, Line, XAxis, YAxis, CartesianGrid,
@@ -61,8 +63,16 @@ function BarTooltip({ active, payload, label }: { active?: boolean; payload?: { 
 
 // ── Spending Pie Chart ────────────────────────────────────────────────────────
 
-export function SpendingPieChart({ data }: { data: CategoryData[] }) {
+/** Deep link into the Transactions page, pre-filtered (see its URL params). */
+function txHref(params: Record<string, string>): string {
+  return `/transactions?${new URLSearchParams(params).toString()}`;
+}
+
+export function SpendingPieChart({ data, month }: { data: CategoryData[]; month?: string }) {
   const { t } = useTranslation();
+  const router = useRouter();
+  // Category rows + slices open that month's transactions in the category.
+  const hrefFor = (i: number) => (month ? txHref({ month, category: data[i].name, type: 'expense' }) : null);
   const isEmpty = data.length === 0;
   const cleanData = data.map(d => ({ ...d, name: d.name.replace(/^categories\./, '') }));
   const displayData = isEmpty ? [{ name: t('charts.noExpenseData'), value: 1 }] : cleanData;
@@ -97,6 +107,7 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
               cornerRadius={isEmpty ? 0 : 6}
               onMouseEnter={isEmpty ? undefined : (_, i) => setActiveIdx(i)}
               onMouseLeave={isEmpty ? undefined : () => setActiveIdx(null)}
+              onClick={isEmpty ? undefined : (_, i) => { const href = hrefFor(i); if (href) router.push(href); }}
               {...anim}
             >
               {displayData.map((entry) => (
@@ -132,12 +143,18 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
         ) : (
           cleanData.map((entry, i) => {
             const pct = categoryTotal > 0 ? (entry.value / categoryTotal) * 100 : 0;
+            const href = hrefFor(i);
             return (
               <motion.div
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: i * 0.05 }}
                 key={entry.name}
+              >
+              <Link
+                href={href ?? '#'}
+                aria-disabled={!href}
+                onClick={href ? undefined : (e) => e.preventDefault()}
                 className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
               >
                 <div
@@ -147,6 +164,7 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
                 <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex-1 truncate">{tCategory(entry.name)}</span>
                 <span className="text-xs text-slate-400 dark:text-slate-500 font-bold bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-md">{pct.toFixed(0)}%</span>
                 <span className="text-sm font-extrabold text-slate-900 dark:text-slate-100 w-20 text-right">{formatCurrency(entry.value)}</span>
+              </Link>
               </motion.div>
             );
           })
@@ -160,6 +178,12 @@ export function SpendingPieChart({ data }: { data: CategoryData[] }) {
 
 export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
   const { t } = useTranslation();
+  const router = useRouter();
+  // Tapping a month opens its transactions (when the rows carry a YYYY-MM key).
+  const openMonth = (index: unknown) => {
+    const key = data[Number(index)]?.key;
+    if (key) router.push(txHref({ month: key }));
+  };
   const isEmpty = data.every(d => d.income === 0 && d.expenses === 0);
   const ready = useChartReady();
   const c = useIsDark() ? CHART.dark : CHART.light;
@@ -167,9 +191,10 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
   const hasNet = data.some((d) => d.net !== undefined);
 
   return (
-    <figure className="h-64 w-full mt-4" role="img" aria-label={`${t('dashboard.cashFlow')}: ${t('common.income')} vs ${t('common.expenses')}`}>
+    <>
+    <figure className={`h-64 w-full mt-4 ${data.some((d) => d.key) ? 'cursor-pointer' : ''}`} role="img" aria-label={`${t('dashboard.cashFlow')}: ${t('common.income')} vs ${t('common.expenses')}`}>
       {!ready ? <div className="w-full h-full rounded-2xl bg-slate-100 dark:bg-slate-700 animate-pulse" /> : <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} barGap={6}>
+        <ComposedChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} barGap={6} onClick={(state) => openMonth(state?.activeTooltipIndex)}>
           <CartesianGrid strokeDasharray="3 3" stroke={c.grid} vertical={false} />
           <XAxis
             dataKey="month"
@@ -204,6 +229,17 @@ export function MonthlyBarChart({ data }: { data: MonthlyData[] }) {
         </ComposedChart>
       </ResponsiveContainer>}
     </figure>
+    {/* Same numbers as a table for screen readers (the chart is an image to them). */}
+    <table className="sr-only">
+      <caption>{t('dashboard.cashFlow')}</caption>
+      <thead><tr><th scope="col">{t('common.month')}</th><th scope="col">{t('common.income')}</th><th scope="col">{t('common.expenses')}</th></tr></thead>
+      <tbody>
+        {data.map((d) => (
+          <tr key={d.month}><th scope="row">{d.month}</th><td>{formatCurrency(d.income)}</td><td>{formatCurrency(d.expenses)}</td></tr>
+        ))}
+      </tbody>
+    </table>
+    </>
   );
 }
 
