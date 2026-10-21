@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, RefreshCw, Pencil, Trash2, AlertTriangle, X, TrendingUp, EyeOff } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { PullToRefresh } from '@/components/PullToRefresh';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -310,6 +311,7 @@ export default function SubscriptionsPage() {
 
   return (
     <StaggerReveal className="p-4 md:p-8 max-w-3xl mx-auto space-y-6 pb-24 md:pb-8">
+      <PullToRefresh onRefresh={() => load(true)} />
       <PageHeader
         icon={RefreshCw}
         tone="default"

@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { TrendingUp, Plus, ArrowUpRight, ArrowDownRight, ArrowDownLeft, Pencil } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { PullToRefresh } from '@/components/PullToRefresh';
 import { LoadError } from '@/components/ui/LoadError';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -158,6 +159,7 @@ export default function InvestmentsPage() {
 
   return (
     <StaggerReveal className="p-4 md:p-8 max-w-3xl mx-auto space-y-6 pb-24 md:pb-8">
+      <PullToRefresh onRefresh={() => load(true)} />
       <PageHeader
         icon={TrendingUp}
         tone="emerald"

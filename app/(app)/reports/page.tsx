@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { RefreshCw, BarChart3, TrendingUp, TrendingDown, DollarSign, Calendar, Download, Printer } from 'lucide-react';
 import { LoadError } from '@/components/ui/LoadError';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { PullToRefresh } from '@/components/PullToRefresh';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { FitText } from '@/components/ui/FitText';
@@ -214,6 +215,7 @@ export default function ReportsPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
+      <PullToRefresh onRefresh={() => load(true)} />
       <PageHeader
         icon={BarChart3}
         tone="indigo"

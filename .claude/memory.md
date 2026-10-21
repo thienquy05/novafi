@@ -10,6 +10,14 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-10-21 — Convenience: pull-to-refresh everywhere (branch claude/novafi-ux-perf-networth)
+
+Plan Section 7.1.
+- WHAT: `components/PullToRefresh.tsx` (gesture via `usePullToRefresh` + the floating pill, translated, `role=status`). Without `onRefresh` it calls `router.refresh()` in a transition and spins until the server page re-renders (used on the Dashboard). Replaced the copy-pasted pill on Accounts, Bills, Funding, Planning, Transactions (Planning/Transactions had hard-coded English) and added it to Dashboard, Savings, Investments, Subscriptions, Credit, Paychecks, Reports.
+- WHY: the gesture existed on only 5 pages and its markup was duplicated 5×.
+
+---
+
 ## 2026-10-21 — Privacy (per-user cache), stuck spinners, Funding screen fixes (branch claude/novafi-ux-perf-networth)
 
 Plan Sections 4 (Funding) + 5.

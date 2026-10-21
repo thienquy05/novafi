@@ -7,6 +7,7 @@ import {
   History, ArrowUpCircle, Shuffle, Calculator, Gift,
 } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { PullToRefresh } from '@/components/PullToRefresh';
 import { Card, CardIcon } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -157,6 +158,7 @@ export default function CreditPage() {
 
   return (
     <StaggerReveal className="p-4 md:p-8 max-w-4xl mx-auto space-y-6 sm:space-y-7 pb-24 md:pb-8">
+      <PullToRefresh onRefresh={() => load(true)} />
       <PageHeader
         icon={CreditCard}
         tone="rose"

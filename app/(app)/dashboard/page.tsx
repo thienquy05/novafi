@@ -28,6 +28,7 @@ import { StaggerReveal } from '@/components/ui/Reveal';
 import { Sparkline } from '@/components/ui/Sparkline';
 import { Celebrations } from './Celebrations';
 import { AutoRefreshOnFocus } from '@/components/AutoRefreshOnFocus';
+import { PullToRefresh } from '@/components/PullToRefresh';
 import { SpendingHeatmap } from './SpendingHeatmap';
 import { HelpHint } from '@/components/ui/HelpHint';
 import { t } from '@/lib/i18n';
@@ -501,6 +502,7 @@ export default async function DashboardPage() {
       {/* Server-rendered page: re-pull on tab focus + every 60s so a dashboard
           left open stays live like every client page. */}
       <AutoRefreshOnFocus />
+      <PullToRefresh />
       <Celebrations savingsRate={savingsRate} healthScore={healthScore} achievedGoals={achievedGoals} creditUtil={creditReport.overallUtil} />
 
       <StaggerReveal className="space-y-5 sm:space-y-7">

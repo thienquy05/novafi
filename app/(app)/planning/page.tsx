@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap, RefreshCw, AlertCircle, GripVertical, ChevronDown, Scale, Wand2 } from 'lucide-react';
+import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap, AlertCircle, GripVertical, ChevronDown, Scale, Wand2 } from 'lucide-react';
 import Link from 'next/link';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
@@ -23,7 +23,7 @@ import type { Budget, Goal, Transaction, Account, PaycheckEntry, TaxSettings } f
 import { useCategories } from '@/hooks/useCategories';
 import { Reorder, useDragControls } from 'framer-motion';
 import { useToast } from '@/lib/toast';
-import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { PullToRefresh } from '@/components/PullToRefresh';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { useTranslation } from '@/lib/i18n/context';
 import { peekCache, ensureResources } from '@/lib/client/store';
@@ -101,7 +101,6 @@ export default function PlanningPage() {
 
   useEffect(() => { load(); }, [load]);
   useAutoRefresh(() => load(true));
-  const { pullY, refreshing } = usePullToRefresh(() => load(true));
 
   // TZ-aware "now" (nf_tz cookie) so "this month" matches the dashboard.
   const now = zonedNow();
@@ -440,14 +439,7 @@ export default function PlanningPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-5 sm:space-y-7 pb-28 md:pb-8">
-      {(pullY > 0 || refreshing) && (
-        <div className="fixed top-0 left-0 right-0 z-50 flex justify-center pt-safe">
-          <div className="flex items-center gap-2 bg-indigo-600 text-white text-xs font-bold px-4 py-2 rounded-full shadow-lg mt-2">
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} style={!refreshing ? { transform: `rotate(${pullY * 180}deg)` } : undefined} />
-            {refreshing ? 'Refreshing…' : pullY >= 1 ? 'Release to refresh' : 'Pull to refresh'}
-          </div>
-        </div>
-      )}
+      <PullToRefresh onRefresh={() => load(true)} />
       {/* Header */}
       <PageHeader
         icon={Target}

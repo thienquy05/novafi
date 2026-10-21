@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
-import { Plus, Trash2, CreditCard, Landmark, PiggyBank, TrendingUp, Pencil, CheckCircle2, RefreshCw, AlertCircle, Banknote, Coins } from 'lucide-react';
+import { Plus, Trash2, CreditCard, Landmark, PiggyBank, TrendingUp, Pencil, CheckCircle2, AlertCircle, Banknote, Coins } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { creditUtilization, creditUtilStatus, calcLoanPayoff, calcLoanExtraPaymentImpact, calcFundingHeldByAccount, calcNetWorth, calcTotalAssets, calcTotalDebt } from '@/lib/calculations';
 import { buildLoanPaymentTxs } from '@/lib/loanPayments';
@@ -17,7 +17,7 @@ import { peekCache, ensureResources } from '@/lib/client/store';
 import { FitText } from '@/components/ui/FitText';
 import { formatCurrency, generateId, today } from '@/lib/utils';
 import { useToast } from '@/lib/toast';
-import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { PullToRefresh } from '@/components/PullToRefresh';
 import type { Account, Transaction } from '@/types';
 import { useTranslation } from '@/lib/i18n/context';
 
@@ -149,7 +149,6 @@ export default function AccountsPage() {
   useEffect(() => { load(); }, [load]);
   useAutoRefresh(() => load(true));
 
-  const { pullY, refreshing } = usePullToRefresh(() => load(true));
 
   function openAdd() { setEditTarget(null); setForm(EMPTY_FORM); setOpen(true); }
   function openEdit(account: Account) {
@@ -307,14 +306,7 @@ export default function AccountsPage() {
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6 sm:space-y-8 pb-24 md:pb-8">
       {/* Pull-to-refresh indicator */}
-      {(pullY > 0 || refreshing) && (
-        <div className="fixed top-0 left-0 right-0 z-50 flex justify-center pt-safe">
-          <div className="flex items-center gap-2 bg-indigo-600 text-white text-xs font-bold px-4 py-2 rounded-full shadow-lg mt-2">
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} style={!refreshing ? { transform: `rotate(${pullY * 180}deg)` } : undefined} />
-            {refreshing ? t('accounts.refreshing') : pullY >= 1 ? t('accounts.releaseToRefresh') : t('accounts.pullToRefresh')}
-          </div>
-        </div>
-      )}
+      <PullToRefresh onRefresh={() => load(true)} />
 
       <PageHeader
         icon={Landmark}
