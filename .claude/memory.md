@@ -10,6 +10,25 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-10-21 — Privacy (per-user cache), stuck spinners, Funding screen fixes (branch claude/novafi-ux-perf-networth)
+
+Plan Sections 4 (Funding) + 5.
+
+### Privacy: client cache scoped to the signed-in user
+- WHAT: `setCacheOwner(id)` / `clearAllClientCaches()` in `lib/client/store.ts`. `CacheSync` (first child of the app layout) receives an opaque owner id (sha256(spreadsheetId) first 16 hex, computed server-side in `app/(app)/layout.tsx`) and binds the cache DURING RENDER, before any page calls `peekCache`. A different/unknown stored owner wipes module memory + every `nf_*` sessionStorage key; the sessionStorage mirror is only hydrated once the owner is known and matches. Both sign-out buttons (Sidebar, Settings) call `clearAllClientCaches()` first. WHY: sessionStorage survives the sign-out → Google sign-in round trip in the same tab, so a second account could briefly see the previous account's balances/badges.
+- Test: `lib/__tests__/store-owner.test.ts` (same owner keeps cache, different owner wipes it incl. badge cache, no hydration before owner known).
+- Not covered (device-local, not balances): localStorage templates / notification read-state / nav order.
+
+### No more infinite spinners
+- WHAT: Savings, Paychecks, Investments `load()` wrapped in try/catch/finally → `LoadError` + retry when nothing is cached (Paychecks' in-list spinner also became skeleton rows). WHY: a failed read left the skeleton/spinner forever (same bug fixed earlier on Subscriptions + Settings).
+
+### Funding screen
+- WHAT: pool title on its own line (2-line clamp) above the badges/date row; badges 10px → 11px; action row pushes icon buttons right; icon buttons keep their 36px look but get `.hit-area` (≈48px tap area); row edit/delete buttons too; pool figures `min-w-0` + `FitText` (big amounts shrink instead of overflowing 3 narrow columns); the repeated emerald button classes → `EMERALD_BTN`; in-page spinner → skeleton cards. WHY: on phones the title collapsed to "…" next to badges, amounts overflowed, taps missed.
+- WHAT: the 4 browser `confirm()` calls (delete spend / contribution / payment, dropping paid participants) → promise-based `askConfirm()` rendering the page's existing `Modal` (no new global system — per Codex). New key `common.areYouSure`.
+- WHAT: `PageHeader` title wraps to 2 lines instead of `truncate` (long/Vietnamese titles were clipped on phones).
+
+---
+
 ## 2026-10-21 — Smarter subscription detection + "Not a subscription" (branch claude/novafi-ux-perf-networth)
 
 Plan Section 3 (+ the Subscriptions part of Section 4). User report: "Chick-fil-A this month and next month shows up as a subscription."

@@ -2,6 +2,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, Trash2, DollarSign } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { LoadError } from '@/components/ui/LoadError';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -45,20 +47,28 @@ export default function PaychecksPage() {
   const { t } = useTranslation();
   const toast = useToast();
 
+  const [error, setError] = useState(false);
   const load = useCallback(async (force = false) => {
-    // One /api/batch round trip; served from the client cache when fresh.
-    const { paychecks: pc, settings: st, accounts: accs } = await ensureResources(['paychecks', 'settings', 'accounts'], { force });
-    const sorted = [...pc].sort((a: PaycheckEntry, b: PaycheckEntry) => b.date.localeCompare(a.date));
-    setPaychecks(sorted);
-    setSettings(st);
-    setAccounts(accs);
+    // One /api/batch round trip; served from the client cache when fresh. A failed
+    // read shows an error + retry (it used to leave the spinner up forever).
+    try {
+      const { paychecks: pc, settings: st, accounts: accs } = await ensureResources(['paychecks', 'settings', 'accounts'], { force });
+      const sorted = [...pc].sort((a: PaycheckEntry, b: PaycheckEntry) => b.date.localeCompare(a.date));
+      setPaychecks(sorted);
+      setSettings(st);
+      setAccounts(accs);
 
-    // Auto-select first checking account
-    const firstChecking = accs.find((a: Account) => a.type === 'checking');
-    if (firstChecking) {
-      setForm((f) => ({ ...f, checkingAccountId: f.checkingAccountId || firstChecking.id }));
+      // Auto-select first checking account
+      const firstChecking = accs.find((a: Account) => a.type === 'checking');
+      if (firstChecking) {
+        setForm((f) => ({ ...f, checkingAccountId: f.checkingAccountId || firstChecking.id }));
+      }
+      setError(false);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -215,9 +225,11 @@ export default function PaychecksPage() {
 
       {/* Paycheck list */}
       {loading ? (
-        <div className="flex items-center justify-center h-32">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-indigo-600 border-t-transparent" />
+        <div className="space-y-3">
+          {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-20 rounded-3xl" />)}
         </div>
+      ) : error && paychecks.length === 0 ? (
+        <LoadError onRetry={() => { setLoading(true); load(true); }} />
       ) : paychecks.length === 0 ? (
         <Card className="text-center py-16 bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700/60">
           <div className="w-16 h-16 rounded-full bg-white dark:bg-slate-800 flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100 dark:border-slate-700/60">

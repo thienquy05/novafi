@@ -48,7 +48,9 @@ export function PageHeader({
           <Icon className="w-6 h-6 sm:w-7 sm:h-7" strokeWidth={2.25} />
         </span>
         <div className="min-w-0">
-          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100 font-display truncate">
+          {/* Wraps to a second line instead of truncating, so long (e.g. Vietnamese)
+              titles stay readable on phones. */}
+          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100 font-display break-words line-clamp-2">
             {title}
           </h1>
           {subtitle && (

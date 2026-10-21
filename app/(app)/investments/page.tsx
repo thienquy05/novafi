@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { TrendingUp, Plus, ArrowUpRight, ArrowDownRight, ArrowDownLeft, Pencil } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { LoadError } from '@/components/ui/LoadError';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -48,11 +49,19 @@ export default function InvestmentsPage() {
   const [note, setNote] = useState('');
   const [value, setValue] = useState('');
 
+  const [error, setError] = useState(false);
   const load = useCallback(async (force = false) => {
-    const data = await ensureResources(['accounts', 'transactions'], { force });
-    setAccounts(data.accounts);
-    setTransactions(data.transactions);
-    setLoading(false);
+    // A failed read shows an error + retry (it used to leave the skeleton forever).
+    try {
+      const data = await ensureResources(['accounts', 'transactions'], { force });
+      setAccounts(data.accounts);
+      setTransactions(data.transactions);
+      setError(false);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -142,6 +151,7 @@ export default function InvestmentsPage() {
   }
 
   if (loading) return <InvestmentsSkeleton />;
+  if (error && accounts.length === 0) return <div className="p-4 md:p-8 max-w-3xl mx-auto"><LoadError onRetry={() => { setLoading(true); load(true); }} /></div>;
 
   const gainPositive = stats.gain >= 0;
   const gainColor = gainPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400';

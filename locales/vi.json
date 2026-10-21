@@ -47,6 +47,7 @@
     "loadErrorTitle": "Không thể tải dữ liệu",
     "loadErrorBody": "Kiểm tra kết nối và thử lại.",
     "tryAgain": "Thử lại",
+    "areYouSure": "Bạn có chắc không?",
     "proceed": "Tiếp tục",
     "pullToRefresh": "Kéo để làm mới",
     "refreshing": "Đang làm mới…",

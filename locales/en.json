@@ -47,6 +47,7 @@
     "loadErrorTitle": "Couldn't load your data",
     "loadErrorBody": "Check your connection and try again.",
     "tryAgain": "Try Again",
+    "areYouSure": "Are you sure?",
     "proceed": "Proceed",
     "pullToRefresh": "Pull to refresh",
     "refreshing": "Refreshing…",

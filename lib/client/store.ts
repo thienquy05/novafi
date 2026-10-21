@@ -58,13 +58,51 @@ function persist(): void {
   } catch { /* quota / unavailable — cache simply doesn't survive reload */ }
 }
 
-let hydrated = false;
-/** Lazily restore the sessionStorage mirror into module memory, once per session. */
-function hydrate(): void {
-  if (hydrated) return;
-  hydrated = true;
+// ── Per-user scoping ──────────────────────────────────────────────────────────
+// sessionStorage outlives a sign-out → Google sign-in round trip in the same tab,
+// so without an owner check a second account could briefly render the previous
+// account's cached balances. Every NovaFi session cache uses the `nf_` prefix.
+const OWNER_KEY = 'nf_store_owner';
+const SESSION_PREFIX = 'nf_';
+let owner: string | null = null;
+
+/** Wipe every NovaFi client cache (module memory + `nf_*` sessionStorage). */
+export function clearAllClientCaches(): void {
+  mem.clear();
+  inflight.clear();
   if (typeof sessionStorage === 'undefined') return;
   try {
+    for (const k of Object.keys(sessionStorage)) if (k.startsWith(SESSION_PREFIX)) sessionStorage.removeItem(k);
+  } catch { /* unavailable */ }
+}
+
+/**
+ * Bind the client caches to the signed-in user (an opaque id from the server).
+ * CacheSync calls this while rendering — it renders before any page body, so it
+ * runs before the first peekCache(). A different or unknown previous owner wipes
+ * all caches first. Idempotent.
+ */
+export function setCacheOwner(id: string): void {
+  if (typeof window === 'undefined' || owner === id) return;
+  owner = id;
+  try {
+    if (sessionStorage.getItem(OWNER_KEY) !== id) {
+      clearAllClientCaches();
+      sessionStorage.setItem(OWNER_KEY, id);
+    }
+  } catch { /* unavailable — nothing persisted to leak */ }
+}
+
+let hydrated = false;
+/** Lazily restore the sessionStorage mirror into module memory, once per session —
+ *  only once the owner is known and matches the mirror's owner. */
+function hydrate(): void {
+  if (hydrated) return;
+  if (typeof sessionStorage === 'undefined') { hydrated = true; return; }
+  if (owner === null) return; // not bound yet → serve nothing persisted
+  hydrated = true;
+  try {
+    if (sessionStorage.getItem(OWNER_KEY) !== owner) return;
     const raw = sessionStorage.getItem(PERSIST_KEY);
     if (!raw) return;
     const obj = JSON.parse(raw) as Record<string, Entry>;

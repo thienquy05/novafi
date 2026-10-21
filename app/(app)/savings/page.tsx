@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ArrowDownLeft, ArrowUpRight, ArrowRightLeft, PiggyBank, Target, Pencil, CheckCircle2, Trash2, Percent } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { LoadError } from '@/components/ui/LoadError';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -99,15 +100,23 @@ export default function SavingsPage() {
     setVisibleCount(SAVINGS_PAGE_SIZE);
   }
 
+  const [error, setError] = useState(false);
   const load = useCallback(async (force = false) => {
     // One round trip instead of three; served from the client cache when fresh.
-    const data = await ensureResources(['accounts', 'transactions', 'goals'], { force });
-    const accs = data.accounts;
-    setAllAccounts(accs);
-    setAccounts(accs.filter((a) => a.type === 'savings'));
-    setTransactions(data.transactions);
-    setGoals(data.goals);
-    setLoading(false);
+    // A failed read shows an error + retry (it used to leave the skeleton forever).
+    try {
+      const data = await ensureResources(['accounts', 'transactions', 'goals'], { force });
+      const accs = data.accounts;
+      setAllAccounts(accs);
+      setAccounts(accs.filter((a) => a.type === 'savings'));
+      setTransactions(data.transactions);
+      setGoals(data.goals);
+      setError(false);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -309,6 +318,7 @@ export default function SavingsPage() {
   }
 
   if (loading) return <SavingsSkeleton />;
+  if (error && allAccounts.length === 0) return <div className="p-4 md:p-8 max-w-5xl mx-auto"><LoadError onRetry={() => { setLoading(true); load(true); }} /></div>;
 
   return (
     <StaggerReveal className="p-4 md:p-8 max-w-5xl mx-auto space-y-6 sm:space-y-8 pb-24 md:pb-8">

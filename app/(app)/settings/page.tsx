@@ -16,7 +16,7 @@ import { generateId } from '@/lib/utils';
 import { TIME_ZONE_OPTIONS, TIME_ZONE_GROUPS, detectTimeZone, timeZoneLabel } from '@/lib/timezones';
 import { invalidateCategoriesCache } from '@/hooks/useCategories';
 import { useToast } from '@/lib/toast';
-import { ensureResources } from '@/lib/client/store';
+import { ensureResources, clearAllClientCaches } from '@/lib/client/store';
 import { LoadError } from '@/components/ui/LoadError';
 import { useTranslation } from '@/lib/i18n/context';
 
@@ -322,6 +322,7 @@ export default function SettingsPage() {
   // Guard against a misclick — signing out drops you back to the login screen.
   function handleSignOut() {
     if (!confirm(t('settings.signOutConfirm'))) return;
+    clearAllClientCaches();
     signOut({ callbackUrl: '/' });
   }
 
