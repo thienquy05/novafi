@@ -10,6 +10,15 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-10-21 — UI: 2.5D depth on login + net-worth hero (branch claude/novafi-ux-perf-networth)
+
+Plan Section 8B (user chose polish + 2.5D, no 3D library).
+- WHAT: `components/ui/Tilt3D.tsx` — framer-motion (already installed) CSS 3D tilt (≤4–5°) toward a MOUSE pointer + a soft radial glare; touch input and prefers-reduced-motion render the plain child (no motion/battery cost).
+- WHAT: Login card wrapped in Tilt3D with two offset translucent "stacked cards" behind it (static depth visible on phones too). Dashboard net-worth hero wrapped in Tilt3D + a layered brand-tinted shadow.
+- WHY: depth/"3D" feel the user asked for without three.js (~150–600 KB, GPU/battery) — conflicts with speed being priority #1.
+
+---
+
 ## 2026-10-21 — Convenience: first-run checklist on Home (branch claude/novafi-ux-perf-networth)
 
 Plan Section 7.10.

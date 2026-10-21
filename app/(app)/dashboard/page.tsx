@@ -28,6 +28,7 @@ import { AnimatedNumber } from '@/components/ui/AnimatedNumber';
 import { RollingNumber } from '@/components/ui/RollingNumber';
 import { StaggerReveal } from '@/components/ui/Reveal';
 import { Sparkline } from '@/components/ui/Sparkline';
+import { Tilt3D } from '@/components/ui/Tilt3D';
 import { Celebrations } from './Celebrations';
 import { AutoRefreshOnFocus } from '@/components/AutoRefreshOnFocus';
 import { PullToRefresh } from '@/components/PullToRefresh';
@@ -1021,10 +1022,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       {/* KPI Bento — Net Worth hero + Safe-to-Spend + Savings Rate (income &
           spending now live in the calendar's monthly summary below) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {/* Net Worth hero */}
+        {/* Net Worth hero — 2.5D tilt + glare with a mouse (static on touch /
+            reduced motion); the layered shadow gives depth everywhere. */}
+        <Tilt3D className="col-span-2" max={4}>
         <Card
           tone={heroStat.tone}
-          className="col-span-2 bento-hero flex flex-col justify-between gap-4 overflow-hidden"
+          className="h-full bento-hero flex flex-col justify-between gap-4 overflow-hidden shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-8px_rgba(15,23,42,0.12),0_24px_48px_-24px_rgba(21,104,163,0.22)]"
         >
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -1063,6 +1066,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             </div>
           )}
         </Card>
+        </Tilt3D>
 
         {/* Four KPI tiles */}
         {smallStats.map((stat) => {
