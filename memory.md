@@ -255,6 +255,59 @@ Plan: `~/.claude/plans/dapper-tinkering-book.md` (Claude + Codex reviewed, user-
 
 ---
 
+## 2026-10-21 — Mascot v2 design contest: sticker-style Nova sprite sheets, prompts for Codex/Gemini, interactive demo (branch claude/festive-edison-p5rcvh)
+
+Direction change after the SVG-Nova pass: the user wants a mascot drawn like the koboyo.com/page-mascot gallery
+(cute sticker-style chibi bust) and interactive, **plus mobile interactions**, and wants to run the same brief through
+Codex and Gemini and "take whatever's better". Decided with the user: the character is **"Nova reborn"** (cream-furred
+forest sprite, green sprout on the crown, leaf-green scarf with a gold N coin). **Design/assets only — nothing in `app/`
+is wired to these sheets yet**; the live dashboard still uses the SVG `NovaAvatar`. Wiring the winner (and mapping
+`HealthStatus` onto idle frames) is a follow-up once a candidate is chosen.
+
+Format follows nilbuild/page-mascot (MIT; spec read from its `skills/page-mascot` docs and `mascot.tsx`): two 3×3
+transparent PNG sheets, one bust per cell. `directions.png` = up-left, up, up-right / left, centre, right / down-left,
+down, down-right (calm face, only the head turns). `reactions.png` = closed-arc eyes, heart, sparkles / surprised,
+starstruck, bashful / sleepy, dizzy, delighted.
+
+### Files (all under `design/mascot/`)
+- **`claude/generate.mjs`** — draws both sheets from vector shapes and renders 1536² transparent PNGs via headless
+  Chromium (`node generate.mjs <playwright-module-dir>`). One `nova()` function draws the whole bust, so the
+  body/scarf/coin is the same drawing in all 18 cells. Head turn is faked with parallax: head group shifts/rotates, face
+  group shifts and compresses toward the far side, muzzle gets extra parallax, the ear on the turned side foreshortens,
+  the face is clipped to the head and the outline redrawn on top (otherwise far-side blush leaked past the silhouette).
+  Fur is a procedural outline (ellipse anchors joined by outward-bulging quadratics). Bottom 10% fades out.
+- **`claude/{directions,reactions}.png` + `.svg`** — generated output (SVG kept as the editable source).
+- **`demo.html`** (no build step; serve `design/mascot/` and open `/demo.html`, or `?set=codex|gemini` to load
+  `./<set>/{directions,reactions}.png` — set name is sanitised to `[a-z0-9_-]`). Port of page-mascot's logic: 8 sectors,
+  70px dead zone, hysteresis, squash via WAAPI (skipped under reduced-motion), blink→payoff taps, 4 quick taps → dizzy.
+  **Mobile additions:** tap = squash + haptic (`navigator.vibrate`); press-and-hold 500 ms = bashful (softer buzz, release
+  doesn't also fire a tap, context menu suppressed); finger drag **on Nova** steers the head (pointer capture,
+  `touch-action: none` on the button only); scrolling the page makes Nova glance up/down; ~18 s idle = sleepy zzz, and a
+  touch while asleep wakes it with "surprised" instead of counting as a tap; keyboard Enter/Space pokes.
+- **`PROMPTS.md`** — the brief: character description, ready-to-paste prompts for Codex (real-alpha route, 1A/2A) and
+  Gemini (flat-magenta route, 1B/2B), run instructions, and a 6-point scorecard for picking the winner.
+- **`tools/key.py`** — magenta chroma-key with edge unmixing (estimates each edge pixel's background fraction from
+  `min(R,B)−G`, then solves for the true foreground colour). Needed for the Gemini route (opaque images only).
+  Magenta not green because Nova has green parts.
+
+### Decisions worth remembering
+- **Touch-follow is scoped to touches that start on Nova, not the whole page.** First version tracked any finger
+  anywhere; a wide horizontal drag triggered the browser's own history-swipe navigation (test page went to
+  `about:blank`). Hijacking page gestures would also be wrong inside the real app.
+- **First key.py (colour-distance + despill) left a magenta fringe** — edge pixels that were anti-aliased against
+  magenta stayed opaque but pink-tinted (14k px on our own sheet). Replaced with the unmixing approach above.
+- Mobile gestures need **no extra art**: the nine expression frames already cover them.
+
+### Verification
+Rendered both sheets over an off-white background and reviewed all 18 frames. Numeric checks: body is identical across
+cells (only ~27 anti-aliased edge px/cell differ by column), smallest clearance to any cell edge 4.7%, bottom of body
+identical in every cell. `key.py` round-trip on our own sheet: 0 of 808,180 solid pixels changed, 0 magenta-looking
+pixels left. Headless-Chromium test of `demo.html`: 21/21 pass — desktop gaze in 6 positions incl. dead zone, click →
+blink → heart, keyboard Enter, and (iPhone 13 emulation + CDP touch) tap, hold → bashful with no extra tap on release,
+drag left/right, lift → recentre, 4 taps → dizzy, 18 s idle → sleepy, touch wakes it. **Not verified:** real-device
+haptics (`navigator.vibrate` is unsupported on iOS Safari — silently skipped), and no Codex/Gemini sheets exist yet, so
+the comparison itself hasn't happened.
+
 ## 2026-10-21 — Interactive Nova mascot: cursor-following head/eyes + poke reaction (branch claude/festive-edison-p5rcvh)
 
 Inspired by nilbuild/page-mascot ("watches the cursor and blinks when you poke it"). That project is
