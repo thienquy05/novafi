@@ -42,6 +42,7 @@ Settings (key/value) · Accounts `A:R` · Transactions `A:K` · Paychecks · Bud
 - **Text display rule:** text shown only in one place must be fully visible (wrap with `wrap-anywhere`); `truncate` only for repeated references whose full text appears elsewhere. Numbers: `FitText`/`AnimatedNumber`/`RollingNumber` (shrink, then wrap).
 - Responsive targets: 320–430px phones, 768 tablet (headers stack until `lg`), desktop, and 125% text. App-like: no page zoom (`viewport` in app/layout.tsx).
 - Don't export non-component values from `'use client'` files for server use (they arrive as client references).
+- **Mascot:** the live one is `app/(app)/dashboard/NovaAvatar.tsx` (inline SVG; `HealthStatus` moods, cursor-follow + poke reaction; helpers in `lib/mascotLook.ts`). Sticker-style sprite-sheet candidates, the Codex/Gemini prompts and an interactive demo live in `design/mascot/` and are **not wired into the app yet**.
 
 ## Testing
 - `npm test` (Vitest, also the pre-commit hook with `typecheck`).
@@ -49,10 +50,112 @@ Settings (key/value) · Accounts `A:R` · Transactions `A:K` · Paychecks · Bud
 
 ## Open items
 - Real Google account smoke test after merge (test mode covers the app logic, not Google's API/auth).
+- Mascot: replace the SVG `NovaAvatar` with the chosen sprite-sheet version (Codex's, picked 2026-10-21) incl. the mobile gestures from `design/mascot/demo.html`, and decide how `HealthStatus` maps onto idle frames.
 
 ---
 
 # Change log (newest first)
+
+## 2026-10-21 — Mascot v2 design contest: sticker-style Nova sprite sheets, prompts for Codex/Gemini, interactive demo (branch claude/festive-edison-p5rcvh)
+
+Direction change after the SVG-Nova pass: the user wants a mascot drawn like the koboyo.com/page-mascot gallery
+(cute sticker-style chibi bust) and interactive, **plus mobile interactions**, and wants to run the same brief through
+Codex and Gemini and "take whatever's better". Decided with the user: the character is **"Nova reborn"** (cream-furred
+forest sprite, green sprout on the crown, leaf-green scarf with a gold N coin). **Design/assets only — nothing in `app/`
+is wired to these sheets yet**; the live dashboard still uses the SVG `NovaAvatar`. Wiring the winner (and mapping
+`HealthStatus` onto idle frames) is a follow-up once a candidate is chosen.
+
+Format follows nilbuild/page-mascot (MIT; spec read from its `skills/page-mascot` docs and `mascot.tsx`): two 3×3
+transparent PNG sheets, one bust per cell. `directions.png` = up-left, up, up-right / left, centre, right / down-left,
+down, down-right (calm face, only the head turns). `reactions.png` = closed-arc eyes, heart, sparkles / surprised,
+starstruck, bashful / sleepy, dizzy, delighted.
+
+### Files (all under `design/mascot/`)
+- **`claude/generate.mjs`** — draws both sheets from vector shapes and renders 1536² transparent PNGs via headless
+  Chromium (`node generate.mjs <playwright-module-dir>`). One `nova()` function draws the whole bust, so the
+  body/scarf/coin is the same drawing in all 18 cells. Head turn is faked with parallax: head group shifts/rotates, face
+  group shifts and compresses toward the far side, muzzle gets extra parallax, the ear on the turned side foreshortens,
+  the face is clipped to the head and the outline redrawn on top (otherwise far-side blush leaked past the silhouette).
+  Fur is a procedural outline (ellipse anchors joined by outward-bulging quadratics). Bottom 10% fades out.
+- **`claude/{directions,reactions}.png` + `.svg`** — generated output (SVG kept as the editable source).
+- **`demo.html`** (no build step; serve `design/mascot/` and open `/demo.html`, or `?set=codex|gemini` to load
+  `./<set>/{directions,reactions}.png` — set name is sanitised to `[a-z0-9_-]`). Port of page-mascot's logic: 8 sectors,
+  70px dead zone, hysteresis, squash via WAAPI (skipped under reduced-motion), blink→payoff taps, 4 quick taps → dizzy.
+  **Mobile additions:** tap = squash + haptic (`navigator.vibrate`); press-and-hold 500 ms = bashful (softer buzz, release
+  doesn't also fire a tap, context menu suppressed); finger drag **on Nova** steers the head (pointer capture,
+  `touch-action: none` on the button only); scrolling the page makes Nova glance up/down; ~18 s idle = sleepy zzz, and a
+  touch while asleep wakes it with "surprised" instead of counting as a tap; keyboard Enter/Space pokes.
+- **`PROMPTS.md`** — the brief: character description, ready-to-paste prompts for Codex (real-alpha route, 1A/2A) and
+  Gemini (flat-magenta route, 1B/2B), run instructions, and a 6-point scorecard for picking the winner.
+- **`tools/key.py`** — magenta chroma-key with edge unmixing (estimates each edge pixel's background fraction from
+  `min(R,B)−G`, then solves for the true foreground colour). Needed for the Gemini route (opaque images only).
+  Magenta not green because Nova has green parts.
+
+### Decisions worth remembering
+- **Touch-follow is scoped to touches that start on Nova, not the whole page.** First version tracked any finger
+  anywhere; a wide horizontal drag triggered the browser's own history-swipe navigation (test page went to
+  `about:blank`). Hijacking page gestures would also be wrong inside the real app.
+- **First key.py (colour-distance + despill) left a magenta fringe** — edge pixels that were anti-aliased against
+  magenta stayed opaque but pink-tinted (14k px on our own sheet). Replaced with the unmixing approach above.
+- Mobile gestures need **no extra art**: the nine expression frames already cover them.
+
+### Verification
+Rendered both sheets over an off-white background and reviewed all 18 frames. Numeric checks: body is identical across
+cells (only ~27 anti-aliased edge px/cell differ by column), smallest clearance to any cell edge 4.7%, bottom of body
+identical in every cell. `key.py` round-trip on our own sheet: 0 of 808,180 solid pixels changed, 0 magenta-looking
+pixels left. Headless-Chromium test of `demo.html`: 21/21 pass — desktop gaze in 6 positions incl. dead zone, click →
+blink → heart, keyboard Enter, and (iPhone 13 emulation + CDP touch) tap, hold → bashful with no extra tap on release,
+drag left/right, lift → recentre, 4 taps → dizzy, 18 s idle → sleepy, touch wakes it. **Not verified:** real-device
+haptics (`navigator.vibrate` is unsupported on iOS Safari — silently skipped), and no Codex/Gemini sheets exist yet, so
+the comparison itself hasn't happened.
+
+---
+
+## 2026-10-21 — Interactive Nova mascot: cursor-following head/eyes + poke reaction (branch claude/festive-edison-p5rcvh)
+
+Inspired by nilbuild/page-mascot ("watches the cursor and blinks when you poke it"). That project is
+raster sprite sheets (9 head directions + 9 expressions) that need an image model to draw; we kept our
+existing inline-SVG Nova and added the *behaviours* instead — no new dependency, no new assets, and the
+health-status moods are untouched. Decided with the user: SVG approach, dashboard banner only (made
+slightly larger), click reaction depends on health status.
+
+### 1. Pure helpers — `lib/mascotLook.ts` (new)
+- `computeLook(dx, dy, deadZone, ramp = deadZone*3)` — pointer offset from Nova's centre (px) → gaze `{x, y}` in
+  [-1, 1]. Inside the dead zone → `{0,0}` (settles instead of jittering when the cursor is on top of Nova);
+  beyond it, smoothstep ease-in over `ramp` px then holds at full deflection along the pointer's angle.
+  Non-finite input returns centre, never NaN.
+- `reactionFor(status)` → `'joy'` (great/good), `'surprise'` (neutral), `'worry'` (warning/danger).
+- `lib/__tests__/mascotLook.test.ts` (new): dead zone, angle + saturation, easing monotonicity, NaN/Infinity guard,
+  status→reaction mapping.
+
+### 2. `app/(app)/dashboard/NovaAvatar.tsx`
+- **Cursor following.** `pointermove` on `window` → `computeLook` (dead zone = `size * 0.55`) → two `useMotionValue`s →
+  `useSpring` (stiffness 170 / damping 18) → `useTransform`s. Three layers so it reads as a head *turning*, not just
+  eyes sliding: whole head group rotates up to 4° about its feet (`transformOrigin: 50% 100%`), the face group shifts up
+  to 1.5 / 1.0 units, and iris+pupil+catchlights shift up to 1.5 / 1.3 units. Ignores `pointerType === 'touch'`; also
+  re-aims on `scroll` (Nova moves under a still cursor) and recentres on window `blur` / `mouseleave`. Skipped entirely
+  under `useReducedMotion`. Listeners are all removed on cleanup.
+- **Poke reaction.** The root is now a real `<motion.button>` (keyboard Enter/Space pokes too; focus-visible ring;
+  `aria-label` carries the status, the SVG is `aria-hidden`). Replaces `role="img"` on the SVG. A poke sets a
+  short-lived `reaction` (900 ms joy / 700 ms otherwise, timer cleared on rapid re-poke and on unmount):
+  - **joy:** eyes → happy arcs, open smile, blush, ears perk, gold star burst (re-keyed per poke so rapid clicks restart it).
+  - **surprise:** "o" mouth, brows lifted, pinprick pupils, ears up.
+  - **worry:** wobbly mouth, danger brows, pinprick pupils, ears pinned back, sweat bead, side-to-side shake.
+  Squash/shake keyframes (`SQUASH`) play on a *new inner wrapper div* anchored at its feet, kept separate from the idle
+  loops so the two never fight over the same transform. Under reduced-motion the expression still shows but the
+  squash and star burst are skipped.
+- Mood data (`MOODS`) and the existing welcome-back wave are unchanged; overrides are derived from them.
+
+### 3. `app/(app)/dashboard/DashboardCharts.tsx`
+- Health banner `NovaAvatar` bumped `size={56}` → `size={72}` so the interaction is easier to notice.
+
+### Verification
+`tsc --noEmit` clean; eslint 0 errors (only the pre-existing `set-state-in-effect` warning in `DashboardCharts.tsx`);
+`vitest` 674 passing. Rendered all five moods in headless Chromium: gaze follows the cursor to opposite corners, and
+the joy / surprise / worry poke reactions each rendered correctly (temporary preview page, since deleted). Not verified:
+touch devices and reduced-motion in a real browser (both are code-path gated, not visually tested).
+
+---
 
 ## 2026-10-21 — Self-testing: dev test mode, Codex edge-case tests, Playwright audit + the bugs they found (branch claude/novafi-ux-perf-networth)
 
@@ -254,103 +357,6 @@ Plan: `~/.claude/plans/dapper-tinkering-book.md` (Claude + Codex reviewed, user-
 - `lib/__tests__/cache.test.ts`: notBefore semantics, fetch-start stamping, coalescing, not joining pre-write in-flight reads, invalidation mid-fetch, derived caches always staled.
 
 ---
-
-## 2026-10-21 — Mascot v2 design contest: sticker-style Nova sprite sheets, prompts for Codex/Gemini, interactive demo (branch claude/festive-edison-p5rcvh)
-
-Direction change after the SVG-Nova pass: the user wants a mascot drawn like the koboyo.com/page-mascot gallery
-(cute sticker-style chibi bust) and interactive, **plus mobile interactions**, and wants to run the same brief through
-Codex and Gemini and "take whatever's better". Decided with the user: the character is **"Nova reborn"** (cream-furred
-forest sprite, green sprout on the crown, leaf-green scarf with a gold N coin). **Design/assets only — nothing in `app/`
-is wired to these sheets yet**; the live dashboard still uses the SVG `NovaAvatar`. Wiring the winner (and mapping
-`HealthStatus` onto idle frames) is a follow-up once a candidate is chosen.
-
-Format follows nilbuild/page-mascot (MIT; spec read from its `skills/page-mascot` docs and `mascot.tsx`): two 3×3
-transparent PNG sheets, one bust per cell. `directions.png` = up-left, up, up-right / left, centre, right / down-left,
-down, down-right (calm face, only the head turns). `reactions.png` = closed-arc eyes, heart, sparkles / surprised,
-starstruck, bashful / sleepy, dizzy, delighted.
-
-### Files (all under `design/mascot/`)
-- **`claude/generate.mjs`** — draws both sheets from vector shapes and renders 1536² transparent PNGs via headless
-  Chromium (`node generate.mjs <playwright-module-dir>`). One `nova()` function draws the whole bust, so the
-  body/scarf/coin is the same drawing in all 18 cells. Head turn is faked with parallax: head group shifts/rotates, face
-  group shifts and compresses toward the far side, muzzle gets extra parallax, the ear on the turned side foreshortens,
-  the face is clipped to the head and the outline redrawn on top (otherwise far-side blush leaked past the silhouette).
-  Fur is a procedural outline (ellipse anchors joined by outward-bulging quadratics). Bottom 10% fades out.
-- **`claude/{directions,reactions}.png` + `.svg`** — generated output (SVG kept as the editable source).
-- **`demo.html`** (no build step; serve `design/mascot/` and open `/demo.html`, or `?set=codex|gemini` to load
-  `./<set>/{directions,reactions}.png` — set name is sanitised to `[a-z0-9_-]`). Port of page-mascot's logic: 8 sectors,
-  70px dead zone, hysteresis, squash via WAAPI (skipped under reduced-motion), blink→payoff taps, 4 quick taps → dizzy.
-  **Mobile additions:** tap = squash + haptic (`navigator.vibrate`); press-and-hold 500 ms = bashful (softer buzz, release
-  doesn't also fire a tap, context menu suppressed); finger drag **on Nova** steers the head (pointer capture,
-  `touch-action: none` on the button only); scrolling the page makes Nova glance up/down; ~18 s idle = sleepy zzz, and a
-  touch while asleep wakes it with "surprised" instead of counting as a tap; keyboard Enter/Space pokes.
-- **`PROMPTS.md`** — the brief: character description, ready-to-paste prompts for Codex (real-alpha route, 1A/2A) and
-  Gemini (flat-magenta route, 1B/2B), run instructions, and a 6-point scorecard for picking the winner.
-- **`tools/key.py`** — magenta chroma-key with edge unmixing (estimates each edge pixel's background fraction from
-  `min(R,B)−G`, then solves for the true foreground colour). Needed for the Gemini route (opaque images only).
-  Magenta not green because Nova has green parts.
-
-### Decisions worth remembering
-- **Touch-follow is scoped to touches that start on Nova, not the whole page.** First version tracked any finger
-  anywhere; a wide horizontal drag triggered the browser's own history-swipe navigation (test page went to
-  `about:blank`). Hijacking page gestures would also be wrong inside the real app.
-- **First key.py (colour-distance + despill) left a magenta fringe** — edge pixels that were anti-aliased against
-  magenta stayed opaque but pink-tinted (14k px on our own sheet). Replaced with the unmixing approach above.
-- Mobile gestures need **no extra art**: the nine expression frames already cover them.
-
-### Verification
-Rendered both sheets over an off-white background and reviewed all 18 frames. Numeric checks: body is identical across
-cells (only ~27 anti-aliased edge px/cell differ by column), smallest clearance to any cell edge 4.7%, bottom of body
-identical in every cell. `key.py` round-trip on our own sheet: 0 of 808,180 solid pixels changed, 0 magenta-looking
-pixels left. Headless-Chromium test of `demo.html`: 21/21 pass — desktop gaze in 6 positions incl. dead zone, click →
-blink → heart, keyboard Enter, and (iPhone 13 emulation + CDP touch) tap, hold → bashful with no extra tap on release,
-drag left/right, lift → recentre, 4 taps → dizzy, 18 s idle → sleepy, touch wakes it. **Not verified:** real-device
-haptics (`navigator.vibrate` is unsupported on iOS Safari — silently skipped), and no Codex/Gemini sheets exist yet, so
-the comparison itself hasn't happened.
-
-## 2026-10-21 — Interactive Nova mascot: cursor-following head/eyes + poke reaction (branch claude/festive-edison-p5rcvh)
-
-Inspired by nilbuild/page-mascot ("watches the cursor and blinks when you poke it"). That project is
-raster sprite sheets (9 head directions + 9 expressions) that need an image model to draw; we kept our
-existing inline-SVG Nova and added the *behaviours* instead — no new dependency, no new assets, and the
-health-status moods are untouched. Decided with the user: SVG approach, dashboard banner only (made
-slightly larger), click reaction depends on health status.
-
-### 1. Pure helpers — `lib/mascotLook.ts` (new)
-- `computeLook(dx, dy, deadZone, ramp = deadZone*3)` — pointer offset from Nova's centre (px) → gaze `{x, y}` in
-  [-1, 1]. Inside the dead zone → `{0,0}` (settles instead of jittering when the cursor is on top of Nova);
-  beyond it, smoothstep ease-in over `ramp` px then holds at full deflection along the pointer's angle.
-  Non-finite input returns centre, never NaN.
-- `reactionFor(status)` → `'joy'` (great/good), `'surprise'` (neutral), `'worry'` (warning/danger).
-- `lib/__tests__/mascotLook.test.ts` (new): dead zone, angle + saturation, easing monotonicity, NaN/Infinity guard,
-  status→reaction mapping.
-
-### 2. `app/(app)/dashboard/NovaAvatar.tsx`
-- **Cursor following.** `pointermove` on `window` → `computeLook` (dead zone = `size * 0.55`) → two `useMotionValue`s →
-  `useSpring` (stiffness 170 / damping 18) → `useTransform`s. Three layers so it reads as a head *turning*, not just
-  eyes sliding: whole head group rotates up to 4° about its feet (`transformOrigin: 50% 100%`), the face group shifts up
-  to 1.5 / 1.0 units, and iris+pupil+catchlights shift up to 1.5 / 1.3 units. Ignores `pointerType === 'touch'`; also
-  re-aims on `scroll` (Nova moves under a still cursor) and recentres on window `blur` / `mouseleave`. Skipped entirely
-  under `useReducedMotion`. Listeners are all removed on cleanup.
-- **Poke reaction.** The root is now a real `<motion.button>` (keyboard Enter/Space pokes too; focus-visible ring;
-  `aria-label` carries the status, the SVG is `aria-hidden`). Replaces `role="img"` on the SVG. A poke sets a
-  short-lived `reaction` (900 ms joy / 700 ms otherwise, timer cleared on rapid re-poke and on unmount):
-  - **joy:** eyes → happy arcs, open smile, blush, ears perk, gold star burst (re-keyed per poke so rapid clicks restart it).
-  - **surprise:** "o" mouth, brows lifted, pinprick pupils, ears up.
-  - **worry:** wobbly mouth, danger brows, pinprick pupils, ears pinned back, sweat bead, side-to-side shake.
-  Squash/shake keyframes (`SQUASH`) play on a *new inner wrapper div* anchored at its feet, kept separate from the idle
-  loops so the two never fight over the same transform. Under reduced-motion the expression still shows but the
-  squash and star burst are skipped.
-- Mood data (`MOODS`) and the existing welcome-back wave are unchanged; overrides are derived from them.
-
-### 3. `app/(app)/dashboard/DashboardCharts.tsx`
-- Health banner `NovaAvatar` bumped `size={56}` → `size={72}` so the interaction is easier to notice.
-
-### Verification
-`tsc --noEmit` clean; eslint 0 errors (only the pre-existing `set-state-in-effect` warning in `DashboardCharts.tsx`);
-`vitest` 674 passing. Rendered all five moods in headless Chromium: gaze follows the cursor to opposite corners, and
-the joy / surprise / worry poke reactions each rendered correctly (temporary preview page, since deleted). Not verified:
-touch devices and reduced-motion in a real browser (both are code-path gated, not visually tested).
 
 ## 2026-08-18 — 50/30/20 budgeting: category buckets, snapshot card, budget generator (branch claude/spending-budget-brainstorm-3waxc5)
 
