@@ -32,7 +32,8 @@ import { Celebrations } from './Celebrations';
 import { AutoRefreshOnFocus } from '@/components/AutoRefreshOnFocus';
 import { PullToRefresh } from '@/components/PullToRefresh';
 import { DashboardCustomizer } from './DashboardCustomizer';
-import { resolveDashboardLayout, type DashboardCardId } from '@/lib/dashboardLayout';
+import { FirstRunChecklist, type ChecklistStep } from './FirstRunChecklist';
+import { resolveDashboardLayout, ONBOARD_COOKIE, type DashboardCardId } from '@/lib/dashboardLayout';
 import { SpendingHeatmap } from './SpendingHeatmap';
 import { HelpHint } from '@/components/ui/HelpHint';
 import { t } from '@/lib/i18n';
@@ -950,6 +951,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   };
   const dashboardLayout = resolveDashboardLayout(settings.dashboardLayout);
 
+  const onboardingSteps: ChecklistStep[] = [
+    { key: 'account', label: t('dashboard.onboardAccount', lang), done: accounts.length > 0, href: '/accounts' },
+    { key: 'transaction', label: t('dashboard.onboardTransaction', lang), done: transactions.length > 0, href: '/transactions' },
+    { key: 'budget', label: t('dashboard.onboardBudget', lang), done: budgets.length > 0, href: '/planning' },
+    { key: 'goal', label: t('dashboard.onboardGoal', lang), done: goals.length > 0, href: '/planning' },
+  ];
+
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto pb-28 md:pb-8">
       {/* Server-rendered page: re-pull on tab focus + every 60s so a dashboard
@@ -978,6 +986,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           </div>
         </div>
       </div>
+
+      {/* First-run checklist — only while a setup step is open and not hidden */}
+      {onboardingSteps.some((s) => !s.done) && jar.get(ONBOARD_COOKIE)?.value !== '1' && (
+        <FirstRunChecklist steps={onboardingSteps} />
+      )}
 
       {/* Health Banner */}
       <HealthBanner

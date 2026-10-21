@@ -10,6 +10,14 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-10-21 — Convenience: first-run checklist on Home (branch claude/novafi-ux-perf-networth)
+
+Plan Section 7.10.
+- WHAT: `dashboard/FirstRunChecklist.tsx` — "Get set up" card (add account → log a transaction → set a budget → create a goal), progress bar, each step links to where it's done, done steps struck through. Rendered by the server only while a step is open and the `nf_onboard_hidden` cookie isn't set (X hides it for a year → no flash on reload). Cookie name lives in `lib/dashboardLayout.ts` because a constant exported from a 'use client' file reaches server components as a client reference, not the string.
+- WHY: new users landed on an empty dashboard with no guidance.
+
+---
+
 ## 2026-10-21 — Convenience: notification controls (branch claude/novafi-ux-perf-networth)
 
 Plan Section 7.9.

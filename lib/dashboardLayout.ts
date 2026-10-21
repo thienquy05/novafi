@@ -36,3 +36,8 @@ export function resolveDashboardLayout(saved: readonly string[] | undefined): Da
 export function serializeDashboardLayout(cards: readonly DashboardCardState[]): string[] {
   return cards.map((c) => (c.visible ? c.id : `-${c.id}`));
 }
+
+/** Cookie the dashboard server render checks so a hidden first-run checklist
+ *  never renders (no flash). Lives here, not in the 'use client' component, so
+ *  the server gets the string itself rather than a client reference. */
+export const ONBOARD_COOKIE = 'nf_onboard_hidden';
