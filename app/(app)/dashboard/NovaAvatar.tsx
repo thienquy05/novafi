@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { motion, useAnimationControls, useReducedMotion } from 'framer-motion';
+import { motion, useAnimationControls, useMotionValue, useReducedMotion, useSpring, useTransform } from 'framer-motion';
 import { STATUS_COLOR, type HealthStatus } from '@/lib/colors';
+import { computeLook, reactionFor, type PokeReaction } from '@/lib/mascotLook';
 
 /**
  * "Nova" — the money mascot. A soft, fur-covered forest creature that cradles a
@@ -20,6 +21,13 @@ import { STATUS_COLOR, type HealthStatus } from '@/lib/colors';
  * mechanical. When the page first loads — or the user switches back to the tab —
  * Nova lifts a paw and gives a little welcome-back wave. Everything is gated
  * behind `useReducedMotion`, so it degrades to a calm, static creature.
+ *
+ * Interactive, in the spirit of nilbuild/page-mascot: with a mouse or pen, Nova's
+ * head turns and its eyes follow the cursor (spring-smoothed, with a dead zone so
+ * it settles when the pointer is right on top of it; skipped for touch and under
+ * reduced-motion). Poking Nova squashes it and flashes an expression for under a
+ * second — delighted when thriving, startled when neutral, a nervous flinch when
+ * spending runs hot. It's a real <button>, so Enter/Space pokes it too.
  */
 
 type Mood = {
@@ -190,11 +198,112 @@ function Ear({ side, tilt, reduce }: { side: 'left' | 'right'; tilt: number; red
   );
 }
 
+/** Expression overrides shown for a moment after Nova is poked. */
+const JOY_EYES = ['M20.5 31.5 Q24.5 27 28.5 31.5', 'M34.5 31.5 Q38.5 27 42.5 31.5'];
+const SURPRISE_MOUTH = 'M31.5 38.6 C29.6 38.6 29.2 43.4 31.5 43.4 C33.8 43.4 33.4 38.6 31.5 38.6 Z';
+const WORRY_MOUTH = 'M27 42 q1.3 -1.6 2.6 0 t2.6 0 t2.6 0';
+
+/** Squash/shake keyframes for the poke, played on the element wrapping the SVG
+ *  (anchored at its feet so Nova squashes into the ground rather than the centre). */
+const SQUASH: Record<PokeReaction, { scaleX?: number[]; scaleY?: number[]; x?: number[]; y?: number[]; transition: { duration: number; ease: 'easeOut' | 'easeInOut' } }> = {
+  joy: { scaleX: [1, 1.14, 0.96, 1], scaleY: [1, 0.84, 1.07, 1], y: [0, 0, -5, 0], transition: { duration: 0.55, ease: 'easeOut' } },
+  surprise: { scaleX: [1, 1.1, 1], scaleY: [1, 0.88, 1], transition: { duration: 0.4, ease: 'easeOut' } },
+  worry: { x: [0, -3, 3, -2, 2, 0], scaleX: [1, 1.05, 1], scaleY: [1, 0.93, 1], transition: { duration: 0.5, ease: 'easeInOut' } },
+};
+
+/** Gold stars that burst outward when a thriving Nova is poked: [x, y, dx, dy]. */
+const BURST = [
+  [13, 15, -6, -5],
+  [51, 15, 6, -5],
+  [8, 34, -7, 0],
+  [56, 34, 7, 0],
+];
+
 export function NovaAvatar({ status, size = 52 }: { status: HealthStatus; size?: number }) {
   const reduce = useReducedMotion();
   const color = STATUS_COLOR[status];
   const mood = MOODS[status];
   const happy = status === 'great' || status === 'good';
+
+  // ── Cursor following ───────────────────────────────────────────────────────
+  // The pointer's offset from Nova's centre becomes a spring-smoothed gaze in
+  // [-1, 1]². It drives a small whole-head turn, a slight shift of the face, and
+  // a bigger shift of the irises — layered so the head reads as turning, not just
+  // the eyes sliding about. Mouse/pen only; touch has no hovering cursor.
+  const wrapRef = useRef<HTMLButtonElement>(null);
+  const lookX = useMotionValue(0);
+  const lookY = useMotionValue(0);
+  const gazeX = useSpring(lookX, { stiffness: 170, damping: 18, mass: 0.6 });
+  const gazeY = useSpring(lookY, { stiffness: 170, damping: 18, mass: 0.6 });
+  const headRotate = useTransform(gazeX, (v) => v * 4);
+  const faceX = useTransform(gazeX, (v) => v * 1.5);
+  const faceY = useTransform(gazeY, (v) => v * 1);
+  const irisX = useTransform(gazeX, (v) => v * 1.5);
+  const irisY = useTransform(gazeY, (v) => v * 1.3);
+
+  useEffect(() => {
+    if (reduce) return;
+    let pointer: { x: number; y: number } | null = null;
+
+    const aim = () => {
+      const el = wrapRef.current;
+      if (!el || !pointer) return;
+      const r = el.getBoundingClientRect();
+      const look = computeLook(pointer.x - (r.left + r.width / 2), pointer.y - (r.top + r.height / 2), size * 0.55);
+      lookX.set(look.x);
+      lookY.set(look.y);
+    };
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') return;
+      pointer = { x: e.clientX, y: e.clientY };
+      aim();
+    };
+    const recentre = () => {
+      pointer = null;
+      lookX.set(0);
+      lookY.set(0);
+    };
+
+    window.addEventListener('pointermove', onMove, { passive: true });
+    window.addEventListener('scroll', aim, { passive: true }); // Nova moves under a still cursor
+    window.addEventListener('blur', recentre);
+    document.documentElement.addEventListener('mouseleave', recentre);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('scroll', aim);
+      window.removeEventListener('blur', recentre);
+      document.documentElement.removeEventListener('mouseleave', recentre);
+    };
+  }, [reduce, size, lookX, lookY]);
+
+  // ── Poke reaction ──────────────────────────────────────────────────────────
+  // A click (or Enter/Space) squashes Nova and swaps in a short-lived expression.
+  // The expression still shows under reduced-motion; only the squash/burst don't.
+  const [reaction, setReaction] = useState<PokeReaction | null>(null);
+  const [pokes, setPokes] = useState(0);
+  const squash = useAnimationControls();
+  const reactionTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const poke = () => {
+    const kind = reactionFor(status);
+    setReaction(kind);
+    setPokes((n) => n + 1);
+    clearTimeout(reactionTimer.current);
+    reactionTimer.current = setTimeout(() => setReaction(null), kind === 'joy' ? 900 : 700);
+    if (!reduce) squash.start(SQUASH[kind]);
+  };
+  useEffect(() => () => clearTimeout(reactionTimer.current), []);
+
+  const joy = reaction === 'joy';
+  const surprise = reaction === 'surprise';
+  const worry = reaction === 'worry';
+  const brows = worry ? MOODS.danger.brows : joy ? MOODS.great.brows : mood.brows;
+  const mouth = joy ? MOODS.great.mouth : surprise ? SURPRISE_MOUTH : worry ? WORRY_MOUTH : mood.mouth;
+  const mouthFill = joy ? true : surprise ? true : mood.mouthFill;
+  const earTilt = joy || surprise ? 0 : worry ? Math.max(mood.earTilt, 24) : mood.earTilt;
+  const pupilR = surprise || worry ? 1.3 : 1.9;
+  const showBlush = mood.blush || joy;
+  const showSweat = mood.sweat || worry;
 
   // Breathing pulse — quicker & livelier when thriving, slow & heavy when stressed.
   const breath = status === 'danger' ? 4.4 : happy ? 2.8 : 3.4;
@@ -236,8 +345,12 @@ export function NovaAvatar({ status, size = 52 }: { status: HealthStatus; size?:
   }, [reduce, wave]);
 
   return (
-    <motion.div
-      className="relative shrink-0"
+    <motion.button
+      ref={wrapRef}
+      type="button"
+      onClick={poke}
+      aria-label={`Nova, your financial health companion — status: ${status}. Press to poke.`}
+      className="relative shrink-0 cursor-pointer select-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 focus-visible:ring-offset-2"
       style={{ width: size, height: size }}
       animate={reduce ? undefined : { y: [0, -3, 0] }}
       transition={reduce ? undefined : { duration: breath, repeat: Infinity, ease: 'easeInOut' }}
@@ -257,11 +370,18 @@ export function NovaAvatar({ status, size = 52 }: { status: HealthStatus; size?:
         transition={reduce ? undefined : { duration: breath * 1.25, repeat: Infinity, ease: 'easeInOut' }}
       />
 
+      {/* Squash/shake wrapper — kept separate so it never fights the idle loops below. */}
+      <motion.div
+        className="relative"
+        style={{ width: size, height: size, transformOrigin: '50% 100%' }}
+        animate={squash}
+      >
       <motion.svg
         viewBox="0 0 64 64"
         width={size}
         height={size}
         className="relative overflow-visible"
+        aria-hidden="true"
         animate={reduce ? undefined : { scale: [1, 1.035, 1], rotate: [-1.1, 1.1, -1.1] }}
         transition={
           reduce
@@ -271,8 +391,6 @@ export function NovaAvatar({ status, size = 52 }: { status: HealthStatus; size?:
                 rotate: { duration: breath * 1.7, repeat: Infinity, ease: 'easeInOut' },
               }
         }
-        role="img"
-        aria-label={`Financial health: ${status}`}
       >
         <defs>
           <radialGradient id={`nova-body-${status}`} cx="38%" cy="30%" r="80%">
@@ -310,9 +428,11 @@ export function NovaAvatar({ status, size = 52 }: { status: HealthStatus; size?:
           ))}
         </g>
 
+        {/* Head — ears, body and face turn together toward the cursor, pivoting at the feet */}
+        <motion.g style={{ rotate: headRotate, transformBox: 'fill-box', transformOrigin: '50% 100%' }}>
         {/* Ears (behind the head) */}
-        <Ear side="left" tilt={mood.earTilt} reduce={reduce} />
-        <Ear side="right" tilt={mood.earTilt} reduce={reduce} />
+        <Ear side="left" tilt={earTilt} reduce={reduce} />
+        <Ear side="right" tilt={earTilt} reduce={reduce} />
 
         {/* Body */}
         <path d={BODY} fill={`url(#nova-body-${status})`} stroke={FUR.line} strokeOpacity="0.35" strokeWidth="0.8" />
@@ -325,19 +445,29 @@ export function NovaAvatar({ status, size = 52 }: { status: HealthStatus; size?:
         <path d={CROWN_FUR} fill="none" stroke={FUR.shadow} strokeWidth="0.9" strokeLinecap="round" />
         <path d={SIDE_FUR} fill="none" stroke={FUR.shadow} strokeOpacity="0.7" strokeWidth="0.8" strokeLinecap="round" />
 
+        {/* Face — shifts a touch toward the cursor on top of the head turn */}
+        <motion.g style={{ x: faceX, y: faceY }}>
         {/* Cheeks */}
-        {mood.blush && (
+        {showBlush && (
           <>
             <ellipse cx="20.5" cy="35.5" rx="3.4" ry="2.2" fill={`url(#nova-blush-${status})`} />
             <ellipse cx="42.5" cy="35.5" rx="3.4" ry="2.2" fill={`url(#nova-blush-${status})`} />
           </>
         )}
 
-        {/* Brows */}
-        <path d={mood.brows[0]} fill="none" stroke={FUR.brow} strokeOpacity="0.55" strokeWidth="1.6" strokeLinecap="round" />
-        <path d={mood.brows[1]} fill="none" stroke={FUR.brow} strokeOpacity="0.55" strokeWidth="1.6" strokeLinecap="round" />
+        {/* Brows — lifted when startled */}
+        <g transform={surprise ? 'translate(0 -1.6)' : undefined}>
+          <path d={brows[0]} fill="none" stroke={FUR.brow} strokeOpacity="0.55" strokeWidth="1.6" strokeLinecap="round" />
+          <path d={brows[1]} fill="none" stroke={FUR.brow} strokeOpacity="0.55" strokeWidth="1.6" strokeLinecap="round" />
+        </g>
 
-        {/* Eyes — large, multi-layered; the group blinks naturally (quick close, softer open) */}
+        {/* Eyes — large, multi-layered; the group blinks naturally (quick close, softer open).
+            When poked with joy they squeeze into happy arcs instead. */}
+        {joy ? (
+          JOY_EYES.map((d, i) => (
+            <path key={i} d={d} fill="none" stroke={FUR.brow} strokeOpacity="0.9" strokeWidth="1.8" strokeLinecap="round" />
+          ))
+        ) : (
         <motion.g
           style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
           animate={reduce ? undefined : { scaleY: [1, 1, 0.08, 1, 1] }}
@@ -350,21 +480,25 @@ export function NovaAvatar({ status, size = 52 }: { status: HealthStatus; size?:
           {/* sclera */}
           <circle cx="24.5" cy="31" r="5" fill="#fffaf2" />
           <circle cx="38.5" cy="31" r="5" fill="#fffaf2" />
-          {/* iris */}
-          <circle cx="24.5" cy={31 + mood.pupilDy} r="3.4" fill={`url(#nova-iris-${status})`} />
-          <circle cx="38.5" cy={31 + mood.pupilDy} r="3.4" fill={`url(#nova-iris-${status})`} />
-          {/* status-tinted iris ring */}
-          <circle cx="24.5" cy={31 + mood.pupilDy} r="3.4" fill="none" stroke={color} strokeOpacity="0.7" strokeWidth="0.8" />
-          <circle cx="38.5" cy={31 + mood.pupilDy} r="3.4" fill="none" stroke={color} strokeOpacity="0.7" strokeWidth="0.8" />
-          {/* pupil */}
-          <circle cx="24.5" cy={31 + mood.pupilDy} r="1.9" fill="#241509" />
-          <circle cx="38.5" cy={31 + mood.pupilDy} r="1.9" fill="#241509" />
-          {/* layered catchlights */}
-          <circle cx="23.2" cy={29.6 + mood.pupilDy} r="0.95" fill="#fff" />
-          <circle cx="37.2" cy={29.6 + mood.pupilDy} r="0.95" fill="#fff" />
-          <circle cx="25.4" cy={32 + mood.pupilDy} r="0.5" fill="#fff" fillOpacity="0.8" />
-          <circle cx="39.4" cy={32 + mood.pupilDy} r="0.5" fill="#fff" fillOpacity="0.8" />
+          {/* iris + pupil + catchlights glide together toward the cursor */}
+          <motion.g style={{ x: irisX, y: irisY }}>
+            {/* iris */}
+            <circle cx="24.5" cy={31 + mood.pupilDy} r="3.4" fill={`url(#nova-iris-${status})`} />
+            <circle cx="38.5" cy={31 + mood.pupilDy} r="3.4" fill={`url(#nova-iris-${status})`} />
+            {/* status-tinted iris ring */}
+            <circle cx="24.5" cy={31 + mood.pupilDy} r="3.4" fill="none" stroke={color} strokeOpacity="0.7" strokeWidth="0.8" />
+            <circle cx="38.5" cy={31 + mood.pupilDy} r="3.4" fill="none" stroke={color} strokeOpacity="0.7" strokeWidth="0.8" />
+            {/* pupil — pinpricks when startled or nervous */}
+            <circle cx="24.5" cy={31 + mood.pupilDy} r={pupilR} fill="#241509" />
+            <circle cx="38.5" cy={31 + mood.pupilDy} r={pupilR} fill="#241509" />
+            {/* layered catchlights */}
+            <circle cx="23.2" cy={29.6 + mood.pupilDy} r="0.95" fill="#fff" />
+            <circle cx="37.2" cy={29.6 + mood.pupilDy} r="0.95" fill="#fff" />
+            <circle cx="25.4" cy={32 + mood.pupilDy} r="0.5" fill="#fff" fillOpacity="0.8" />
+            <circle cx="39.4" cy={32 + mood.pupilDy} r="0.5" fill="#fff" fillOpacity="0.8" />
+          </motion.g>
         </motion.g>
+        )}
 
         {/* Nose */}
         <path
@@ -374,14 +508,16 @@ export function NovaAvatar({ status, size = 52 }: { status: HealthStatus; size?:
 
         {/* Mouth */}
         <path
-          d={mood.mouth}
-          fill={mood.mouthFill ? '#6b4a36' : 'none'}
+          d={mouth}
+          fill={mouthFill ? '#6b4a36' : 'none'}
           stroke="#6b4a36"
           strokeOpacity="0.9"
           strokeWidth="1.6"
           strokeLinejoin="round"
           strokeLinecap="round"
         />
+        </motion.g>
+        </motion.g>
 
         {/* Seed-pod cradled in the paws */}
         <path d={POD} fill={`url(#nova-pod-${status})`} stroke="#6e431f" strokeOpacity="0.5" strokeWidth="0.7" />
@@ -415,7 +551,7 @@ export function NovaAvatar({ status, size = 52 }: { status: HealthStatus; size?:
         </motion.g>
 
         {/* Bead of sweat when money's tight */}
-        {mood.sweat && (
+        {showSweat && (
           <motion.path
             d="M45 25 q2.4 3.6 0 5.4 a1.8 1.8 0 1 1 0 -5.4 Z"
             fill="#7cc6ff"
@@ -436,7 +572,25 @@ export function NovaAvatar({ status, size = 52 }: { status: HealthStatus; size?:
             style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
           />
         )}
+
+        {/* Gold star burst on a joyful poke — re-keyed per poke so rapid clicks restart it */}
+        {joy && !reduce &&
+          BURST.map(([cx, cy, dx, dy], i) => (
+            <g key={`${pokes}-${i}`} transform={`translate(${cx} ${cy})`}>
+              <motion.path
+                d="M0 -3 l0.9 2.1 2.1 0.9 -2.1 0.9 -0.9 2.1 -0.9 -2.1 -2.1 -0.9 2.1 -0.9 z"
+                fill="#ffd76a"
+                stroke="#e8a92c"
+                strokeWidth="0.3"
+                initial={{ opacity: 1, scale: 0.4, x: 0, y: 0 }}
+                animate={{ opacity: 0, scale: 1.2, x: dx, y: dy }}
+                transition={{ duration: 0.8, ease: 'easeOut', delay: i * 0.04 }}
+                style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
+              />
+            </g>
+          ))}
       </motion.svg>
-    </motion.div>
+      </motion.div>
+    </motion.button>
   );
 }

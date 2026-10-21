@@ -255,6 +255,50 @@ Plan: `~/.claude/plans/dapper-tinkering-book.md` (Claude + Codex reviewed, user-
 
 ---
 
+## 2026-10-21 — Interactive Nova mascot: cursor-following head/eyes + poke reaction (branch claude/festive-edison-p5rcvh)
+
+Inspired by nilbuild/page-mascot ("watches the cursor and blinks when you poke it"). That project is
+raster sprite sheets (9 head directions + 9 expressions) that need an image model to draw; we kept our
+existing inline-SVG Nova and added the *behaviours* instead — no new dependency, no new assets, and the
+health-status moods are untouched. Decided with the user: SVG approach, dashboard banner only (made
+slightly larger), click reaction depends on health status.
+
+### 1. Pure helpers — `lib/mascotLook.ts` (new)
+- `computeLook(dx, dy, deadZone, ramp = deadZone*3)` — pointer offset from Nova's centre (px) → gaze `{x, y}` in
+  [-1, 1]. Inside the dead zone → `{0,0}` (settles instead of jittering when the cursor is on top of Nova);
+  beyond it, smoothstep ease-in over `ramp` px then holds at full deflection along the pointer's angle.
+  Non-finite input returns centre, never NaN.
+- `reactionFor(status)` → `'joy'` (great/good), `'surprise'` (neutral), `'worry'` (warning/danger).
+- `lib/__tests__/mascotLook.test.ts` (new): dead zone, angle + saturation, easing monotonicity, NaN/Infinity guard,
+  status→reaction mapping.
+
+### 2. `app/(app)/dashboard/NovaAvatar.tsx`
+- **Cursor following.** `pointermove` on `window` → `computeLook` (dead zone = `size * 0.55`) → two `useMotionValue`s →
+  `useSpring` (stiffness 170 / damping 18) → `useTransform`s. Three layers so it reads as a head *turning*, not just
+  eyes sliding: whole head group rotates up to 4° about its feet (`transformOrigin: 50% 100%`), the face group shifts up
+  to 1.5 / 1.0 units, and iris+pupil+catchlights shift up to 1.5 / 1.3 units. Ignores `pointerType === 'touch'`; also
+  re-aims on `scroll` (Nova moves under a still cursor) and recentres on window `blur` / `mouseleave`. Skipped entirely
+  under `useReducedMotion`. Listeners are all removed on cleanup.
+- **Poke reaction.** The root is now a real `<motion.button>` (keyboard Enter/Space pokes too; focus-visible ring;
+  `aria-label` carries the status, the SVG is `aria-hidden`). Replaces `role="img"` on the SVG. A poke sets a
+  short-lived `reaction` (900 ms joy / 700 ms otherwise, timer cleared on rapid re-poke and on unmount):
+  - **joy:** eyes → happy arcs, open smile, blush, ears perk, gold star burst (re-keyed per poke so rapid clicks restart it).
+  - **surprise:** "o" mouth, brows lifted, pinprick pupils, ears up.
+  - **worry:** wobbly mouth, danger brows, pinprick pupils, ears pinned back, sweat bead, side-to-side shake.
+  Squash/shake keyframes (`SQUASH`) play on a *new inner wrapper div* anchored at its feet, kept separate from the idle
+  loops so the two never fight over the same transform. Under reduced-motion the expression still shows but the
+  squash and star burst are skipped.
+- Mood data (`MOODS`) and the existing welcome-back wave are unchanged; overrides are derived from them.
+
+### 3. `app/(app)/dashboard/DashboardCharts.tsx`
+- Health banner `NovaAvatar` bumped `size={56}` → `size={72}` so the interaction is easier to notice.
+
+### Verification
+`tsc --noEmit` clean; eslint 0 errors (only the pre-existing `set-state-in-effect` warning in `DashboardCharts.tsx`);
+`vitest` 674 passing. Rendered all five moods in headless Chromium: gaze follows the cursor to opposite corners, and
+the joy / surprise / worry poke reactions each rendered correctly (temporary preview page, since deleted). Not verified:
+touch devices and reduced-motion in a real browser (both are code-path gated, not visually tested).
+
 ## 2026-08-18 — 50/30/20 budgeting: category buckets, snapshot card, budget generator (branch claude/spending-budget-brainstorm-3waxc5)
 
 Adds the 50/30/20 rule (50% of take-home to Needs, 30% Wants, 20% Savings) as a first-class
