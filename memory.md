@@ -42,7 +42,7 @@ Settings (key/value) · Accounts `A:R` · Transactions `A:K` · Paychecks · Bud
 - **Text display rule:** text shown only in one place must be fully visible (wrap with `wrap-anywhere`); `truncate` only for repeated references whose full text appears elsewhere. Numbers: `FitText`/`AnimatedNumber`/`RollingNumber` (shrink, then wrap).
 - Responsive targets: 320–430px phones, 768 tablet (headers stack until `lg`), desktop, and 125% text. App-like: no page zoom (`viewport` in app/layout.tsx).
 - Don't export non-component values from `'use client'` files for server use (they arrive as client references).
-- **Mascot:** the live one is `app/(app)/dashboard/NovaAvatar.tsx` (inline SVG; `HealthStatus` moods, cursor-follow + poke reaction; helpers in `lib/mascotLook.ts`). Sticker-style sprite-sheet candidates, the Codex/Gemini prompts and an interactive demo live in `design/mascot/` and are **not wired into the app yet**.
+- **Mascot:** `app/(app)/dashboard/NovaAvatar.tsx` uses two 3×3 transparent WebP sheets from `public/mascots/`, with PNG sources in `design/mascot/codex/`. `lib/mascotSprite.ts` holds gaze and tap helpers. The face stays neutral across health statuses; `STATUS_COLOR` glows and the localized button label convey status. The generated sheets have frame alignment differences that need an art pass for exact body consistency.
 
 ## Testing
 - `npm test` (Vitest, also the pre-commit hook with `typecheck`).
@@ -50,11 +50,17 @@ Settings (key/value) · Accounts `A:R` · Transactions `A:K` · Paychecks · Bud
 
 ## Open items
 - Real Google account smoke test after merge (test mode covers the app logic, not Google's API/auth).
-- Mascot: replace the SVG `NovaAvatar` with the chosen sprite-sheet version (Codex's, picked 2026-10-21) incl. the mobile gestures from `design/mascot/demo.html`, and decide how `HealthStatus` maps onto idle frames.
+- Mascot art: replace or repair the generated Codex sheets if exact body alignment and wide cell margins are required. The user accepted the current visual defects for this implementation.
 
 ---
 
 # Change log (newest first)
+
+## 2026-10-21 — Replace live Nova with interactive Codex sprite sheets (branch claude/festive-edison-p5rcvh)
+
+Replaced the dashboard's inline SVG mascot with two layered 3×3 WebP sheets and kept the `<NovaAvatar status size />` API. Added matching PNG sources under `design/mascot/codex/`, pure gaze/tap helpers and tests, a localized English/Vietnamese accessible label, status-tinted glow, and the demo's pointer/touch/keyboard, hold, dizzy, scroll, sleep/wake, haptic, and reduced-motion behavior. Removed the unused SVG-era `lib/mascotLook.ts` and test. The user chose neutral gaze and idle across every financial health status; taps cycle heart/sparkle/delighted regardless of status.
+
+The referenced chat and branch did not contain the selected Codex PNGs, so new sheets were generated from its recorded prompts. They have real alpha, 3×3 equal cells, and correct viewer-left direction. They do **not** meet the exact-body and wide-margin requirements: scarf/body details shift between cells, and some opaque pixels sit close to cell edges. The user explicitly approved proceeding with those defects disclosed. WebP files are 266 KB and 312 KB. `npm ci`, typecheck, touched-file ESLint, 744 tests, and production build passed; Chromium desktop/mobile browser checks and screenshots are recorded in the handoff. Real-device haptics and iOS Safari remain unverified.
 
 ## 2026-10-21 — Mascot v2 design contest: sticker-style Nova sprite sheets, prompts for Codex/Gemini, interactive demo (branch claude/festive-edison-p5rcvh)
 

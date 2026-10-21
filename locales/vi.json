@@ -121,6 +121,7 @@
     "signOutBtn": "Đăng xuất & Thử lại"
   },
   "dashboard": {
+    "novaLabel": "Nova, sức khỏe tài chính: {status}. Nhấn để tương tác.",
     "greeting": "Chào, {name} 👋",
     "monthSummary": "{month} {year} · còn {daysLeft} ngày trong tháng",
     "netWorthTrend": "Xu hướng tài sản ròng",
