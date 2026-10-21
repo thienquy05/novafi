@@ -319,7 +319,7 @@ export default function AccountsPage() {
         title={t('accounts.title')}
         subtitle={t('accounts.subtitle')}
         action={
-          <Button onClick={openAdd} className="w-full md:w-auto shadow-sm hover:shadow-md">
+          <Button onClick={openAdd} className="w-full lg:w-auto shadow-sm hover:shadow-md">
             <Plus className="w-5 h-5" />{t('accounts.addAccount')}
           </Button>
         }

@@ -375,7 +375,7 @@ export default function ReportsPage() {
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-bold text-slate-400 dark:text-slate-500">{pct.toFixed(0)}%</span>
-                            <span className="text-sm font-extrabold text-slate-900 dark:text-slate-100 w-20 text-right">{formatCurrency(c.value)}</span>
+                            <span className="text-sm font-extrabold text-slate-900 dark:text-slate-100 min-w-20 text-right whitespace-nowrap tabular-nums">{formatCurrency(c.value)}</span>
                           </div>
                         </div>
                         <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">

@@ -11,6 +11,7 @@ import { PullToRefresh } from '@/components/PullToRefresh';
 import { Card, CardIcon } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { FitText } from '@/components/ui/FitText';
 import { AccountsSkeleton } from '@/components/ui/Skeleton';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { StaggerReveal } from '@/components/ui/Reveal';
@@ -307,9 +308,9 @@ function Stat({ label, value, tone }: { label: string; value: string; tone: 'ros
     : tone === 'emerald' ? 'text-emerald-600 dark:text-emerald-400'
     : 'text-slate-900 dark:text-slate-100';
   return (
-    <div className="rounded-2xl bg-white/60 dark:bg-slate-900/30 border border-slate-100 dark:border-slate-700/60 p-3">
-      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">{label}</p>
-      <p className={`text-base sm:text-lg font-extrabold mt-1 ${color}`}>{value}</p>
+    <div className="min-w-0 rounded-2xl bg-white/60 dark:bg-slate-900/30 border border-slate-100 dark:border-slate-700/60 p-3">
+      <p className="stat-label text-slate-400 dark:text-slate-500">{label}</p>
+      <FitText maxSize={18} minSize={11} className={`font-extrabold mt-1 ${color}`}>{value}</FitText>
     </div>
   );
 }

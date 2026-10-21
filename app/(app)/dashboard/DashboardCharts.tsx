@@ -2,7 +2,7 @@
 import dynamic from 'next/dynamic';
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, TrendingUp, Sparkles, DollarSign, Target, CreditCard } from 'lucide-react';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatMonthsCovered } from '@/lib/utils';
 import { HEALTH_WEIGHTS, calcSavingsRate } from '@/lib/calculations';
 import { animate, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from '@/lib/i18n/context';
@@ -90,7 +90,7 @@ export function SavingsRateGauge({ value, note }: { value: number; note?: string
           <span className="text-base font-extrabold tracking-tight" style={{ color }}>{value.toFixed(0)}%</span>
         </div>
       </div>
-      {note && <p className="text-xs font-medium text-slate-400 dark:text-slate-500 leading-snug flex-1 min-w-0">{note}</p>}
+      {note && <p className="text-xs font-medium text-slate-400 dark:text-slate-500 leading-snug flex-1 min-w-0 [overflow-wrap:anywhere]">{note}</p>}
     </div>
   );
 }
@@ -221,7 +221,7 @@ export function HealthBanner({
         {monthIncome === 0 ? (
           <p className="text-sm font-medium text-slate-600 dark:text-slate-300">{t('charts.recordPaycheckHint')}</p>
         ) : monthSpending > monthIncome ? (
-          <p className="text-sm font-medium text-slate-600 dark:text-slate-300">{t('charts.overIncome', { amount: formatCurrency(monthSpending - monthIncome) })}</p>
+          <p className="text-sm font-medium text-slate-600 dark:text-slate-300 [overflow-wrap:anywhere]">{t('charts.overIncome', { amount: formatCurrency(monthSpending - monthIncome) })}</p>
         ) : (
           <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
             <span className="font-bold text-slate-900 dark:text-slate-100">{formatCurrency(cashFlow)}</span> {t('charts.netLabel')}
@@ -294,9 +294,9 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM, totalSpend }:
             transition={{ delay: i * 0.1 }}
             key={b.category}
           >
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{b.category.replace(/^categories\./, '')}</span>
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">{b.category.replace(/^categories\./, '')}</span>
                 {totalSpend != null && totalSpend > 0 && usage > 0 && (
                   <span className="text-xs font-bold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-700/50 px-1.5 py-0.5 rounded-md">
                     {((usage / totalSpend) * 100).toFixed(0)}%
@@ -308,7 +308,7 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM, totalSpend }:
                   </span>
                 )}
               </div>
-              <div className="text-right">
+              <div className="text-right whitespace-nowrap ml-auto">
                 <span className={`text-sm font-extrabold ${over ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>
                   {formatCurrency(usage)}
                 </span>
@@ -323,7 +323,7 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM, totalSpend }:
                 className={`h-full rounded-full ${over ? 'bg-rose-500' : pct > 80 ? 'bg-amber-500' : 'bg-indigo-500'}`}
               />
             </div>
-            <div className="flex items-center justify-between mt-1.5">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mt-1.5">
               <p className="text-xs font-bold">
                 {over ? (
                   <span className="text-rose-600 dark:text-rose-400">{formatCurrency(Math.abs(remaining))} {t('charts.over')}</span>
@@ -334,7 +334,7 @@ export function BudgetBars({ data, daysLeft, daysElapsed, showMoM, totalSpend }:
                   </span>
                 )}
               </p>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-0.5 min-w-0">
                 {showMoM && b.prevMonthSpent !== undefined && (
                   (() => {
                     // Compare last month against this month's effective usage (spent +
@@ -406,7 +406,7 @@ export function EmergencyFundWidget({
         </span>
       </div>
       <p className={`text-lg font-extrabold tracking-tight ${textColors[status]}`}>
-        {months.toFixed(1)} <span className="text-sm font-bold text-slate-400 dark:text-slate-500">{t('charts.moCovered')}</span>
+        {formatMonthsCovered(months)} <span className="text-sm font-bold text-slate-400 dark:text-slate-500">{t('charts.moCovered')}</span>
       </p>
       <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5 mt-2 overflow-hidden">
         <motion.div
@@ -504,7 +504,7 @@ export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
 
   const components = [
     { label: t('charts.savingsRate'),      detail: `${savingsRate.toFixed(0)}%`, score: breakdown.savings, max: HEALTH_WEIGHTS.savings },
-    { label: t('charts.emergencyFund'),    detail: `${emergencyFundMonths.toFixed(1)} ${t('charts.monthsShort')}`, score: breakdown.emergency, max: HEALTH_WEIGHTS.emergency },
+    { label: t('charts.emergencyFund'),    detail: `${formatMonthsCovered(emergencyFundMonths)} ${t('charts.monthsShort')}`, score: breakdown.emergency, max: HEALTH_WEIGHTS.emergency },
     { label: t('charts.creditUtil'),       detail: creditUtil === null ? t('charts.noCards') : `${Math.round(creditUtil)}%`, score: breakdown.credit, max: HEALTH_WEIGHTS.credit },
     {
       label: t('charts.budgetControl'),
@@ -543,9 +543,14 @@ export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
           const ratio = c.max > 0 ? c.score / c.max : 0;
           const barColor = ratio >= 0.8 ? 'bg-emerald-500' : ratio >= 0.6 ? 'bg-indigo-500' : ratio >= 0.4 ? 'bg-amber-500' : ratio >= 0.2 ? 'bg-orange-500' : 'bg-rose-500';
           return (
-            <div key={c.label} className="flex items-center gap-3">
-              <span className="text-xs font-bold text-slate-600 dark:text-slate-300 w-32 shrink-0">{c.label}</span>
-              <div className="flex-1 bg-slate-100 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
+            <div key={c.label} className="space-y-1">
+              {/* Label + detail + points on one line, bar underneath — fits any width. */}
+              <div className="flex items-baseline gap-2">
+                <span className="text-xs font-bold text-slate-600 dark:text-slate-300 flex-1 min-w-0 wrap-anywhere">{c.label}</span>
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 text-right wrap-anywhere">{c.detail}</span>
+                <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 shrink-0 whitespace-nowrap tabular-nums">{c.score}/{c.max}</span>
+              </div>
+              <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
                 <motion.div
                   initial={{ width: 0 }}
                   animate={{ width: `${Math.round(ratio * 100)}%` }}
@@ -553,8 +558,6 @@ export function FinancialHealthScore({ data }: { data: HealthScoreData }) {
                   className={`h-full rounded-full ${barColor}`}
                 />
               </div>
-              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 w-16 text-right shrink-0 whitespace-nowrap">{c.detail}</span>
-              <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 w-10 text-right shrink-0 whitespace-nowrap tabular-nums">{c.score}/{c.max}</span>
             </div>
           );
         })}
@@ -633,12 +636,12 @@ export function GoalsSummary({ data }: { data: GoalData[] }) {
                   />
                 )}
               </div>
-              <div className="flex items-center justify-between mt-1.5">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 mt-1.5">
                 <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
                   <span className={negative ? 'text-rose-600 dark:text-rose-400' : 'text-slate-700 dark:text-slate-300'}>{formatCurrency(g.current)}</span> / {formatCurrency(g.target)}
                 </p>
                 {monthlyNeeded && !achieved && (
-                  <p className="text-xs font-bold text-slate-400 dark:text-slate-500">{formatCurrency(monthlyNeeded)}{t('charts.moNeeded')}</p>
+                  <p className="text-xs font-bold text-slate-400 dark:text-slate-500 ml-auto">{formatCurrency(monthlyNeeded)}{t('charts.moNeeded')}</p>
                 )}
               </div>
             </div>

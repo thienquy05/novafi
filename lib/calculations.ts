@@ -327,7 +327,9 @@ export function calcMonthCashSpending(
 
 export function pctChange(current: number, prev: number): number | null {
   if (prev === 0) return null;
-  return ((current - prev) / prev) * 100;
+  // Divide by |prev| so the sign is the real direction even from a negative base
+  // (net worth −60k → −100M used to read "+166,000%", i.e. an improvement).
+  return ((current - prev) / Math.abs(prev)) * 100;
 }
 
 // ── Prediction readiness ───────────────────────────────────────────────────────
@@ -1523,7 +1525,9 @@ export function cardPaymentStatus(account: Account, transactions: Transaction[],
 // ── Transaction Balance Effects ───────────────────────────────────────────────
 
 export function roundCents(n: number): number {
-  return Math.round(n * 100) / 100;
+  // `|| 0` turns -0 into 0: e.g. 0.30 − (0.10 + 0.20) rounds to -0, which
+  // formatCurrency would show as "-$0.00".
+  return Math.round(n * 100) / 100 || 0;
 }
 
 // ── Savings interest ──────────────────────────────────────────────────────────

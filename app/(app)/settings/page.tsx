@@ -377,12 +377,12 @@ export default function SettingsPage() {
         subtitle={t('settings.subtitle')}
         action={
           <>
-            <Button variant="secondary" onClick={handleReset} className="flex-1 md:flex-none shadow-sm">
+            <Button variant="secondary" onClick={handleReset} className="flex-1 lg:flex-none shadow-sm">
               <RotateCcw className="w-4 h-4" />
               <span className="hidden sm:inline">Reset Defaults</span>
               <span className="sm:hidden">Reset</span>
             </Button>
-            <Button onClick={handleSave} disabled={saving} className="flex-1 md:flex-none shadow-sm">
+            <Button onClick={handleSave} disabled={saving} className="flex-1 lg:flex-none shadow-sm">
               <Save className="w-4 h-4" />
               {saving ? t('common.saving') : saved ? t('settings.saved') : t('settings.saveSettings')}
             </Button>
@@ -485,7 +485,7 @@ export default function SettingsPage() {
                     <MapPin className="w-3.5 h-3.5" />
                     {timeZoneLabel(settings.timeZone)}
                   </p>
-                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{formatDate(today(settings.timeZone))}</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{formatDate(today(settings.timeZone), lang)}</p>
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-2xl md:text-3xl font-bold tabular-nums text-slate-900 dark:text-slate-100">{formatClock(settings.timeZone)}</p>
@@ -1075,7 +1075,7 @@ export default function SettingsPage() {
                   <div key={c.id} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60">
                     <div className="flex items-center gap-3 min-w-0">
                       <span className="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300 text-sm font-bold shrink-0">{c.name.charAt(0).toUpperCase()}</span>
-                      <span className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">{c.name}</span>
+                      <span className="text-sm font-bold text-slate-800 dark:text-slate-200 wrap-anywhere">{c.name}</span>
                     </div>
                     <button onClick={() => removeContact(c)} title={t('common.delete')} className="p-2 text-slate-400 dark:text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 rounded-lg transition-colors shrink-0">
                       <Trash2 className="w-4 h-4" />

@@ -60,6 +60,7 @@ export function RollingNumber({
 }: RollingNumberProps) {
   const ref = useRef<HTMLSpanElement>(null);
   const [fontSize, setFontSize] = useState(maxSize);
+  const [wrap, setWrap] = useState(false);
   const reduce = useReducedMotion();
 
   const full = `${prefix}${formatCurrency(value)}${suffix}`;
@@ -71,13 +72,18 @@ export function RollingNumber({
     const el = ref.current;
     if (!el) return;
     const fit = () => {
+      el.style.whiteSpace = 'nowrap'; // measure on one line
       el.style.fontSize = maxSize + 'px';
       let size = maxSize;
       while (el.scrollWidth > el.clientWidth && size > minSize) {
         size -= 0.5;
         el.style.fontSize = `${size}px`;
       }
+      // Still too wide at minSize → wrap rather than clip (always fully visible).
+      const tooWide = el.scrollWidth > el.clientWidth;
+      el.style.whiteSpace = '';
       setFontSize(size);
+      setWrap(tooWide);
     };
     fit();
     const ro = new ResizeObserver(fit);
@@ -85,7 +91,7 @@ export function RollingNumber({
     return () => ro.disconnect();
   }, [full, maxSize, minSize]);
 
-  const base = `block overflow-hidden whitespace-nowrap tracking-tight ${className}`;
+  const base = `block tracking-tight ${wrap ? 'whitespace-normal wrap-anywhere' : 'whitespace-nowrap'} ${className}`;
 
   if (reduce) {
     return (

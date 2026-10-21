@@ -7,6 +7,10 @@ export function haptic(pattern: number | number[] = 10): void {
   if (typeof navigator === 'undefined') return;
   const nav = navigator as Navigator & { vibrate?: (p: number | number[]) => boolean };
   if (typeof nav.vibrate !== 'function') return;
+  // Browsers block (and log an error for) vibration before the user has
+  // interacted with the page — e.g. a celebration firing on load.
+  const activation = (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation;
+  if (activation && !activation.hasBeenActive) return;
   try {
     nav.vibrate(pattern);
   } catch {

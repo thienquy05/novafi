@@ -94,6 +94,11 @@ export function setCacheOwner(id: string): void {
 }
 
 let hydrated = false;
+let appHydrated = false;
+/** Called once by CacheSync after the first client commit (see peekCache). */
+export function markAppHydrated(): void {
+  appHydrated = true;
+}
 /** Lazily restore the sessionStorage mirror into module memory, once per session —
  *  only once the owner is known and matches the mirror's owner. */
 function hydrate(): void {
@@ -117,6 +122,11 @@ function hydrate(): void {
  * background revalidation runs alongside.
  */
 export function peekCache<K extends BatchKey>(keys: readonly K[]): Pick<BatchData, K> | null {
+  // During React's hydration render the server had no cache, so returning data
+  // here made the first client render differ from the server HTML ("Hydration
+  // failed … tree will be regenerated" on every client page after a reload).
+  // Serve cached data only once the app has hydrated (client-side navigations).
+  if (!appHydrated) return null;
   hydrate();
   const out = {} as Record<string, unknown>;
   for (const k of keys) {
@@ -282,4 +292,5 @@ export function __resetCacheForTests(): void {
   inflight.clear();
   subs.clear();
   hydrated = true; // skip sessionStorage hydration in node tests
+  appHydrated = true;
 }

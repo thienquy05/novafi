@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { LoadError } from '@/components/ui/LoadError';
 import { Card } from '@/components/ui/Card';
+import { FitText } from '@/components/ui/FitText';
 import { ExpandableCard } from '@/components/ui/ExpandableCard';
 import { Collapsible } from '@/components/ui/Collapsible';
 import { Button } from '@/components/ui/Button';
@@ -59,7 +60,7 @@ const EMPTY_GOAL_FORM = {
 };
 
 export default function PlanningPage() {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const [budgets, setBudgets] = useState<Budget[]>(() => peekCache(['budgets'])?.budgets ?? []);
   const [goals, setGoals] = useState<Goal[]>(() => peekCache(['goals'])?.goals ?? []);
   const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
@@ -116,7 +117,7 @@ export default function PlanningPage() {
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const daysElapsed = now.getDate();
   const daysLeft = daysInMonth - daysElapsed;
-  const viewMonthLabel = new Intl.DateTimeFormat(dateLocale(), { month: 'long', year: 'numeric' }).format(now);
+  const viewMonthLabel = new Intl.DateTimeFormat(dateLocale(lang), { month: 'long', year: 'numeric' }).format(now);
 
   const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const prevMonthKey = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
@@ -505,23 +506,21 @@ export default function PlanningPage() {
 
       {/* Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card className="p-4 sm:p-5">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('planning.budgetedPerMonth')}</p>
-          <p className="text-xl font-extrabold text-slate-900 dark:text-slate-100 mt-1.5 tracking-tight">{formatCurrency(totalBudgeted)}</p>
+        <Card className="min-w-0 p-4 sm:p-5">
+          <p className="stat-label text-slate-500 dark:text-slate-400">{t('planning.budgetedPerMonth')}</p>
+          <FitText maxSize={20} minSize={12} className={`font-extrabold text-slate-900 dark:text-slate-100 mt-1.5 tracking-tight`}>{formatCurrency(totalBudgeted)}</FitText>
         </Card>
-        <Card className="p-4 sm:p-5">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('planning.spent')}</p>
-          <p className={`text-xl font-extrabold mt-1.5 tracking-tight ${totalSpent > totalBudgeted ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>
-            {formatCurrency(totalSpent)}
-          </p>
+        <Card className="min-w-0 p-4 sm:p-5">
+          <p className="stat-label text-slate-500 dark:text-slate-400">{t('planning.spent')}</p>
+          <FitText maxSize={20} minSize={12} className={`font-extrabold mt-1.5 tracking-tight ${totalSpent > totalBudgeted ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>{formatCurrency(totalSpent)}</FitText>
         </Card>
-        <Card className="p-4 sm:p-5 border-emerald-100 dark:border-emerald-800/50">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('planning.goalsSaved')}</p>
-          <p className="text-xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-1.5 tracking-tight">{formatCurrency(totalGoalSaved)}</p>
-          <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mt-0.5">of {formatCurrency(totalGoalTarget)}</p>
+        <Card className="min-w-0 p-4 sm:p-5 border-emerald-100 dark:border-emerald-800/50">
+          <p className="stat-label text-slate-500 dark:text-slate-400">{t('planning.goalsSaved')}</p>
+          <FitText maxSize={20} minSize={12} className={`font-extrabold text-emerald-600 dark:text-emerald-400 mt-1.5 tracking-tight`}>{formatCurrency(totalGoalSaved)}</FitText>
+          <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mt-0.5 [overflow-wrap:anywhere]">of {formatCurrency(totalGoalTarget)}</p>
         </Card>
         <Card className={`p-4 sm:p-5 ${overBudgetCount > 0 ? 'border-rose-100 dark:border-rose-800/50' : ''}`}>
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('planning.overBudget')}</p>
+          <p className="stat-label text-slate-500 dark:text-slate-400">{t('planning.overBudget')}</p>
           <p className={`text-xl font-extrabold mt-1.5 tracking-tight ${overBudgetCount > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
             {overBudgetCount} <span className="text-sm font-bold opacity-80">{overBudgetCount === 1 ? t('planning.cat') : t('planning.cats')}</span>
           </p>
@@ -775,7 +774,7 @@ export default function PlanningPage() {
                         />
                         <span className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{a.category}</span>
                       </span>
-                      <span className="text-xs font-bold tabular-nums whitespace-nowrap text-slate-500 dark:text-slate-400">
+                      <span className="text-xs font-bold tabular-nums text-slate-500 dark:text-slate-400 text-right">
                         {a.currentMonthly === null
                           ? t('planning.ruleRowNew')
                           : formatCurrency(a.currentMonthly)}
@@ -996,7 +995,7 @@ function UnbudgetedSpendingSection({ categories, spentFor, onSetLimit }: {
   spentFor: (c: string) => number;
   onSetLimit: (c: string) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const [open, setOpen] = useState(false);
   return (
     <div className="mt-2 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
@@ -1107,10 +1106,11 @@ function BucketRuleCard({ snapshot, onApply, t }: {
                       {bar.actualPct.toFixed(0)}% / {bar.targetPct}%
                     </span>
                   </span>
-                  <span className="text-xs font-bold tabular-nums whitespace-nowrap text-slate-500 dark:text-slate-400">
-                    {formatCurrency(bar.actualAmount)} / {formatCurrency(bar.targetAmount)}
+                  {/* Pieces stay whole; the line may break between them on small screens. */}
+                  <span className="text-xs font-bold tabular-nums text-slate-500 dark:text-slate-400 flex flex-wrap justify-end gap-x-1.5 min-w-0">
+                    <span className="whitespace-nowrap">{formatCurrency(bar.actualAmount)} / {formatCurrency(bar.targetAmount)}</span>
                     {Math.abs(bar.deltaAmount) >= 1 && (
-                      <span className={`ml-1.5 ${over ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                      <span className={`whitespace-nowrap ${over ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                         {over
                           ? t('planning.ruleOver', { amount: formatCurrency(Math.abs(bar.deltaAmount)) })
                           : t('planning.ruleUnder', { amount: formatCurrency(Math.abs(bar.deltaAmount)) })}
@@ -1160,7 +1160,7 @@ function BudgetRealityCard({ suggestions, onApply }: {
   suggestions: BudgetReallocation[];
   onApply: (r: BudgetReallocation) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   return (
     <ExpandableCard
       icon={<Zap className="w-5 h-5" />}
@@ -1206,14 +1206,15 @@ function BudgetItem({ budget, monthly, rolledOver, spent, usage, prevSpent, roll
   pct: number; over: boolean; remaining: number; willOvershoot: boolean; overshootAmt: number; daysLeft: number;
   onEdit: (b: Budget) => void; onDelete: (id: string) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const controls = useDragControls();
   return (
     <Reorder.Item value={budget} dragListener={false} dragControls={controls} className="list-none">
       <SwipeToDelete onDelete={() => onDelete(budget.id)}>
       <Card className={`transition-all p-4 sm:p-5 ${over ? 'border-rose-100 dark:border-rose-800/50' : willOvershoot ? 'border-amber-100 dark:border-amber-800/50' : ''}`}>
-        {/* Header: grip · category · spent/limit · edit */}
-        <div className="flex items-center gap-2 mb-2">
+        {/* Header: grip · category · spent/limit · edit — wraps the amounts onto
+            their own line when they don't fit (big numbers on small phones). */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-2">
           <button
             className="touch-none cursor-grab active:cursor-grabbing text-slate-300 dark:text-slate-600 shrink-0 p-1 -ml-1"
             onPointerDown={(e) => { e.stopPropagation(); controls.start(e); }}
@@ -1222,9 +1223,10 @@ function BudgetItem({ budget, monthly, rolledOver, spent, usage, prevSpent, roll
             <GripVertical className="w-4 h-4" />
           </button>
           <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate flex-1 min-w-0">{budget.category}</p>
-          <p className="text-sm font-extrabold shrink-0 text-right tabular-nums whitespace-nowrap">
-            <span className={over ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}>{formatCurrency(usage)}</span>
-            <span className="text-slate-400 dark:text-slate-500 font-bold text-xs"> / {formatCurrency(monthly)}</span>
+          {/* Each amount stays whole; the pair may break before "/" on tiny screens. */}
+          <p className="text-sm font-extrabold ml-auto text-right tabular-nums flex flex-wrap justify-end items-baseline gap-x-1 min-w-0">
+            <span className={`whitespace-nowrap ${over ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>{formatCurrency(usage)}</span>
+            <span className="text-slate-400 dark:text-slate-500 font-bold text-xs whitespace-nowrap">/ {formatCurrency(monthly)}</span>
           </p>
           <Button variant="ghost" size="icon" aria-label={t('common.edit')} className="text-slate-400 dark:text-slate-500 h-8 w-8 rounded-xl shrink-0" onClick={(e) => { e.stopPropagation(); onEdit(budget); }}>
             <Pencil className="w-4 h-4" />
@@ -1256,10 +1258,10 @@ function BudgetItem({ budget, monthly, rolledOver, spent, usage, prevSpent, roll
 
         {/* Headline: what's left / over, and the overall % used — one clean row. */}
         <div className="flex items-center justify-between gap-3 mt-2">
-          <p className="text-xs font-bold min-w-0 truncate">
+          <p className="text-xs font-bold min-w-0 [overflow-wrap:anywhere]">
             {over
-              ? <span className="text-rose-600 dark:text-rose-400 whitespace-nowrap">{formatCurrency(Math.abs(remaining))} {t('charts.over')}</span>
-              : <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">{formatCurrency(remaining)} {t('charts.left')} · {daysLeft}{t('planning.daysLeft')}</span>
+              ? <span className="text-rose-600 dark:text-rose-400">{formatCurrency(Math.abs(remaining))} {t('charts.over')}</span>
+              : <span className="text-slate-500 dark:text-slate-400">{formatCurrency(remaining)} {t('charts.left')} · {daysLeft}{t('planning.daysLeft')}</span>
             }
           </p>
           <span className="text-xs font-bold text-slate-400 dark:text-slate-500 shrink-0">{pct.toFixed(0)}%</span>
@@ -1275,7 +1277,7 @@ function BudgetItem({ budget, monthly, rolledOver, spent, usage, prevSpent, roll
               {showVsLast && (
                 <div className="min-w-0">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">{t('charts.vsLastMo')}</p>
-                  <p className={`text-xs font-bold flex items-center gap-1 mt-0.5 ${momDiff > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                  <p className={`text-xs font-bold flex flex-wrap items-center gap-1 mt-0.5 [overflow-wrap:anywhere] ${momDiff > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                     {momDiff > 0 ? <TrendingUp className="w-3 h-3 shrink-0" /> : <TrendingDown className="w-3 h-3 shrink-0" />}
                     {momDiff > 0 ? '+' : ''}{formatCurrency(momDiff)}
                   </p>
@@ -1324,7 +1326,7 @@ function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadl
   achieved: boolean; daysToDeadline: number | null; monthlyNeeded: number | null;
   onTrack: string; onEdit: (g: Goal) => void; onDelete: (id: string) => void; onContribute: (g: Goal) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const controls = useDragControls();
   return (
     <Reorder.Item value={goal} dragListener={false} dragControls={controls} className="list-none">
@@ -1355,11 +1357,11 @@ function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadl
                   </span>
                 )}
               </p>
-              {linked && <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('planning.linked')} {linked.name}</p>}
+              {linked && <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 wrap-anywhere [overflow-wrap:anywhere]">{t('planning.linked')} {linked.name}</p>}
               {goal.deadline && daysToDeadline !== null && (
                 <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                   {daysToDeadline > 0 ? `${daysToDeadline}${t('planning.daysLeft')} · ` : `${t('planning.deadlinePassed')} · `}
-                  {formatDate(goal.deadline)}
+                  {formatDate(goal.deadline, lang)}
                 </p>
               )}
             </div>
@@ -1390,7 +1392,7 @@ function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadl
           )}
         </div>
 
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
           <div className="flex items-baseline gap-1.5">
             <span className={`text-base font-extrabold ${achieved ? 'text-emerald-600 dark:text-emerald-400' : current < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>
               {formatCurrency(current)}
@@ -1403,9 +1405,9 @@ function GoalItem({ goal, linked, current, pct, remaining, achieved, daysToDeadl
         </div>
 
         {!achieved && remaining > 0 && (
-          <div className="flex justify-between items-center mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-700/60">
+          <div className="flex flex-wrap justify-between items-center gap-x-3 gap-y-2 mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-700/60">
             <p className="text-xs font-bold text-slate-500 dark:text-slate-400">{formatCurrency(remaining)} {t('planning.toGo')}</p>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2 ml-auto">
               {monthlyNeeded && (
                 <p className="text-xs font-bold text-slate-400 dark:text-slate-500">{formatCurrency(monthlyNeeded)}{t('planning.moNeeded')}</p>
               )}

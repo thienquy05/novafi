@@ -27,11 +27,13 @@ describe('client cache is scoped to the signed-in user', () => {
     store.setItem('nf_badges_cache_v2', '{"overdueBills":3}');
 
     const a = await import('@/lib/client/store');
+    a.markAppHydrated();
     a.setCacheOwner('userA');
     expect(a.peekCache(['accounts'])).toEqual({ accounts: [{ id: 'a1' }] });
 
     vi.resetModules();
     const b = await import('@/lib/client/store');
+    b.markAppHydrated();
     b.setCacheOwner('userB');
     expect(b.peekCache(['accounts'])).toBeNull();
     expect(store.getItem('nf_badges_cache_v2')).toBeNull();
@@ -42,6 +44,17 @@ describe('client cache is scoped to the signed-in user', () => {
     store.setItem('nf_store_owner', 'userA');
     store.setItem('nf_store_v1', JSON.stringify({ accounts: { data: [1], ts: Date.now() } }));
     const s = await import('@/lib/client/store');
+    s.markAppHydrated();
     expect(s.peekCache(['accounts'])).toBeNull();
+  });
+
+  it('serves nothing during the hydration render (matches server HTML)', async () => {
+    store.setItem('nf_store_owner', 'userA');
+    store.setItem('nf_store_v1', JSON.stringify({ accounts: { data: [1], ts: Date.now() } }));
+    const s = await import('@/lib/client/store');
+    s.setCacheOwner('userA');
+    expect(s.peekCache(['accounts'])).toBeNull();
+    s.markAppHydrated();
+    expect(s.peekCache(['accounts'])).toEqual({ accounts: [1] });
   });
 });

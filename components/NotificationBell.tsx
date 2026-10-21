@@ -319,7 +319,7 @@ export function NotificationBell({ className }: { className?: string }) {
                         onClick={() => { markRead(n.id); setOpen(false); }}
                         className="flex-1 min-w-0"
                       >
-                        <p className={cn('text-sm font-bold truncate', isRead ? 'text-slate-500 dark:text-slate-400' : 'text-slate-900 dark:text-slate-100')}>
+                        <p className={cn('text-sm font-bold wrap-anywhere', isRead ? 'text-slate-500 dark:text-slate-400' : 'text-slate-900 dark:text-slate-100')}>
                           {n.title}
                         </p>
                         <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">{n.body}</p>

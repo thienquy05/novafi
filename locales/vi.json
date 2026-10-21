@@ -383,6 +383,10 @@
     "nextMonth": "Tháng sau"
   },
   "paychecks": {
+    "wagesLabel": "Lương",
+    "tipsLabel": "Tiền tip",
+    "emptyTitle": "Chưa có phiếu lương nào.",
+    "emptyBody": "Ghi phiếu lương đầu tiên để bắt đầu theo dõi thu nhập.",
     "title": "Phiếu lương",
     "subtitle": "Ghi thu nhập — toàn bộ số tiền được chuyển vào như tiền thật; chúng tôi tính khoản thuế cần để dành",
     "ytdIncome": "Thu nhập từ đầu năm (đã nhận)",

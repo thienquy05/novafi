@@ -185,15 +185,15 @@ export default function InvestmentsPage() {
           <div className="grid grid-cols-3 gap-3">
             {/* min-w-0 + break-words keep long labels (incl. Vietnamese) inside
                 these narrow 3-col cards instead of spilling past the border. */}
-            <Card className="p-4 text-center flex flex-col min-w-0">
+            <Card className="p-3 sm:p-4 text-center flex flex-col min-w-0">
               <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide break-words mb-2">{t('investments.totalValue')}</p>
               <FitText maxSize={20} minSize={12} className="font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(stats.value)}</FitText>
             </Card>
-            <Card className="p-4 text-center flex flex-col min-w-0">
+            <Card className="p-3 sm:p-4 text-center flex flex-col min-w-0">
               <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide break-words mb-2">{t('investments.totalInvested')}</p>
               <FitText maxSize={20} minSize={12} className="font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(stats.invested)}</FitText>
             </Card>
-            <Card className="p-4 text-center flex flex-col min-w-0">
+            <Card className="p-3 sm:p-4 text-center flex flex-col min-w-0">
               <p className="flex-1 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide break-words mb-2">{t('investments.totalGain')}</p>
               <FitText maxSize={20} minSize={12} className={`font-extrabold ${gainColor}`}>{formatCurrency(stats.gain, true)}</FitText>
               <p className={`text-xs font-semibold mt-0.5 ${gainColor}`}>{fmtPct(stats.gainPct)}</p>
@@ -227,13 +227,13 @@ export default function InvestmentsPage() {
 
                 {/* Invested vs current value */}
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-700/40">
-                    <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('investments.invested')}</p>
-                    <p className="font-extrabold text-slate-800 dark:text-slate-100 mt-0.5">{formatCurrency(s.invested)}</p>
+                  <div className="min-w-0 p-3 rounded-xl bg-slate-50 dark:bg-slate-700/40">
+                    <p className="stat-label text-slate-500 dark:text-slate-400">{t('investments.invested')}</p>
+                    <FitText maxSize={14} minSize={10} className="font-extrabold text-slate-800 dark:text-slate-100 mt-0.5">{formatCurrency(s.invested)}</FitText>
                   </div>
-                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-700/40">
-                    <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('investments.currentValue')}</p>
-                    <p className="font-extrabold text-slate-800 dark:text-slate-100 mt-0.5">{formatCurrency(s.value)}</p>
+                  <div className="min-w-0 p-3 rounded-xl bg-slate-50 dark:bg-slate-700/40">
+                    <p className="stat-label text-slate-500 dark:text-slate-400">{t('investments.currentValue')}</p>
+                    <FitText maxSize={14} minSize={10} className="font-extrabold text-slate-800 dark:text-slate-100 mt-0.5">{formatCurrency(s.value)}</FitText>
                   </div>
                 </div>
 

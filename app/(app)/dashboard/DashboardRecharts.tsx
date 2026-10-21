@@ -163,7 +163,7 @@ export function SpendingPieChart({ data, month }: { data: CategoryData[]; month?
                 />
                 <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex-1 truncate">{tCategory(entry.name)}</span>
                 <span className="text-xs text-slate-400 dark:text-slate-500 font-bold bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-md">{pct.toFixed(0)}%</span>
-                <span className="text-sm font-extrabold text-slate-900 dark:text-slate-100 w-20 text-right">{formatCurrency(entry.value)}</span>
+                <span className="text-sm font-extrabold text-slate-900 dark:text-slate-100 min-w-20 shrink-0 text-right whitespace-nowrap tabular-nums">{formatCurrency(entry.value)}</span>
               </Link>
               </motion.div>
             );
@@ -396,12 +396,12 @@ export function NetWorthTrendChart({ data, projection, assumption }: { data: Net
 
   return (
     <div className="w-full">
-      <div className="flex items-center justify-between gap-3 mb-4 px-2">
-        <span className={`text-sm font-extrabold px-3 py-1 rounded-lg whitespace-nowrap ${isPositive ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' : 'bg-rose-50 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300'}`}>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mb-4 px-2">
+        <span className={`text-sm font-extrabold px-3 py-1 rounded-lg ${isPositive ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' : 'bg-rose-50 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300'}`}>
           {isPositive ? '+' : ''}{formatCurrency(delta)} {t('charts.since', { label: data[0].label })}
         </span>
         {hasProjection && (
-          <span className="text-xs font-bold text-slate-400 dark:text-slate-500 flex items-center gap-1">
+          <span className="text-xs font-bold text-slate-400 dark:text-slate-500 flex items-center gap-1 shrink-0">
             <span className="inline-block w-6 border-t-2 border-dashed border-slate-300 dark:border-slate-600" />
             {t('charts.projected')}
           </span>

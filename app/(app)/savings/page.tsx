@@ -332,15 +332,15 @@ export default function SavingsPage() {
         action={
           accounts.length > 0 ? (
             <>
-              <Button variant="secondary" onClick={openInterest} className="flex-1 md:flex-none shadow-sm">
+              <Button variant="secondary" onClick={openInterest} className="flex-1 lg:flex-none shadow-sm">
                 <Percent className="w-5 h-5" />
                 {t('savings.addInterest')}
               </Button>
-              <Button variant="secondary" onClick={() => openAction('withdraw')} className="flex-1 md:flex-none shadow-sm">
+              <Button variant="secondary" onClick={() => openAction('withdraw')} className="flex-1 lg:flex-none shadow-sm">
                 <ArrowUpRight className="w-5 h-5" />
                 {t('savings.withdraw')}
               </Button>
-              <Button onClick={() => openAction('deposit')} className="flex-1 md:flex-none shadow-sm">
+              <Button onClick={() => openAction('deposit')} className="flex-1 lg:flex-none shadow-sm">
                 <ArrowDownLeft className="w-5 h-5" />
                 {t('savings.deposit')}
               </Button>
@@ -373,16 +373,16 @@ export default function SavingsPage() {
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">{a.name}</p>
                   <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={() => openEdit(a)} className="p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors">
+                    <button onClick={() => openEdit(a)} aria-label={`${t('common.edit')}: ${a.name}`} className="hit-area p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors">
                       <Pencil className="w-3.5 h-3.5" />
                     </button>
-                    <button onClick={() => handleDelete(a.id)} className="p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 transition-colors">
+                    <button onClick={() => handleDelete(a.id)} aria-label={`${t('common.delete')}: ${a.name}`} className="hit-area p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 transition-colors">
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
                 <FitText maxSize={28} minSize={13} className={`font-extrabold mt-2 ${a.balance < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>{formatCurrency(a.balance)}</FitText>
-                {a.institution && <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-1">{a.institution}</p>}
+                {a.institution && <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-1 truncate">{a.institution}</p>}
               </Card>
             ))}
           </div>
@@ -410,7 +410,7 @@ export default function SavingsPage() {
                             <span className="text-xl">{g.icon}</span> {g.name}
                           </p>
                           {g.deadline && (
-                            <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-1">{t('savings.byDate', { date: formatDate(g.deadline) })}</p>
+                            <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-1">{t('savings.byDate', { date: formatDate(g.deadline, lang) })}</p>
                           )}
                         </div>
                         <span className={`text-sm font-extrabold px-2.5 py-1 rounded-lg ${negative ? 'text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-900/30' : 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30'}`}>{pct.toFixed(0)}%</span>
@@ -509,8 +509,8 @@ export default function SavingsPage() {
                       const isIncoming = isIncomingTx(tx);
                       const displayDesc = tx.description || (isTransfer ? 'Transfer' : isIncoming ? 'Savings Deposit' : 'Savings Withdrawal');
                       const subtitle = isTransfer && toName
-                        ? `${fromName} → ${toName} · ${formatDate(tx.date)}`
-                        : `${fromName} · ${formatDate(tx.date)}`;
+                        ? `${fromName} → ${toName} · ${formatDate(tx.date, lang)}`
+                        : `${fromName} · ${formatDate(tx.date, lang)}`;
                       return (
                         <div
                           key={tx.id}

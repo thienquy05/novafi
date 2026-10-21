@@ -84,7 +84,7 @@ export function DashboardCustomizer({ layout }: { layout: DashboardCardState[] }
               >
                 <span className={`inline-block h-5 w-5 rounded-full bg-white dark:bg-slate-800 shadow transition-transform ${c.visible ? 'translate-x-5' : 'translate-x-0'}`} />
               </button>
-              <span className={`flex-1 min-w-0 text-sm font-bold truncate ${c.visible ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>
+              <span className={`flex-1 min-w-0 text-sm font-bold wrap-anywhere ${c.visible ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>
                 {t(LABEL_KEY[c.id])}
               </span>
               <button type="button" disabled={i === 0} onClick={() => move(i, -1)} aria-label={`${t('dashboard.moveUp')}: ${t(LABEL_KEY[c.id])}`} className="hit-area p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 disabled:opacity-30">

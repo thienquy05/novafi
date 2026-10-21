@@ -41,6 +41,11 @@
     color-scheme: light;
     /* Prevent overscroll bounce on iOS causing layout jank */
     overscroll-behavior: none;
+    /* App-like taps: no double-tap-to-zoom, no 300ms tap delay. */
+    touch-action: manipulation;
+    /* Keep text size fixed when a phone rotates (iOS inflates it otherwise). */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
   html.dark {
     color-scheme: dark;
@@ -106,6 +111,23 @@
   .hide-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+  /* Small uppercase label in a stat card (INCOME, SPENDING, LIABILITIES…).
+     Tighter on phones so it fits 3–4-column grids at 320px and with large text;
+     always shown in full (wraps/hyphenates instead of an ellipsis). */
+  .stat-label {
+    display: block;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    line-height: 1.2;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    /* Never cut off: wrap, hyphenating a long single word if it can't fit. */
+    overflow-wrap: anywhere;
+    hyphens: auto;
+  }
+  @media (min-width: 640px) {
+    .stat-label { font-size: 0.75rem; letter-spacing: 0.05em; }
   }
   /* Grow a small icon button's TAP area to ~44px (WCAG / Apple HIG) without
      changing how big it looks: an invisible pseudo-element extends the hit box. */

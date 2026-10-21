@@ -340,7 +340,7 @@ export default function SubscriptionsPage() {
             { label: t('subscriptions.activeSubscriptions'), value: String(activeSubs.length), tone: 'text-indigo-600 dark:text-indigo-400' },
           ].map((c) => (
             <Card key={c.label} className="p-3 sm:p-4 text-center flex flex-col justify-between gap-2 min-w-0">
-              <p className="text-[11px] sm:text-xs leading-tight font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide line-clamp-2 min-h-[2lh]">{c.label}</p>
+              <p className="text-[11px] sm:text-xs leading-tight font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide wrap-anywhere min-h-[2lh]">{c.label}</p>
               <FitText maxSize={20} minSize={12} className={`font-extrabold ${c.tone}`}>{c.value}</FitText>
             </Card>
           ))}
@@ -375,7 +375,7 @@ export default function SubscriptionsPage() {
                       {initial}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">{pretty}</p>
+                      <p className="text-sm font-bold text-slate-800 dark:text-slate-200 wrap-anywhere">{pretty}</p>
                       <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
                         <span className={`${CHIP} ${det.confidence === 'likely' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'}`}>
                           {det.confidence === 'likely' ? t('subscriptions.likely') : t('subscriptions.possible')}
@@ -497,7 +497,7 @@ export default function SubscriptionsPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">{sub.merchant}</p>
+                    <p className="text-sm font-bold text-slate-800 dark:text-slate-200 wrap-anywhere">{sub.merchant}</p>
                     {!sub.isActive && (
                       <span className={`${CHIP} shrink-0 bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-400`}>
                         {t('subscriptions.inactive')}
@@ -506,9 +506,9 @@ export default function SubscriptionsPage() {
                   </div>
                   <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
                     <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{freqLabel(sub.frequency)}</span>
-                    {sub.category && <span className="text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">· {sub.category}</span>}
+                    {sub.category && <span className="text-xs text-slate-400 dark:text-slate-500 truncate max-w-full">· {sub.category}</span>}
                     {sub.account && accountName(sub.account) && (
-                      <span className="text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">· {accountName(sub.account)}</span>
+                      <span className="text-xs text-slate-400 dark:text-slate-500 truncate max-w-full">· {accountName(sub.account)}</span>
                     )}
                   </div>
                 </div>

@@ -80,7 +80,7 @@ export function SpendingHeatmap({ days, todayIso }: { days: HeatmapDay[]; todayI
           const dayNum = Number(d.date.slice(8, 10));
           const hasIncome = (d.income ?? 0) > 0;
           const hasBills = (d.bills?.length ?? 0) > 0;
-          const labelParts = [`${formatDate(d.date)}: ${formatCurrency(d.total)}`];
+          const labelParts = [`${formatDate(d.date, lang)}: ${formatCurrency(d.total)}`];
           if (hasIncome) labelParts.push(`${t('heatmap.income')} ${formatCurrency(d.income!)}`);
           if (hasBills) labelParts.push(`${d.bills!.length} ${t('heatmap.billsDue')}`);
           return (
@@ -118,7 +118,7 @@ export function SpendingHeatmap({ days, todayIso }: { days: HeatmapDay[]; todayI
       <div className="mt-auto pt-4">
         {selectedDay ? (
           <div className="rounded-xl bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700/60 p-3">
-            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5">{formatDate(selectedDay.date)}</p>
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5">{formatDate(selectedDay.date, lang)}</p>
             <div className="space-y-1.5">
               <DetailRow
                 icon={<ArrowUpRight className="w-3.5 h-3.5 text-rose-500" />}
@@ -204,7 +204,7 @@ function SummaryStat({ label, value, tone }: { label: string; value: string; ton
     : 'text-indigo-600 dark:text-indigo-400';
   return (
     <div className="flex-1 min-w-0 rounded-xl bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700/60 px-2.5 py-2 text-center">
-      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider truncate">{label}</p>
+      <p className="stat-label text-slate-400 dark:text-slate-500">{label}</p>
       {/* FitText shrinks the amount instead of ellipsizing it, so sign + number
           always read as one piece on narrow phones. */}
       <FitText maxSize={14} minSize={10} className={`font-extrabold mt-0.5 font-display ${toneClass}`}>{value}</FitText>

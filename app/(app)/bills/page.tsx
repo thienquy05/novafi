@@ -79,7 +79,7 @@ function upsertTemplate(tpl: BillTemplate) {
 
 // ── Cashflow Calendar ──────────────────────────────────────────────────────────
 function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paychecks: PaycheckEntry[]; nowMs: number }) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const now = new Date(nowMs);
   const year = now.getFullYear();
   const month = now.getMonth();
@@ -115,16 +115,18 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
     }
   });
 
-  const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  // Localized weekday initials (was hard-coded English).
+  const weekdayFmt = new Intl.DateTimeFormat(dateLocale(lang), { weekday: 'short' });
+  const DAY_LABELS = Array.from({ length: 7 }, (_, i) => weekdayFmt.format(new Date(2023, 0, 1 + i)).slice(0, 2));
 
   return (
     <Card className="p-4 sm:p-5">
-      <div className="flex items-center justify-between mb-4">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mb-4">
+        <div className="min-w-0">
           <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-            {now.toLocaleDateString(dateLocale(), { month: 'long' })} {year} — {t('bills.cashflow')}
+            {now.toLocaleDateString(dateLocale(lang), { month: 'long' })} {year} — {t('bills.cashflow')}
           </h2>
-          <div className="flex items-center gap-3 mt-1">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1">
             {totalPaychecksAmt > 0 && <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">+{formatCurrency(totalPaychecksAmt)} {t('bills.inShort')}</span>}
             {totalBillsAmt > 0 && <span className="text-xs font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap">-{formatCurrency(totalBillsAmt)} {t('bills.outShort')}</span>}
           </div>
@@ -172,7 +174,7 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
         <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60 flex flex-wrap gap-2">
           {(() => {
             const sortedNum = ([a]: [string, unknown], [b]: [string, unknown]) => Number(a) - Number(b);
-            const monthShort = now.toLocaleDateString(dateLocale(), { month: 'short' });
+            const monthShort = now.toLocaleDateString(dateLocale(lang), { month: 'short' });
             return (
               <>
                 {Object.entries(dayPaychecks).sort(sortedNum).map(([day, pays]) => (
@@ -197,7 +199,7 @@ function CashflowCalendar({ bills, paychecks, nowMs }: { bills: Bill[]; paycheck
 
 // ── Bills Timeline (horizontal scroll strip) ──────────────────────────────────
 function BillsTimeline({ bills, nowMs }: { bills: Bill[]; nowMs: number }) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const now = new Date(nowMs);
   const year = now.getFullYear();
   const month = now.getMonth();
@@ -230,7 +232,7 @@ function BillsTimeline({ bills, nowMs }: { bills: Bill[]; nowMs: number }) {
     <Card className="p-4 sm:p-5">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('bills.timeline', { month: now.toLocaleDateString(dateLocale(), { month: 'long' }) })}</h2>
+          <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('bills.timeline', { month: now.toLocaleDateString(dateLocale(lang), { month: 'long' }) })}</h2>
           {totalThisMonth > 0 && <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{formatCurrency(totalThisMonth)} {t('bills.dueThisMonth')}</p>}
         </div>
         {Object.keys(dayToBills).length > 0 && (
@@ -266,7 +268,7 @@ function BillsTimeline({ bills, nowMs }: { bills: Bill[]; nowMs: number }) {
 
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function BillsPage() {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const [bills, setBills] = useState<Bill[]>(() => {
     const b = peekCache(['bills'])?.bills;
     return b ? [...b].sort((x, y) => x.nextDue.localeCompare(y.nextDue)) : [];
@@ -692,7 +694,7 @@ export default function BillsPage() {
             <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
               {split.contactName}{showBill && <> <span className="text-slate-400 dark:text-slate-500 font-medium">·</span> {split.billName}</>}
             </p>
-            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('bills.owedSince', { date: formatDate(split.date) })}</p>
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('bills.owedSince', { date: formatDate(split.date, lang) })}</p>
           </div>
           <div className="text-right shrink-0">
             <p className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">{formatCurrency(remaining)}</p>
@@ -833,13 +835,13 @@ export default function BillsPage() {
         title={t('bills.title')}
         subtitle={t('bills.subtitle')}
         action={
-          <Button onClick={openAdd} className="w-full md:w-auto shadow-sm"><Plus className="w-5 h-5" />{t('bills.addBill')}</Button>
+          <Button onClick={openAdd} className="w-full lg:w-auto shadow-sm"><Plus className="w-5 h-5" />{t('bills.addBill')}</Button>
         }
       />
 
       <div className="grid grid-cols-3 gap-3">
         <Card className="p-4 sm:p-5 min-w-0">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('common.monthly')}</p>
+          <p className="stat-label text-slate-500 dark:text-slate-400">{t('common.monthly')}</p>
           <FitText maxSize={24} minSize={13} className="font-extrabold text-slate-900 dark:text-slate-100 mt-1.5">{formatCurrency(monthlyTotal)}</FitText>
           {/* The total sums YOUR share of split bills while each row headlines the
               full amount — say so, so the two numbers visibly reconcile. */}
@@ -848,11 +850,11 @@ export default function BillsPage() {
           )}
         </Card>
         <Card className="p-4 sm:p-5 min-w-0">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('bills.active')}</p>
+          <p className="stat-label text-slate-500 dark:text-slate-400">{t('bills.active')}</p>
           <FitText maxSize={24} minSize={13} className="font-extrabold text-indigo-600 dark:text-indigo-400 mt-1.5">{String(activeBills.length)}</FitText>
         </Card>
         <Card className={`p-4 sm:p-5 min-w-0 ${overdueBills.length > 0 ? 'border-rose-200 dark:border-rose-800/50' : upcomingCount > 0 ? 'border-amber-200 dark:border-amber-800/50' : ''}`}>
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{overdueBills.length > 0 ? t('bills.overdue') : t('bills.dueSoon')}</p>
+          <p className="stat-label text-slate-500 dark:text-slate-400">{overdueBills.length > 0 ? t('bills.overdue') : t('bills.dueSoon')}</p>
           <FitText maxSize={24} minSize={13} className={`font-extrabold mt-1.5 ${overdueBills.length > 0 ? 'text-rose-600 dark:text-rose-400' : upcomingCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400 dark:text-slate-500'}`}>{String(overdueBills.length > 0 ? overdueBills.length : upcomingCount)}</FitText>
         </Card>
       </div>
@@ -943,7 +945,7 @@ export default function BillsPage() {
                             <p className="text-base font-bold text-slate-900 dark:text-slate-100">{bill.name}</p>
                             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
                               {FREQUENCY_LABELS[bill.frequency]}{accountName ? ` · ${accountName}` : ''}{' · '}
-                              {isOverdue ? <span className="text-rose-600 dark:text-rose-400 font-bold">{t('common.overdue')} {Math.abs(daysUntil)}d</span> : daysUntil === 0 ? <span className="text-amber-600 dark:text-amber-400 font-bold">{t('bills.dueToday')}</span> : <span>{daysUntil}d ({formatDate(bill.nextDue)})</span>}
+                              {isOverdue ? <span className="text-rose-600 dark:text-rose-400 font-bold">{t('common.overdue')} {Math.abs(daysUntil)}d</span> : daysUntil === 0 ? <span className="text-amber-600 dark:text-amber-400 font-bold">{t('bills.dueToday')}</span> : <span>{daysUntil}d ({formatDate(bill.nextDue, lang)})</span>}
                             </p>
                             {(() => {
                               const parts = billParticipants(bill);
@@ -1239,7 +1241,7 @@ export default function BillsPage() {
                         <Users className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                         <div className="min-w-0">
                           <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{group.billName}</p>
-                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('bills.groupOwedSince', { n: group.splits.length, date: formatDate(group.date) })}</p>
+                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('bills.groupOwedSince', { n: group.splits.length, date: formatDate(group.date, lang) })}</p>
                         </div>
                       </div>
                       <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400 shrink-0 ml-2">{formatCurrency(groupRemaining)}</span>
@@ -1274,7 +1276,7 @@ export default function BillsPage() {
                         <div key={group.key} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 opacity-75">
                           <div className="min-w-0">
                             <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{split.contactName} · {split.billName}</p>
-                            <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{t('bills.transferredOn', { date: formatDate(split.settledDate || split.date) })}</p>
+                            <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{t('bills.transferredOn', { date: formatDate(split.settledDate || split.date, lang) })}</p>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
                             <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through">{formatCurrency(split.amount)}</span>
@@ -1296,7 +1298,7 @@ export default function BillsPage() {
                             <Users className="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0" />
                             <div className="min-w-0">
                               <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{group.billName}</p>
-                              <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{t('bills.groupTransferredOn', { n: group.splits.length, date: formatDate(group.settledDate || group.date) })}</p>
+                              <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{t('bills.groupTransferredOn', { n: group.splits.length, date: formatDate(group.settledDate || group.date, lang) })}</p>
                             </div>
                           </div>
                           <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through shrink-0 ml-2">{formatCurrency(group.total)}</span>

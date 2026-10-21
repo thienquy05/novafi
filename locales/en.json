@@ -383,6 +383,10 @@
     "nextMonth": "Next month"
   },
   "paychecks": {
+    "wagesLabel": "Wages",
+    "tipsLabel": "Tips",
+    "emptyTitle": "No paychecks logged yet.",
+    "emptyBody": "Log your first paycheck to start tracking income.",
     "title": "Paychecks",
     "subtitle": "Log income — the full amount is deposited as real money; we track the tax to set aside",
     "ytdIncome": "YTD Income",

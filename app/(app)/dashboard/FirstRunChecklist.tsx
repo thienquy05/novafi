@@ -51,7 +51,7 @@ export function FirstRunChecklist({ steps }: { steps: ChecklistStep[] }) {
               {s.done
                 ? <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
                 : <Circle className="w-5 h-5 text-slate-300 dark:text-slate-600 shrink-0" />}
-              <span className={`flex-1 min-w-0 text-sm font-bold truncate ${s.done ? 'text-slate-400 dark:text-slate-500 line-through' : 'text-slate-800 dark:text-slate-100'}`}>{s.label}</span>
+              <span className={`flex-1 min-w-0 text-sm font-bold wrap-anywhere ${s.done ? 'text-slate-400 dark:text-slate-500 line-through' : 'text-slate-800 dark:text-slate-100'}`}>{s.label}</span>
               {!s.done && <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />}
             </Link>
           </li>

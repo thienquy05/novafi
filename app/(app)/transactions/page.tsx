@@ -78,11 +78,11 @@ function shiftMonth(ym: string, delta: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-function formatMonthLabel(ym: string): string {
+function formatMonthLabel(ym: string, lang: 'en' | 'vi'): string {
   const [y, m] = ym.split('-').map(Number);
-  // dateLocale() resolves the app language (nf_lang cookie) so the month name
-  // follows the user's language, not a hardcoded en-US.
-  return new Date(y, m - 1, 1).toLocaleDateString(dateLocale(), { month: 'long', year: 'numeric' });
+  // The app language is passed in (from useTranslation) rather than read from the
+  // cookie, so the server render and the browser agree (hydration).
+  return new Date(y, m - 1, 1).toLocaleDateString(dateLocale(lang), { month: 'long', year: 'numeric' });
 }
 
 // ── CSV export ────────────────────────────────────────────────────────────────
@@ -297,7 +297,7 @@ export default function TransactionsPage() {
 
   const toast = useToast();
   const { expenseCategories, incomeCategories, archivedExpenseCategories, archivedIncomeCategories } = useCategories();
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
 
   const load = useCallback(async (force = false) => {
     setError(false);
@@ -853,7 +853,7 @@ export default function TransactionsPage() {
             )}
             <div className="min-w-0">
               <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{loan.contactName}</p>
-              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 wrap-anywhere">
                 {isLent ? t('loans.lentLabel') : t('loans.borrowedLabel')}{loan.account ? ` · ${accountName(loan.account)}` : ''}{loan.note ? ` · ${loan.note}` : ''}
               </p>
             </div>
@@ -938,7 +938,7 @@ export default function TransactionsPage() {
       <div key={loan.id} className={`flex items-center justify-between ${nested ? 'px-3 py-2.5 rounded-xl bg-white dark:bg-slate-800/60' : 'p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 opacity-75'}`}>
         <div className="min-w-0">
           <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{loan.contactName}</p>
-          <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{loan.direction === 'lent' ? t('loans.lentLabel') : t('loans.borrowedLabel')} · {t('loans.settledOn', { date: formatDate(loan.settledDate || loan.date) })}</p>
+          <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{loan.direction === 'lent' ? t('loans.lentLabel') : t('loans.borrowedLabel')} · {t('loans.settledOn', { date: formatDate(loan.settledDate || loan.date, lang) })}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-sm font-bold text-slate-400 dark:text-slate-500 line-through">{formatCurrency(loan.principal)}</span>
@@ -1853,7 +1853,7 @@ export default function TransactionsPage() {
             <ChevronLeft className="w-4 h-4" />
           </button>
           <span className={`h-11 px-2 min-w-[8.5rem] flex items-center justify-center text-sm font-bold ${selectedMonth === null ? 'text-slate-400 dark:text-slate-500' : 'text-slate-900 dark:text-slate-100'}`}>
-            {selectedMonth === null ? t('transactions.allTime') : formatMonthLabel(selectedMonth)}
+            {selectedMonth === null ? t('transactions.allTime') : formatMonthLabel(selectedMonth, lang)}
           </span>
           <button
             onClick={() => setSelectedMonth((m) => shiftMonth(m ?? currentMonth(), 1))}
@@ -1874,16 +1874,16 @@ export default function TransactionsPage() {
 
       <div className="grid grid-cols-3 gap-3">
         <Card className="p-4 sm:p-5 min-w-0">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('common.income')}</p>
-          <p className="font-extrabold text-emerald-600 dark:text-emerald-400 mt-1.5 text-base sm:text-lg truncate">{formatCompact(totalIncome)}</p>
+          <p className="stat-label text-slate-500 dark:text-slate-400">{t('common.income')}</p>
+          <p className="font-extrabold text-emerald-600 dark:text-emerald-400 mt-1.5 text-base sm:text-lg wrap-anywhere">{formatCompact(totalIncome)}</p>
         </Card>
         <Card className="p-4 sm:p-5 min-w-0">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('transactions.spending')}</p>
-          <p className="font-extrabold text-rose-600 dark:text-rose-400 mt-1.5 text-base sm:text-lg truncate">{formatCompact(totalExpense)}</p>
+          <p className="stat-label text-slate-500 dark:text-slate-400">{t('transactions.spending')}</p>
+          <p className="font-extrabold text-rose-600 dark:text-rose-400 mt-1.5 text-base sm:text-lg wrap-anywhere">{formatCompact(totalExpense)}</p>
         </Card>
         <Card className="p-4 sm:p-5 min-w-0 border-indigo-100 dark:border-indigo-800/50">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('common.net')}</p>
-          <p className={`font-extrabold mt-1.5 text-base sm:text-lg truncate ${totalIncome - totalExpense >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{formatCompact(totalIncome - totalExpense)}</p>
+          <p className="stat-label text-slate-500 dark:text-slate-400">{t('common.net')}</p>
+          <p className={`font-extrabold mt-1.5 text-base sm:text-lg wrap-anywhere ${totalIncome - totalExpense >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{formatCompact(totalIncome - totalExpense)}</p>
         </Card>
       </div>
 
@@ -1970,7 +1970,7 @@ export default function TransactionsPage() {
             )}
             {(range.from || range.to) && (
               <button onClick={() => setRange((r) => ({ ...r, from: '', to: '' }))} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold border border-indigo-100 dark:border-indigo-800/50">
-                {range.from ? formatDate(range.from) : '…'} – {range.to ? formatDate(range.to) : '…'} <X className="w-3 h-3" />
+                {range.from ? formatDate(range.from, lang) : '…'} – {range.to ? formatDate(range.to, lang) : '…'} <X className="w-3 h-3" />
               </button>
             )}
             {(range.min || range.max) && (
@@ -2029,7 +2029,7 @@ export default function TransactionsPage() {
                     <CategoryIconBadge category={row.transactions[0]?.category ?? ''} type={row.transactions[0]?.type ?? 'expense'} className="w-10 h-10 rounded-xl" />
                     <div>
                       <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{row.merchant || t('transactions.noDescription')}</p>
-                      <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('transactions.transactionCount', { n: row.count, date: formatDate(row.lastDate) })}</p>
+                      <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('transactions.transactionCount', { n: row.count, date: formatDate(row.lastDate, lang) })}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -2042,7 +2042,7 @@ export default function TransactionsPage() {
                     {row.transactions.map((tx) => (
                       <div key={tx.id} className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-bold text-slate-700 dark:text-slate-300 shrink-0">{formatDate(tx.date)}</p>
+                          <p className="text-xs font-bold text-slate-700 dark:text-slate-300 shrink-0">{formatDate(tx.date, lang)}</p>
                           <p className="text-xs font-medium text-slate-400 dark:text-slate-500 truncate">{tx.category} · {accountName(tx.account)}</p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -2065,7 +2065,7 @@ export default function TransactionsPage() {
           {groupedByDate.map(({ date, txs }) => (
             <div key={date}>
               <div className="flex items-center gap-3 px-1 py-2">
-                <span className="text-xs font-bold text-slate-400 dark:text-slate-500 whitespace-nowrap">{formatDate(date)}</span>
+                <span className="text-xs font-bold text-slate-400 dark:text-slate-500 whitespace-nowrap">{formatDate(date, lang)}</span>
                 <div className="flex-1 h-px bg-slate-100 dark:bg-slate-800" />
               </div>
               <div className="space-y-2">
@@ -2464,8 +2464,8 @@ export default function TransactionsPage() {
             const expanded = expandedSplitGroups.has(group.key);
             const groupRemaining = group.splits.reduce((s, x) => s + splitRemaining(x), 0);
             const subtitle = group.splits.length === 1
-              ? `${group.splits[0].contactName} · ${t('bills.owedSince', { date: formatDate(group.date) })}`
-              : t('bills.groupOwedSince', { n: group.splits.length, date: formatDate(group.date) });
+              ? `${group.splits[0].contactName} · ${t('bills.owedSince', { date: formatDate(group.date, lang) })}`
+              : t('bills.groupOwedSince', { n: group.splits.length, date: formatDate(group.date, lang) });
             // Editing this group: its card is replaced in place by the split form.
             if (editingGroupKey === group.key) {
               return <div key={group.key}>{renderSplitExpenseForm()}</div>;
@@ -2511,8 +2511,8 @@ export default function TransactionsPage() {
                   {settledSplitGroups.slice(0, 10).map((group) => {
                     const expanded = expandedSplitGroups.has(group.key);
                     const subtitle = group.splits.length === 1
-                      ? `${group.splits[0].contactName} · ${t('bills.transferredOn', { date: formatDate(group.settledDate || group.date) })}`
-                      : t('bills.groupTransferredOn', { n: group.splits.length, date: formatDate(group.settledDate || group.date) });
+                      ? `${group.splits[0].contactName} · ${t('bills.transferredOn', { date: formatDate(group.settledDate || group.date, lang) })}`
+                      : t('bills.groupTransferredOn', { n: group.splits.length, date: formatDate(group.settledDate || group.date, lang) });
                     return (
                       <div key={group.key} className="rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 overflow-hidden opacity-90">
                         <button onClick={() => toggleSplitGroup(group.key)} className="w-full flex items-center justify-between px-3.5 py-2.5 text-left">
@@ -2834,29 +2834,29 @@ type SwipeRowProps = {
 };
 
 function SwipeableRow({ tx, accountName, onEdit, onDelete, managed, onSplit }: SwipeRowProps) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   return (
     <SwipeToDelete onDelete={() => onDelete(tx.id)} disabled={managed}>
-      <div className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 rounded-3xl select-none">
-        <div className="flex items-center gap-3.5 flex-1 min-w-0">
-          <CategoryIconBadge category={tx.category} type={tx.type} className="w-11 h-11 rounded-2xl" />
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 p-4 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 rounded-3xl select-none">
+        <div className="flex items-center gap-3.5 flex-1 min-w-[min(100%,11rem)]">
+          <CategoryIconBadge category={tx.category} type={tx.type} className="w-11 h-11 rounded-2xl shrink-0" />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{tx.description || tx.category}</p>
+            <p className="text-sm font-bold text-slate-900 dark:text-slate-100 wrap-anywhere">{tx.description || tx.category}</p>
             <div className="flex items-center gap-1 mt-0.5">
               <p className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate min-w-0">
                 {tx.category}{tx.account ? ` · ${accountName(tx.account)}` : ''}{tx.type === 'transfer' && tx.toAccount ? ` → ${accountName(tx.toAccount)}` : ''}
               </p>
             </div>
             {tx.tags && tx.tags.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-1">
+              <div className="flex flex-wrap gap-1 mt-1 min-w-0">
                 {tx.tags.map((tag) => (
-                  <span key={tag} className="text-[11px] leading-4 font-bold px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 max-w-[10rem] truncate">#{tag}</span>
+                  <span key={tag} className="text-[11px] leading-4 font-bold px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 inline-block max-w-full wrap-anywhere">#{tag}</span>
                 ))}
               </div>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-1.5 ml-3 shrink-0">
+        <div className="flex items-center gap-1.5 ml-auto shrink-0">
           <span className={`text-sm font-extrabold whitespace-nowrap ${tx.type === 'income' ? 'text-emerald-600 dark:text-emerald-400' : tx.type === 'transfer' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-900 dark:text-slate-100'}`}>
             {tx.type === 'income' ? '+' : tx.type === 'transfer' ? '' : '-'}{formatCurrency(tx.amount)}
           </span>
@@ -2885,19 +2885,19 @@ function SplitGroupRow({ group, accountName, expanded, onToggle, onEdit, onDelet
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const first = group.transactions[0];
   const n = group.transactions.length;
   return (
     <SwipeToDelete onDelete={onDelete}>
       <div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 rounded-3xl select-none overflow-hidden">
-        <div className="flex items-center justify-between p-4">
-          <button type="button" onClick={onToggle} className="flex items-center gap-3.5 flex-1 min-w-0 text-left tap-highlight-none">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 p-4">
+          <button type="button" onClick={onToggle} className="flex items-center gap-3.5 flex-1 min-w-[min(100%,11rem)] text-left tap-highlight-none">
             <span className="grid place-items-center w-11 h-11 rounded-2xl bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50 text-indigo-600 dark:text-indigo-400 shrink-0">
               <SplitIcon className="w-5 h-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{first.description || `${n} categories`}</p>
+              <p className="text-sm font-bold text-slate-900 dark:text-slate-100 wrap-anywhere">{first.description || `${n} categories`}</p>
               <div className="flex items-center gap-1 mt-0.5">
                 <p className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate min-w-0">
                   <span className="text-indigo-600 dark:text-indigo-400 font-bold">{n}-way split</span>{first.account ? ` · ${accountName(first.account)}` : ''}
@@ -2906,7 +2906,7 @@ function SplitGroupRow({ group, accountName, expanded, onToggle, onEdit, onDelet
               </div>
             </div>
           </button>
-          <div className="flex items-center gap-1.5 ml-3 shrink-0">
+          <div className="flex items-center gap-1.5 ml-auto shrink-0">
             <span className="text-sm font-extrabold whitespace-nowrap text-slate-900 dark:text-slate-100">-{formatCurrency(group.total)}</span>
             <Button variant="ghost" size="icon" aria-label={t('common.edit')} className="text-slate-400 dark:text-slate-500 h-9 w-9 rounded-xl" onClick={(e) => { e.stopPropagation(); onEdit(); }}>
               <Pencil className="w-3.5 h-3.5" />

@@ -5,7 +5,7 @@ import { auth } from '@/lib/auth';
 import { after } from 'next/server';
 import { upsertNetWorthSnapshot } from '@/lib/sheets';
 import { getDashboardData, parseWriteVersion, WRITE_VERSION_COOKIE } from '@/lib/apiRoute';
-import { formatCurrency, formatDate, zonedNow, monthShort } from '@/lib/utils';
+import { formatCurrency, formatDate, zonedNow, monthShort, formatMonthsCovered } from '@/lib/utils';
 import {
   calcNetWorth, buildNetWorthSeries, calcCashFlowProjection, type NetWorthBasis, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
   calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, calcSafeToSpendDaily, calcSpendableCash, pctChange as calcPctChange,
@@ -598,21 +598,21 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         {/* Assets / Liabilities / Savings / Emergency Fund */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div className="bg-white dark:bg-slate-800 rounded-2xl border border-emerald-100 dark:border-emerald-800/50 p-4">
-            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('common.assets', lang)}</p>
+            <p className="stat-label text-slate-500 dark:text-slate-400">{t('common.assets', lang)}</p>
             <AnimatedNumber value={totalAssets} kind="currency" maxSize={18} minSize={11} className="font-display font-extrabold text-emerald-600 dark:text-emerald-400 mt-1" />
           </div>
           <div className="bg-white dark:bg-slate-800 rounded-2xl border border-rose-100 dark:border-rose-800/50 p-4">
-            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('common.liabilities', lang)}</p>
+            <p className="stat-label text-slate-500 dark:text-slate-400">{t('common.liabilities', lang)}</p>
             <AnimatedNumber value={totalDebt > 0 ? -totalDebt : 0} kind="currency" maxSize={18} minSize={11} className="font-display font-extrabold text-rose-600 dark:text-rose-400 mt-1" />
           </div>
           <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700/60 p-4">
-            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('dashboard.savings', lang)}</p>
+            <p className="stat-label text-slate-500 dark:text-slate-400">{t('dashboard.savings', lang)}</p>
             <AnimatedNumber value={totalSaved} kind="currency" maxSize={18} minSize={11} className="font-display font-extrabold text-purple-600 dark:text-purple-400 mt-1" />
           </div>
           <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700/60 p-4">
-            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('dashboard.emergency', lang)}</p>
+            <p className="stat-label text-slate-500 dark:text-slate-400">{t('dashboard.emergency', lang)}</p>
             <p className={`text-lg font-extrabold mt-1 tracking-tight ${emergencyFundMonths >= 6 ? 'text-emerald-600 dark:text-emerald-400' : emergencyFundMonths >= 3 ? 'text-indigo-600 dark:text-indigo-400' : emergencyFundMonths >= 1 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>
-              {emergencyFundMonths.toFixed(1)} <span className="text-sm font-bold text-slate-400 dark:text-slate-500">{t('charts.monthsShort', lang)}</span>
+              {formatMonthsCovered(emergencyFundMonths)} <span className="text-sm font-bold text-slate-400 dark:text-slate-500">{t('charts.monthsShort', lang)}</span>
             </p>
           </div>
         </div>
@@ -831,7 +831,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                     <Calendar className="w-4 h-4" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-bold text-amber-800 dark:text-amber-300 truncate">
+                    <p className="text-sm font-bold text-amber-800 dark:text-amber-300 wrap-anywhere">
                       {t('dashboard.staleSavingsTitle', lang, { name: staleSavings.account.name })}
                     </p>
                     <p className="text-xs font-medium text-amber-700/80 dark:text-amber-400/80 mt-0.5">
@@ -1050,7 +1050,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 }`}
               >
                 {heroStat.delta > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                {Math.abs(heroStat.delta).toFixed(0)}{t('dashboard.vsLastMonth', lang)}
+                {Math.abs(heroStat.delta) >= 1000 ? '999+' : Math.abs(heroStat.delta).toFixed(0)}{t('dashboard.vsLastMonth', lang)}
               </span>
             )}
           </div>
@@ -1072,7 +1072,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         {smallStats.map((stat) => {
           const Icon = stat.icon;
           return (
-            <Card key={stat.key} tone={stat.tone} className="col-span-1 flex flex-col">
+            <Card key={stat.key} tone={stat.tone} className="col-span-1 flex flex-col min-w-0">
               <div className="flex items-center gap-2.5 mb-2.5">
                 <CardIcon tone={stat.tone}>
                   <Icon className="w-4 h-4" />
@@ -1104,7 +1104,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                     </p>
                   )}
                   {stat.annotation && (
-                    <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-1.5 leading-snug">{stat.annotation}</p>
+                    <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-1.5 leading-snug [overflow-wrap:anywhere]">{stat.annotation}</p>
                   )}
                   {stat.spark && (
                     <div className={`mt-auto pt-3 ${stat.valueColor}`}>

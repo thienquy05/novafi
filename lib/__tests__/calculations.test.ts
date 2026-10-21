@@ -488,6 +488,11 @@ describe('pctChange', () => {
   it('current = 0, prev > 0 → -100%', () => {
     expect(pctChange(0, 100)).toBeCloseTo(-100, 4);
   });
+
+  it('keeps the real direction from a negative base', () => {
+    expect(pctChange(-150, -100)).toBeCloseTo(-50, 4); // more debt = worse
+    expect(pctChange(-50, -100)).toBeCloseTo(50, 4);   // less debt = better
+  });
 });
 
 // ── Budget ────────────────────────────────────────────────────────────────────

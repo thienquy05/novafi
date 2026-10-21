@@ -55,6 +55,10 @@ export function SwipeToDelete({
   const endOpacity = useTransform(x, [-REVEAL_W, -10, 0], [1, 0.35, 0]);
   const startScale = useTransform(x, [0, REVEAL_W / 3, REVEAL_W], [0.3, 0.6, 1]);
   const startOpacity = useTransform(x, [0, 10, REVEAL_W], [0, 0.35, 1]);
+  // The action panels stay fully transparent at rest: they sit under the row's
+  // rounded corners, where a coloured edge used to bleed through.
+  const endPanel = useTransform(x, [-6, 0], [1, 0]);
+  const startPanel = useTransform(x, [0, 6], [0, 1]);
 
   function snapOpen(side: 'left' | 'right') {
     animate(x, side === 'left' ? -REVEAL_W : REVEAL_W, { type: 'spring', stiffness: 420, damping: 38 });
@@ -90,14 +94,14 @@ export function SwipeToDelete({
   return (
     <div className={`relative ${rounded} overflow-hidden ${className}`}>
       {leading && (
-        <div className={`absolute inset-y-0 left-0 flex items-center justify-center ${TONE_BG[leading.tone]}`} style={{ width: REVEAL_W + 14 }}>
+        <motion.div className={`absolute inset-y-0 left-0 flex items-center justify-center ${TONE_BG[leading.tone]}`} style={{ width: REVEAL_W + 14, opacity: startPanel }}>
           {actionButton(leading, startScale, startOpacity, 'pl-1.5')}
-        </div>
+        </motion.div>
       )}
       {end && (
-        <div className={`absolute inset-y-0 right-0 flex items-center justify-center ${TONE_BG[end.tone]}`} style={{ width: REVEAL_W + 14 }}>
+        <motion.div className={`absolute inset-y-0 right-0 flex items-center justify-center ${TONE_BG[end.tone]}`} style={{ width: REVEAL_W + 14, opacity: endPanel }}>
           {actionButton(end, endScale, endOpacity, 'pr-1.5')}
-        </div>
+        </motion.div>
       )}
 
       <motion.div

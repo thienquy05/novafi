@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter, Plus_Jakarta_Sans } from 'next/font/google';
 import { cookies } from 'next/headers';
 import './globals.css';
@@ -29,6 +29,17 @@ export const metadata: Metadata = {
   other: {
     'mobile-web-app-capable': 'yes',
   },
+};
+
+// App-like feel: no pinch / double-tap zoom and no iOS auto-zoom when a field
+// is focused (maximumScale: 1). Note iOS Safari still allows pinch-zoom for
+// accessibility, by design. Large text is handled by rem-based layouts (audited
+// at 125% root size), not page zoom.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

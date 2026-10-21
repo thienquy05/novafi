@@ -1,4 +1,5 @@
 'use client';
+import { useTranslation } from '@/lib/i18n/context';
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { ArrowLeftRight } from 'lucide-react';
@@ -32,6 +33,7 @@ export function RecentTransactions({
   emptySub: string;
 }) {
   const reduce = useReducedMotion();
+  const { lang } = useTranslation();
   // `seen` is state (safe to read during render). Seeded with the initial rows so
   // they don't animate on first paint; the effect adds ids that appear later (e.g.
   // a just-logged transaction) and only mutates when something's new, so no loop.
@@ -76,15 +78,15 @@ export function RecentTransactions({
               transition={{ type: 'spring', stiffness: 380, damping: 30 }}
               className="flex items-center justify-between p-3.5 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors border border-transparent hover:border-slate-100 dark:hover:border-slate-700/60"
             >
-              <div className="flex items-center gap-3">
-                <CategoryIconBadge category={tx.category} type={tx.type} className="w-11 h-11 rounded-xl" />
-                <div>
-                  <p className="text-sm text-slate-900 dark:text-slate-100 font-bold">{tx.description || tx.category}</p>
-                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{tx.category} · {formatDate(tx.date)}</p>
+              <div className="flex items-center gap-3 min-w-0">
+                <CategoryIconBadge category={tx.category} type={tx.type} className="w-11 h-11 rounded-xl shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm text-slate-900 dark:text-slate-100 font-bold truncate">{tx.description || tx.category}</p>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">{tx.category} · {formatDate(tx.date, lang)}</p>
                 </div>
               </div>
               <span
-                className={`text-sm font-extrabold whitespace-nowrap ${isIncome ? 'text-emerald-600 dark:text-emerald-400' : tx.type === 'transfer' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-900 dark:text-slate-100'}`}
+                className={`text-sm font-extrabold whitespace-nowrap shrink-0 ml-3 ${isIncome ? 'text-emerald-600 dark:text-emerald-400' : tx.type === 'transfer' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-900 dark:text-slate-100'}`}
               >
                 {isIncome ? '+' : tx.type === 'transfer' ? '' : '-'}{formatCurrency(tx.amount)}
               </span>

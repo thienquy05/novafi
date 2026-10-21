@@ -85,7 +85,7 @@ function CappedList({ moreLabel, lessLabel, children }: {
 }
 
 export default function FundingPage() {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const toast = useToast();
   const router = useRouter();
   const [fundings, setFundings] = useState<Funding[]>(() => peekCache(['funding'])?.funding ?? []);
@@ -534,7 +534,7 @@ export default function FundingPage() {
     const remaining = poolRemaining(f);
     const lines: string[] = [
       `${real ? '🏦' : '📋'} ${f.description} · ${real ? 'Group Vault' : 'Group Tab'}`,
-      `📅 ${formatDate(f.date)}`,
+      `📅 ${formatDate(f.date, lang)}`,
       '',
       `💰 Pool: ${formatCurrency(f.totalContributed)} | Spent: ${formatCurrency(f.spent)} | ${remaining >= 0 ? 'Remaining' : 'Overspent'}: ${formatCurrency(Math.abs(remaining))}`,
     ];
@@ -716,7 +716,7 @@ export default function FundingPage() {
         <div className="space-y-2">
           {/* Title gets its own line (wraps to 2 lines max) — badges + date used to
               share the row and squeeze a long title down to "…" on phones. */}
-          <p className="font-bold text-slate-900 dark:text-slate-100 break-words line-clamp-2">{f.description}</p>
+          <p className="font-bold text-slate-900 dark:text-slate-100 break-words wrap-anywhere">{f.description}</p>
           <div className="flex items-center gap-2 flex-wrap min-w-0">
             <span className={`shrink-0 inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${real ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' : 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300'}`}>
               {real ? <Landmark className="w-3 h-3" /> : <Receipt className="w-3 h-3" />}
@@ -727,7 +727,7 @@ export default function FundingPage() {
                 <Archive className="w-3 h-3" />{t('funding.archivedBadge')}
               </span>
             )}
-            <span className="shrink-0 text-xs font-medium text-slate-400 dark:text-slate-500">{formatDate(f.date)}</span>
+            <span className="shrink-0 text-xs font-medium text-slate-400 dark:text-slate-500">{formatDate(f.date, lang)}</span>
           </div>
           <div className="flex items-center gap-1.5 flex-wrap">
             {!f.closed && (
@@ -768,15 +768,15 @@ export default function FundingPage() {
             narrow columns on a phone instead of overflowing the card. */}
         <div className="grid grid-cols-3 gap-2 sm:gap-3">
           <div className="min-w-0 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-3">
-            <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">{t('funding.pool')}</p>
+            <p className="stat-label text-slate-500 dark:text-slate-400">{t('funding.pool')}</p>
             <FitText maxSize={16} minSize={11} className="font-extrabold text-slate-900 dark:text-slate-100 mt-0.5">{formatCurrency(f.totalContributed)}</FitText>
           </div>
           <div className="min-w-0 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-3">
-            <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">{t('funding.spent')}</p>
+            <p className="stat-label text-slate-500 dark:text-slate-400">{t('funding.spent')}</p>
             <FitText maxSize={16} minSize={11} className="font-extrabold text-rose-600 dark:text-rose-400 mt-0.5">{formatCurrency(f.spent)}</FitText>
           </div>
           <div className={`min-w-0 rounded-2xl p-3 border ${remaining < 0 ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-100 dark:border-amber-800/40' : 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800/40'}`}>
-            <p className={`text-[11px] font-bold uppercase tracking-wider truncate ${remaining < 0 ? 'text-amber-700/80 dark:text-amber-400/80' : 'text-emerald-700/80 dark:text-emerald-400/80'}`}>{remaining < 0 ? t('funding.overspent') : real ? t('funding.balance') : t('funding.remaining')}</p>
+            <p className={`stat-label ${remaining < 0 ? 'text-amber-700/80 dark:text-amber-400/80' : 'text-emerald-700/80 dark:text-emerald-400/80'}`}>{remaining < 0 ? t('funding.overspent') : real ? t('funding.balance') : t('funding.remaining')}</p>
             <FitText maxSize={16} minSize={11} className={`font-extrabold mt-0.5 ${remaining < 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{formatCurrency(Math.abs(remaining))}</FitText>
           </div>
         </div>
@@ -863,13 +863,13 @@ export default function FundingPage() {
                   <div key={s.key} className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 px-3 py-2">
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5 mb-0.5">
-                        <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{s.description}</p>
+                        <p className="text-sm font-bold text-slate-700 dark:text-slate-200 wrap-anywhere">{s.description}</p>
                         {s.category && s.category !== 'Other' && (
                           <span className="shrink-0 text-[11px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400">{POOL_SPEND_CATEGORIES.find((c) => c.value === s.category)?.label ?? s.category}</span>
                         )}
                       </div>
                       <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
-                        {t('funding.chargedTo', { account: accountName(s.chargedAccount) })}{s.myShare > 0 ? ` · ${t('funding.yourShareOf', { amount: formatCurrency(s.myShare) })}` : ''} · {formatDate(s.date)}
+                        {t('funding.chargedTo', { account: accountName(s.chargedAccount) })}{s.myShare > 0 ? ` · ${t('funding.yourShareOf', { amount: formatCurrency(s.myShare) })}` : ''} · {formatDate(s.date, lang)}
                       </p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
@@ -905,7 +905,7 @@ export default function FundingPage() {
                     <div className="min-w-0">
                       <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{c.participant}</p>
                       <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
-                        {c.isMe ? t('funding.fromAccount', { account: accountName(c.account) }) : t('funding.cashHandedIn')} · {formatDate(c.date)}
+                        {c.isMe ? t('funding.fromAccount', { account: accountName(c.account) }) : t('funding.cashHandedIn')} · {formatDate(c.date, lang)}
                       </p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
@@ -940,7 +940,7 @@ export default function FundingPage() {
                   <div key={r.id} className="flex items-center justify-between gap-2 rounded-xl bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-800/40 px-3 py-2">
                     <div className="min-w-0">
                       <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{r.participant}</p>
-                      <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">{t('funding.paidInto', { account: accountName(r.account) })} · {formatDate(r.date)}</p>
+                      <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">{t('funding.paidInto', { account: accountName(r.account) })} · {formatDate(r.date, lang)}</p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">{formatCurrency(r.amount)}</span>
@@ -977,13 +977,13 @@ export default function FundingPage() {
                       <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                         {entry.type === 'created' ? t('funding.activityCreated') : entry.type === 'spend' ? t('funding.activitySpend') : entry.type === 'contribution' ? t('funding.activityContrib') : t('funding.activityRepay')}
                       </p>
-                      <p className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate">{entry.label}</p>
+                      <p className="text-xs font-medium text-slate-700 dark:text-slate-200 wrap-anywhere">{entry.label}</p>
                     </div>
                     <div className="text-right shrink-0">
                       <p className={`text-xs font-extrabold ${entry.type === 'spend' ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                         {entry.type === 'spend' ? '-' : '+'}{formatCurrency(entry.amount)}
                       </p>
-                      <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">{formatDate(entry.date)}</p>
+                      <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">{formatDate(entry.date, lang)}</p>
                     </div>
                   </div>
                 ))}
@@ -1006,7 +1006,7 @@ export default function FundingPage() {
         subtitle={t('funding.subtitle')}
         action={
           hasAccounts ? (
-            <Button onClick={openNew} className="flex-1 md:flex-none shadow-sm">
+            <Button onClick={openNew} className="flex-1 lg:flex-none shadow-sm">
               <Plus className="w-5 h-5" />{t('funding.newPool')}
             </Button>
           ) : undefined

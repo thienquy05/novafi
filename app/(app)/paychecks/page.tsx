@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, Trash2, DollarSign } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { FitText } from '@/components/ui/FitText';
 import { PullToRefresh } from '@/components/PullToRefresh';
 import { LoadError } from '@/components/ui/LoadError';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -45,7 +46,7 @@ export default function PaychecksPage() {
   const [loading, setLoading] = useState(() => peekCache(['paychecks', 'settings', 'accounts']) === null);
   const [saving, setSaving] = useState(false);
   const [visibleCount, setVisibleCount] = useState(PAYCHECKS_PAGE_SIZE);
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const toast = useToast();
 
   const [error, setError] = useState(false);
@@ -203,7 +204,7 @@ export default function PaychecksPage() {
         title={t('paychecks.title')}
         subtitle={t('paychecks.subtitle')}
         action={
-          <Button onClick={() => setOpen(true)} className="w-full md:w-auto shadow-sm hover:shadow-md">
+          <Button onClick={() => setOpen(true)} className="w-full lg:w-auto shadow-sm hover:shadow-md">
             <Plus className="w-5 h-5" />
             {t('paychecks.logPaycheck')}
           </Button>
@@ -218,9 +219,10 @@ export default function PaychecksPage() {
           { label: t('paychecks.ytdTaxableWages'), value: ytdWages, color: 'text-slate-900 dark:text-slate-100' },
           { label: t('paychecks.ytdTips'), value: ytdTips, color: 'text-blue-600 dark:text-blue-400' },
         ].map(({ label, value, color }) => (
-          <Card key={label}>
-            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{label}</p>
-            <p className={`text-2xl md:text-3xl font-extrabold mt-2 tracking-tight ${color}`}>{formatCurrency(value)}</p>
+          <Card key={label} className="min-w-0">
+            <p className="stat-label text-slate-500 dark:text-slate-400">{label}</p>
+            {/* FitText: large YTD totals shrink to fit the 2-column phone grid. */}
+            <FitText maxSize={30} minSize={14} className={`font-extrabold mt-2 tracking-tight ${color}`}>{formatCurrency(value)}</FitText>
           </Card>
         ))}
       </div>
@@ -237,20 +239,20 @@ export default function PaychecksPage() {
           <div className="w-16 h-16 rounded-full bg-white dark:bg-slate-800 flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100 dark:border-slate-700/60">
             <DollarSign className="w-8 h-8 text-slate-400 dark:text-slate-500" />
           </div>
-          <p className="text-slate-900 dark:text-slate-100 font-bold text-lg mb-1">No paychecks logged yet.</p>
-          <p className="text-slate-500 dark:text-slate-400 font-medium mb-6">Log your first paycheck to start tracking income.</p>
+          <p className="text-slate-900 dark:text-slate-100 font-bold text-lg mb-1">{t('paychecks.emptyTitle')}</p>
+          <p className="text-slate-500 dark:text-slate-400 font-medium mb-6">{t('paychecks.emptyBody')}</p>
           <Button onClick={() => setOpen(true)} className="shadow-sm">{t('paychecks.logPaycheck')}</Button>
         </Card>
       ) : (
         <div className="space-y-4">
           {paychecks.slice(0, visibleCount).map((p) => (
-            <div key={p.id} className="group flex flex-col md:flex-row md:items-center justify-between p-4 sm:p-6 rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 hover:shadow-sm transition-all duration-300 gap-4">
+            <div key={p.id} className="group flex flex-col lg:flex-row lg:items-center justify-between p-4 sm:p-6 rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-700 hover:shadow-sm transition-all duration-300 gap-4">
               <div className="flex items-center gap-4">
                 <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800/50 shrink-0">
                   <DollarSign className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
                 </div>
                 <div>
-                  <p className="text-base font-bold text-slate-900 dark:text-slate-100">{formatDate(p.date)}</p>
+                  <p className="text-base font-bold text-slate-900 dark:text-slate-100">{formatDate(p.date, lang)}</p>
                   {p.notes && accountName(p.notes) && (
                     <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-0.5">→ {accountName(p.notes)}</p>
                   )}
@@ -266,41 +268,41 @@ export default function PaychecksPage() {
                   )}
                 </div>
               </div>
-              <div className="grid grid-cols-2 md:flex md:items-center gap-4 md:gap-8 text-left md:text-right w-full md:w-auto">
+              <div className="grid grid-cols-2 lg:flex lg:items-center gap-4 lg:gap-8 text-left lg:text-right w-full lg:w-auto">
                 <div>
-                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Wages</p>
+                  <p className="stat-label text-slate-500 dark:text-slate-400">{t('paychecks.wagesLabel')}</p>
                   <p className="text-sm font-extrabold text-slate-700 dark:text-slate-300 mt-1">{formatCurrency(p.grossAmount)}</p>
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('paychecks.tax')}</p>
+                  <p className="stat-label text-slate-500 dark:text-slate-400">{t('paychecks.tax')}</p>
                   <p className="text-sm font-extrabold text-rose-600 dark:text-rose-400 mt-1">
                     {formatCurrency(calcPaycheckTaxToSave(p))}
                   </p>
                 </div>
                 {(p.k401 + p.hsa) > 0 && (
                   <div>
-                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">401k+HSA</p>
+                    <p className="stat-label text-slate-500 dark:text-slate-400">401k+HSA</p>
                     <p className="text-sm font-extrabold text-indigo-600 dark:text-indigo-400 mt-1 whitespace-nowrap">-{formatCurrency(p.k401 + p.hsa)}</p>
                   </div>
                 )}
                 {(p.gratuityAmount ?? 0) > 0 && (
                   <div>
-                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Tips</p>
+                    <p className="stat-label text-slate-500 dark:text-slate-400">{t('paychecks.tipsLabel')}</p>
                     <p className="text-sm font-extrabold text-sky-600 dark:text-sky-400 mt-1 whitespace-nowrap">+{formatCurrency(p.gratuityAmount)}</p>
                   </div>
                 )}
-                <div className="flex flex-row md:flex-col justify-between md:justify-end items-center md:items-end col-span-2 md:col-span-1 border-t border-slate-100 dark:border-slate-700/60 md:border-t-0 pt-4 md:pt-0 mt-2 md:mt-0">
-                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider md:block hidden">
+                <div className="flex flex-row lg:flex-col justify-between lg:justify-end items-center lg:items-end col-span-2 lg:col-span-1 border-t border-slate-100 dark:border-slate-700/60 lg:border-t-0 pt-4 lg:pt-0 mt-2 lg:mt-0">
+                  <p className="stat-label text-slate-500 dark:text-slate-400 lg:block hidden">
                     {t('paychecks.deposited')}
                   </p>
-                  <p className="text-xl font-extrabold text-emerald-600 dark:text-emerald-400 md:mt-1">
+                  <p className="text-xl font-extrabold text-emerald-600 dark:text-emerald-400 lg:mt-1">
                     {formatCurrency(calcPaycheckDeposited(p))}
                   </p>
                   <Button
                     variant="ghost"
                     size="icon"
                     aria-label={t('common.delete')}
-                    className="text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 md:ml-4 h-10 w-10 rounded-xl"
+                    className="text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 lg:ml-4 h-10 w-10 rounded-xl"
                     onClick={() => handleDelete(p.id)}
                   >
                     <Trash2 className="w-4 h-4" />

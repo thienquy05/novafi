@@ -45,7 +45,7 @@ export function ExpandableCard({
         )}
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <span className="truncate">{title}</span>
+            <span className="wrap-anywhere">{title}</span>
             {badge}
           </p>
           {subtitle && <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>}

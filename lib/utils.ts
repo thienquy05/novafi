@@ -228,3 +228,11 @@ export function parseTagInput(input: string): string[] {
   }
   return out;
 }
+
+/** Months of expenses covered, for display: one decimal, capped at "99+" (a
+ *  huge balance against tiny spending produced e.g. "33604.3 mo", which broke
+ *  narrow cards). Non-finite → "99+" too (no spending yet). */
+export function formatMonthsCovered(months: number): string {
+  if (!Number.isFinite(months) || months >= 99.95) return '99+';
+  return Math.max(0, months).toFixed(1);
+}
