@@ -1,17 +1,18 @@
 import { cookies } from 'next/headers';
 import { auth } from '@/lib/auth';
-import { appendNetWorthSnapshot } from '@/lib/sheets';
+import { after } from 'next/server';
+import { upsertNetWorthSnapshot } from '@/lib/sheets';
 import { getDashboardData, parseWriteVersion, WRITE_VERSION_COOKIE } from '@/lib/apiRoute';
 import { formatCurrency, formatDate, zonedNow, monthShort } from '@/lib/utils';
 import {
-  calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
+  calcNetWorth, buildNetWorthSeries, calcCashFlowProjection, type NetWorthBasis, calcTotalAssets, calcTotalDebt, calcLiquidSavings,
   calcMonthIncome, calcMonthExpense, calcSavingsRate, calcSafeToSpend, calcSafeToSpendDaily, calcSpendableCash, pctChange as calcPctChange,
   normalizeMonthlyBudget, calcAvgMonthlyExpense, calcEmergencyFundMonths, calcProjectedSpend,
   calcSavingsRateScore, calcEmergencyScore, calcBudgetScore,
   calcDebtToIncomeScore, calcDebtToIncomeRatio,
   calcNetWorthTrendScore, calcAvgMomPct,
   calcSpendingVolatilityScore, calcCoefficientOfVariation,
-  calcNetWorthProjection, myBillShare, calcRolloverDeficit, calcLongestUntouchedSavings, calcPredictionReadiness,
+  myBillShare, calcRolloverDeficit, calcLongestUntouchedSavings, calcPredictionReadiness,
   buildCreditReport, CREDIT_UTIL_TARGET, CREDIT_UTIL_IDEAL, composeHealthScore, daysUntilStatement,
   calcFundingHeldByAccount,
 } from '@/lib/calculations';
@@ -33,6 +34,13 @@ import { t } from '@/lib/i18n';
 import type { Language } from '@/types';
 
 export const dynamic = 'force-dynamic';
+
+// Last snapshot written per sheet+month on this instance. The cached dashboard
+// payload still holds the pre-write row until it expires, so without this every
+// render in that window would rewrite the same value.
+const savedSnapshots = new Map<string, string>();
+const snapshotSignature = (s: { netWorth: number; total?: number | null; liquid?: number | null; creditUtil?: number | null }) =>
+  [s.netWorth, s.total ?? '', s.liquid ?? '', s.creditUtil ?? ''].join('|');
 
 // Credit-utilization status → bar/text colors (literal Tailwind classes, v4).
 const CREDIT_STATUS_BAR: Record<string, string> = {
@@ -102,10 +110,13 @@ export default async function DashboardPage() {
   // savings) so a pool only ever shows up as money flow, never as net worth.
   const fundingHeldByAccount = calcFundingHeldByAccount(transactions);
   const fundingHeld = Object.values(fundingHeldByAccount).reduce((s, n) => s + n, 0);
-  const traditionalNetWorth = calcTraditionalNetWorth(accounts) - fundingHeld;
-  const liquidNetWorth = calcLiquidNetWorth(accounts) - fundingHeld;
+  // One definition (calcNetWorth) for the hero, the trend chart, the forecast and
+  // the Accounts page; both bases are kept so a saved snapshot never mixes them.
   const excludeLoans = settings.excludeLoansFromNetWorth;
-  const netWorth = excludeLoans ? liquidNetWorth : traditionalNetWorth;
+  const basis: NetWorthBasis = excludeLoans ? 'liquid' : 'total';
+  const totalNetWorth = calcNetWorth(accounts, transactions, 'total');
+  const liquidNetWorth = calcNetWorth(accounts, transactions, 'liquid');
+  const netWorth = basis === 'liquid' ? liquidNetWorth : totalNetWorth;
   const totalAssets = calcTotalAssets(accounts) - fundingHeld;
   const totalDebt = calcTotalDebt(accounts);
   const totalLoanDebt = accounts.filter((a) => a.type === 'loan' && a.balance > 0).reduce((s, a) => s + a.balance, 0);
@@ -128,47 +139,54 @@ export default async function DashboardPage() {
     .filter((c) => c.util !== null)
     .sort((a, b) => (b.util! - a.util!));
 
-  // Net worth snapshot
+  // Net worth snapshot — this month's row is kept current (upserted after the
+  // response is sent, via after(), so a slow Sheets write never delays the page
+  // and isn't cut off when the serverless function freezes). Only written when
+  // the value actually changed.
   const currentMonthKey = thisMonth;
-  const alreadySnapped = netWorthHistory.some((s) => s.month === currentMonthKey);
-  if (!alreadySnapped) {
-    appendNetWorthSnapshot(session.accessToken, session.spreadsheetId, {
-      id: `nw_${currentMonthKey}`,
-      date: now.toISOString().split('T')[0],
-      month: currentMonthKey,
-      netWorth,
-      creditUtil: creditReport.overallUtil, // Smart Credit Report trend
-    }).catch(() => {});
+  const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const snapshot = {
+    id: `nw_${currentMonthKey}`,
+    date: todayIso,
+    month: currentMonthKey,
+    netWorth,
+    creditUtil: creditReport.overallUtil, // Smart Credit Report trend
+    total: totalNetWorth,
+    liquid: liquidNetWorth,
+  };
+  const storedSnapshot = netWorthHistory.filter((s) => s.month === currentMonthKey).at(-1);
+  const sig = snapshotSignature(snapshot);
+  const savedKey = `${session.spreadsheetId}:${currentMonthKey}`;
+  if ((!storedSnapshot || snapshotSignature(storedSnapshot) !== sig) && savedSnapshots.get(savedKey) !== sig) {
+    savedSnapshots.set(savedKey, sig);
+    const { accessToken, spreadsheetId } = session;
+    after(() => upsertNetWorthSnapshot(accessToken, spreadsheetId, snapshot).catch(() => { savedSnapshots.delete(savedKey); }));
   }
 
-  // Credit-utilization trend: monthly snapshots that carry a utilization value,
-  // plus this month's live value appended (so the sparkline ends at "now").
+  // Credit-utilization trend: saved monthly values for past months, ending with
+  // this month's live value.
   const utilTrend = (() => {
     const pts = [...netWorthHistory]
+      .filter((s) => s.month !== currentMonthKey && typeof s.creditUtil === 'number')
       .sort((a, b) => a.month.localeCompare(b.month))
-      .filter((s) => typeof s.creditUtil === 'number')
       .map((s) => s.creditUtil as number);
-    if (creditReport.overallUtil !== null && !netWorthHistory.some((s) => s.month === currentMonthKey && typeof s.creditUtil === 'number')) {
-      pts.push(creditReport.overallUtil);
-    }
+    if (creditReport.overallUtil !== null) pts.push(creditReport.overallUtil);
     return pts.slice(-6);
   })();
 
-  // Build chart-ready net worth series. Snapshots are deduped by month (keeping
-  // the latest write) so a race between concurrent dashboard loads appending
-  // the same month twice can't show that month's label more than once.
-  const latestPerMonth = new Map<string, typeof netWorthHistory[number]>();
-  for (const s of netWorthHistory) latestPerMonth.set(s.month, s);
-  const netWorthPoints: NetWorthPoint[] = [...latestPerMonth.values()]
-    .sort((a, b) => a.month.localeCompare(b.month))
-    .map((s) => {
-      const [yr, mo] = s.month.split('-');
-      return {
-        month: s.month,
-        label: `${monthShort(Number(mo) - 1, lang)} '${yr.slice(2)}`,
-        netWorth: s.netWorth,
-      };
-    });
+  // Month-by-month net worth ending at today's live value (saved months are
+  // 'actual', gaps are 'estimated' from transactions) — see buildNetWorthSeries.
+  const netWorthPoints: NetWorthPoint[] = buildNetWorthSeries({
+    liveNetWorth: netWorth,
+    transactions,
+    accounts,
+    snapshots: netWorthHistory,
+    basis,
+    now,
+  }).map((p) => {
+    const [yr, mo] = p.month.split('-');
+    return { month: p.month, label: `${monthShort(Number(mo) - 1, lang)} '${yr.slice(2)}`, netWorth: p.netWorth, kind: p.kind };
+  });
 
   const prevNetWorth = netWorthPoints.length >= 2 ? netWorthPoints[netWorthPoints.length - 2].netWorth : null;
 
@@ -273,15 +291,22 @@ export default async function DashboardPage() {
   const staleSavings = calcLongestUntouchedSavings(accounts, transactions, now);
   const showStaleSavings = staleSavings !== null && staleSavings.daysSince >= 45;
 
-  // Net worth projection (6 months forward based on avg MoM rate)
-  const projectedValues = calcNetWorthProjection(netWorthPoints, 6);
-  const netWorthProjection = projectedValues.map((projected, i) => {
+  // Net worth forecast — cash-flow model (today + typical monthly net flow, loan
+  // paydown on the liquid basis). See calcCashFlowProjection.
+  const forecast = calcCashFlowProjection({ liveNetWorth: netWorth, transactions, accounts, basis, now });
+  const netWorthProjection = (forecast?.values ?? []).map((projected, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() + i + 1, 1);
     return {
       label: `${monthShort(d.getMonth(), lang)} '${String(d.getFullYear()).slice(2)}`,
       projected,
     };
   });
+  const forecastAssumption = forecast
+    ? t('charts.projectedAssumption', lang, {
+        amount: `${forecast.monthlyChange >= 0 ? '+' : '−'}${formatCurrency(Math.abs(forecast.monthlyChange))}`,
+        n: forecast.basedOnMonths,
+      })
+    : undefined;
 
   // Total spend this month for category %. Includes every category's rolled-over
   // deficit so each category's "% of spend" share is measured against the same
@@ -309,7 +334,7 @@ export default async function DashboardPage() {
   const avgMonthlyIncome = calcAvgMonthlyExpense(last3MonthsIncome); // reuse arithmetic mean helper
   const dti = calcDebtToIncomeRatio(totalDebt, avgMonthlyIncome);
 
-  // Net worth trend: avg MoM % across last up-to-4 snapshots
+  // Net worth trend: avg MoM % across the last up-to-4 months of the series
   const recentNetWorth = netWorthPoints.slice(-4).map((p) => p.netWorth);
   const netWorthTrendPct = calcAvgMomPct(recentNetWorth);
 
@@ -351,7 +376,7 @@ export default async function DashboardPage() {
   // MoM delta (net worth hero)
   const netWorthDelta = prevNetWorth !== null ? calcPctChange(netWorth, prevNetWorth) : null;
 
-  // ── Sparkline trend: last 6 net-worth snapshots (hero) ────────────────────
+  // ── Sparkline trend: last 6 months of the net-worth series (hero) ─────────
   const netWorthSpark = netWorthPoints.slice(-6).map((p) => p.netWorth);
 
   // ── Calendar: per-day spend, income, and bills due this month ─────────────
@@ -369,7 +394,6 @@ export default async function DashboardPage() {
     if (!b.nextDue.startsWith(thisMonth)) continue;
     (dailyBills[b.nextDue] ??= []).push({ name: b.name, amount: myBillShare(b) });
   }
-  const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const heatmapDays = Array.from({ length: daysInMonth }, (_, i) => {
     const date = `${thisMonth}-${String(i + 1).padStart(2, '0')}`;
     return { date, total: dailySpend[date] ?? 0, income: dailyIncome[date] ?? 0, bills: dailyBills[date] ?? [] };
@@ -775,12 +799,16 @@ export default async function DashboardPage() {
             </div>
             <div>
               <CardTitle>{t('dashboard.netWorthTrend', lang)}</CardTitle>
-              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('dashboard.monthlySnapshot', lang)}</p>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t(basis === 'liquid' ? 'dashboard.netWorthSubLiquid' : 'dashboard.netWorthSubTotal', lang)}</p>
             </div>
           </div>
         </CardHeader>
         <div className="mt-2">
-          <NetWorthTrendChart data={netWorthPoints} projection={readiness.ready && netWorthProjection.length > 0 ? netWorthProjection : undefined} />
+          <NetWorthTrendChart
+            data={netWorthPoints}
+            projection={readiness.ready && netWorthProjection.length > 0 ? netWorthProjection : undefined}
+            assumption={forecastAssumption}
+          />
         </div>
       </Card>
 

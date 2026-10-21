@@ -29,7 +29,7 @@ export type CategoryData = { name: string; value: number };
 export type MonthlyData = { month: string; income: number; expenses: number; net?: number };
 export type BudgetData = { category: string; budget: number; spent: number; prevMonthSpent?: number; rolledOver?: number };
 export type GoalData = { id: string; name: string; icon: string; current: number; target: number; deadline: string };
-export type NetWorthPoint = { month: string; label: string; netWorth: number };
+export type NetWorthPoint = { month: string; label: string; netWorth: number; kind: 'actual' | 'estimated' | 'live' };
 export type HealthScoreData = {
   score: number;
   savingsRate: number;

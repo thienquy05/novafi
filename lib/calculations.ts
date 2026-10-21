@@ -1,6 +1,6 @@
 import type {
   Account, Transaction, Bill, Budget, Loan, Split, Goal, PaycheckEntry, TaxSettings,
-  BudgetBucket, CategoryBucketMap,
+  BudgetBucket, CategoryBucketMap, NetWorthSnapshot,
 } from '@/types';
 import { BUDGET_BUCKETS, DEFAULT_CATEGORY_BUCKETS, DEFAULT_BUCKET_TARGETS } from '@/types';
 
@@ -66,6 +66,184 @@ export function calcFundingHeldByAccount(transactions: Transaction[]): Record<st
 
 export function calcFundingHeld(transactions: Transaction[]): number {
   return Object.values(calcFundingHeldByAccount(transactions)).reduce((s, n) => s + n, 0);
+}
+
+// ── Net worth: one definition, history and forecast ──────────────────────────
+// 'total' = every account (loans count as debt); 'liquid' = the "exclude loans"
+// setting. Both net out cash held for others in funding pools.
+export type NetWorthBasis = 'total' | 'liquid';
+
+/** The headline net worth. Home (hero, chart, forecast) and Accounts all use this. */
+export function calcNetWorth(accounts: Account[], transactions: Transaction[], basis: NetWorthBasis): number {
+  const raw = basis === 'liquid' ? calcLiquidNetWorth(accounts) : calcTraditionalNetWorth(accounts);
+  return roundCents(raw - calcFundingHeld(transactions));
+}
+
+/**
+ * How one ledger row moves net worth. Income/expense move it on both bases.
+ * Transfers are internal (checking → card, checking → savings) EXCEPT on the
+ * liquid basis, where loans are invisible: paying principal into a loan account
+ * lowers liquid net worth, and money drawn out of a loan raises it. (Loan
+ * payments are an interest `expense` + a principal `transfer` — lib/loanPayments.)
+ */
+function netWorthEffect(tx: Transaction, loanIds: Set<string>, basis: NetWorthBasis): number {
+  if (tx.type === 'income') return tx.amount;
+  if (tx.type === 'expense') return -tx.amount;
+  if (basis === 'liquid' && tx.type === 'transfer') {
+    const intoLoan = !!tx.toAccount && loanIds.has(tx.toAccount);
+    const fromLoan = !!tx.account && loanIds.has(tx.account);
+    if (intoLoan && !fromLoan) return -tx.amount;
+    if (fromLoan && !intoLoan) return tx.amount;
+  }
+  return 0;
+}
+
+function loanIdSet(accounts: Account[]): Set<string> {
+  return new Set(accounts.filter((a) => a.type === 'loan').map((a) => a.id));
+}
+
+/** Net-worth change per YYYY-MM caused by recorded transactions. */
+export function calcMonthlyNetWorthFlows(
+  transactions: Transaction[],
+  accounts: Account[],
+  basis: NetWorthBasis,
+): Map<string, number> {
+  const loanIds = loanIdSet(accounts);
+  const flows = new Map<string, number>();
+  for (const tx of transactions) {
+    if (!tx.date) continue;
+    const effect = netWorthEffect(tx, loanIds, basis);
+    if (effect === 0) continue;
+    const key = tx.date.slice(0, 7);
+    flows.set(key, (flows.get(key) ?? 0) + effect);
+  }
+  return flows;
+}
+
+function shiftMonthKey(key: string, delta: number): string {
+  const [y, m] = key.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function monthKeyOf(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** A saved snapshot's value on `basis`. Rows saved before both values were stored
+ *  only carry the headline figure, which is assumed to be on the current basis. */
+export function snapshotValue(s: NetWorthSnapshot, basis: NetWorthBasis): number {
+  const v = basis === 'liquid' ? s.liquid : s.total;
+  return typeof v === 'number' ? v : s.netWorth;
+}
+
+export type NetWorthPointKind = 'actual' | 'estimated' | 'live';
+export type NetWorthSeriesPoint = { month: string; netWorth: number; kind: NetWorthPointKind };
+
+/**
+ * Month-by-month net worth ending at TODAY's live value (so the chart always
+ * agrees with the headline). A month with a saved snapshot is 'actual'; a month
+ * without one is 'estimated' by walking recorded transactions back from the next
+ * known point. Estimates can't see manual balance edits or investment price moves,
+ * which is why each walk re-anchors on the nearest real snapshot.
+ */
+export function buildNetWorthSeries(opts: {
+  liveNetWorth: number;
+  transactions: Transaction[];
+  accounts: Account[];
+  snapshots: NetWorthSnapshot[];
+  basis: NetWorthBasis;
+  now: Date;
+  monthsBack?: number;
+}): NetWorthSeriesPoint[] {
+  const { liveNetWorth, transactions, accounts, snapshots, basis, now, monthsBack = 12 } = opts;
+  const current = monthKeyOf(now);
+  const byMonth = new Map<string, NetWorthSnapshot>();
+  for (const s of snapshots) if (s.month) byMonth.set(s.month, s); // later rows win (dup appends)
+
+  let earliest = current;
+  for (const tx of transactions) if (tx.date && tx.date.slice(0, 7) < earliest) earliest = tx.date.slice(0, 7);
+  for (const m of byMonth.keys()) if (m < earliest) earliest = m;
+  const oldestShown = shiftMonthKey(current, -(monthsBack - 1));
+  const start = earliest > oldestShown ? earliest : oldestShown;
+
+  const flows = calcMonthlyNetWorthFlows(transactions, accounts, basis);
+  const points: NetWorthSeriesPoint[] = [{ month: current, netWorth: roundCents(liveNetWorth), kind: 'live' }];
+  let running = liveNetWorth;
+  for (let m = shiftMonthKey(current, -1); m >= start; m = shiftMonthKey(m, -1)) {
+    // Net worth at the end of m = (end of m+1) − what m+1's transactions changed.
+    running -= flows.get(shiftMonthKey(m, 1)) ?? 0;
+    const snap = byMonth.get(m);
+    if (snap) {
+      running = snapshotValue(snap, basis);
+      points.push({ month: m, netWorth: roundCents(running), kind: 'actual' });
+    } else {
+      points.push({ month: m, netWorth: roundCents(running), kind: 'estimated' });
+    }
+  }
+  return points.reverse();
+}
+
+export type NetWorthForecast = {
+  /** Projected net worth at the end of each of the next N months. */
+  values: number[];
+  /** Typical monthly change before any loan payoff cap. */
+  monthlyChange: number;
+  /** Complete months of activity the average is built from. */
+  basedOnMonths: number;
+};
+
+/**
+ * Cash-flow forecast: today's net worth plus your typical monthly net flow
+ * (income − expenses, averaged over recent complete months that had activity).
+ * On the liquid basis the average principal you pay into loans is also deducted,
+ * but only until the loans are paid off. Linear in dollars, so it behaves the same
+ * whether net worth is positive, tiny or negative — unlike the old compounding of
+ * an average % change. Returns null with fewer than 2 active months.
+ */
+export function calcCashFlowProjection(opts: {
+  liveNetWorth: number;
+  transactions: Transaction[];
+  accounts: Account[];
+  basis: NetWorthBasis;
+  now: Date;
+  months?: number;
+  windowMonths?: number;
+}): NetWorthForecast | null {
+  const { liveNetWorth, transactions, accounts, basis, now, months = 6, windowMonths = 6 } = opts;
+  const current = monthKeyOf(now);
+  const window = new Set(Array.from({ length: windowMonths }, (_, i) => shiftMonthKey(current, -(i + 1))));
+  const loanIds = loanIdSet(accounts);
+
+  const savings = new Map<string, number>();   // income − expense
+  const principal = new Map<string, number>(); // net paid into loans (liquid basis only)
+  for (const tx of transactions) {
+    const m = tx.date?.slice(0, 7);
+    if (!m || !window.has(m)) continue;
+    if (tx.type === 'income' || tx.type === 'expense') {
+      savings.set(m, (savings.get(m) ?? 0) + netWorthEffect(tx, loanIds, 'total'));
+    } else if (basis === 'liquid') {
+      const effect = netWorthEffect(tx, loanIds, 'liquid');
+      if (effect !== 0) principal.set(m, (principal.get(m) ?? 0) - effect);
+    }
+  }
+  const active = [...savings.keys()];
+  if (active.length < 2) return null;
+  const avgSavings = active.reduce((s, m) => s + (savings.get(m) ?? 0), 0) / active.length;
+  const avgPrincipal = Math.max(0, active.reduce((s, m) => s + (principal.get(m) ?? 0), 0) / active.length);
+
+  let remainingLoans = basis === 'liquid'
+    ? accounts.filter((a) => a.type === 'loan' && a.balance > 0).reduce((s, a) => s + a.balance, 0)
+    : 0;
+  let value = liveNetWorth;
+  const values: number[] = [];
+  for (let i = 0; i < months; i++) {
+    const paid = Math.min(avgPrincipal, remainingLoans);
+    remainingLoans -= paid;
+    value += avgSavings - paid;
+    values.push(roundCents(value));
+  }
+  return { values, monthlyChange: roundCents(avgSavings - (basis === 'liquid' ? avgPrincipal : 0)), basedOnMonths: active.length };
 }
 
 // ── Cash Flow ─────────────────────────────────────────────────────────────────
@@ -2411,23 +2589,6 @@ export function evaluatePaymentSafety(input: {
     projectedBalance < threshold ? 'belowBuffer' :
     'ok';
   return { account, kind: 'deposit', amount: pay, upcomingTotal, balanceAfterPayment, projectedBalance, threshold, shortfall, status };
-}
-
-// ── Net Worth Projection ──────────────────────────────────────────────────────
-// Extends historical net worth series N months forward using avg MoM growth rate.
-// Each projected point = previous × (1 + avgMoMRate).
-export function calcNetWorthProjection(
-  history: { netWorth: number }[],
-  months: number,
-): number[] {
-  if (history.length < 2) return [];
-  const avgMoM = calcAvgMomPct(history.map((h) => h.netWorth));
-  if (avgMoM === null) return [];
-  const rate = avgMoM / 100;
-  const last = history[history.length - 1].netWorth;
-  return Array.from({ length: months }, (_, i) => {
-    return last * Math.pow(1 + rate, i + 1);
-  });
 }
 
 // ── Paycheck Tax To Set Aside ─────────────────────────────────────────────────

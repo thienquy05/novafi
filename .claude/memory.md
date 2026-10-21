@@ -10,6 +10,25 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-10-21 — Net worth + predicted net worth rework (branch claude/novafi-ux-perf-networth)
+
+Plan Section 2. Chart keeps its look; behaviour and labels changed.
+
+- WHAT: `calcNetWorth(accounts, transactions, basis)` in `lib/calculations.ts` ('total' | 'liquid' = "exclude loans", both minus funding held for others) — used by the dashboard hero/chart/forecast and the Accounts page. WHY: the two pages each re-derived the formula.
+- WHAT: `buildNetWorthSeries()` — month-by-month series that ENDS AT TODAY'S LIVE VALUE; months with a saved snapshot are `actual`, gaps are `estimated` by walking recorded transactions back (re-anchoring on each real snapshot); capped at 12 months. WHY: history only existed for months the dashboard was opened, the last point was frozen at the first visit of the month, so chart ≠ hero, and new users saw "come back next month".
+- WHAT: `calcCashFlowProjection()` replaces `calcNetWorthProjection` (deleted). Forecast = live net worth + average monthly (income − expense) over the last ≤6 complete active months; on the liquid basis also minus average loan principal, capped at the remaining loan balance. Linear in dollars. WHY: the old model compounded the average % change of snapshots — exploded on small bases, made negative net worth project MORE negative when improving, treated snapshot gaps as one month, and ignored real cash flow.
+- WHAT: loan math follows `lib/loanPayments.ts` (interest = expense, principal = transfer into the loan): transfers are neutral on 'total', principal into/out of loan accounts moves 'liquid'.
+- WHAT: NetWorthHistory gains columns F `total`, G `liquid` (range `A2:G`, header relabelled on append); `NetWorthSnapshot.total/liquid` optional. `snapshotValue()` picks the current basis; legacy rows fall back to `netWorth`. WHY: flipping "exclude loans" used to mix definitions in one series → fake jumps fed the forecast.
+- WHAT: `upsertNetWorthSnapshot` replaces `appendNetWorthSnapshot` — updates the month's `nw_<YYYY-MM>` row in place (append only for a new month; dropped the 1000-row prune read). Dashboard writes it via `after()` only when the value changed, deduped per instance (`savedSnapshots`). WHY: fire-and-forget during render could be cut off on Vercel; frozen value.
+- WHAT: snapshot date uses local fields (`todayIso`) instead of `now.toISOString()`. WHY: `zonedNow()` shifts local fields; toISOString converted back to UTC → wrong day for zones ahead of UTC.
+- WHAT: chart (`DashboardRecharts.tsx` NetWorthTrendChart): forecast's dashed line now starts AT today's point (old join gave the first future month the last actual value, drawing the actual line into the future); tooltip says Saved month-end / Estimated / Today / Projected; estimated months have hollow dots + note; one-line assumption ("Projection: +$X/mo, your average over the last N months"); subtitle says Total vs Liquid; aria-label includes the projected end value.
+- WHAT: credit-utilization sparkline = past saved months + today's live value. Health-score trend and hero MoM badge use the new series.
+- i18n: `charts.nwActual/nwEstimated/nwToday/nwEstimatedNote/projectedAssumption`, `dashboard.netWorthSubTotal/netWorthSubLiquid` (en + vi).
+- Tests: calcNetWorth, flows (total vs liquid), series (estimates, re-anchoring, negative, cap, basis), forecast (min months, negative base, partial month ignored, loan payoff cap), calcAvgMomPct, parseNetWorthRows F/G.
+- Known limit: estimated months can't see manual balance edits or investment price changes (labelled as estimates). Legacy snapshot rows are assumed to be on the current basis.
+
+---
+
 ## 2026-10-21 — Speed + platform-wide data sync (branch claude/novafi-ux-perf-networth)
 
 Plan: `~/.claude/plans/dapper-tinkering-book.md` (Claude + Codex reviewed, user-approved). This entry = plan Sections 1 + 6.

@@ -62,13 +62,19 @@ describe('parseSettingsRows', () => {
 describe('parseNetWorthRows', () => {
   it('maps rows to NetWorthSnapshot[] (legacy 4-col → creditUtil null)', () => {
     expect(parseNetWorthRows([['nw1', '2026-01-31', '2026-01', '1000.5']])).toEqual([
-      { id: 'nw1', date: '2026-01-31', month: '2026-01', netWorth: 1000.5, creditUtil: null },
+      { id: 'nw1', date: '2026-01-31', month: '2026-01', netWorth: 1000.5, creditUtil: null, total: null, liquid: null },
     ]);
   });
 
   it('reads the optional creditUtil column (E)', () => {
     expect(parseNetWorthRows([['nw2', '2026-02-28', '2026-02', '2000', '27']])).toEqual([
-      { id: 'nw2', date: '2026-02-28', month: '2026-02', netWorth: 2000, creditUtil: 27 },
+      { id: 'nw2', date: '2026-02-28', month: '2026-02', netWorth: 2000, creditUtil: 27, total: null, liquid: null },
+    ]);
+  });
+
+  it('reads the total (F) and liquid (G) columns', () => {
+    expect(parseNetWorthRows([['nw3', '2026-03-31', '2026-03', '-500', '', '-500', '1500']])).toEqual([
+      { id: 'nw3', date: '2026-03-31', month: '2026-03', netWorth: -500, creditUtil: null, total: -500, liquid: 1500 },
     ]);
   });
 

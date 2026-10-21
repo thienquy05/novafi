@@ -387,6 +387,10 @@ export interface NetWorthSnapshot {
   // Overall credit utilization % captured the same month (Smart Credit Report
   // trend). null/absent when no card had a limit set at snapshot time.
   creditUtil?: number | null;
+  // Both definitions, so flipping "exclude loans" never mixes them in one chart.
+  // Absent on rows saved before Oct 2026 (only `netWorth` was stored).
+  total?: number | null;
+  liquid?: number | null;
 }
 
 // A manually-tracked recurring subscription (Netflix, Spotify, etc.).

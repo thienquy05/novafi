@@ -14,7 +14,8 @@ import {
   reverseExpenseBalance, reverseIncomeBalance, reverseTransferFromBalance, reverseTransferToBalance,
   billToTransactionDefaults, calcSplitShares, calcLoanRemaining, myBillShare, billOthersShare, defaultBillPaymentAmount,
   calcOverdueBills, calcOverBudget,
-  calcNetWorthProjection, calcPaycheckTaxToSave, calcLongestUntouchedSavings,
+  calcNetWorth, calcMonthlyNetWorthFlows, buildNetWorthSeries, calcCashFlowProjection, snapshotValue,
+  calcPaycheckTaxToSave, calcLongestUntouchedSavings,
   calcLoanPayoff, calcLoanExtraPaymentImpact, calcLoanPaymentSplit,
   calcActivityMonths, calcPredictionReadiness,
   calcPaycheckDeposited,
@@ -1338,32 +1339,136 @@ describe('calcSpendingPace', () => {
   });
 });
 
-// ── Net Worth Projection ──────────────────────────────────────────────────────
+// ── Net worth: definition, history series, cash-flow forecast ────────────────
 
-describe('calcNetWorthProjection', () => {
-  it('returns empty array when fewer than 2 data points', () => {
-    expect(calcNetWorthProjection([], 6)).toEqual([]);
-    expect(calcNetWorthProjection([{ netWorth: 10000 }], 6)).toEqual([]);
+describe('calcNetWorth', () => {
+  it('total counts loans as debt; liquid ignores them; both net out funding held for others', () => {
+    const fundingIn = makeTx({ type: 'transfer', category: 'Funding', account: '', toAccount: 'chk', amount: 300 });
+    expect(calcNetWorth(MIXED_ACCOUNTS, [], 'total')).toBe(5000 + 10000 - 2000 - 20000);
+    expect(calcNetWorth(MIXED_ACCOUNTS, [], 'liquid')).toBe(5000 + 10000 - 2000);
+    expect(calcNetWorth(MIXED_ACCOUNTS, [fundingIn], 'liquid')).toBe(5000 + 10000 - 2000 - 300);
+  });
+});
+
+describe('calcMonthlyNetWorthFlows', () => {
+  const accounts = [makeAccount({ id: 'chk', type: 'checking' }), makeAccount({ id: 'lon', type: 'loan', balance: 1000 })];
+  const txs = [
+    makeTx({ type: 'income', amount: 1000, date: '2026-03-01', account: 'chk' }),
+    makeTx({ type: 'expense', amount: 400, date: '2026-03-05', account: 'chk' }),
+    // loan payment = interest expense + principal transfer into the loan
+    makeTx({ type: 'expense', amount: 10, date: '2026-03-10', account: 'chk', category: 'Loan' }),
+    makeTx({ type: 'transfer', amount: 90, date: '2026-03-10', account: 'chk', toAccount: 'lon', category: 'Loan' }),
+    makeTx({ type: 'transfer', amount: 50, date: '2026-03-12', account: 'chk', toAccount: 'sav' }),
+  ];
+
+  it('total basis: income − expense; transfers are internal', () => {
+    expect(calcMonthlyNetWorthFlows(txs, accounts, 'total').get('2026-03')).toBe(1000 - 400 - 10);
   });
 
-  it('projects correct number of months', () => {
-    const history = [{ netWorth: 10000 }, { netWorth: 11000 }];
-    expect(calcNetWorthProjection(history, 6)).toHaveLength(6);
-    expect(calcNetWorthProjection(history, 3)).toHaveLength(3);
+  it('liquid basis: principal paid into a loan also leaves liquid net worth', () => {
+    expect(calcMonthlyNetWorthFlows(txs, accounts, 'liquid').get('2026-03')).toBe(1000 - 400 - 10 - 90);
+  });
+});
+
+describe('buildNetWorthSeries', () => {
+  const accounts = [makeAccount({ id: 'chk', type: 'checking', balance: 1500 })];
+  const now = new Date(2026, 5, 15); // Jun 2026
+
+  it('ends at today\'s live value and estimates earlier months by walking transactions back', () => {
+    const txs = [
+      makeTx({ type: 'income', amount: 1000, date: '2026-04-02' }),
+      makeTx({ type: 'expense', amount: 200, date: '2026-05-03' }),
+      makeTx({ type: 'income', amount: 700, date: '2026-06-01' }),
+    ];
+    const series = buildNetWorthSeries({ liveNetWorth: 1500, transactions: txs, accounts, snapshots: [], basis: 'total', now });
+    expect(series).toEqual([
+      { month: '2026-04', netWorth: 1000, kind: 'estimated' }, // 1500 − 700 − (−200)
+      { month: '2026-05', netWorth: 800, kind: 'estimated' },  // 1500 − 700
+      { month: '2026-06', netWorth: 1500, kind: 'live' },
+    ]);
   });
 
-  it('flat history (0% MoM) → constant projection', () => {
-    const history = [{ netWorth: 10000 }, { netWorth: 10000 }, { netWorth: 10000 }];
-    const proj = calcNetWorthProjection(history, 3);
-    expect(proj[0]).toBeCloseTo(10000, 0);
-    expect(proj[2]).toBeCloseTo(10000, 0);
+  it('prefers a saved snapshot and re-anchors older estimates on it', () => {
+    const txs = [
+      makeTx({ type: 'income', amount: 100, date: '2026-04-02' }),
+      makeTx({ type: 'income', amount: 100, date: '2026-05-02' }),
+    ];
+    const snapshots = [{ id: 'nw_2026-05', date: '2026-05-31', month: '2026-05', netWorth: 5000, total: 5000, liquid: 5000 }];
+    const series = buildNetWorthSeries({ liveNetWorth: 5200, transactions: txs, accounts, snapshots, basis: 'total', now });
+    expect(series.map((p) => [p.month, p.netWorth, p.kind])).toEqual([
+      ['2026-04', 4900, 'estimated'], // anchored on the May snapshot, minus May's +100
+      ['2026-05', 5000, 'actual'],
+      ['2026-06', 5200, 'live'],
+    ]);
   });
 
-  it('positive growth → increasing projection', () => {
-    const history = [{ netWorth: 10000 }, { netWorth: 11000 }]; // +10% MoM
-    const proj = calcNetWorthProjection(history, 3);
-    expect(proj[0]).toBeGreaterThan(11000); // 11000 * 1.10
-    expect(proj[1]).toBeGreaterThan(proj[0]);
+  it('works for negative net worth and skips months before any history', () => {
+    const txs = [makeTx({ type: 'expense', amount: 300, date: '2026-05-10' })];
+    const series = buildNetWorthSeries({ liveNetWorth: -2000, transactions: txs, accounts, snapshots: [], basis: 'total', now });
+    expect(series).toEqual([
+      { month: '2026-05', netWorth: -2000, kind: 'estimated' },
+      { month: '2026-06', netWorth: -2000, kind: 'live' },
+    ]);
+  });
+
+  it('caps history at monthsBack', () => {
+    const txs = [makeTx({ type: 'income', amount: 1, date: '2024-01-01' })];
+    expect(buildNetWorthSeries({ liveNetWorth: 0, transactions: txs, accounts, snapshots: [], basis: 'total', now, monthsBack: 4 })).toHaveLength(4);
+  });
+
+  it('reads the snapshot value for the CURRENT basis (toggle never mixes definitions)', () => {
+    const snap = { id: 'nw', date: '', month: '2026-05', netWorth: 100, total: 100, liquid: 900 };
+    expect(snapshotValue(snap, 'liquid')).toBe(900);
+    expect(snapshotValue(snap, 'total')).toBe(100);
+    // legacy row (headline only) falls back to the stored headline
+    expect(snapshotValue({ id: 'nw', date: '', month: '2026-04', netWorth: 42 }, 'liquid')).toBe(42);
+  });
+});
+
+describe('calcAvgMomPct', () => {
+  it('averages month-over-month % changes, measured against |previous|', () => {
+    expect(calcAvgMomPct([100, 110, 121])).toBeCloseTo(10, 5);
+    expect(calcAvgMomPct([-100, -50])).toBeCloseTo(50, 5); // debt shrinking = improvement
+  });
+  it('returns null with < 2 points or only zero bases', () => {
+    expect(calcAvgMomPct([5])).toBeNull();
+    expect(calcAvgMomPct([0, 10])).toBeNull();
+  });
+});
+
+describe('calcCashFlowProjection', () => {
+  const now = new Date(2026, 5, 15); // Jun 2026 → window = Dec '25 … May '26
+  const accounts = [makeAccount({ id: 'chk', type: 'checking' }), makeAccount({ id: 'lon', type: 'loan', balance: 250 })];
+  const monthOf = (m: string, income: number, expense: number, principal = 0) => [
+    makeTx({ type: 'income', amount: income, date: `${m}-01` }),
+    makeTx({ type: 'expense', amount: expense, date: `${m}-05` }),
+    ...(principal ? [makeTx({ type: 'transfer', amount: principal, date: `${m}-10`, account: 'chk', toAccount: 'lon' })] : []),
+  ];
+
+  it('needs at least 2 complete active months', () => {
+    expect(calcCashFlowProjection({ liveNetWorth: 0, transactions: monthOf('2026-05', 100, 50), accounts, basis: 'total', now })).toBeNull();
+  });
+
+  it('adds the average monthly net flow linearly — also from a negative base', () => {
+    const txs = [...monthOf('2026-04', 3000, 2000), ...monthOf('2026-05', 3000, 2400)];
+    const f = calcCashFlowProjection({ liveNetWorth: -5000, transactions: txs, accounts, basis: 'total', now, months: 3 })!;
+    expect(f.monthlyChange).toBe(800);
+    expect(f.basedOnMonths).toBe(2);
+    expect(f.values).toEqual([-4200, -3400, -2600]);
+  });
+
+  it('ignores the current partial month', () => {
+    const txs = [...monthOf('2026-04', 1000, 0), ...monthOf('2026-05', 1000, 0), ...monthOf('2026-06', 0, 9000)];
+    expect(calcCashFlowProjection({ liveNetWorth: 0, transactions: txs, accounts, basis: 'total', now, months: 1 })!.values).toEqual([1000]);
+  });
+
+  it('liquid basis deducts loan principal only until the loan is paid off', () => {
+    const txs = [...monthOf('2026-04', 1000, 500, 100), ...monthOf('2026-05', 1000, 500, 100)];
+    const f = calcCashFlowProjection({ liveNetWorth: 0, transactions: txs, accounts, basis: 'liquid', now, months: 4 })!;
+    // +500 savings/mo; principal 100/mo but only 250 left on the loan
+    expect(f.values).toEqual([400, 800, 1250, 1750]);
+    // total basis is unaffected by principal transfers
+    expect(calcCashFlowProjection({ liveNetWorth: 0, transactions: txs, accounts, basis: 'total', now, months: 1 })!.values).toEqual([500]);
   });
 });
 

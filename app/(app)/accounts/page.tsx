@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { Plus, Trash2, CreditCard, Landmark, PiggyBank, TrendingUp, Pencil, CheckCircle2, RefreshCw, AlertCircle, Banknote, Coins } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { creditUtilization, creditUtilStatus, calcLoanPayoff, calcLoanExtraPaymentImpact, calcFundingHeldByAccount, calcTraditionalNetWorth, calcLiquidNetWorth, calcTotalAssets, calcTotalDebt } from '@/lib/calculations';
+import { creditUtilization, creditUtilStatus, calcLoanPayoff, calcLoanExtraPaymentImpact, calcFundingHeldByAccount, calcNetWorth, calcTotalAssets, calcTotalDebt } from '@/lib/calculations';
 import { buildLoanPaymentTxs } from '@/lib/loanPayments';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card } from '@/components/ui/Card';
@@ -289,9 +289,8 @@ export default function AccountsPage() {
     // Same shared helpers (and the same exclude-loans setting) as the dashboard,
     // so the two headline figures can never disagree.
     const fundingHeld = Object.values(calcFundingHeldByAccount(transactions)).reduce((s, n) => s + n, 0);
-    const nw = (excludeLoans ? calcLiquidNetWorth(accounts) : calcTraditionalNetWorth(accounts)) - fundingHeld;
     return {
-      netWorth: nw,
+      netWorth: calcNetWorth(accounts, transactions, excludeLoans ? 'liquid' : 'total'),
       totalAssets: calcTotalAssets(accounts) - fundingHeld,
       totalDebt: calcTotalDebt(accounts),
     };

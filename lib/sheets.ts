@@ -1112,14 +1112,19 @@ async function ensureNetWorthHistorySheet(
     spreadsheetId,
     range: 'NetWorthHistory!A1',
     valueInputOption: 'RAW',
-    requestBody: { values: [['id', 'date', 'month', 'netWorth', 'creditUtil']] },
+    requestBody: { values: [NET_WORTH_HEADER] },
   });
 }
 
+const NET_WORTH_HEADER = ['id', 'date', 'month', 'netWorth', 'creditUtil', 'total', 'liquid'];
+
 // Range that holds the net-worth snapshots. Exported so the dashboard's combined
 // batchGet can request the same range and reuse parseNetWorthRows. Column E
-// (creditUtil) is read alongside for the Smart Credit Report trend.
-export const NET_WORTH_RANGE = 'NetWorthHistory!A2:E';
+// (creditUtil) feeds the Smart Credit Report trend; F/G hold the total and liquid
+// net worth so the chart can follow the "exclude loans" setting either way.
+export const NET_WORTH_RANGE = 'NetWorthHistory!A2:G';
+
+const optionalNumber = (v: string | undefined) => (v === undefined || v === '' ? null : Number(v));
 
 /** Pure row→NetWorthSnapshot parser, shared by getNetWorthHistory and the dashboard batch. */
 export function parseNetWorthRows(rows: string[][]): NetWorthSnapshot[] {
@@ -1130,7 +1135,10 @@ export function parseNetWorthRows(rows: string[][]): NetWorthSnapshot[] {
     netWorth: Number(r[3] ?? 0),
     // Column E optional/legacy — blank on rows snapshotted before this existed
     // or when no card had a limit that month.
-    creditUtil: r[4] === undefined || r[4] === '' ? null : Number(r[4]),
+    creditUtil: optionalNumber(r[4]),
+    // F/G blank on rows saved before Oct 2026.
+    total: optionalNumber(r[5]),
+    liquid: optionalNumber(r[6]),
   }));
 }
 
@@ -1151,47 +1159,46 @@ export async function getNetWorthHistory(
   }
 }
 
-export async function appendNetWorthSnapshot(
+/**
+ * Save this month's net worth, updating the month's row in place (one row per
+ * month, keyed by id `nw_<YYYY-MM>`) so the stored value tracks the latest
+ * balance instead of freezing at the first dashboard visit of the month.
+ */
+export async function upsertNetWorthSnapshot(
   accessToken: string,
   spreadsheetId: string,
   snapshot: NetWorthSnapshot
 ): Promise<void> {
   await ensureNetWorthHistorySheet(accessToken, spreadsheetId);
   const sheets = getSheetsClient(accessToken);
+  const row = [
+    snapshot.id, snapshot.date, snapshot.month, snapshot.netWorth,
+    snapshot.creditUtil ?? '', snapshot.total ?? '', snapshot.liquid ?? '',
+  ];
+  const idsRes = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'NetWorthHistory!A2:A' });
+  const index = (idsRes.data.values ?? []).findIndex((r) => r[0] === snapshot.id);
+  if (index >= 0) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `NetWorthHistory!A${index + 2}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [row] },
+    });
+    return;
+  }
+  // New month: append, and (re)label the header so sheets created before the
+  // total/liquid columns existed get them named.
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: { valueInputOption: 'RAW', data: [{ range: 'NetWorthHistory!A1', values: [NET_WORTH_HEADER] }] },
+  });
   await sheets.spreadsheets.values.append({
     spreadsheetId,
     range: 'NetWorthHistory!A1',
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
-    requestBody: {
-      values: [[snapshot.id, snapshot.date, snapshot.month, snapshot.netWorth, snapshot.creditUtil ?? '']],
-    },
+    requestBody: { values: [row] },
   });
-
-  // When snapshots reach 1000, drop the oldest 500 to keep the sheet lean.
-  const countRes = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: 'NetWorthHistory!A2:A',
-  });
-  const rowCount = (countRes.data.values ?? []).length;
-  if (rowCount >= 1000) {
-    const sheetId = (await getSheetId(sheets, spreadsheetId, 'NetWorthHistory')) ?? 0;
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId,
-      requestBody: {
-        requests: [{
-          deleteDimension: {
-            range: {
-              sheetId,
-              dimension: 'ROWS',
-              startIndex: 1,   // row 2 (oldest data row), 0-indexed
-              endIndex: 501,   // delete 500 rows
-            },
-          },
-        }],
-      },
-    });
-  }
 }
 
 // ── Batch reads (reduces quota usage) ────────────────────────────────────────

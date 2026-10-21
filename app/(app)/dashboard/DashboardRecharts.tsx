@@ -294,20 +294,31 @@ export function BudgetVsActualChart({ data }: { data: BudgetData[] }) {
 
 // ── Net Worth Trend Chart ─────────────────────────────────────────────────────
 
-function NetWorthTooltip({ active, payload, label }: { active?: boolean; payload?: { value: number }[]; label?: string }) {
+type NetWorthChartRow = { label: string; netWorth?: number; projected?: number; kind: NetWorthPoint['kind'] | 'projected' };
+
+function NetWorthTooltip({ active, payload, label }: { active?: boolean; payload?: { value: number; payload: NetWorthChartRow }[]; label?: string }) {
+  const { t } = useTranslation();
   if (!active || !payload?.length) return null;
-  const val = payload[0].value;
+  const row = payload[0].payload;
+  const val = row.kind === 'projected' ? row.projected ?? payload[0].value : row.netWorth ?? payload[0].value;
+  const kindLabel = {
+    actual: t('charts.nwActual'),
+    estimated: t('charts.nwEstimated'),
+    live: t('charts.nwToday'),
+    projected: t('charts.projected'),
+  }[row.kind ?? 'actual'];
   return (
     <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm shadow-xl">
       <p className="text-slate-500 dark:text-slate-400 font-bold mb-1">{label}</p>
       <p className={`font-extrabold text-lg ${val >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
         {formatCurrency(val)}
       </p>
+      <p className="text-[11px] font-bold text-slate-400 dark:text-slate-500 mt-0.5">{kindLabel}</p>
     </div>
   );
 }
 
-export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]; projection?: { label: string; netWorth?: number; projected?: number }[] }) {
+export function NetWorthTrendChart({ data, projection, assumption }: { data: NetWorthPoint[]; projection?: { label: string; projected: number }[]; assumption?: string }) {
   const { t } = useTranslation();
   const ready = useChartReady();
   const c = useIsDark() ? CHART.dark : CHART.light;
@@ -330,21 +341,22 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
   const stroke = isPositive ? '#10b981' : '#f43f5e';
   const fillId = isPositive ? 'nwPositive' : 'nwNegative';
 
-  // Merge history + projection into a single series for the chart
-  // History points: { label, netWorth, projected: undefined }
-  // Projection points: { label, netWorth: undefined, projected: value }
-  // Boundary point (last history): has both so the lines connect
-  const lastHistoryPoint = data[data.length - 1];
-  const chartData = [
-    ...data.map((d) => ({ label: d.label, netWorth: d.netWorth, projected: undefined as number | undefined })),
-    ...(projection ?? []).map((p, i) => ({
-      label: p.label,
-      netWorth: undefined as number | undefined,
-      projected: p.projected,
-      // First projected point also gets netWorth so lines connect
-      ...(i === 0 ? { netWorth: lastHistoryPoint.netWorth } : {}),
+  // History (solid area) and forecast (dashed line) share the x-axis. The last
+  // history point is TODAY, so it also carries `projected` — the dashed line
+  // starts exactly where the actual line ends instead of the actual line being
+  // drawn one month into the future (the old join gave the first future month
+  // the last actual value).
+  const hasProjection = !!projection && projection.length > 0;
+  const chartData: NetWorthChartRow[] = [
+    ...data.map((d, i) => ({
+      label: d.label,
+      netWorth: d.netWorth,
+      projected: hasProjection && i === data.length - 1 ? d.netWorth : undefined,
+      kind: d.kind,
     })),
+    ...(projection ?? []).map((p) => ({ label: p.label, projected: p.projected, kind: 'projected' as const })),
   ];
+  const hasEstimates = data.some((d) => d.kind === 'estimated');
 
   return (
     <div className="w-full">
@@ -352,14 +364,18 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
         <span className={`text-sm font-extrabold px-3 py-1 rounded-lg whitespace-nowrap ${isPositive ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' : 'bg-rose-50 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300'}`}>
           {isPositive ? '+' : ''}{formatCurrency(delta)} {t('charts.since', { label: data[0].label })}
         </span>
-        {projection && projection.length > 0 && (
+        {hasProjection && (
           <span className="text-xs font-bold text-slate-400 dark:text-slate-500 flex items-center gap-1">
             <span className="inline-block w-6 border-t-2 border-dashed border-slate-300 dark:border-slate-600" />
             {t('charts.projected')}
           </span>
         )}
       </div>
-      <figure className="h-52 w-full" role="img" aria-label={`${t('dashboard.netWorthTrend')}: ${formatCurrency(latest)}`}>
+      <figure
+        className="h-52 w-full"
+        role="img"
+        aria-label={`${t('dashboard.netWorthTrend')}: ${formatCurrency(latest)}${hasProjection ? ` · ${t('charts.projected')} ${projection![projection!.length - 1].label}: ${formatCurrency(projection![projection!.length - 1].projected)}` : ''}`}
+      >
         {!ready ? <div className="w-full h-full rounded-2xl bg-slate-100 dark:bg-slate-700 animate-pulse" /> : <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={chartData} margin={{ top: 8, right: 10, left: -10, bottom: 0 }}>
             <defs>
@@ -395,12 +411,25 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
               stroke={stroke}
               strokeWidth={2.5}
               fill={`url(#${fillId})`}
-              dot={{ fill: stroke, strokeWidth: 0, r: 4 }}
+              // Months rebuilt from transactions get a hollow dot; saved months and
+              // today stay solid.
+              dot={(p: { cx?: number; cy?: number; index?: number; payload?: NetWorthChartRow }) =>
+                p.cx == null || p.cy == null || p.payload?.netWorth === undefined ? <g key={p.index} /> : (
+                  <circle
+                    key={p.index}
+                    cx={p.cx}
+                    cy={p.cy}
+                    r={p.payload.kind === 'estimated' ? 3.5 : 4}
+                    fill={p.payload.kind === 'estimated' ? c.track : stroke}
+                    stroke={stroke}
+                    strokeWidth={p.payload.kind === 'estimated' ? 1.5 : 0}
+                  />
+                )}
               activeDot={{ r: 6, fill: stroke, strokeWidth: 0 }}
               connectNulls={false}
               {...anim}
             />
-            {projection && projection.length > 0 && (
+            {hasProjection && (
               <Line
                 type="monotone"
                 dataKey="projected"
@@ -416,6 +445,11 @@ export function NetWorthTrendChart({ data, projection }: { data: NetWorthPoint[]
           </ComposedChart>
         </ResponsiveContainer>}
       </figure>
+      {(hasEstimates || (hasProjection && assumption)) && (
+        <p className="mt-3 px-2 text-[11px] font-medium text-slate-400 dark:text-slate-500 leading-snug">
+          {[hasEstimates ? t('charts.nwEstimatedNote') : null, hasProjection ? assumption : null].filter(Boolean).join(' · ')}
+        </p>
+      )}
     </div>
   );
 }
