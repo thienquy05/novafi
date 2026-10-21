@@ -121,6 +121,7 @@
     "signOutBtn": "Sign Out & Try Again"
   },
   "dashboard": {
+    "novaLabel": "Nova, financial health: {status}. Press to interact.",
     "greeting": "Hey, {name} 👋",
     "monthSummary": "{month} {year} · {daysLeft} days left this month",
     "netWorthTrend": "Net Worth Trend",

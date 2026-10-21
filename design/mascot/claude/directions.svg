@@ -1,0 +1,604 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300" height="300">
+<defs>
+<radialGradient id="fur" cx="40%" cy="30%" r="85%">
+  <stop offset="0" stop-color="#fff4df"/><stop offset=".55" stop-color="#f7dcb0"/><stop offset="1" stop-color="#e0b57a"/>
+</radialGradient>
+<radialGradient id="muzzle" cx="50%" cy="40%" r="60%">
+  <stop offset="0" stop-color="#fffaf0"/><stop offset="1" stop-color="#fbe8c8"/>
+</radialGradient>
+<linearGradient id="leaf" x1="0" y1="1" x2="1" y2="0">
+  <stop offset="0" stop-color="#2f9a52"/><stop offset="1" stop-color="#86d87e"/>
+</linearGradient>
+<linearGradient id="scarf" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#58c36a"/><stop offset="1" stop-color="#2b8f4c"/>
+</linearGradient>
+<radialGradient id="coin" cx="38%" cy="32%" r="75%">
+  <stop offset="0" stop-color="#fff0a0"/><stop offset=".6" stop-color="#ffc83a"/><stop offset="1" stop-color="#e29a12"/>
+</radialGradient>
+<radialGradient id="eye" cx="40%" cy="35%" r="75%">
+  <stop offset="0" stop-color="#5a3a24"/><stop offset="1" stop-color="#22140b"/>
+</radialGradient>
+<linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+  <stop offset=".78" stop-color="#fff"/><stop offset=".88" stop-color="#000"/>
+</linearGradient>
+<clipPath id="headClip"><path d="M50 20.5 Q52.61 18.28 54.86 20.86 Q57.75 19.05 59.58 21.92 Q62.66 20.55 64 23.65 Q67.22 22.75 68 26 Q71.27 25.61 71.45 28.89 Q74.69 29.03 74.25 32.25 Q77.38 32.94 76.31 35.96 Q82.09 36.3 77.57 39.92 Q83.16 41.4 78 44 Q83.16 46.6 77.57 48.08 Q82.09 51.7 76.31 52.04 Q80 56.52 74.25 55.75 Q77 60.89 71.45 59.11 Q73.2 64.69 68 62 Q68.73 67.83 64 64.35 Q62.88 68.01 59.58 66.08 Q57.88 69.54 54.86 67.14 Q52.65 70.31 50 67.5 Q47.35 70.31 45.14 67.14 Q42.12 69.54 40.42 66.08 Q37.12 68.01 36 64.35 Q31.27 67.83 32 62 Q26.8 64.69 28.55 59.11 Q23 60.89 25.75 55.75 Q20 56.52 23.69 52.04 Q17.91 51.7 22.43 48.08 Q16.84 46.6 22 44 Q16.84 41.4 22.43 39.92 Q17.91 36.3 23.69 35.96 Q22.62 32.94 25.75 32.25 Q25.31 29.03 28.55 28.89 Q28.73 25.61 32 26 Q32.78 22.75 36 23.65 Q37.34 20.55 40.42 21.92 Q42.25 19.05 45.14 20.86 Q47.39 18.28 50 20.5 Z"/></clipPath>
+<mask id="bottomFade" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+  <rect width="100" height="100" fill="url(#fade)"/>
+</mask></defs>
+<g transform="translate(0 0)"><g mask="url(#bottomFade)">
+  
+<g>
+  <path d="M40 60 C35 64 30 69 30 78 C30 84 32 87 37 87 L63 87 C68 87 70 84 70 78 C70 69 65 64 60 60 Z"
+        fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M34 82 q1.4 2.4 3.2 3.6 M66 82 q-1.4 2.4 -3.2 3.6" fill="none" stroke="#c99a62" stroke-width="1" stroke-linecap="round"/>
+  <!-- leaf-green scarf, a little N coin pinned to the knot -->
+  <path d="M36 63.5 Q50 74 64 63.5 L65 70.5 Q50 81 35 70.5 Z" fill="url(#scarf)" stroke="#35200f" stroke-width="1.4" stroke-linejoin="round"/>
+  <path d="M38 66.4 Q50 75 62 66.4" fill="none" stroke="#a8ecb0" stroke-opacity=".7" stroke-width=".9" stroke-linecap="round"/>
+  <circle cx="50" cy="75.6" r="5.2" fill="url(#coin)" stroke="#35200f" stroke-width="1.3"/>
+  <circle cx="50" cy="75.6" r="3.7" fill="none" stroke="#c98a10" stroke-width=".6"/>
+  <path d="M47.6 78.4 V72.8 L52.4 78.4 V72.8" fill="none" stroke="#8a5a08" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+  <g transform="translate(-3.06 -1.92)">
+    <g transform="translate(-0.54 1.12) translate(34 33) scale(0.66 1) translate(-34 -33)">
+    <g transform="">
+      <path d="M28 35 C21.5 27 18.5 14.5 23.5 9.8 C29 6 36.5 14 40.5 31 Z" fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M30.5 31 C26 25 24.2 17 26.4 13 C29.6 10.8 33.6 16.6 35.6 27 Z" fill="#f7b3bd"/>
+      <path d="M27.5 19 q1.6 -2.4 3.4 -1.2" fill="none" stroke="#c99a62" stroke-width=".8" stroke-linecap="round"/>
+    </g></g><g transform="translate(-3.24 1.12) translate(66 33) scale(1.07 1) translate(-66 -33)">
+    <g transform="translate(100 0) scale(-1 1)">
+      <path d="M28 35 C21.5 27 18.5 14.5 23.5 9.8 C29 6 36.5 14 40.5 31 Z" fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M30.5 31 C26 25 24.2 17 26.4 13 C29.6 10.8 33.6 16.6 35.6 27 Z" fill="#f7b3bd"/>
+      <path d="M27.5 19 q1.6 -2.4 3.4 -1.2" fill="none" stroke="#c99a62" stroke-width=".8" stroke-linecap="round"/>
+    </g></g>
+    <path d="M50 20.5 Q52.61 18.28 54.86 20.86 Q57.75 19.05 59.58 21.92 Q62.66 20.55 64 23.65 Q67.22 22.75 68 26 Q71.27 25.61 71.45 28.89 Q74.69 29.03 74.25 32.25 Q77.38 32.94 76.31 35.96 Q82.09 36.3 77.57 39.92 Q83.16 41.4 78 44 Q83.16 46.6 77.57 48.08 Q82.09 51.7 76.31 52.04 Q80 56.52 74.25 55.75 Q77 60.89 71.45 59.11 Q73.2 64.69 68 62 Q68.73 67.83 64 64.35 Q62.88 68.01 59.58 66.08 Q57.88 69.54 54.86 67.14 Q52.65 70.31 50 67.5 Q47.35 70.31 45.14 67.14 Q42.12 69.54 40.42 66.08 Q37.12 68.01 36 64.35 Q31.27 67.83 32 62 Q26.8 64.69 28.55 59.11 Q23 60.89 25.75 55.75 Q20 56.52 23.69 52.04 Q17.91 51.7 22.43 48.08 Q16.84 46.6 22 44 Q16.84 41.4 22.43 39.92 Q17.91 36.3 23.69 35.96 Q22.62 32.94 25.75 32.25 Q25.31 29.03 28.55 28.89 Q28.73 25.61 32 26 Q32.78 22.75 36 23.65 Q37.34 20.55 40.42 21.92 Q42.25 19.05 45.14 20.86 Q47.39 18.28 50 20.5 Z" fill="url(#fur)"/>
+    <path d="M30 31 q2.4 -3.4 4.8 -.4 M66 30 q-2.4 -3.4 -4.8 -.4 M46 24.5 q2 -2.4 4 0 M50 24.5 q2 -2.4 4 0" fill="none" stroke="#d4a56c" stroke-width="1" stroke-linecap="round"/>
+    <ellipse cx="29" cy="40" rx="3" ry="2.2" fill="#d9a766" fill-opacity=".35"/>
+    <ellipse cx="71" cy="41" rx="3" ry="2.2" fill="#d9a766" fill-opacity=".35"/>
+    
+<g transform="translate(-1.26 -0.64)" stroke="#1d5a32" stroke-width="1" stroke-linejoin="round" stroke-linecap="round">
+  <path d="M50 23 Q49.6 18 51 14.5" fill="none" stroke-width="1.5"/>
+  <path d="M50.4 18 C45.5 18.6 42 15.4 42.6 11.8 C47.4 11.2 50.8 14 50.4 18 Z" fill="url(#leaf)"/>
+  <path d="M51.2 15.4 C55.4 14.6 58.6 11.4 58 8.4 C53.6 8.2 50.6 11.2 51.2 15.4 Z" fill="url(#leaf)"/>
+  <path d="M49.4 16.4 q-3.2 -1.4 -5 -3.4 M52 12.6 q2.6 -.8 4.4 -2.4" fill="none" stroke-width=".55" stroke-opacity=".7"/>
+</g>
+    <g clip-path="url(#headClip)">
+    <g transform="translate(41.54 40) scale(0.87 0.96) translate(-50 -44)">
+      <g opacity="0.75">
+        <ellipse cx="31.5" cy="55" rx="4.6" ry="3" fill="#ff9fb2" transform="translate(31.5 55) scale(0.84 1) translate(-31.5 -55)"/>
+        <ellipse cx="68.5" cy="55" rx="4.6" ry="3" fill="#ff9fb2" transform="translate(68.5 55) scale(1.07 1) translate(-68.5 -55)"/>
+      </g>
+      <g transform="translate(39 47) scale(0.84 1)">
+    <ellipse rx="5.6" ry="6.7" fill="url(#eye)" stroke="#35200f" stroke-width=".9"/>
+    <circle cx="-2.51" cy="-3.02" r="2.15" fill="#fff"/>
+    <circle cx="1.09" cy="1.48" r="1" fill="#fff" fill-opacity=".9"/>
+  </g><g transform="translate(61 47) scale(1.07 1)">
+    <ellipse rx="5.6" ry="6.7" fill="url(#eye)" stroke="#35200f" stroke-width=".9"/>
+    <circle cx="-2.51" cy="-3.02" r="2.15" fill="#fff"/>
+    <circle cx="1.09" cy="1.48" r="1" fill="#fff" fill-opacity=".9"/>
+  </g>
+      <g transform="translate(-3.24 -1.28)">
+        <ellipse cx="50" cy="56.4" rx="10.4" ry="6.8" fill="url(#muzzle)"/>
+        <path d="M47.2 52.6 Q50 51 52.8 52.6 Q52.4 55.4 50 55.6 Q47.6 55.4 47.2 52.6 Z" fill="#5b3a29" stroke="#35200f" stroke-width=".7" stroke-linejoin="round"/>
+        <ellipse cx="49.2" cy="52.5" rx="1" ry=".5" fill="#fff" fill-opacity=".7"/>
+        <path d="M50 55.2 V57.4" stroke="#3a2216" stroke-width="1.1" stroke-linecap="round" fill="none"/>
+         <path d="M45.4 57.2 Q47.8 60.4 50 57.4 Q52.2 60.4 54.6 57.2" stroke="#3a2216" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </g>
+    </g>
+    </g>
+    <path d="M50 20.5 Q52.61 18.28 54.86 20.86 Q57.75 19.05 59.58 21.92 Q62.66 20.55 64 23.65 Q67.22 22.75 68 26 Q71.27 25.61 71.45 28.89 Q74.69 29.03 74.25 32.25 Q77.38 32.94 76.31 35.96 Q82.09 36.3 77.57 39.92 Q83.16 41.4 78 44 Q83.16 46.6 77.57 48.08 Q82.09 51.7 76.31 52.04 Q80 56.52 74.25 55.75 Q77 60.89 71.45 59.11 Q73.2 64.69 68 62 Q68.73 67.83 64 64.35 Q62.88 68.01 59.58 66.08 Q57.88 69.54 54.86 67.14 Q52.65 70.31 50 67.5 Q47.35 70.31 45.14 67.14 Q42.12 69.54 40.42 66.08 Q37.12 68.01 36 64.35 Q31.27 67.83 32 62 Q26.8 64.69 28.55 59.11 Q23 60.89 25.75 55.75 Q20 56.52 23.69 52.04 Q17.91 51.7 22.43 48.08 Q16.84 46.6 22 44 Q16.84 41.4 22.43 39.92 Q17.91 36.3 23.69 35.96 Q22.62 32.94 25.75 32.25 Q25.31 29.03 28.55 28.89 Q28.73 25.61 32 26 Q32.78 22.75 36 23.65 Q37.34 20.55 40.42 21.92 Q42.25 19.05 45.14 20.86 Q47.39 18.28 50 20.5 Z" fill="none" stroke="#35200f" stroke-width="1.6" stroke-linejoin="round"/>
+  </g>
+  
+</g></g>
+<g transform="translate(100 0)"><g mask="url(#bottomFade)">
+  
+<g>
+  <path d="M40 60 C35 64 30 69 30 78 C30 84 32 87 37 87 L63 87 C68 87 70 84 70 78 C70 69 65 64 60 60 Z"
+        fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M34 82 q1.4 2.4 3.2 3.6 M66 82 q-1.4 2.4 -3.2 3.6" fill="none" stroke="#c99a62" stroke-width="1" stroke-linecap="round"/>
+  <!-- leaf-green scarf, a little N coin pinned to the knot -->
+  <path d="M36 63.5 Q50 74 64 63.5 L65 70.5 Q50 81 35 70.5 Z" fill="url(#scarf)" stroke="#35200f" stroke-width="1.4" stroke-linejoin="round"/>
+  <path d="M38 66.4 Q50 75 62 66.4" fill="none" stroke="#a8ecb0" stroke-opacity=".7" stroke-width=".9" stroke-linecap="round"/>
+  <circle cx="50" cy="75.6" r="5.2" fill="url(#coin)" stroke="#35200f" stroke-width="1.3"/>
+  <circle cx="50" cy="75.6" r="3.7" fill="none" stroke="#c98a10" stroke-width=".6"/>
+  <path d="M47.6 78.4 V72.8 L52.4 78.4 V72.8" fill="none" stroke="#8a5a08" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+  <g transform="translate(0 -2.4)">
+    <g transform="translate(0 1.4) translate(34 33) scale(1 1) translate(-34 -33)">
+    <g transform="">
+      <path d="M28 35 C21.5 27 18.5 14.5 23.5 9.8 C29 6 36.5 14 40.5 31 Z" fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M30.5 31 C26 25 24.2 17 26.4 13 C29.6 10.8 33.6 16.6 35.6 27 Z" fill="#f7b3bd"/>
+      <path d="M27.5 19 q1.6 -2.4 3.4 -1.2" fill="none" stroke="#c99a62" stroke-width=".8" stroke-linecap="round"/>
+    </g></g><g transform="translate(0 1.4) translate(66 33) scale(1 1) translate(-66 -33)">
+    <g transform="translate(100 0) scale(-1 1)">
+      <path d="M28 35 C21.5 27 18.5 14.5 23.5 9.8 C29 6 36.5 14 40.5 31 Z" fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M30.5 31 C26 25 24.2 17 26.4 13 C29.6 10.8 33.6 16.6 35.6 27 Z" fill="#f7b3bd"/>
+      <path d="M27.5 19 q1.6 -2.4 3.4 -1.2" fill="none" stroke="#c99a62" stroke-width=".8" stroke-linecap="round"/>
+    </g></g>
+    <path d="M50 20.5 Q52.61 18.28 54.86 20.86 Q57.75 19.05 59.58 21.92 Q62.66 20.55 64 23.65 Q67.22 22.75 68 26 Q71.27 25.61 71.45 28.89 Q74.69 29.03 74.25 32.25 Q77.38 32.94 76.31 35.96 Q82.09 36.3 77.57 39.92 Q83.16 41.4 78 44 Q83.16 46.6 77.57 48.08 Q82.09 51.7 76.31 52.04 Q80 56.52 74.25 55.75 Q77 60.89 71.45 59.11 Q73.2 64.69 68 62 Q68.73 67.83 64 64.35 Q62.88 68.01 59.58 66.08 Q57.88 69.54 54.86 67.14 Q52.65 70.31 50 67.5 Q47.35 70.31 45.14 67.14 Q42.12 69.54 40.42 66.08 Q37.12 68.01 36 64.35 Q31.27 67.83 32 62 Q26.8 64.69 28.55 59.11 Q23 60.89 25.75 55.75 Q20 56.52 23.69 52.04 Q17.91 51.7 22.43 48.08 Q16.84 46.6 22 44 Q16.84 41.4 22.43 39.92 Q17.91 36.3 23.69 35.96 Q22.62 32.94 25.75 32.25 Q25.31 29.03 28.55 28.89 Q28.73 25.61 32 26 Q32.78 22.75 36 23.65 Q37.34 20.55 40.42 21.92 Q42.25 19.05 45.14 20.86 Q47.39 18.28 50 20.5 Z" fill="url(#fur)"/>
+    <path d="M30 31 q2.4 -3.4 4.8 -.4 M66 30 q-2.4 -3.4 -4.8 -.4 M46 24.5 q2 -2.4 4 0 M50 24.5 q2 -2.4 4 0" fill="none" stroke="#d4a56c" stroke-width="1" stroke-linecap="round"/>
+    <ellipse cx="29" cy="40" rx="3" ry="2.2" fill="#d9a766" fill-opacity=".35"/>
+    <ellipse cx="71" cy="41" rx="3" ry="2.2" fill="#d9a766" fill-opacity=".35"/>
+    
+<g transform="translate(0 -0.8)" stroke="#1d5a32" stroke-width="1" stroke-linejoin="round" stroke-linecap="round">
+  <path d="M50 23 Q49.6 18 51 14.5" fill="none" stroke-width="1.5"/>
+  <path d="M50.4 18 C45.5 18.6 42 15.4 42.6 11.8 C47.4 11.2 50.8 14 50.4 18 Z" fill="url(#leaf)"/>
+  <path d="M51.2 15.4 C55.4 14.6 58.6 11.4 58 8.4 C53.6 8.2 50.6 11.2 51.2 15.4 Z" fill="url(#leaf)"/>
+  <path d="M49.4 16.4 q-3.2 -1.4 -5 -3.4 M52 12.6 q2.6 -.8 4.4 -2.4" fill="none" stroke-width=".55" stroke-opacity=".7"/>
+</g>
+    <g clip-path="url(#headClip)">
+    <g transform="translate(50 39) scale(1 0.95) translate(-50 -44)">
+      <g opacity="0.75">
+        <ellipse cx="31.5" cy="55" rx="4.6" ry="3" fill="#ff9fb2" transform="translate(31.5 55) scale(1 1) translate(-31.5 -55)"/>
+        <ellipse cx="68.5" cy="55" rx="4.6" ry="3" fill="#ff9fb2" transform="translate(68.5 55) scale(1 1) translate(-68.5 -55)"/>
+      </g>
+      <g transform="translate(39 47) scale(1 1)">
+    <ellipse rx="5.6" ry="6.7" fill="url(#eye)" stroke="#35200f" stroke-width=".9"/>
+    <circle cx="-1.7" cy="-3.2" r="2.15" fill="#fff"/>
+    <circle cx="1.9" cy="1.3" r="1" fill="#fff" fill-opacity=".9"/>
+  </g><g transform="translate(61 47) scale(1 1)">
+    <ellipse rx="5.6" ry="6.7" fill="url(#eye)" stroke="#35200f" stroke-width=".9"/>
+    <circle cx="-1.7" cy="-3.2" r="2.15" fill="#fff"/>
+    <circle cx="1.9" cy="1.3" r="1" fill="#fff" fill-opacity=".9"/>
+  </g>
+      <g transform="translate(0 -1.6)">
+        <ellipse cx="50" cy="56.4" rx="10.4" ry="6.8" fill="url(#muzzle)"/>
+        <path d="M47.2 52.6 Q50 51 52.8 52.6 Q52.4 55.4 50 55.6 Q47.6 55.4 47.2 52.6 Z" fill="#5b3a29" stroke="#35200f" stroke-width=".7" stroke-linejoin="round"/>
+        <ellipse cx="49.2" cy="52.5" rx="1" ry=".5" fill="#fff" fill-opacity=".7"/>
+        <path d="M50 55.2 V57.4" stroke="#3a2216" stroke-width="1.1" stroke-linecap="round" fill="none"/>
+         <path d="M45.4 57.2 Q47.8 60.4 50 57.4 Q52.2 60.4 54.6 57.2" stroke="#3a2216" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </g>
+    </g>
+    </g>
+    <path d="M50 20.5 Q52.61 18.28 54.86 20.86 Q57.75 19.05 59.58 21.92 Q62.66 20.55 64 23.65 Q67.22 22.75 68 26 Q71.27 25.61 71.45 28.89 Q74.69 29.03 74.25 32.25 Q77.38 32.94 76.31 35.96 Q82.09 36.3 77.57 39.92 Q83.16 41.4 78 44 Q83.16 46.6 77.57 48.08 Q82.09 51.7 76.31 52.04 Q80 56.52 74.25 55.75 Q77 60.89 71.45 59.11 Q73.2 64.69 68 62 Q68.73 67.83 64 64.35 Q62.88 68.01 59.58 66.08 Q57.88 69.54 54.86 67.14 Q52.65 70.31 50 67.5 Q47.35 70.31 45.14 67.14 Q42.12 69.54 40.42 66.08 Q37.12 68.01 36 64.35 Q31.27 67.83 32 62 Q26.8 64.69 28.55 59.11 Q23 60.89 25.75 55.75 Q20 56.52 23.69 52.04 Q17.91 51.7 22.43 48.08 Q16.84 46.6 22 44 Q16.84 41.4 22.43 39.92 Q17.91 36.3 23.69 35.96 Q22.62 32.94 25.75 32.25 Q25.31 29.03 28.55 28.89 Q28.73 25.61 32 26 Q32.78 22.75 36 23.65 Q37.34 20.55 40.42 21.92 Q42.25 19.05 45.14 20.86 Q47.39 18.28 50 20.5 Z" fill="none" stroke="#35200f" stroke-width="1.6" stroke-linejoin="round"/>
+  </g>
+  
+</g></g>
+<g transform="translate(200 0)"><g mask="url(#bottomFade)">
+  
+<g>
+  <path d="M40 60 C35 64 30 69 30 78 C30 84 32 87 37 87 L63 87 C68 87 70 84 70 78 C70 69 65 64 60 60 Z"
+        fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M34 82 q1.4 2.4 3.2 3.6 M66 82 q-1.4 2.4 -3.2 3.6" fill="none" stroke="#c99a62" stroke-width="1" stroke-linecap="round"/>
+  <!-- leaf-green scarf, a little N coin pinned to the knot -->
+  <path d="M36 63.5 Q50 74 64 63.5 L65 70.5 Q50 81 35 70.5 Z" fill="url(#scarf)" stroke="#35200f" stroke-width="1.4" stroke-linejoin="round"/>
+  <path d="M38 66.4 Q50 75 62 66.4" fill="none" stroke="#a8ecb0" stroke-opacity=".7" stroke-width=".9" stroke-linecap="round"/>
+  <circle cx="50" cy="75.6" r="5.2" fill="url(#coin)" stroke="#35200f" stroke-width="1.3"/>
+  <circle cx="50" cy="75.6" r="3.7" fill="none" stroke="#c98a10" stroke-width=".6"/>
+  <path d="M47.6 78.4 V72.8 L52.4 78.4 V72.8" fill="none" stroke="#8a5a08" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+  <g transform="translate(3.06 -1.92)">
+    <g transform="translate(3.24 1.12) translate(34 33) scale(1.07 1) translate(-34 -33)">
+    <g transform="">
+      <path d="M28 35 C21.5 27 18.5 14.5 23.5 9.8 C29 6 36.5 14 40.5 31 Z" fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M30.5 31 C26 25 24.2 17 26.4 13 C29.6 10.8 33.6 16.6 35.6 27 Z" fill="#f7b3bd"/>
+      <path d="M27.5 19 q1.6 -2.4 3.4 -1.2" fill="none" stroke="#c99a62" stroke-width=".8" stroke-linecap="round"/>
+    </g></g><g transform="translate(0.54 1.12) translate(66 33) scale(0.66 1) translate(-66 -33)">
+    <g transform="translate(100 0) scale(-1 1)">
+      <path d="M28 35 C21.5 27 18.5 14.5 23.5 9.8 C29 6 36.5 14 40.5 31 Z" fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M30.5 31 C26 25 24.2 17 26.4 13 C29.6 10.8 33.6 16.6 35.6 27 Z" fill="#f7b3bd"/>
+      <path d="M27.5 19 q1.6 -2.4 3.4 -1.2" fill="none" stroke="#c99a62" stroke-width=".8" stroke-linecap="round"/>
+    </g></g>
+    <path d="M50 20.5 Q52.61 18.28 54.86 20.86 Q57.75 19.05 59.58 21.92 Q62.66 20.55 64 23.65 Q67.22 22.75 68 26 Q71.27 25.61 71.45 28.89 Q74.69 29.03 74.25 32.25 Q77.38 32.94 76.31 35.96 Q82.09 36.3 77.57 39.92 Q83.16 41.4 78 44 Q83.16 46.6 77.57 48.08 Q82.09 51.7 76.31 52.04 Q80 56.52 74.25 55.75 Q77 60.89 71.45 59.11 Q73.2 64.69 68 62 Q68.73 67.83 64 64.35 Q62.88 68.01 59.58 66.08 Q57.88 69.54 54.86 67.14 Q52.65 70.31 50 67.5 Q47.35 70.31 45.14 67.14 Q42.12 69.54 40.42 66.08 Q37.12 68.01 36 64.35 Q31.27 67.83 32 62 Q26.8 64.69 28.55 59.11 Q23 60.89 25.75 55.75 Q20 56.52 23.69 52.04 Q17.91 51.7 22.43 48.08 Q16.84 46.6 22 44 Q16.84 41.4 22.43 39.92 Q17.91 36.3 23.69 35.96 Q22.62 32.94 25.75 32.25 Q25.31 29.03 28.55 28.89 Q28.73 25.61 32 26 Q32.78 22.75 36 23.65 Q37.34 20.55 40.42 21.92 Q42.25 19.05 45.14 20.86 Q47.39 18.28 50 20.5 Z" fill="url(#fur)"/>
+    <path d="M30 31 q2.4 -3.4 4.8 -.4 M66 30 q-2.4 -3.4 -4.8 -.4 M46 24.5 q2 -2.4 4 0 M50 24.5 q2 -2.4 4 0" fill="none" stroke="#d4a56c" stroke-width="1" stroke-linecap="round"/>
+    <ellipse cx="29" cy="40" rx="3" ry="2.2" fill="#d9a766" fill-opacity=".35"/>
+    <ellipse cx="71" cy="41" rx="3" ry="2.2" fill="#d9a766" fill-opacity=".35"/>
+    
+<g transform="translate(1.26 -0.64)" stroke="#1d5a32" stroke-width="1" stroke-linejoin="round" stroke-linecap="round">
+  <path d="M50 23 Q49.6 18 51 14.5" fill="none" stroke-width="1.5"/>
+  <path d="M50.4 18 C45.5 18.6 42 15.4 42.6 11.8 C47.4 11.2 50.8 14 50.4 18 Z" fill="url(#leaf)"/>
+  <path d="M51.2 15.4 C55.4 14.6 58.6 11.4 58 8.4 C53.6 8.2 50.6 11.2 51.2 15.4 Z" fill="url(#leaf)"/>
+  <path d="M49.4 16.4 q-3.2 -1.4 -5 -3.4 M52 12.6 q2.6 -.8 4.4 -2.4" fill="none" stroke-width=".55" stroke-opacity=".7"/>
+</g>
+    <g clip-path="url(#headClip)">
+    <g transform="translate(58.46 40) scale(0.87 0.96) translate(-50 -44)">
+      <g opacity="0.75">
+        <ellipse cx="31.5" cy="55" rx="4.6" ry="3" fill="#ff9fb2" transform="translate(31.5 55) scale(1.07 1) translate(-31.5 -55)"/>
+        <ellipse cx="68.5" cy="55" rx="4.6" ry="3" fill="#ff9fb2" transform="translate(68.5 55) scale(0.84 1) translate(-68.5 -55)"/>
+      </g>
+      <g transform="translate(39 47) scale(1.07 1)">
+    <ellipse rx="5.6" ry="6.7" fill="url(#eye)" stroke="#35200f" stroke-width=".9"/>
+    <circle cx="-0.89" cy="-3.02" r="2.15" fill="#fff"/>
+    <circle cx="2.71" cy="1.48" r="1" fill="#fff" fill-opacity=".9"/>
+  </g><g transform="translate(61 47) scale(0.84 1)">
+    <ellipse rx="5.6" ry="6.7" fill="url(#eye)" stroke="#35200f" stroke-width=".9"/>
+    <circle cx="-0.89" cy="-3.02" r="2.15" fill="#fff"/>
+    <circle cx="2.71" cy="1.48" r="1" fill="#fff" fill-opacity=".9"/>
+  </g>
+      <g transform="translate(3.24 -1.28)">
+        <ellipse cx="50" cy="56.4" rx="10.4" ry="6.8" fill="url(#muzzle)"/>
+        <path d="M47.2 52.6 Q50 51 52.8 52.6 Q52.4 55.4 50 55.6 Q47.6 55.4 47.2 52.6 Z" fill="#5b3a29" stroke="#35200f" stroke-width=".7" stroke-linejoin="round"/>
+        <ellipse cx="49.2" cy="52.5" rx="1" ry=".5" fill="#fff" fill-opacity=".7"/>
+        <path d="M50 55.2 V57.4" stroke="#3a2216" stroke-width="1.1" stroke-linecap="round" fill="none"/>
+         <path d="M45.4 57.2 Q47.8 60.4 50 57.4 Q52.2 60.4 54.6 57.2" stroke="#3a2216" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </g>
+    </g>
+    </g>
+    <path d="M50 20.5 Q52.61 18.28 54.86 20.86 Q57.75 19.05 59.58 21.92 Q62.66 20.55 64 23.65 Q67.22 22.75 68 26 Q71.27 25.61 71.45 28.89 Q74.69 29.03 74.25 32.25 Q77.38 32.94 76.31 35.96 Q82.09 36.3 77.57 39.92 Q83.16 41.4 78 44 Q83.16 46.6 77.57 48.08 Q82.09 51.7 76.31 52.04 Q80 56.52 74.25 55.75 Q77 60.89 71.45 59.11 Q73.2 64.69 68 62 Q68.73 67.83 64 64.35 Q62.88 68.01 59.58 66.08 Q57.88 69.54 54.86 67.14 Q52.65 70.31 50 67.5 Q47.35 70.31 45.14 67.14 Q42.12 69.54 40.42 66.08 Q37.12 68.01 36 64.35 Q31.27 67.83 32 62 Q26.8 64.69 28.55 59.11 Q23 60.89 25.75 55.75 Q20 56.52 23.69 52.04 Q17.91 51.7 22.43 48.08 Q16.84 46.6 22 44 Q16.84 41.4 22.43 39.92 Q17.91 36.3 23.69 35.96 Q22.62 32.94 25.75 32.25 Q25.31 29.03 28.55 28.89 Q28.73 25.61 32 26 Q32.78 22.75 36 23.65 Q37.34 20.55 40.42 21.92 Q42.25 19.05 45.14 20.86 Q47.39 18.28 50 20.5 Z" fill="none" stroke="#35200f" stroke-width="1.6" stroke-linejoin="round"/>
+  </g>
+  
+</g></g>
+<g transform="translate(0 100)"><g mask="url(#bottomFade)">
+  
+<g>
+  <path d="M40 60 C35 64 30 69 30 78 C30 84 32 87 37 87 L63 87 C68 87 70 84 70 78 C70 69 65 64 60 60 Z"
+        fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M34 82 q1.4 2.4 3.2 3.6 M66 82 q-1.4 2.4 -3.2 3.6" fill="none" stroke="#c99a62" stroke-width="1" stroke-linecap="round"/>
+  <!-- leaf-green scarf, a little N coin pinned to the knot -->
+  <path d="M36 63.5 Q50 74 64 63.5 L65 70.5 Q50 81 35 70.5 Z" fill="url(#scarf)" stroke="#35200f" stroke-width="1.4" stroke-linejoin="round"/>
+  <path d="M38 66.4 Q50 75 62 66.4" fill="none" stroke="#a8ecb0" stroke-opacity=".7" stroke-width=".9" stroke-linecap="round"/>
+  <circle cx="50" cy="75.6" r="5.2" fill="url(#coin)" stroke="#35200f" stroke-width="1.3"/>
+  <circle cx="50" cy="75.6" r="3.7" fill="none" stroke="#c98a10" stroke-width=".6"/>
+  <path d="M47.6 78.4 V72.8 L52.4 78.4 V72.8" fill="none" stroke="#8a5a08" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+  <g transform="translate(-3.4 0)">
+    <g transform="translate(-0.6 0) translate(34 33) scale(0.62 1) translate(-34 -33)">
+    <g transform="">
+      <path d="M28 35 C21.5 27 18.5 14.5 23.5 9.8 C29 6 36.5 14 40.5 31 Z" fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M30.5 31 C26 25 24.2 17 26.4 13 C29.6 10.8 33.6 16.6 35.6 27 Z" fill="#f7b3bd"/>
+      <path d="M27.5 19 q1.6 -2.4 3.4 -1.2" fill="none" stroke="#c99a62" stroke-width=".8" stroke-linecap="round"/>
+    </g></g><g transform="translate(-3.6 0) translate(66 33) scale(1.08 1) translate(-66 -33)">
+    <g transform="translate(100 0) scale(-1 1)">
+      <path d="M28 35 C21.5 27 18.5 14.5 23.5 9.8 C29 6 36.5 14 40.5 31 Z" fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M30.5 31 C26 25 24.2 17 26.4 13 C29.6 10.8 33.6 16.6 35.6 27 Z" fill="#f7b3bd"/>
+      <path d="M27.5 19 q1.6 -2.4 3.4 -1.2" fill="none" stroke="#c99a62" stroke-width=".8" stroke-linecap="round"/>
+    </g></g>
+    <path d="M50 20.5 Q52.61 18.28 54.86 20.86 Q57.75 19.05 59.58 21.92 Q62.66 20.55 64 23.65 Q67.22 22.75 68 26 Q71.27 25.61 71.45 28.89 Q74.69 29.03 74.25 32.25 Q77.38 32.94 76.31 35.96 Q82.09 36.3 77.57 39.92 Q83.16 41.4 78 44 Q83.16 46.6 77.57 48.08 Q82.09 51.7 76.31 52.04 Q80 56.52 74.25 55.75 Q77 60.89 71.45 59.11 Q73.2 64.69 68 62 Q68.73 67.83 64 64.35 Q62.88 68.01 59.58 66.08 Q57.88 69.54 54.86 67.14 Q52.65 70.31 50 67.5 Q47.35 70.31 45.14 67.14 Q42.12 69.54 40.42 66.08 Q37.12 68.01 36 64.35 Q31.27 67.83 32 62 Q26.8 64.69 28.55 59.11 Q23 60.89 25.75 55.75 Q20 56.52 23.69 52.04 Q17.91 51.7 22.43 48.08 Q16.84 46.6 22 44 Q16.84 41.4 22.43 39.92 Q17.91 36.3 23.69 35.96 Q22.62 32.94 25.75 32.25 Q25.31 29.03 28.55 28.89 Q28.73 25.61 32 26 Q32.78 22.75 36 23.65 Q37.34 20.55 40.42 21.92 Q42.25 19.05 45.14 20.86 Q47.39 18.28 50 20.5 Z" fill="url(#fur)"/>
+    <path d="M30 31 q2.4 -3.4 4.8 -.4 M66 30 q-2.4 -3.4 -4.8 -.4 M46 24.5 q2 -2.4 4 0 M50 24.5 q2 -2.4 4 0" fill="none" stroke="#d4a56c" stroke-width="1" stroke-linecap="round"/>
+    <ellipse cx="29" cy="40" rx="3" ry="2.2" fill="#d9a766" fill-opacity=".35"/>
+    <ellipse cx="71" cy="41" rx="3" ry="2.2" fill="#d9a766" fill-opacity=".35"/>
+    
+<g transform="translate(-1.4 0)" stroke="#1d5a32" stroke-width="1" stroke-linejoin="round" stroke-linecap="round">
+  <path d="M50 23 Q49.6 18 51 14.5" fill="none" stroke-width="1.5"/>
+  <path d="M50.4 18 C45.5 18.6 42 15.4 42.6 11.8 C47.4 11.2 50.8 14 50.4 18 Z" fill="url(#leaf)"/>
+  <path d="M51.2 15.4 C55.4 14.6 58.6 11.4 58 8.4 C53.6 8.2 50.6 11.2 51.2 15.4 Z" fill="url(#leaf)"/>
+  <path d="M49.4 16.4 q-3.2 -1.4 -5 -3.4 M52 12.6 q2.6 -.8 4.4 -2.4" fill="none" stroke-width=".55" stroke-opacity=".7"/>
+</g>
+    <g clip-path="url(#headClip)">
+    <g transform="translate(40.6 44) scale(0.86 1) translate(-50 -44)">
+      <g opacity="0.75">
+        <ellipse cx="31.5" cy="55" rx="4.6" ry="3" fill="#ff9fb2" transform="translate(31.5 55) scale(0.82 1) translate(-31.5 -55)"/>
+        <ellipse cx="68.5" cy="55" rx="4.6" ry="3" fill="#ff9fb2" transform="translate(68.5 55) scale(1.08 1) translate(-68.5 -55)"/>
+      </g>
+      <g transform="translate(39 47) scale(0.82 1)">
+    <ellipse rx="5.6" ry="6.7" fill="url(#eye)" stroke="#35200f" stroke-width=".9"/>
+    <circle cx="-2.6" cy="-2.3" r="2.15" fill="#fff"/>
+    <circle cx="1" cy="2.2" r="1" fill="#fff" fill-opacity=".9"/>
+  </g><g transform="translate(61 47) scale(1.08 1)">
+    <ellipse rx="5.6" ry="6.7" fill="url(#eye)" stroke="#35200f" stroke-width=".9"/>
+    <circle cx="-2.6" cy="-2.3" r="2.15" fill="#fff"/>
+    <circle cx="1" cy="2.2" r="1" fill="#fff" fill-opacity=".9"/>
+  </g>
+      <g transform="translate(-3.6 0)">
+        <ellipse cx="50" cy="56.4" rx="10.4" ry="6.8" fill="url(#muzzle)"/>
+        <path d="M47.2 52.6 Q50 51 52.8 52.6 Q52.4 55.4 50 55.6 Q47.6 55.4 47.2 52.6 Z" fill="#5b3a29" stroke="#35200f" stroke-width=".7" stroke-linejoin="round"/>
+        <ellipse cx="49.2" cy="52.5" rx="1" ry=".5" fill="#fff" fill-opacity=".7"/>
+        <path d="M50 55.2 V57.4" stroke="#3a2216" stroke-width="1.1" stroke-linecap="round" fill="none"/>
+         <path d="M45.4 57.2 Q47.8 60.4 50 57.4 Q52.2 60.4 54.6 57.2" stroke="#3a2216" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </g>
+    </g>
+    </g>
+    <path d="M50 20.5 Q52.61 18.28 54.86 20.86 Q57.75 19.05 59.58 21.92 Q62.66 20.55 64 23.65 Q67.22 22.75 68 26 Q71.27 25.61 71.45 28.89 Q74.69 29.03 74.25 32.25 Q77.38 32.94 76.31 35.96 Q82.09 36.3 77.57 39.92 Q83.16 41.4 78 44 Q83.16 46.6 77.57 48.08 Q82.09 51.7 76.31 52.04 Q80 56.52 74.25 55.75 Q77 60.89 71.45 59.11 Q73.2 64.69 68 62 Q68.73 67.83 64 64.35 Q62.88 68.01 59.58 66.08 Q57.88 69.54 54.86 67.14 Q52.65 70.31 50 67.5 Q47.35 70.31 45.14 67.14 Q42.12 69.54 40.42 66.08 Q37.12 68.01 36 64.35 Q31.27 67.83 32 62 Q26.8 64.69 28.55 59.11 Q23 60.89 25.75 55.75 Q20 56.52 23.69 52.04 Q17.91 51.7 22.43 48.08 Q16.84 46.6 22 44 Q16.84 41.4 22.43 39.92 Q17.91 36.3 23.69 35.96 Q22.62 32.94 25.75 32.25 Q25.31 29.03 28.55 28.89 Q28.73 25.61 32 26 Q32.78 22.75 36 23.65 Q37.34 20.55 40.42 21.92 Q42.25 19.05 45.14 20.86 Q47.39 18.28 50 20.5 Z" fill="none" stroke="#35200f" stroke-width="1.6" stroke-linejoin="round"/>
+  </g>
+  
+</g></g>
+<g transform="translate(100 100)"><g mask="url(#bottomFade)">
+  
+<g>
+  <path d="M40 60 C35 64 30 69 30 78 C30 84 32 87 37 87 L63 87 C68 87 70 84 70 78 C70 69 65 64 60 60 Z"
+        fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M34 82 q1.4 2.4 3.2 3.6 M66 82 q-1.4 2.4 -3.2 3.6" fill="none" stroke="#c99a62" stroke-width="1" stroke-linecap="round"/>
+  <!-- leaf-green scarf, a little N coin pinned to the knot -->
+  <path d="M36 63.5 Q50 74 64 63.5 L65 70.5 Q50 81 35 70.5 Z" fill="url(#scarf)" stroke="#35200f" stroke-width="1.4" stroke-linejoin="round"/>
+  <path d="M38 66.4 Q50 75 62 66.4" fill="none" stroke="#a8ecb0" stroke-opacity=".7" stroke-width=".9" stroke-linecap="round"/>
+  <circle cx="50" cy="75.6" r="5.2" fill="url(#coin)" stroke="#35200f" stroke-width="1.3"/>
+  <circle cx="50" cy="75.6" r="3.7" fill="none" stroke="#c98a10" stroke-width=".6"/>
+  <path d="M47.6 78.4 V72.8 L52.4 78.4 V72.8" fill="none" stroke="#8a5a08" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+  <g transform="translate(0 0)">
+    <g transform="translate(0 0) translate(34 33) scale(1 1) translate(-34 -33)">
+    <g transform="">
+      <path d="M28 35 C21.5 27 18.5 14.5 23.5 9.8 C29 6 36.5 14 40.5 31 Z" fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M30.5 31 C26 25 24.2 17 26.4 13 C29.6 10.8 33.6 16.6 35.6 27 Z" fill="#f7b3bd"/>
+      <path d="M27.5 19 q1.6 -2.4 3.4 -1.2" fill="none" stroke="#c99a62" stroke-width=".8" stroke-linecap="round"/>
+    </g></g><g transform="translate(0 0) translate(66 33) scale(1 1) translate(-66 -33)">
+    <g transform="translate(100 0) scale(-1 1)">
+      <path d="M28 35 C21.5 27 18.5 14.5 23.5 9.8 C29 6 36.5 14 40.5 31 Z" fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M30.5 31 C26 25 24.2 17 26.4 13 C29.6 10.8 33.6 16.6 35.6 27 Z" fill="#f7b3bd"/>
+      <path d="M27.5 19 q1.6 -2.4 3.4 -1.2" fill="none" stroke="#c99a62" stroke-width=".8" stroke-linecap="round"/>
+    </g></g>
+    <path d="M50 20.5 Q52.61 18.28 54.86 20.86 Q57.75 19.05 59.58 21.92 Q62.66 20.55 64 23.65 Q67.22 22.75 68 26 Q71.27 25.61 71.45 28.89 Q74.69 29.03 74.25 32.25 Q77.38 32.94 76.31 35.96 Q82.09 36.3 77.57 39.92 Q83.16 41.4 78 44 Q83.16 46.6 77.57 48.08 Q82.09 51.7 76.31 52.04 Q80 56.52 74.25 55.75 Q77 60.89 71.45 59.11 Q73.2 64.69 68 62 Q68.73 67.83 64 64.35 Q62.88 68.01 59.58 66.08 Q57.88 69.54 54.86 67.14 Q52.65 70.31 50 67.5 Q47.35 70.31 45.14 67.14 Q42.12 69.54 40.42 66.08 Q37.12 68.01 36 64.35 Q31.27 67.83 32 62 Q26.8 64.69 28.55 59.11 Q23 60.89 25.75 55.75 Q20 56.52 23.69 52.04 Q17.91 51.7 22.43 48.08 Q16.84 46.6 22 44 Q16.84 41.4 22.43 39.92 Q17.91 36.3 23.69 35.96 Q22.62 32.94 25.75 32.25 Q25.31 29.03 28.55 28.89 Q28.73 25.61 32 26 Q32.78 22.75 36 23.65 Q37.34 20.55 40.42 21.92 Q42.25 19.05 45.14 20.86 Q47.39 18.28 50 20.5 Z" fill="url(#fur)"/>
+    <path d="M30 31 q2.4 -3.4 4.8 -.4 M66 30 q-2.4 -3.4 -4.8 -.4 M46 24.5 q2 -2.4 4 0 M50 24.5 q2 -2.4 4 0" fill="none" stroke="#d4a56c" stroke-width="1" stroke-linecap="round"/>
+    <ellipse cx="29" cy="40" rx="3" ry="2.2" fill="#d9a766" fill-opacity=".35"/>
+    <ellipse cx="71" cy="41" rx="3" ry="2.2" fill="#d9a766" fill-opacity=".35"/>
+    
+<g transform="translate(0 0)" stroke="#1d5a32" stroke-width="1" stroke-linejoin="round" stroke-linecap="round">
+  <path d="M50 23 Q49.6 18 51 14.5" fill="none" stroke-width="1.5"/>
+  <path d="M50.4 18 C45.5 18.6 42 15.4 42.6 11.8 C47.4 11.2 50.8 14 50.4 18 Z" fill="url(#leaf)"/>
+  <path d="M51.2 15.4 C55.4 14.6 58.6 11.4 58 8.4 C53.6 8.2 50.6 11.2 51.2 15.4 Z" fill="url(#leaf)"/>
+  <path d="M49.4 16.4 q-3.2 -1.4 -5 -3.4 M52 12.6 q2.6 -.8 4.4 -2.4" fill="none" stroke-width=".55" stroke-opacity=".7"/>
+</g>
+    <g clip-path="url(#headClip)">
+    <g transform="translate(50 44) scale(1 1) translate(-50 -44)">
+      <g opacity="0.75">
+        <ellipse cx="31.5" cy="55" rx="4.6" ry="3" fill="#ff9fb2" transform="translate(31.5 55) scale(1 1) translate(-31.5 -55)"/>
+        <ellipse cx="68.5" cy="55" rx="4.6" ry="3" fill="#ff9fb2" transform="translate(68.5 55) scale(1 1) translate(-68.5 -55)"/>
+      </g>
+      <g transform="translate(39 47) scale(1 1)">
+    <ellipse rx="5.6" ry="6.7" fill="url(#eye)" stroke="#35200f" stroke-width=".9"/>
+    <circle cx="-1.7" cy="-2.3" r="2.15" fill="#fff"/>
+    <circle cx="1.9" cy="2.2" r="1" fill="#fff" fill-opacity=".9"/>
+  </g><g transform="translate(61 47) scale(1 1)">
+    <ellipse rx="5.6" ry="6.7" fill="url(#eye)" stroke="#35200f" stroke-width=".9"/>
+    <circle cx="-1.7" cy="-2.3" r="2.15" fill="#fff"/>
+    <circle cx="1.9" cy="2.2" r="1" fill="#fff" fill-opacity=".9"/>
+  </g>
+      <g transform="translate(0 0)">
+        <ellipse cx="50" cy="56.4" rx="10.4" ry="6.8" fill="url(#muzzle)"/>
+        <path d="M47.2 52.6 Q50 51 52.8 52.6 Q52.4 55.4 50 55.6 Q47.6 55.4 47.2 52.6 Z" fill="#5b3a29" stroke="#35200f" stroke-width=".7" stroke-linejoin="round"/>
+        <ellipse cx="49.2" cy="52.5" rx="1" ry=".5" fill="#fff" fill-opacity=".7"/>
+        <path d="M50 55.2 V57.4" stroke="#3a2216" stroke-width="1.1" stroke-linecap="round" fill="none"/>
+         <path d="M45.4 57.2 Q47.8 60.4 50 57.4 Q52.2 60.4 54.6 57.2" stroke="#3a2216" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </g>
+    </g>
+    </g>
+    <path d="M50 20.5 Q52.61 18.28 54.86 20.86 Q57.75 19.05 59.58 21.92 Q62.66 20.55 64 23.65 Q67.22 22.75 68 26 Q71.27 25.61 71.45 28.89 Q74.69 29.03 74.25 32.25 Q77.38 32.94 76.31 35.96 Q82.09 36.3 77.57 39.92 Q83.16 41.4 78 44 Q83.16 46.6 77.57 48.08 Q82.09 51.7 76.31 52.04 Q80 56.52 74.25 55.75 Q77 60.89 71.45 59.11 Q73.2 64.69 68 62 Q68.73 67.83 64 64.35 Q62.88 68.01 59.58 66.08 Q57.88 69.54 54.86 67.14 Q52.65 70.31 50 67.5 Q47.35 70.31 45.14 67.14 Q42.12 69.54 40.42 66.08 Q37.12 68.01 36 64.35 Q31.27 67.83 32 62 Q26.8 64.69 28.55 59.11 Q23 60.89 25.75 55.75 Q20 56.52 23.69 52.04 Q17.91 51.7 22.43 48.08 Q16.84 46.6 22 44 Q16.84 41.4 22.43 39.92 Q17.91 36.3 23.69 35.96 Q22.62 32.94 25.75 32.25 Q25.31 29.03 28.55 28.89 Q28.73 25.61 32 26 Q32.78 22.75 36 23.65 Q37.34 20.55 40.42 21.92 Q42.25 19.05 45.14 20.86 Q47.39 18.28 50 20.5 Z" fill="none" stroke="#35200f" stroke-width="1.6" stroke-linejoin="round"/>
+  </g>
+  
+</g></g>
+<g transform="translate(200 100)"><g mask="url(#bottomFade)">
+  
+<g>
+  <path d="M40 60 C35 64 30 69 30 78 C30 84 32 87 37 87 L63 87 C68 87 70 84 70 78 C70 69 65 64 60 60 Z"
+        fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M34 82 q1.4 2.4 3.2 3.6 M66 82 q-1.4 2.4 -3.2 3.6" fill="none" stroke="#c99a62" stroke-width="1" stroke-linecap="round"/>
+  <!-- leaf-green scarf, a little N coin pinned to the knot -->
+  <path d="M36 63.5 Q50 74 64 63.5 L65 70.5 Q50 81 35 70.5 Z" fill="url(#scarf)" stroke="#35200f" stroke-width="1.4" stroke-linejoin="round"/>
+  <path d="M38 66.4 Q50 75 62 66.4" fill="none" stroke="#a8ecb0" stroke-opacity=".7" stroke-width=".9" stroke-linecap="round"/>
+  <circle cx="50" cy="75.6" r="5.2" fill="url(#coin)" stroke="#35200f" stroke-width="1.3"/>
+  <circle cx="50" cy="75.6" r="3.7" fill="none" stroke="#c98a10" stroke-width=".6"/>
+  <path d="M47.6 78.4 V72.8 L52.4 78.4 V72.8" fill="none" stroke="#8a5a08" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+  <g transform="translate(3.4 0)">
+    <g transform="translate(3.6 0) translate(34 33) scale(1.08 1) translate(-34 -33)">
+    <g transform="">
+      <path d="M28 35 C21.5 27 18.5 14.5 23.5 9.8 C29 6 36.5 14 40.5 31 Z" fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M30.5 31 C26 25 24.2 17 26.4 13 C29.6 10.8 33.6 16.6 35.6 27 Z" fill="#f7b3bd"/>
+      <path d="M27.5 19 q1.6 -2.4 3.4 -1.2" fill="none" stroke="#c99a62" stroke-width=".8" stroke-linecap="round"/>
+    </g></g><g transform="translate(0.6 0) translate(66 33) scale(0.62 1) translate(-66 -33)">
+    <g transform="translate(100 0) scale(-1 1)">
+      <path d="M28 35 C21.5 27 18.5 14.5 23.5 9.8 C29 6 36.5 14 40.5 31 Z" fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M30.5 31 C26 25 24.2 17 26.4 13 C29.6 10.8 33.6 16.6 35.6 27 Z" fill="#f7b3bd"/>
+      <path d="M27.5 19 q1.6 -2.4 3.4 -1.2" fill="none" stroke="#c99a62" stroke-width=".8" stroke-linecap="round"/>
+    </g></g>
+    <path d="M50 20.5 Q52.61 18.28 54.86 20.86 Q57.75 19.05 59.58 21.92 Q62.66 20.55 64 23.65 Q67.22 22.75 68 26 Q71.27 25.61 71.45 28.89 Q74.69 29.03 74.25 32.25 Q77.38 32.94 76.31 35.96 Q82.09 36.3 77.57 39.92 Q83.16 41.4 78 44 Q83.16 46.6 77.57 48.08 Q82.09 51.7 76.31 52.04 Q80 56.52 74.25 55.75 Q77 60.89 71.45 59.11 Q73.2 64.69 68 62 Q68.73 67.83 64 64.35 Q62.88 68.01 59.58 66.08 Q57.88 69.54 54.86 67.14 Q52.65 70.31 50 67.5 Q47.35 70.31 45.14 67.14 Q42.12 69.54 40.42 66.08 Q37.12 68.01 36 64.35 Q31.27 67.83 32 62 Q26.8 64.69 28.55 59.11 Q23 60.89 25.75 55.75 Q20 56.52 23.69 52.04 Q17.91 51.7 22.43 48.08 Q16.84 46.6 22 44 Q16.84 41.4 22.43 39.92 Q17.91 36.3 23.69 35.96 Q22.62 32.94 25.75 32.25 Q25.31 29.03 28.55 28.89 Q28.73 25.61 32 26 Q32.78 22.75 36 23.65 Q37.34 20.55 40.42 21.92 Q42.25 19.05 45.14 20.86 Q47.39 18.28 50 20.5 Z" fill="url(#fur)"/>
+    <path d="M30 31 q2.4 -3.4 4.8 -.4 M66 30 q-2.4 -3.4 -4.8 -.4 M46 24.5 q2 -2.4 4 0 M50 24.5 q2 -2.4 4 0" fill="none" stroke="#d4a56c" stroke-width="1" stroke-linecap="round"/>
+    <ellipse cx="29" cy="40" rx="3" ry="2.2" fill="#d9a766" fill-opacity=".35"/>
+    <ellipse cx="71" cy="41" rx="3" ry="2.2" fill="#d9a766" fill-opacity=".35"/>
+    
+<g transform="translate(1.4 0)" stroke="#1d5a32" stroke-width="1" stroke-linejoin="round" stroke-linecap="round">
+  <path d="M50 23 Q49.6 18 51 14.5" fill="none" stroke-width="1.5"/>
+  <path d="M50.4 18 C45.5 18.6 42 15.4 42.6 11.8 C47.4 11.2 50.8 14 50.4 18 Z" fill="url(#leaf)"/>
+  <path d="M51.2 15.4 C55.4 14.6 58.6 11.4 58 8.4 C53.6 8.2 50.6 11.2 51.2 15.4 Z" fill="url(#leaf)"/>
+  <path d="M49.4 16.4 q-3.2 -1.4 -5 -3.4 M52 12.6 q2.6 -.8 4.4 -2.4" fill="none" stroke-width=".55" stroke-opacity=".7"/>
+</g>
+    <g clip-path="url(#headClip)">
+    <g transform="translate(59.4 44) scale(0.86 1) translate(-50 -44)">
+      <g opacity="0.75">
+        <ellipse cx="31.5" cy="55" rx="4.6" ry="3" fill="#ff9fb2" transform="translate(31.5 55) scale(1.08 1) translate(-31.5 -55)"/>
+        <ellipse cx="68.5" cy="55" rx="4.6" ry="3" fill="#ff9fb2" transform="translate(68.5 55) scale(0.82 1) translate(-68.5 -55)"/>
+      </g>
+      <g transform="translate(39 47) scale(1.08 1)">
+    <ellipse rx="5.6" ry="6.7" fill="url(#eye)" stroke="#35200f" stroke-width=".9"/>
+    <circle cx="-0.8" cy="-2.3" r="2.15" fill="#fff"/>
+    <circle cx="2.8" cy="2.2" r="1" fill="#fff" fill-opacity=".9"/>
+  </g><g transform="translate(61 47) scale(0.82 1)">
+    <ellipse rx="5.6" ry="6.7" fill="url(#eye)" stroke="#35200f" stroke-width=".9"/>
+    <circle cx="-0.8" cy="-2.3" r="2.15" fill="#fff"/>
+    <circle cx="2.8" cy="2.2" r="1" fill="#fff" fill-opacity=".9"/>
+  </g>
+      <g transform="translate(3.6 0)">
+        <ellipse cx="50" cy="56.4" rx="10.4" ry="6.8" fill="url(#muzzle)"/>
+        <path d="M47.2 52.6 Q50 51 52.8 52.6 Q52.4 55.4 50 55.6 Q47.6 55.4 47.2 52.6 Z" fill="#5b3a29" stroke="#35200f" stroke-width=".7" stroke-linejoin="round"/>
+        <ellipse cx="49.2" cy="52.5" rx="1" ry=".5" fill="#fff" fill-opacity=".7"/>
+        <path d="M50 55.2 V57.4" stroke="#3a2216" stroke-width="1.1" stroke-linecap="round" fill="none"/>
+         <path d="M45.4 57.2 Q47.8 60.4 50 57.4 Q52.2 60.4 54.6 57.2" stroke="#3a2216" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </g>
+    </g>
+    </g>
+    <path d="M50 20.5 Q52.61 18.28 54.86 20.86 Q57.75 19.05 59.58 21.92 Q62.66 20.55 64 23.65 Q67.22 22.75 68 26 Q71.27 25.61 71.45 28.89 Q74.69 29.03 74.25 32.25 Q77.38 32.94 76.31 35.96 Q82.09 36.3 77.57 39.92 Q83.16 41.4 78 44 Q83.16 46.6 77.57 48.08 Q82.09 51.7 76.31 52.04 Q80 56.52 74.25 55.75 Q77 60.89 71.45 59.11 Q73.2 64.69 68 62 Q68.73 67.83 64 64.35 Q62.88 68.01 59.58 66.08 Q57.88 69.54 54.86 67.14 Q52.65 70.31 50 67.5 Q47.35 70.31 45.14 67.14 Q42.12 69.54 40.42 66.08 Q37.12 68.01 36 64.35 Q31.27 67.83 32 62 Q26.8 64.69 28.55 59.11 Q23 60.89 25.75 55.75 Q20 56.52 23.69 52.04 Q17.91 51.7 22.43 48.08 Q16.84 46.6 22 44 Q16.84 41.4 22.43 39.92 Q17.91 36.3 23.69 35.96 Q22.62 32.94 25.75 32.25 Q25.31 29.03 28.55 28.89 Q28.73 25.61 32 26 Q32.78 22.75 36 23.65 Q37.34 20.55 40.42 21.92 Q42.25 19.05 45.14 20.86 Q47.39 18.28 50 20.5 Z" fill="none" stroke="#35200f" stroke-width="1.6" stroke-linejoin="round"/>
+  </g>
+  
+</g></g>
+<g transform="translate(0 200)"><g mask="url(#bottomFade)">
+  
+<g>
+  <path d="M40 60 C35 64 30 69 30 78 C30 84 32 87 37 87 L63 87 C68 87 70 84 70 78 C70 69 65 64 60 60 Z"
+        fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M34 82 q1.4 2.4 3.2 3.6 M66 82 q-1.4 2.4 -3.2 3.6" fill="none" stroke="#c99a62" stroke-width="1" stroke-linecap="round"/>
+  <!-- leaf-green scarf, a little N coin pinned to the knot -->
+  <path d="M36 63.5 Q50 74 64 63.5 L65 70.5 Q50 81 35 70.5 Z" fill="url(#scarf)" stroke="#35200f" stroke-width="1.4" stroke-linejoin="round"/>
+  <path d="M38 66.4 Q50 75 62 66.4" fill="none" stroke="#a8ecb0" stroke-opacity=".7" stroke-width=".9" stroke-linecap="round"/>
+  <circle cx="50" cy="75.6" r="5.2" fill="url(#coin)" stroke="#35200f" stroke-width="1.3"/>
+  <circle cx="50" cy="75.6" r="3.7" fill="none" stroke="#c98a10" stroke-width=".6"/>
+  <path d="M47.6 78.4 V72.8 L52.4 78.4 V72.8" fill="none" stroke="#8a5a08" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+  <g transform="translate(-3.06 1.92)">
+    <g transform="translate(-0.54 -1.12) translate(34 33) scale(0.66 1) translate(-34 -33)">
+    <g transform="">
+      <path d="M28 35 C21.5 27 18.5 14.5 23.5 9.8 C29 6 36.5 14 40.5 31 Z" fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M30.5 31 C26 25 24.2 17 26.4 13 C29.6 10.8 33.6 16.6 35.6 27 Z" fill="#f7b3bd"/>
+      <path d="M27.5 19 q1.6 -2.4 3.4 -1.2" fill="none" stroke="#c99a62" stroke-width=".8" stroke-linecap="round"/>
+    </g></g><g transform="translate(-3.24 -1.12) translate(66 33) scale(1.07 1) translate(-66 -33)">
+    <g transform="translate(100 0) scale(-1 1)">
+      <path d="M28 35 C21.5 27 18.5 14.5 23.5 9.8 C29 6 36.5 14 40.5 31 Z" fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M30.5 31 C26 25 24.2 17 26.4 13 C29.6 10.8 33.6 16.6 35.6 27 Z" fill="#f7b3bd"/>
+      <path d="M27.5 19 q1.6 -2.4 3.4 -1.2" fill="none" stroke="#c99a62" stroke-width=".8" stroke-linecap="round"/>
+    </g></g>
+    <path d="M50 20.5 Q52.61 18.28 54.86 20.86 Q57.75 19.05 59.58 21.92 Q62.66 20.55 64 23.65 Q67.22 22.75 68 26 Q71.27 25.61 71.45 28.89 Q74.69 29.03 74.25 32.25 Q77.38 32.94 76.31 35.96 Q82.09 36.3 77.57 39.92 Q83.16 41.4 78 44 Q83.16 46.6 77.57 48.08 Q82.09 51.7 76.31 52.04 Q80 56.52 74.25 55.75 Q77 60.89 71.45 59.11 Q73.2 64.69 68 62 Q68.73 67.83 64 64.35 Q62.88 68.01 59.58 66.08 Q57.88 69.54 54.86 67.14 Q52.65 70.31 50 67.5 Q47.35 70.31 45.14 67.14 Q42.12 69.54 40.42 66.08 Q37.12 68.01 36 64.35 Q31.27 67.83 32 62 Q26.8 64.69 28.55 59.11 Q23 60.89 25.75 55.75 Q20 56.52 23.69 52.04 Q17.91 51.7 22.43 48.08 Q16.84 46.6 22 44 Q16.84 41.4 22.43 39.92 Q17.91 36.3 23.69 35.96 Q22.62 32.94 25.75 32.25 Q25.31 29.03 28.55 28.89 Q28.73 25.61 32 26 Q32.78 22.75 36 23.65 Q37.34 20.55 40.42 21.92 Q42.25 19.05 45.14 20.86 Q47.39 18.28 50 20.5 Z" fill="url(#fur)"/>
+    <path d="M30 31 q2.4 -3.4 4.8 -.4 M66 30 q-2.4 -3.4 -4.8 -.4 M46 24.5 q2 -2.4 4 0 M50 24.5 q2 -2.4 4 0" fill="none" stroke="#d4a56c" stroke-width="1" stroke-linecap="round"/>
+    <ellipse cx="29" cy="40" rx="3" ry="2.2" fill="#d9a766" fill-opacity=".35"/>
+    <ellipse cx="71" cy="41" rx="3" ry="2.2" fill="#d9a766" fill-opacity=".35"/>
+    
+<g transform="translate(-1.26 0.64)" stroke="#1d5a32" stroke-width="1" stroke-linejoin="round" stroke-linecap="round">
+  <path d="M50 23 Q49.6 18 51 14.5" fill="none" stroke-width="1.5"/>
+  <path d="M50.4 18 C45.5 18.6 42 15.4 42.6 11.8 C47.4 11.2 50.8 14 50.4 18 Z" fill="url(#leaf)"/>
+  <path d="M51.2 15.4 C55.4 14.6 58.6 11.4 58 8.4 C53.6 8.2 50.6 11.2 51.2 15.4 Z" fill="url(#leaf)"/>
+  <path d="M49.4 16.4 q-3.2 -1.4 -5 -3.4 M52 12.6 q2.6 -.8 4.4 -2.4" fill="none" stroke-width=".55" stroke-opacity=".7"/>
+</g>
+    <g clip-path="url(#headClip)">
+    <g transform="translate(41.54 48) scale(0.87 0.96) translate(-50 -44)">
+      <g opacity="0.75">
+        <ellipse cx="31.5" cy="55" rx="4.6" ry="3" fill="#ff9fb2" transform="translate(31.5 55) scale(0.84 1) translate(-31.5 -55)"/>
+        <ellipse cx="68.5" cy="55" rx="4.6" ry="3" fill="#ff9fb2" transform="translate(68.5 55) scale(1.07 1) translate(-68.5 -55)"/>
+      </g>
+      <g transform="translate(39 47) scale(0.84 1)">
+    <ellipse rx="5.6" ry="6.7" fill="url(#eye)" stroke="#35200f" stroke-width=".9"/>
+    <circle cx="-2.51" cy="-1.58" r="2.15" fill="#fff"/>
+    <circle cx="1.09" cy="2.92" r="1" fill="#fff" fill-opacity=".9"/>
+  </g><g transform="translate(61 47) scale(1.07 1)">
+    <ellipse rx="5.6" ry="6.7" fill="url(#eye)" stroke="#35200f" stroke-width=".9"/>
+    <circle cx="-2.51" cy="-1.58" r="2.15" fill="#fff"/>
+    <circle cx="1.09" cy="2.92" r="1" fill="#fff" fill-opacity=".9"/>
+  </g>
+      <g transform="translate(-3.24 1.28)">
+        <ellipse cx="50" cy="56.4" rx="10.4" ry="6.8" fill="url(#muzzle)"/>
+        <path d="M47.2 52.6 Q50 51 52.8 52.6 Q52.4 55.4 50 55.6 Q47.6 55.4 47.2 52.6 Z" fill="#5b3a29" stroke="#35200f" stroke-width=".7" stroke-linejoin="round"/>
+        <ellipse cx="49.2" cy="52.5" rx="1" ry=".5" fill="#fff" fill-opacity=".7"/>
+        <path d="M50 55.2 V57.4" stroke="#3a2216" stroke-width="1.1" stroke-linecap="round" fill="none"/>
+         <path d="M45.4 57.2 Q47.8 60.4 50 57.4 Q52.2 60.4 54.6 57.2" stroke="#3a2216" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </g>
+    </g>
+    </g>
+    <path d="M50 20.5 Q52.61 18.28 54.86 20.86 Q57.75 19.05 59.58 21.92 Q62.66 20.55 64 23.65 Q67.22 22.75 68 26 Q71.27 25.61 71.45 28.89 Q74.69 29.03 74.25 32.25 Q77.38 32.94 76.31 35.96 Q82.09 36.3 77.57 39.92 Q83.16 41.4 78 44 Q83.16 46.6 77.57 48.08 Q82.09 51.7 76.31 52.04 Q80 56.52 74.25 55.75 Q77 60.89 71.45 59.11 Q73.2 64.69 68 62 Q68.73 67.83 64 64.35 Q62.88 68.01 59.58 66.08 Q57.88 69.54 54.86 67.14 Q52.65 70.31 50 67.5 Q47.35 70.31 45.14 67.14 Q42.12 69.54 40.42 66.08 Q37.12 68.01 36 64.35 Q31.27 67.83 32 62 Q26.8 64.69 28.55 59.11 Q23 60.89 25.75 55.75 Q20 56.52 23.69 52.04 Q17.91 51.7 22.43 48.08 Q16.84 46.6 22 44 Q16.84 41.4 22.43 39.92 Q17.91 36.3 23.69 35.96 Q22.62 32.94 25.75 32.25 Q25.31 29.03 28.55 28.89 Q28.73 25.61 32 26 Q32.78 22.75 36 23.65 Q37.34 20.55 40.42 21.92 Q42.25 19.05 45.14 20.86 Q47.39 18.28 50 20.5 Z" fill="none" stroke="#35200f" stroke-width="1.6" stroke-linejoin="round"/>
+  </g>
+  
+</g></g>
+<g transform="translate(100 200)"><g mask="url(#bottomFade)">
+  
+<g>
+  <path d="M40 60 C35 64 30 69 30 78 C30 84 32 87 37 87 L63 87 C68 87 70 84 70 78 C70 69 65 64 60 60 Z"
+        fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M34 82 q1.4 2.4 3.2 3.6 M66 82 q-1.4 2.4 -3.2 3.6" fill="none" stroke="#c99a62" stroke-width="1" stroke-linecap="round"/>
+  <!-- leaf-green scarf, a little N coin pinned to the knot -->
+  <path d="M36 63.5 Q50 74 64 63.5 L65 70.5 Q50 81 35 70.5 Z" fill="url(#scarf)" stroke="#35200f" stroke-width="1.4" stroke-linejoin="round"/>
+  <path d="M38 66.4 Q50 75 62 66.4" fill="none" stroke="#a8ecb0" stroke-opacity=".7" stroke-width=".9" stroke-linecap="round"/>
+  <circle cx="50" cy="75.6" r="5.2" fill="url(#coin)" stroke="#35200f" stroke-width="1.3"/>
+  <circle cx="50" cy="75.6" r="3.7" fill="none" stroke="#c98a10" stroke-width=".6"/>
+  <path d="M47.6 78.4 V72.8 L52.4 78.4 V72.8" fill="none" stroke="#8a5a08" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+  <g transform="translate(0 2.4)">
+    <g transform="translate(0 -1.4) translate(34 33) scale(1 1) translate(-34 -33)">
+    <g transform="">
+      <path d="M28 35 C21.5 27 18.5 14.5 23.5 9.8 C29 6 36.5 14 40.5 31 Z" fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M30.5 31 C26 25 24.2 17 26.4 13 C29.6 10.8 33.6 16.6 35.6 27 Z" fill="#f7b3bd"/>
+      <path d="M27.5 19 q1.6 -2.4 3.4 -1.2" fill="none" stroke="#c99a62" stroke-width=".8" stroke-linecap="round"/>
+    </g></g><g transform="translate(0 -1.4) translate(66 33) scale(1 1) translate(-66 -33)">
+    <g transform="translate(100 0) scale(-1 1)">
+      <path d="M28 35 C21.5 27 18.5 14.5 23.5 9.8 C29 6 36.5 14 40.5 31 Z" fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M30.5 31 C26 25 24.2 17 26.4 13 C29.6 10.8 33.6 16.6 35.6 27 Z" fill="#f7b3bd"/>
+      <path d="M27.5 19 q1.6 -2.4 3.4 -1.2" fill="none" stroke="#c99a62" stroke-width=".8" stroke-linecap="round"/>
+    </g></g>
+    <path d="M50 20.5 Q52.61 18.28 54.86 20.86 Q57.75 19.05 59.58 21.92 Q62.66 20.55 64 23.65 Q67.22 22.75 68 26 Q71.27 25.61 71.45 28.89 Q74.69 29.03 74.25 32.25 Q77.38 32.94 76.31 35.96 Q82.09 36.3 77.57 39.92 Q83.16 41.4 78 44 Q83.16 46.6 77.57 48.08 Q82.09 51.7 76.31 52.04 Q80 56.52 74.25 55.75 Q77 60.89 71.45 59.11 Q73.2 64.69 68 62 Q68.73 67.83 64 64.35 Q62.88 68.01 59.58 66.08 Q57.88 69.54 54.86 67.14 Q52.65 70.31 50 67.5 Q47.35 70.31 45.14 67.14 Q42.12 69.54 40.42 66.08 Q37.12 68.01 36 64.35 Q31.27 67.83 32 62 Q26.8 64.69 28.55 59.11 Q23 60.89 25.75 55.75 Q20 56.52 23.69 52.04 Q17.91 51.7 22.43 48.08 Q16.84 46.6 22 44 Q16.84 41.4 22.43 39.92 Q17.91 36.3 23.69 35.96 Q22.62 32.94 25.75 32.25 Q25.31 29.03 28.55 28.89 Q28.73 25.61 32 26 Q32.78 22.75 36 23.65 Q37.34 20.55 40.42 21.92 Q42.25 19.05 45.14 20.86 Q47.39 18.28 50 20.5 Z" fill="url(#fur)"/>
+    <path d="M30 31 q2.4 -3.4 4.8 -.4 M66 30 q-2.4 -3.4 -4.8 -.4 M46 24.5 q2 -2.4 4 0 M50 24.5 q2 -2.4 4 0" fill="none" stroke="#d4a56c" stroke-width="1" stroke-linecap="round"/>
+    <ellipse cx="29" cy="40" rx="3" ry="2.2" fill="#d9a766" fill-opacity=".35"/>
+    <ellipse cx="71" cy="41" rx="3" ry="2.2" fill="#d9a766" fill-opacity=".35"/>
+    
+<g transform="translate(0 0.8)" stroke="#1d5a32" stroke-width="1" stroke-linejoin="round" stroke-linecap="round">
+  <path d="M50 23 Q49.6 18 51 14.5" fill="none" stroke-width="1.5"/>
+  <path d="M50.4 18 C45.5 18.6 42 15.4 42.6 11.8 C47.4 11.2 50.8 14 50.4 18 Z" fill="url(#leaf)"/>
+  <path d="M51.2 15.4 C55.4 14.6 58.6 11.4 58 8.4 C53.6 8.2 50.6 11.2 51.2 15.4 Z" fill="url(#leaf)"/>
+  <path d="M49.4 16.4 q-3.2 -1.4 -5 -3.4 M52 12.6 q2.6 -.8 4.4 -2.4" fill="none" stroke-width=".55" stroke-opacity=".7"/>
+</g>
+    <g clip-path="url(#headClip)">
+    <g transform="translate(50 49) scale(1 0.95) translate(-50 -44)">
+      <g opacity="0.75">
+        <ellipse cx="31.5" cy="55" rx="4.6" ry="3" fill="#ff9fb2" transform="translate(31.5 55) scale(1 1) translate(-31.5 -55)"/>
+        <ellipse cx="68.5" cy="55" rx="4.6" ry="3" fill="#ff9fb2" transform="translate(68.5 55) scale(1 1) translate(-68.5 -55)"/>
+      </g>
+      <g transform="translate(39 47) scale(1 1)">
+    <ellipse rx="5.6" ry="6.7" fill="url(#eye)" stroke="#35200f" stroke-width=".9"/>
+    <circle cx="-1.7" cy="-1.4" r="2.15" fill="#fff"/>
+    <circle cx="1.9" cy="3.1" r="1" fill="#fff" fill-opacity=".9"/>
+  </g><g transform="translate(61 47) scale(1 1)">
+    <ellipse rx="5.6" ry="6.7" fill="url(#eye)" stroke="#35200f" stroke-width=".9"/>
+    <circle cx="-1.7" cy="-1.4" r="2.15" fill="#fff"/>
+    <circle cx="1.9" cy="3.1" r="1" fill="#fff" fill-opacity=".9"/>
+  </g>
+      <g transform="translate(0 1.6)">
+        <ellipse cx="50" cy="56.4" rx="10.4" ry="6.8" fill="url(#muzzle)"/>
+        <path d="M47.2 52.6 Q50 51 52.8 52.6 Q52.4 55.4 50 55.6 Q47.6 55.4 47.2 52.6 Z" fill="#5b3a29" stroke="#35200f" stroke-width=".7" stroke-linejoin="round"/>
+        <ellipse cx="49.2" cy="52.5" rx="1" ry=".5" fill="#fff" fill-opacity=".7"/>
+        <path d="M50 55.2 V57.4" stroke="#3a2216" stroke-width="1.1" stroke-linecap="round" fill="none"/>
+         <path d="M45.4 57.2 Q47.8 60.4 50 57.4 Q52.2 60.4 54.6 57.2" stroke="#3a2216" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </g>
+    </g>
+    </g>
+    <path d="M50 20.5 Q52.61 18.28 54.86 20.86 Q57.75 19.05 59.58 21.92 Q62.66 20.55 64 23.65 Q67.22 22.75 68 26 Q71.27 25.61 71.45 28.89 Q74.69 29.03 74.25 32.25 Q77.38 32.94 76.31 35.96 Q82.09 36.3 77.57 39.92 Q83.16 41.4 78 44 Q83.16 46.6 77.57 48.08 Q82.09 51.7 76.31 52.04 Q80 56.52 74.25 55.75 Q77 60.89 71.45 59.11 Q73.2 64.69 68 62 Q68.73 67.83 64 64.35 Q62.88 68.01 59.58 66.08 Q57.88 69.54 54.86 67.14 Q52.65 70.31 50 67.5 Q47.35 70.31 45.14 67.14 Q42.12 69.54 40.42 66.08 Q37.12 68.01 36 64.35 Q31.27 67.83 32 62 Q26.8 64.69 28.55 59.11 Q23 60.89 25.75 55.75 Q20 56.52 23.69 52.04 Q17.91 51.7 22.43 48.08 Q16.84 46.6 22 44 Q16.84 41.4 22.43 39.92 Q17.91 36.3 23.69 35.96 Q22.62 32.94 25.75 32.25 Q25.31 29.03 28.55 28.89 Q28.73 25.61 32 26 Q32.78 22.75 36 23.65 Q37.34 20.55 40.42 21.92 Q42.25 19.05 45.14 20.86 Q47.39 18.28 50 20.5 Z" fill="none" stroke="#35200f" stroke-width="1.6" stroke-linejoin="round"/>
+  </g>
+  
+</g></g>
+<g transform="translate(200 200)"><g mask="url(#bottomFade)">
+  
+<g>
+  <path d="M40 60 C35 64 30 69 30 78 C30 84 32 87 37 87 L63 87 C68 87 70 84 70 78 C70 69 65 64 60 60 Z"
+        fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M34 82 q1.4 2.4 3.2 3.6 M66 82 q-1.4 2.4 -3.2 3.6" fill="none" stroke="#c99a62" stroke-width="1" stroke-linecap="round"/>
+  <!-- leaf-green scarf, a little N coin pinned to the knot -->
+  <path d="M36 63.5 Q50 74 64 63.5 L65 70.5 Q50 81 35 70.5 Z" fill="url(#scarf)" stroke="#35200f" stroke-width="1.4" stroke-linejoin="round"/>
+  <path d="M38 66.4 Q50 75 62 66.4" fill="none" stroke="#a8ecb0" stroke-opacity=".7" stroke-width=".9" stroke-linecap="round"/>
+  <circle cx="50" cy="75.6" r="5.2" fill="url(#coin)" stroke="#35200f" stroke-width="1.3"/>
+  <circle cx="50" cy="75.6" r="3.7" fill="none" stroke="#c98a10" stroke-width=".6"/>
+  <path d="M47.6 78.4 V72.8 L52.4 78.4 V72.8" fill="none" stroke="#8a5a08" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+  <g transform="translate(3.06 1.92)">
+    <g transform="translate(3.24 -1.12) translate(34 33) scale(1.07 1) translate(-34 -33)">
+    <g transform="">
+      <path d="M28 35 C21.5 27 18.5 14.5 23.5 9.8 C29 6 36.5 14 40.5 31 Z" fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M30.5 31 C26 25 24.2 17 26.4 13 C29.6 10.8 33.6 16.6 35.6 27 Z" fill="#f7b3bd"/>
+      <path d="M27.5 19 q1.6 -2.4 3.4 -1.2" fill="none" stroke="#c99a62" stroke-width=".8" stroke-linecap="round"/>
+    </g></g><g transform="translate(0.54 -1.12) translate(66 33) scale(0.66 1) translate(-66 -33)">
+    <g transform="translate(100 0) scale(-1 1)">
+      <path d="M28 35 C21.5 27 18.5 14.5 23.5 9.8 C29 6 36.5 14 40.5 31 Z" fill="url(#fur)" stroke="#35200f" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M30.5 31 C26 25 24.2 17 26.4 13 C29.6 10.8 33.6 16.6 35.6 27 Z" fill="#f7b3bd"/>
+      <path d="M27.5 19 q1.6 -2.4 3.4 -1.2" fill="none" stroke="#c99a62" stroke-width=".8" stroke-linecap="round"/>
+    </g></g>
+    <path d="M50 20.5 Q52.61 18.28 54.86 20.86 Q57.75 19.05 59.58 21.92 Q62.66 20.55 64 23.65 Q67.22 22.75 68 26 Q71.27 25.61 71.45 28.89 Q74.69 29.03 74.25 32.25 Q77.38 32.94 76.31 35.96 Q82.09 36.3 77.57 39.92 Q83.16 41.4 78 44 Q83.16 46.6 77.57 48.08 Q82.09 51.7 76.31 52.04 Q80 56.52 74.25 55.75 Q77 60.89 71.45 59.11 Q73.2 64.69 68 62 Q68.73 67.83 64 64.35 Q62.88 68.01 59.58 66.08 Q57.88 69.54 54.86 67.14 Q52.65 70.31 50 67.5 Q47.35 70.31 45.14 67.14 Q42.12 69.54 40.42 66.08 Q37.12 68.01 36 64.35 Q31.27 67.83 32 62 Q26.8 64.69 28.55 59.11 Q23 60.89 25.75 55.75 Q20 56.52 23.69 52.04 Q17.91 51.7 22.43 48.08 Q16.84 46.6 22 44 Q16.84 41.4 22.43 39.92 Q17.91 36.3 23.69 35.96 Q22.62 32.94 25.75 32.25 Q25.31 29.03 28.55 28.89 Q28.73 25.61 32 26 Q32.78 22.75 36 23.65 Q37.34 20.55 40.42 21.92 Q42.25 19.05 45.14 20.86 Q47.39 18.28 50 20.5 Z" fill="url(#fur)"/>
+    <path d="M30 31 q2.4 -3.4 4.8 -.4 M66 30 q-2.4 -3.4 -4.8 -.4 M46 24.5 q2 -2.4 4 0 M50 24.5 q2 -2.4 4 0" fill="none" stroke="#d4a56c" stroke-width="1" stroke-linecap="round"/>
+    <ellipse cx="29" cy="40" rx="3" ry="2.2" fill="#d9a766" fill-opacity=".35"/>
+    <ellipse cx="71" cy="41" rx="3" ry="2.2" fill="#d9a766" fill-opacity=".35"/>
+    
+<g transform="translate(1.26 0.64)" stroke="#1d5a32" stroke-width="1" stroke-linejoin="round" stroke-linecap="round">
+  <path d="M50 23 Q49.6 18 51 14.5" fill="none" stroke-width="1.5"/>
+  <path d="M50.4 18 C45.5 18.6 42 15.4 42.6 11.8 C47.4 11.2 50.8 14 50.4 18 Z" fill="url(#leaf)"/>
+  <path d="M51.2 15.4 C55.4 14.6 58.6 11.4 58 8.4 C53.6 8.2 50.6 11.2 51.2 15.4 Z" fill="url(#leaf)"/>
+  <path d="M49.4 16.4 q-3.2 -1.4 -5 -3.4 M52 12.6 q2.6 -.8 4.4 -2.4" fill="none" stroke-width=".55" stroke-opacity=".7"/>
+</g>
+    <g clip-path="url(#headClip)">
+    <g transform="translate(58.46 48) scale(0.87 0.96) translate(-50 -44)">
+      <g opacity="0.75">
+        <ellipse cx="31.5" cy="55" rx="4.6" ry="3" fill="#ff9fb2" transform="translate(31.5 55) scale(1.07 1) translate(-31.5 -55)"/>
+        <ellipse cx="68.5" cy="55" rx="4.6" ry="3" fill="#ff9fb2" transform="translate(68.5 55) scale(0.84 1) translate(-68.5 -55)"/>
+      </g>
+      <g transform="translate(39 47) scale(1.07 1)">
+    <ellipse rx="5.6" ry="6.7" fill="url(#eye)" stroke="#35200f" stroke-width=".9"/>
+    <circle cx="-0.89" cy="-1.58" r="2.15" fill="#fff"/>
+    <circle cx="2.71" cy="2.92" r="1" fill="#fff" fill-opacity=".9"/>
+  </g><g transform="translate(61 47) scale(0.84 1)">
+    <ellipse rx="5.6" ry="6.7" fill="url(#eye)" stroke="#35200f" stroke-width=".9"/>
+    <circle cx="-0.89" cy="-1.58" r="2.15" fill="#fff"/>
+    <circle cx="2.71" cy="2.92" r="1" fill="#fff" fill-opacity=".9"/>
+  </g>
+      <g transform="translate(3.24 1.28)">
+        <ellipse cx="50" cy="56.4" rx="10.4" ry="6.8" fill="url(#muzzle)"/>
+        <path d="M47.2 52.6 Q50 51 52.8 52.6 Q52.4 55.4 50 55.6 Q47.6 55.4 47.2 52.6 Z" fill="#5b3a29" stroke="#35200f" stroke-width=".7" stroke-linejoin="round"/>
+        <ellipse cx="49.2" cy="52.5" rx="1" ry=".5" fill="#fff" fill-opacity=".7"/>
+        <path d="M50 55.2 V57.4" stroke="#3a2216" stroke-width="1.1" stroke-linecap="round" fill="none"/>
+         <path d="M45.4 57.2 Q47.8 60.4 50 57.4 Q52.2 60.4 54.6 57.2" stroke="#3a2216" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </g>
+    </g>
+    </g>
+    <path d="M50 20.5 Q52.61 18.28 54.86 20.86 Q57.75 19.05 59.58 21.92 Q62.66 20.55 64 23.65 Q67.22 22.75 68 26 Q71.27 25.61 71.45 28.89 Q74.69 29.03 74.25 32.25 Q77.38 32.94 76.31 35.96 Q82.09 36.3 77.57 39.92 Q83.16 41.4 78 44 Q83.16 46.6 77.57 48.08 Q82.09 51.7 76.31 52.04 Q80 56.52 74.25 55.75 Q77 60.89 71.45 59.11 Q73.2 64.69 68 62 Q68.73 67.83 64 64.35 Q62.88 68.01 59.58 66.08 Q57.88 69.54 54.86 67.14 Q52.65 70.31 50 67.5 Q47.35 70.31 45.14 67.14 Q42.12 69.54 40.42 66.08 Q37.12 68.01 36 64.35 Q31.27 67.83 32 62 Q26.8 64.69 28.55 59.11 Q23 60.89 25.75 55.75 Q20 56.52 23.69 52.04 Q17.91 51.7 22.43 48.08 Q16.84 46.6 22 44 Q16.84 41.4 22.43 39.92 Q17.91 36.3 23.69 35.96 Q22.62 32.94 25.75 32.25 Q25.31 29.03 28.55 28.89 Q28.73 25.61 32 26 Q32.78 22.75 36 23.65 Q37.34 20.55 40.42 21.92 Q42.25 19.05 45.14 20.86 Q47.39 18.28 50 20.5 Z" fill="none" stroke="#35200f" stroke-width="1.6" stroke-linejoin="round"/>
+  </g>
+  
+</g></g>
+</svg>
