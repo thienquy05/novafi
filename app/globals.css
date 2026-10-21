@@ -107,6 +107,16 @@
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
+  /* Grow a small icon button's TAP area to ~44px (WCAG / Apple HIG) without
+     changing how big it looks: an invisible pseudo-element extends the hit box. */
+  .hit-area {
+    position: relative;
+  }
+  .hit-area::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+  }
   /* Improve tap responsiveness on mobile */
   .tap-highlight-none {
     -webkit-tap-highlight-color: transparent;

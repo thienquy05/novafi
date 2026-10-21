@@ -1667,42 +1667,101 @@ export function aggregateCategoryTotals(
 }
 
 // ── Ghost Subscription & Price-Creep Detection ────────────────────────────────
-// Scans the expense ledger for recurring charges (a stable amount hitting the
-// same merchant across several months) so the user can spot forgotten "ghost"
-// subscriptions and silent price hikes. We can't see usage/location data, so we
-// surface every recurring charge by monthly cost and flag the ones whose price
-// has crept up since the first charge.
+// Scans the expense ledger for real subscriptions: the same merchant charging on
+// a steady RHYTHM (weekly … yearly) at a near-FIXED price. "Same merchant in two
+// different months" alone is not enough — a restaurant you visit monthly
+// (Chick-fil-A in March, April, May) repeats at random dates and amounts, so it
+// fails both tests. Everyday-spending categories are skipped unless the merchant
+// is a known subscription service, and the user can dismiss any wrong guess
+// (settings.dismissedSubscriptions, keyed by merchantKey).
 
-const SUB_MIN_OCCURRENCES = 2;          // need this many charges …
-const SUB_MIN_MONTHS = 2;               // … across this many distinct months …
-const SUB_AMOUNT_RATIO_TOLERANCE = 1.5; // … with amounts this consistent (max/min).
-const SUB_ACTIVE_DAYS = 45;             // charged within this → still "active".
-const SUB_CREEP_MIN = 0.01;             // a price increase above this counts as creep.
+type SubFrequency = 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly';
+
+const SUB_CADENCES: { frequency: SubFrequency; days: number; tol: number; minCharges: number }[] = [
+  { frequency: 'weekly',    days: 7,      tol: 2,  minCharges: 4 },
+  { frequency: 'biweekly',  days: 14,     tol: 3,  minCharges: 3 },
+  { frequency: 'monthly',   days: 30.44,  tol: 5,  minCharges: 3 },
+  { frequency: 'quarterly', days: 91.31,  tol: 10, minCharges: 2 },
+  { frequency: 'yearly',    days: 365.25, tol: 15, minCharges: 2 },
+];
+const SUB_PRICE_TOLERANCE = 0.03;  // ≤3% between charges = same price (tax/FX wiggle)
+const SUB_PRICE_STEP_MAX = 0.5;    // a single change above 50% = not a fixed-price plan
+const SUB_MAX_PRICE_STEPS = 2;     // allow up to two price changes (hikes, plan switch)
+const SUB_CREEP_MIN = 0.01;        // a price increase above this counts as creep.
+
+/** Categories where repeat purchases are normal spending, not subscriptions. */
+const SUB_EVERYDAY_CATEGORIES = new Set(['Food', 'Grocery', 'Transportation', 'Shopping', 'Transfer', 'Funding', 'Loan', 'Split']);
+
+/** Merchant-name tokens of well-known subscription services (match whole words). */
+const KNOWN_SUBSCRIPTION_SERVICES = [
+  'netflix', 'spotify', 'hulu', 'disney', 'hbo', 'paramount', 'peacock', 'crunchyroll', 'youtube',
+  'apple', 'icloud', 'itunes', 'google', 'amazon prime', 'prime video', 'audible', 'kindle',
+  'adobe', 'microsoft', 'xbox', 'playstation', 'nintendo', 'steam',
+  'openai', 'chatgpt', 'anthropic', 'claude', 'github', 'notion', 'dropbox', 'canva', 'grammarly', 'evernote',
+  'duolingo', 'patreon', 'onlyfans', 'substack', 'medium', 'nytimes', 'nyt', 'wsj', 'washington post',
+  'siriusxm', 'pandora', 'tidal', 'deezer',
+  'peloton', 'planet fitness', 'la fitness', 'equinox', 'crunch fitness', 'gym', 'classpass', 'strava',
+  'dashpass', 'uber one', 'instacart', 'walmart', 'costco', 'sams club', 'grubhub',
+  'verizon', 't mobile', 'tmobile', 'at t', 'mint mobile', 'visible', 'xfinity', 'comcast', 'spectrum',
+  'norton', 'mcafee', 'nordvpn', 'expressvpn', '1password', 'lastpass',
+];
 
 export type Subscription = {
   merchant: string;            // display label (most frequent original description)
+  /** Normalized merchant key — what a "Not a subscription" dismissal stores. */
+  key: string;
   category: string;
-  monthlyAmount: number;       // most recent charge
+  frequency: SubFrequency;
+  amount: number;              // most recent charge
+  monthlyAmount: number;       // `amount` normalized to a monthly cost
   firstAmount: number;         // earliest charge
   occurrences: number;
   months: number;              // distinct YYYY-MM with a charge
   firstDate: string;
   lastDate: string;
-  priceIncrease: number;       // monthlyAmount − firstAmount (may be negative)
+  priceIncrease: number;       // amount − firstAmount (may be negative)
   priceIncreasePct: number | null;
   hasPriceCreep: boolean;      // price rose meaningfully since the first charge
-  isActive: boolean;           // last charge within the recency window
+  isActive: boolean;           // charged within ~1.5 cycles
+  /** 'likely' = known service or a perfectly steady pattern; 'possible' otherwise. */
+  confidence: 'likely' | 'possible';
 };
 
 // Collapse merchant noise (trailing card digits, dates, punctuation) so
 // "NETFLIX 1234" and "Netflix.com" group together.
-function normalizeMerchant(desc: string): string {
+export function normalizeMerchant(desc: string): string {
   return desc
     .toLowerCase()
-    .replace(/[0-9#*/.,_-]+/g, ' ')   // card digits, dates, punctuation
-    .replace(/\b(com|www)\b/g, ' ')   // domain noise ("netflix.com" → "netflix")
+    .replace(/[0-9#*/.,_|&'-]+/g, ' ')  // card digits, dates, punctuation
+    .replace(/\b(com|www)\b/g, ' ')    // domain noise ("netflix.com" → "netflix")
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+const MERCHANT_NOISE_WORDS = new Set([
+  'the', 'and', 'inc', 'llc', 'ltd', 'corp', 'co', 'com', 'www', 'payment', 'autopay', 'auto', 'pay',
+  'subscription', 'sub', 'monthly', 'annual', 'yearly', 'bill', 'online', 'store', 'purchase', 'debit', 'pos',
+]);
+function merchantWords(name: string): string[] {
+  return normalizeMerchant(name).split(' ').filter((w) => w.length > 1 && !MERCHANT_NOISE_WORDS.has(w));
+}
+
+/**
+ * Do two merchant names refer to the same service? Whole-word match: every
+ * meaningful word of the shorter name appears in the longer one ("Netflix" ↔
+ * "NETFLIX.COM 1234"). Unlike the old substring test, "Chick-fil-A" no longer
+ * matches "Chicken Express" and "Apple" no longer matches "Applebee's".
+ */
+export function merchantMatches(a: string, b: string): boolean {
+  const wa = merchantWords(a), wb = merchantWords(b);
+  if (wa.length === 0 || wb.length === 0) return false;
+  const [short, long] = wa.length <= wb.length ? [wa, new Set(wb)] : [wb, new Set(wa)];
+  return short.every((w) => long.has(w));
+}
+
+function isKnownSubscriptionService(key: string): boolean {
+  const padded = ` ${key} `;
+  return KNOWN_SUBSCRIPTION_SERVICES.some((svc) => padded.includes(` ${svc} `));
 }
 
 function mostCommonDescription(txs: Transaction[]): string {
@@ -1714,54 +1773,113 @@ function mostCommonDescription(txs: Transaction[]): string {
   return best;
 }
 
-function daysSinceDate(dateStr: string, today: Date): number | null {
+function dayIndex(dateStr: string): number | null {
   const [y, m, d] = dateStr.split('-').map(Number);
   if (!y || !m || !d) return null;
-  const then = new Date(y, m - 1, d);
-  const now = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  return Math.round((now.getTime() - then.getTime()) / 86400000);
+  return Math.round(Date.UTC(y, m - 1, d) / 86400000);
 }
 
-export function detectSubscriptions(transactions: Transaction[], today: Date = new Date()): Subscription[] {
+function daysSinceDate(dateStr: string, today: Date): number | null {
+  const then = dayIndex(dateStr);
+  if (then === null) return null;
+  return Math.round(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()) / 86400000) - then;
+}
+
+function median(xs: number[]): number {
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
+/** Analyse one merchant's charges; null when it isn't a subscription pattern. */
+function analyseRecurring(charges: Transaction[], key: string, today: Date): Subscription | null {
+  // One charge per day (a same-day duplicate isn't a new billing cycle).
+  const byDay = new Map<number, Transaction>();
+  for (const t of charges) {
+    const d = dayIndex(t.date);
+    if (d !== null) byDay.set(d, t);
+  }
+  const days = [...byDay.keys()].sort((a, b) => a - b);
+  if (days.length < 2) return null;
+  const sorted = days.map((d) => byDay.get(d)!);
+  const gaps = days.slice(1).map((d, i) => d - days[i]);
+
+  // Rhythm: the typical gap must sit on a known billing cycle, and (almost) every
+  // gap must too — one skipped cycle (a gap of ~2×) is tolerated.
+  const typical = median(gaps);
+  const cadence = SUB_CADENCES.find((c) => Math.abs(typical - c.days) <= c.tol);
+  if (!cadence || sorted.length < cadence.minCharges) return null;
+  let irregular = 0, skipped = 0;
+  for (const g of gaps) {
+    if (Math.abs(g - cadence.days) <= cadence.tol) continue;
+    if (Math.abs(g - 2 * cadence.days) <= cadence.tol * 1.5) skipped++;
+    else irregular++;
+  }
+  if (skipped > 1 || irregular > Math.floor(gaps.length * 0.2)) return null;
+
+  // Price: steady, allowing a couple of plan/price changes but not amounts that
+  // swing every time (a restaurant bill).
+  let steps = 0;
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1].amount, cur = sorted[i].amount;
+    if (prev <= 0) return null;
+    const change = Math.abs(cur - prev) / prev;
+    if (change > SUB_PRICE_STEP_MAX) return null;
+    if (change > SUB_PRICE_TOLERANCE) steps++;
+  }
+  if (steps > SUB_MAX_PRICE_STEPS) return null;
+
+  const first = sorted[0], last = sorted[sorted.length - 1];
+  const known = isKnownSubscriptionService(key);
+  if (SUB_EVERYDAY_CATEGORIES.has(last.category) && !known) return null;
+
+  const priceIncrease = roundCents(last.amount - first.amount);
+  const lastDays = daysSinceDate(last.date, today);
+  const steady = irregular === 0 && skipped === 0 && steps === 0 && sorted.length > cadence.minCharges;
+  return {
+    merchant: mostCommonDescription(sorted),
+    key,
+    category: last.category,
+    frequency: cadence.frequency,
+    amount: last.amount,
+    monthlyAmount: roundCents((last.amount * 30.44) / cadence.days),
+    firstAmount: first.amount,
+    occurrences: sorted.length,
+    months: new Set(sorted.map((t) => t.date.slice(0, 7))).size,
+    firstDate: first.date,
+    lastDate: last.date,
+    priceIncrease,
+    priceIncreasePct: first.amount > 0 ? roundCents((priceIncrease / first.amount) * 100) : null,
+    hasPriceCreep: priceIncrease > SUB_CREEP_MIN,
+    isActive: lastDays !== null && lastDays <= cadence.days * 1.5,
+    confidence: known || steady ? 'likely' : 'possible',
+  };
+}
+
+export function detectSubscriptions(
+  transactions: Transaction[],
+  today: Date = new Date(),
+  dismissed: readonly string[] = [],
+): Subscription[] {
+  const skip = new Set(dismissed);
   const groups = new Map<string, Transaction[]>();
   for (const t of transactions) {
     if (t.type !== 'expense' || t.amount <= 0) continue;
     const key = normalizeMerchant(t.description);
-    if (!key) continue;
+    if (!key || skip.has(key)) continue;
     let arr = groups.get(key);
     if (!arr) { arr = []; groups.set(key, arr); }
     arr.push(t);
   }
 
   const out: Subscription[] = [];
-  for (const txs of groups.values()) {
-    if (txs.length < SUB_MIN_OCCURRENCES) continue;
-    const sorted = [...txs].sort((a, b) => a.date.localeCompare(b.date));
-    const months = new Set(sorted.map((t) => t.date.slice(0, 7)));
-    if (months.size < SUB_MIN_MONTHS) continue;
-    const amounts = sorted.map((t) => t.amount);
-    const min = Math.min(...amounts), max = Math.max(...amounts);
-    if (min <= 0 || max / min > SUB_AMOUNT_RATIO_TOLERANCE) continue; // too variable → not a subscription
-
-    const first = sorted[0], last = sorted[sorted.length - 1];
-    const priceIncrease = roundCents(last.amount - first.amount);
-    const lastDays = daysSinceDate(last.date, today);
-    out.push({
-      merchant: mostCommonDescription(sorted),
-      category: last.category,
-      monthlyAmount: last.amount,
-      firstAmount: first.amount,
-      occurrences: sorted.length,
-      months: months.size,
-      firstDate: first.date,
-      lastDate: last.date,
-      priceIncrease,
-      priceIncreasePct: first.amount > 0 ? roundCents((priceIncrease / first.amount) * 100) : null,
-      hasPriceCreep: priceIncrease > SUB_CREEP_MIN,
-      isActive: lastDays !== null && lastDays <= SUB_ACTIVE_DAYS,
-    });
+  for (const [key, txs] of groups) {
+    const sub = analyseRecurring(txs, key, today);
+    if (sub) out.push(sub);
   }
-  return out.sort((a, b) => b.monthlyAmount - a.monthlyAmount);
+  return out.sort((a, b) =>
+    a.confidence === b.confidence ? b.monthlyAmount - a.monthlyAmount : a.confidence === 'likely' ? -1 : 1,
+  );
 }
 
 // ── Dynamic Budget Reallocation ───────────────────────────────────────────────

@@ -23,7 +23,7 @@ import {
   calcPaydownToTarget, buildCreditReport, calcCreditAlerts, allocateSmartPayment,
   assessCardPaymentHistory, buildLimitIncreaseAdvisories, LIMIT_ADVISOR_TARGET,
   buildStatementArbitrage, buildBalanceTransferAdvice,
-  detectSubscriptions, suggestBudgetReallocations, denormalizeMonthlyBudget,
+  detectSubscriptions, merchantMatches, suggestBudgetReallocations, denormalizeMonthlyBudget,
   calcCreditUtilizationScore, composeHealthScore, daysUntilStatement, HEALTH_WEIGHTS,
   CREDIT_UTIL_TARGET,
   predictMonthlyIncome, suggestCardPaymentBudget,
@@ -1923,22 +1923,106 @@ describe('detectSubscriptions', () => {
     expect(detectSubscriptions(txs, today)).toHaveLength(0);
   });
 
-  it('ignores merchants seen in too few months', () => {
+  it('ignores repeat charges with no billing rhythm', () => {
     const txs = [
-      makeTx({ id: '1', type: 'expense', description: 'Spotify', amount: 9.99, date: '2026-05-01' }),
-      makeTx({ id: '2', type: 'expense', description: 'Spotify', amount: 9.99, date: '2026-05-15' }),
-      makeTx({ id: '3', type: 'expense', description: 'Spotify', amount: 9.99, date: '2026-05-28' }),
+      makeTx({ id: '1', type: 'expense', description: 'Spotify', amount: 9.99, category: 'Entertainment', date: '2026-05-01' }),
+      makeTx({ id: '2', type: 'expense', description: 'Spotify', amount: 9.99, category: 'Entertainment', date: '2026-05-03' }),
+      makeTx({ id: '3', type: 'expense', description: 'Spotify', amount: 9.99, category: 'Entertainment', date: '2026-05-28' }),
     ];
-    expect(detectSubscriptions(txs, today)).toHaveLength(0); // 3 charges but only 1 month
+    expect(detectSubscriptions(txs, today)).toHaveLength(0); // gaps of 2 and 25 days
   });
 
   it('marks a stale subscription inactive', () => {
     const txs = [
-      makeTx({ id: '1', type: 'expense', description: 'OldGym', amount: 30, date: '2025-09-05' }),
-      makeTx({ id: '2', type: 'expense', description: 'OldGym', amount: 30, date: '2025-10-05' }),
-      makeTx({ id: '3', type: 'expense', description: 'OldGym', amount: 30, date: '2025-11-05' }),
+      makeTx({ id: '1', type: 'expense', description: 'OldGym', amount: 30, category: 'Health', date: '2025-09-05' }),
+      makeTx({ id: '2', type: 'expense', description: 'OldGym', amount: 30, category: 'Health', date: '2025-10-05' }),
+      makeTx({ id: '3', type: 'expense', description: 'OldGym', amount: 30, category: 'Health', date: '2025-11-05' }),
     ];
     expect(detectSubscriptions(txs, today)[0].isActive).toBe(false);
+  });
+
+  const monthlyCharges = (description: string, amounts: number[], days: number[], category = 'Entertainment') =>
+    amounts.map((amount, i) => makeTx({
+      id: `${description}-${i}`, type: 'expense', description, amount, category,
+      date: `2026-0${i + 2}-${String(days[i]).padStart(2, '0')}`,
+    }));
+
+  it('a restaurant visited every month is NOT a subscription (random dates + amounts)', () => {
+    const txs = monthlyCharges('Chick-fil-A', [12.43, 9.87, 15.2, 11.05], [3, 20, 9, 27], 'Food');
+    expect(detectSubscriptions(txs, today)).toHaveLength(0);
+  });
+
+  it('even a fixed-price monthly meal is skipped in an everyday category', () => {
+    const txs = monthlyCharges("Joe's Diner", [11.49, 11.49, 11.49, 11.49], [5, 5, 5, 5], 'Food');
+    expect(detectSubscriptions(txs, today)).toHaveLength(0);
+  });
+
+  it('a known service in an everyday category is still detected (DoorDash DashPass)', () => {
+    const txs = monthlyCharges('DoorDash DashPass', [9.99, 9.99, 9.99], [12, 12, 12], 'Food');
+    const subs = detectSubscriptions(txs, today);
+    expect(subs).toHaveLength(1);
+    expect(subs[0].confidence).toBe('likely');
+  });
+
+  it('needs at least 3 monthly charges', () => {
+    expect(detectSubscriptions(monthlyCharges('StreamCo', [7, 7], [4, 4]), today)).toHaveLength(0);
+    expect(detectSubscriptions(monthlyCharges('StreamCo', [7, 7, 7], [4, 4, 4]), today)).toHaveLength(1);
+  });
+
+  it('tolerates billing-date drift and one skipped month, but not erratic timing', () => {
+    const drift = [
+      makeTx({ id: 'a', type: 'expense', description: 'CloudBox', amount: 5, category: 'Bills', date: '2026-01-30' }),
+      makeTx({ id: 'b', type: 'expense', description: 'CloudBox', amount: 5, category: 'Bills', date: '2026-03-02' }), // 31d
+      makeTx({ id: 'c', type: 'expense', description: 'CloudBox', amount: 5, category: 'Bills', date: '2026-05-01' }), // 60d (skipped Apr)
+      makeTx({ id: 'd', type: 'expense', description: 'CloudBox', amount: 5, category: 'Bills', date: '2026-05-31' }), // 30d
+    ];
+    expect(detectSubscriptions(drift, today)).toHaveLength(1);
+  });
+
+  it('skips merchants the user dismissed ("Not a subscription")', () => {
+    const txs = monthlyCharges('StreamCo', [7, 7, 7], [4, 4, 4]);
+    const [sub] = detectSubscriptions(txs, today);
+    expect(sub.key).toBe('streamco');
+    expect(detectSubscriptions(txs, today, [sub.key])).toHaveLength(0);
+  });
+
+  it('detects weekly plans and normalizes them to a monthly cost', () => {
+    const txs = ['05-04', '05-11', '05-18', '05-25', '06-01'].map((d, i) =>
+      makeTx({ id: `w${i}`, type: 'expense', description: 'MealKit Weekly', amount: 10, category: 'Other', date: `2026-${d}` }));
+    const [sub] = detectSubscriptions(txs, today);
+    expect(sub.frequency).toBe('weekly');
+    expect(sub.amount).toBe(10);
+    expect(sub.monthlyAmount).toBeCloseTo(43.49, 2);
+  });
+
+  it('detects a yearly plan from two charges a year apart', () => {
+    const txs = [
+      makeTx({ id: 'y1', type: 'expense', description: 'Domain Renewal', amount: 20, category: 'Bills', date: '2025-03-01' }),
+      makeTx({ id: 'y2', type: 'expense', description: 'Domain Renewal', amount: 20, category: 'Bills', date: '2026-03-02' }),
+    ];
+    const [sub] = detectSubscriptions(txs, today);
+    expect(sub.frequency).toBe('yearly');
+    expect(sub.isActive).toBe(true);
+  });
+
+  it('ranks likely subscriptions before possible ones', () => {
+    const txs = [
+      ...monthlyCharges('Netflix', [15.99, 15.99, 15.99], [5, 5, 5]),               // known → likely
+      ...monthlyCharges('Local Club', [80, 85, 90], [1, 1, 1], 'Other'),            // price steps → possible
+    ];
+    expect(detectSubscriptions(txs, today).map((s) => s.confidence)).toEqual(['likely', 'possible']);
+  });
+});
+
+describe('merchantMatches', () => {
+  it('matches the same service despite noise', () => {
+    expect(merchantMatches('Netflix', 'NETFLIX.COM 1234')).toBe(true);
+    expect(merchantMatches('Spotify Premium', 'SPOTIFY PREMIUM P2B3')).toBe(true);
+  });
+  it('does not merge unrelated names that share a prefix or one word', () => {
+    expect(merchantMatches('Chick-fil-A', 'Chicken Express')).toBe(false);
+    expect(merchantMatches('Apple', "Applebee's")).toBe(false);
+    expect(merchantMatches('Amazon Prime', 'Prime Fitness')).toBe(false);
   });
 });
 

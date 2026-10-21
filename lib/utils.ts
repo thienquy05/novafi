@@ -195,4 +195,6 @@ export const DEFAULT_TAX_SETTINGS = {
   bucketTargetSavings: DEFAULT_BUCKET_TARGETS.savings as number,
   language: 'en' as const,
   timeZone: DEFAULT_TIME_ZONE,
+  dismissedSubscriptions: [] as string[],
+  dismissedCancelReminders: [] as string[],
 };

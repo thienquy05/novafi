@@ -1294,7 +1294,16 @@
     "startTracking": "Start tracking",
     "priceWentUp": "Price went up {amount}",
     "stoppedCharging": "Stopped charging",
-    "seenFor": "seen for {n} months"
+    "seenFor": "seen for {n} months",
+    "notSubscription": "Not a subscription",
+    "notSubscriptionToast": "Hidden — {name} won't be suggested again",
+    "likely": "Likely",
+    "possible": "Possible",
+    "reminderHidden": "Reminder hidden",
+    "toastFailedDismiss": "Couldn't save that — try again",
+    "noAccount": "None",
+    "track": "Track",
+    "every": "{amount} · {freq}"
   },
   "investments": {
     "title": "Investments",

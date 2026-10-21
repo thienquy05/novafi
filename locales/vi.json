@@ -1294,7 +1294,16 @@
     "startTracking": "Bắt đầu theo dõi",
     "priceWentUp": "Giá tăng {amount}",
     "stoppedCharging": "Ngừng tính phí",
-    "seenFor": "xuất hiện {n} tháng"
+    "seenFor": "xuất hiện {n} tháng",
+    "notSubscription": "Không phải gói đăng ký",
+    "notSubscriptionToast": "Đã ẩn — {name} sẽ không được gợi ý nữa",
+    "likely": "Khả năng cao",
+    "possible": "Có thể",
+    "reminderHidden": "Đã ẩn nhắc nhở",
+    "toastFailedDismiss": "Không lưu được — hãy thử lại",
+    "noAccount": "Không có",
+    "track": "Theo dõi",
+    "every": "{amount} · {freq}"
   },
   "investments": {
     "title": "Đầu tư",

@@ -28,7 +28,13 @@ export interface TaxSettings {
   bucketTargetSavings: number;
   language: Language;
   timeZone: string; // IANA time zone (e.g. 'America/New_York') — anchors every "today"/"now" across the app so server and client agree
+  // ── Subscriptions (synced across devices) ─────────────────────────────────
+  dismissedSubscriptions: string[];   // merchant keys the user marked "Not a subscription"
+  dismissedCancelReminders: string[]; // tracked-subscription ids whose "unused?" reminder was dismissed
 }
+
+/** App-managed settings lists that PATCH /api/settings can add to / remove from. */
+export type SettingsListKey = 'dismissedSubscriptions' | 'dismissedCancelReminders';
 
 export interface TaxResult {
   grossPaycheck: number;

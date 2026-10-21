@@ -10,6 +10,22 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-10-21 — Smarter subscription detection + "Not a subscription" (branch claude/novafi-ux-perf-networth)
+
+Plan Section 3 (+ the Subscriptions part of Section 4). User report: "Chick-fil-A this month and next month shows up as a subscription."
+
+- ROOT CAUSE: `detectSubscriptions` only required the same merchant in 2+ months with amounts within 1.5×; it ignored timing, exact price and category, and detected rows had no way to be dismissed.
+- WHAT (`lib/calculations.ts`): detection now requires (1) a billing RHYTHM — median gap on a weekly/biweekly/monthly/quarterly/yearly cycle (±2/3/5/10/15 days) with ≤20% off-cycle gaps and at most one skipped cycle; (2) a near-FIXED price — changes ≤3% are noise, at most 2 price steps, any single change >50% rejects; (3) enough charges (weekly 4, biweekly 3, monthly 3, quarterly/yearly 2); (4) not an everyday category (Food, Grocery, Transportation, Shopping, internal Transfer/Funding/Loan/Split) unless the merchant is a known service (`KNOWN_SUBSCRIPTION_SERVICES`, whole-word match, e.g. DoorDash DashPass, Netflix, gym). WHY: restaurants/stores repeat at random dates and amounts; subscriptions repeat on a schedule at a fixed price.
+- WHAT: `Subscription` gains `key` (normalized merchant), `frequency`, `amount` (last charge), `confidence` ('likely' = known service or perfectly steady, else 'possible'); `monthlyAmount` is now normalized by cycle (weekly ×4.35, yearly ÷12) — it used to be the raw last charge labelled "/mo". Sorted likely-first. `isActive` = charged within 1.5 cycles.
+- WHAT: `detectSubscriptions(txs, today, dismissed)` skips dismissed keys; the Home "subscription creep" insight passes `settings.dismissedSubscriptions` so dismissed items stop inflating it.
+- WHAT: `merchantMatches()` (whole-word, noise words removed) replaces the page's substring `serviceMatches` — "Chick-fil-A" ≠ "Chicken Express", "Apple" ≠ "Applebee's". Cancel-candidate matching uses it too.
+- WHAT: settings fields `dismissedSubscriptions` / `dismissedCancelReminders` (sheet keys `dismissed_subscriptions`, `dismissed_cancel_reminders`, '|' joined) + `PATCH /api/settings {list, add, remove}` that merges against the STORED settings. WHY: dismissals sync across devices and can't clobber other settings with a stale copy. The old device-only `nf_sub_dismissed_v1` list is migrated once, then removed.
+- WHAT (page): "Not a subscription" button on every detected row (Undo in the toast); Likely/Possible chip; amount shown with its real cycle; "Track" pre-fills amount + frequency; delete is immediate with Undo instead of `confirm()`; one `ensureResources` call (accounts, transactions, subscriptions, settings) — was 2 requests, and a failure spun forever → `LoadError` + retry; skeleton matches the page (`SubscriptionsSkeleton`, spacing fixed: was pb-28/space-y-5 vs pb-24/space-y-6); summary labels clamp to 2 lines + all values use FitText (cards align); cancel-candidate names truncate; icon buttons get `aria-label` + `.hit-area` (44px tap area, same visual size); switch labelled; "— None —" translated; one `CHIP` style.
+- `.hit-area` utility added to `app/globals.css`.
+- Tests: restaurant (random dates/amounts) rejected, fixed-price diner rejected by category, DashPass kept, ≥3 monthly charges, date drift + one skipped month OK, dismissed skipped, weekly normalization, yearly, likely-first ordering, merchantMatches cases.
+
+---
+
 ## 2026-10-21 — Net worth + predicted net worth rework (branch claude/novafi-ux-perf-networth)
 
 Plan Section 2. Chart keeps its look; behaviour and labels changed.
