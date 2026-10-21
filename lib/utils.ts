@@ -197,6 +197,7 @@ export const DEFAULT_TAX_SETTINGS = {
   timeZone: DEFAULT_TIME_ZONE,
   dismissedSubscriptions: [] as string[],
   dismissedCancelReminders: [] as string[],
+  dashboardLayout: [] as string[],
 };
 
 /** Transactions-page date/amount filter (strings as typed; '' = unbounded). */

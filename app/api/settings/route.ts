@@ -21,15 +21,15 @@ export const PUT = withSession(async ({ accessToken, spreadsheetId, req }) => {
   return NextResponse.json({ ok: true });
 });
 
-const LIST_KEYS: readonly SettingsListKey[] = ['dismissedSubscriptions', 'dismissedCancelReminders'];
+const LIST_KEYS: readonly SettingsListKey[] = ['dismissedSubscriptions', 'dismissedCancelReminders', 'dashboardLayout'];
 const MAX_LIST = 500;
 
-// PATCH { list, add?: string[], remove?: string[] } — add/remove entries in one of
-// the app-managed lists (e.g. "Not a subscription" dismissals) against the STORED
+// PATCH { list, add?: string[], remove?: string[], set?: string[] } — change one of
+// the app-managed lists (`set` replaces it, e.g. the ordered Home layout) (e.g. "Not a subscription" dismissals) against the STORED
 // settings, so a dismissal from the Subscriptions page can never overwrite other
 // settings with a stale copy, and two quick dismissals can't drop each other.
 export const PATCH = withSession(async ({ accessToken, spreadsheetId, req }) => {
-  const body = (await req.json()) as { list?: string; add?: unknown; remove?: unknown };
+  const body = (await req.json()) as { list?: string; add?: unknown; remove?: unknown; set?: unknown };
   const list = LIST_KEYS.find((k) => k === body.list);
   if (!list) return NextResponse.json({ error: 'Unknown list' }, { status: 400 });
   // '|' is the storage separator, so it can't appear inside an entry.
@@ -38,8 +38,9 @@ export const PATCH = withSession(async ({ accessToken, spreadsheetId, req }) => 
 
   const current = await getSettings(accessToken, spreadsheetId);
   const remove = new Set(clean(body.remove));
-  const next = [...new Set([...(current[list] ?? []), ...clean(body.add)])].filter((x) => !remove.has(x)).slice(-MAX_LIST);
+  const base = Array.isArray(body.set) ? clean(body.set) : (current[list] ?? []);
+  const next = [...new Set([...base, ...clean(body.add)])].filter((x) => !remove.has(x)).slice(-MAX_LIST);
   await saveSettings(accessToken, spreadsheetId, { ...current, [list]: next });
-  invalidateMany(spreadsheetId, ['settings']);
+  invalidateMany(spreadsheetId, ['settings']); // also stales the dashboard (DERIVED_CACHES)
   return NextResponse.json({ [list]: next });
 });

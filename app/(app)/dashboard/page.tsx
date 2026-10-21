@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import { cookies } from 'next/headers';
 import { auth } from '@/lib/auth';
 import { after } from 'next/server';
@@ -29,6 +30,8 @@ import { Sparkline } from '@/components/ui/Sparkline';
 import { Celebrations } from './Celebrations';
 import { AutoRefreshOnFocus } from '@/components/AutoRefreshOnFocus';
 import { PullToRefresh } from '@/components/PullToRefresh';
+import { DashboardCustomizer } from './DashboardCustomizer';
+import { resolveDashboardLayout, type DashboardCardId } from '@/lib/dashboardLayout';
 import { SpendingHeatmap } from './SpendingHeatmap';
 import { HelpHint } from '@/components/ui/HelpHint';
 import { t } from '@/lib/i18n';
@@ -497,6 +500,409 @@ export default async function DashboardPage() {
     },
   ];
 
+  // Card groups below the KPI bento, keyed for the customizable Home layout
+  // (lib/dashboardLayout.ts). Rendered in the user's saved order.
+  const sections: Record<DashboardCardId, React.ReactNode> = {
+    calendar: (
+      <>
+        {/* This Month — calendar (when) + category breakdown (what). The calendar's
+            footer carries the month's income / spending / net, so it replaces the
+            old income & spending KPI tiles. */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <Card className="min-h-[380px] flex flex-col">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <CardIcon tone="indigo">
+                  <CalendarDays className="w-5 h-5" />
+                </CardIcon>
+                <div>
+                  <CardTitle>{t('dashboard.spendingCalendar', lang)}</CardTitle>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('dashboard.spendingCalendarSub', lang)}</p>
+                </div>
+              </div>
+            </CardHeader>
+            <div className="flex-1 mt-1">
+              <SpendingHeatmap days={heatmapDays} todayIso={todayIso} />
+            </div>
+          </Card>
+
+          <Card className="min-h-[380px] flex flex-col">
+            <CardHeader>
+              <div>
+                <CardTitle>{t('dashboard.spendingThisMonth', lang)}</CardTitle>
+                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">{t('dashboard.whereMoneyWent', lang)}</p>
+              </div>
+              <div className="text-right">
+                <span className="text-xl font-extrabold text-slate-900 dark:text-slate-100 font-display">{formatCurrency(readiness.ready ? projectedSpend : monthSpending)}</span>
+                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mt-0.5">{readiness.ready ? t('dashboard.projectedSpend', lang) : t('dashboard.spentSoFar', lang)}</p>
+              </div>
+            </CardHeader>
+            <div className="flex-1 flex items-center justify-center">
+              <SpendingPieChart data={categoryData} />
+            </div>
+          </Card>
+        </div>
+      </>
+    ),
+    balances: (
+      <>
+        {/* Assets / Liabilities / Savings / Emergency Fund */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-emerald-100 dark:border-emerald-800/50 p-4">
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('common.assets', lang)}</p>
+            <AnimatedNumber value={totalAssets} kind="currency" maxSize={18} minSize={11} className="font-display font-extrabold text-emerald-600 dark:text-emerald-400 mt-1" />
+          </div>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-rose-100 dark:border-rose-800/50 p-4">
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('common.liabilities', lang)}</p>
+            <AnimatedNumber value={totalDebt > 0 ? -totalDebt : 0} kind="currency" maxSize={18} minSize={11} className="font-display font-extrabold text-rose-600 dark:text-rose-400 mt-1" />
+          </div>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700/60 p-4">
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('dashboard.savings', lang)}</p>
+            <AnimatedNumber value={totalSaved} kind="currency" maxSize={18} minSize={11} className="font-display font-extrabold text-purple-600 dark:text-purple-400 mt-1" />
+          </div>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700/60 p-4">
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('dashboard.emergency', lang)}</p>
+            <p className={`text-lg font-extrabold mt-1 tracking-tight ${emergencyFundMonths >= 6 ? 'text-emerald-600 dark:text-emerald-400' : emergencyFundMonths >= 3 ? 'text-indigo-600 dark:text-indigo-400' : emergencyFundMonths >= 1 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>
+              {emergencyFundMonths.toFixed(1)} <span className="text-sm font-bold text-slate-400 dark:text-slate-500">{t('charts.monthsShort', lang)}</span>
+            </p>
+          </div>
+        </div>
+      </>
+    ),
+    credit: (
+      <>
+        {/* Credit Utilization — a big-but-brief summary; full detail lives on
+            /credit. Only shown when at least one card has a limit set. */}
+        {creditReport.hasLimits && creditReport.overallUtil !== null && creditReport.overallStatus !== null && (() => {
+          const util = creditReport.overallUtil;
+          const status = creditReport.overallStatus;
+          const over = util > CREDIT_UTIL_TARGET;
+          // One actionable line: statement-aware if a close is imminent, else a
+          // paydown target, else a positive note.
+          const nudge =
+            over && worstCard && worstStmtSoon && worstStmtDays !== null
+              ? { tone: 'amber', text: t('credit.payBeforeStmt', lang, { amount: formatCurrency(worstCard.paydownToTarget), card: worstCard.account.name, days: worstStmtDays, pct: CREDIT_UTIL_TARGET }) }
+              : over && worstCard
+              ? { tone: 'amber', text: t('credit.payToTargetCard', lang, { amount: formatCurrency(worstCard.paydownToTarget), card: worstCard.account.name, pct: CREDIT_UTIL_TARGET }) }
+              : util <= CREDIT_UTIL_IDEAL
+              ? { tone: 'emerald', text: t('credit.atIdeal', lang) }
+              : { tone: 'emerald', text: t('credit.underTarget', lang, { pct: CREDIT_UTIL_TARGET }) };
+          return (
+            <Card tone={over ? 'rose' : 'emerald'}>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <CardIcon tone={over ? 'rose' : 'emerald'}>
+                    <CreditCard className="w-5 h-5" />
+                  </CardIcon>
+                  <div>
+                    <CardTitle>{t('dashboard.creditUtil', lang)}</CardTitle>
+                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('credit.overallSub', lang)}</p>
+                  </div>
+                </div>
+                <a href="/credit" className="whitespace-nowrap text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg">{t('common.manage', lang)}</a>
+              </CardHeader>
+
+              <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-5 lg:gap-8">
+                {/* Left: overall utilization + trend */}
+                <div className="space-y-3">
+                  <div className="flex items-end justify-between gap-3">
+                    <div className="flex items-baseline gap-2">
+                      <span className={`text-4xl font-extrabold font-display ${CREDIT_STATUS_TEXT[status]}`}>{Math.round(util)}%</span>
+                      <span className={`text-sm font-bold ${CREDIT_STATUS_TEXT[status]}`}>{t(`credit.status.${status}`, lang)}</span>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">{t('credit.owedOfLimit', lang, { balance: formatCurrency(creditReport.totalBalance), limit: formatCurrency(creditReport.totalLimit) })}</p>
+                      <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{t('credit.availableLine', lang, { amount: formatCurrency(creditReport.totalAvailable) })}</p>
+                    </div>
+                  </div>
+                  {/* Utilization bar with a marker at the 30% recommended cap */}
+                  <div className="relative h-3 w-full rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                    <div className={`h-full rounded-full ${CREDIT_STATUS_BAR[status]}`} style={{ width: `${Math.min(100, util)}%` }} />
+                    <div className="absolute top-0 bottom-0 w-px bg-slate-500/70 dark:bg-slate-300/60" style={{ left: `${CREDIT_UTIL_TARGET}%` }} aria-hidden />
+                  </div>
+                  {utilTrend.length >= 2 && (
+                    <div className={CREDIT_STATUS_TEXT[status]}>
+                      <p className="text-[11px] font-bold text-slate-400 dark:text-slate-500 mb-1">{t('credit.trendLabel', lang)}</p>
+                      <Sparkline data={utilTrend} height={28} strokeWidth={2} />
+                    </div>
+                  )}
+                  <p className={`text-sm font-semibold flex items-center gap-2 ${nudge.tone === 'amber' ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-700 dark:text-emerald-300'}`}>
+                    <Target className="w-4 h-4 shrink-0" />
+                    {nudge.text}
+                  </p>
+                </div>
+
+                {/* Right: brief per-card breakdown (highest utilization first) */}
+                <div className="space-y-2.5">
+                  {creditCardsByUtil.slice(0, 3).map((c) => (
+                    <div key={c.account.id} className="flex items-center gap-3">
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200 w-28 sm:w-32 shrink-0 truncate">{c.account.name}</span>
+                      <div className="flex-1 relative h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                        <div className={`h-full rounded-full ${CREDIT_STATUS_BAR[c.status!]}`} style={{ width: `${Math.min(100, c.util!)}%` }} />
+                        <div className="absolute top-0 bottom-0 w-px bg-slate-500/60 dark:bg-slate-300/50" style={{ left: `${CREDIT_UTIL_TARGET}%` }} aria-hidden />
+                      </div>
+                      <span className={`text-xs font-extrabold w-10 text-right shrink-0 tabular-nums ${CREDIT_STATUS_TEXT[c.status!]}`}>{Math.round(c.util!)}%</span>
+                    </div>
+                  ))}
+                  {creditCardsByUtil.length > 3 && (
+                    <a href="/credit" className="block text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline pt-1">
+                      {t('credit.viewMoreCards', lang, { n: creditCardsByUtil.length - 3 })}
+                    </a>
+                  )}
+                </div>
+              </div>
+            </Card>
+          );
+        })()}
+      </>
+    ),
+    netWorth: (
+      <>
+        {/* Net Worth Trend */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800/50">
+                <TrendingUp className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <div>
+                <CardTitle>{t('dashboard.netWorthTrend', lang)}</CardTitle>
+                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t(basis === 'liquid' ? 'dashboard.netWorthSubLiquid' : 'dashboard.netWorthSubTotal', lang)}</p>
+              </div>
+            </div>
+          </CardHeader>
+          <div className="mt-2">
+            <NetWorthTrendChart
+              data={netWorthPoints}
+              projection={readiness.ready && netWorthProjection.length > 0 ? netWorthProjection : undefined}
+              assumption={forecastAssumption}
+            />
+          </div>
+        </Card>
+      </>
+    ),
+    cashFlow: (
+      <>
+        {/* Monthly Cash Flow */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <CardIcon tone="indigo">
+                <BarChart3 className="w-5 h-5" />
+              </CardIcon>
+              <div>
+                <CardTitle>{t('dashboard.cashFlow', lang)}</CardTitle>
+                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('dashboard.cashFlowSubtitle', lang)}</p>
+              </div>
+            </div>
+          </CardHeader>
+          <MonthlyBarChart data={cashFlowData} />
+        </Card>
+      </>
+    ),
+    health: (
+      <>
+        {/* Emergency Fund + Health Score row */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <EmergencyFundWidget liquidSavings={liquidSavings} avgMonthlyExpense={avgMonthlyExpense} />
+          <FinancialHealthScore data={{
+            score: healthScore,
+            savingsRate,
+            emergencyFundMonths,
+            overBudgetCount,
+            budgetCount: budgets.length,
+            dti,
+            netWorthTrendPct,
+            spendingCv,
+            creditUtil: creditReport.overallUtil,
+            breakdown: healthBreakdown,
+          }} />
+        </div>
+      </>
+    ),
+    budgetsGoals: (
+      <>
+        {/* Budget + Goals row */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50">
+                  <BarChart3 className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                </div>
+                <CardTitle>{t('dashboard.budgetProgress', lang)}</CardTitle>
+                <HelpHint label="What do these badges mean?" align="left">
+                  <p className="font-bold mb-2">Reading the badges</p>
+                  <ul className="space-y-1.5 list-none">
+                    <li>
+                      <span className="font-bold text-amber-300">~$X overshoot</span> — at your current daily pace,
+                      you&apos;re projected to spend $X over the budget by month-end.
+                    </li>
+                    <li>
+                      <span className="font-bold text-emerald-300">On pace</span> — pace stays inside the cap if today&apos;s rate holds.
+                    </li>
+                    <li>
+                      <span className="font-bold text-rose-300">$X over</span> — you&apos;ve already exceeded the budget this month.
+                    </li>
+                    <li>
+                      <span className="font-bold text-slate-300 dark:text-slate-600">+$X vs last mo</span> — month-over-month change in spending.
+                    </li>
+                  </ul>
+                  <p className="mt-2 text-slate-300 dark:text-slate-600">Projection = (spent ÷ days elapsed) × days in month.</p>
+                </HelpHint>
+              </div>
+              <a href="/planning" className="whitespace-nowrap text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg">{t('common.manage', lang)}</a>
+            </CardHeader>
+            <div className="mt-4">
+              <BudgetVsActualChart data={budgetData} />
+              <BudgetBars data={topBudgetData} daysLeft={daysLeft} daysElapsed={daysElapsed} showMoM totalSpend={totalMonthSpend} />
+              {budgetData.length > 3 && (
+                <a href="/planning" className="block text-center text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors pt-3">
+                  {t('dashboard.moreBudgetCategories', lang, { n: budgetData.length - 3 })}
+                </a>
+              )}
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-purple-50 dark:bg-purple-900/30 border border-purple-100 dark:border-purple-800/50">
+                  <PiggyBank className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                </div>
+                <CardTitle>{t('dashboard.savingsGoals', lang)}</CardTitle>
+              </div>
+              <a href="/planning" className="whitespace-nowrap text-xs font-bold text-purple-600 dark:text-purple-400 hover:text-purple-500 dark:hover:text-purple-400 transition-colors bg-purple-50 dark:bg-purple-900/30 px-3 py-1.5 rounded-lg">{t('common.manage', lang)}</a>
+            </CardHeader>
+            <div className="mt-4">
+              <GoalsSummary data={goalData} />
+              {showStaleSavings && staleSavings && (
+                <div className="mt-4 flex items-center gap-3 p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40">
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400">
+                    <Calendar className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-amber-800 dark:text-amber-300 truncate">
+                      {t('dashboard.staleSavingsTitle', lang, { name: staleSavings.account.name })}
+                    </p>
+                    <p className="text-xs font-medium text-amber-700/80 dark:text-amber-400/80 mt-0.5">
+                      {staleSavings.lastDeposit
+                        ? t('dashboard.staleSavingsBody', lang, { days: staleSavings.daysSince })
+                        : t('dashboard.staleSavingsNever', lang)}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </Card>
+        </div>
+      </>
+    ),
+    billsRecent: (
+      <>
+        {/* Upcoming Bills + Recent Transactions */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Bill Forecast */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-100 dark:border-amber-800/50">
+                  <Calendar className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                </div>
+                <div>
+                  <CardTitle>{t('dashboard.billForecast', lang)}</CardTitle>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('dashboard.billForecastSubtitle', lang, { daysLeft })}</p>
+                </div>
+              </div>
+              <div className="text-right">
+                {upcomingBillsTotal > 0 && (
+                  <p className="text-base font-extrabold text-amber-600 dark:text-amber-400">{formatCurrency(upcomingBillsTotal)}</p>
+                )}
+                <a href="/bills" className="inline-block whitespace-nowrap mt-1 text-xs font-bold text-amber-600 dark:text-amber-400 hover:text-amber-500 dark:hover:text-amber-400 transition-colors bg-amber-50 dark:bg-amber-900/30 px-3 py-1.5 rounded-lg">{t('common.viewAll', lang)}</a>
+              </div>
+            </CardHeader>
+            <div className="mt-2">
+              {upcomingBills.length === 0 ? (
+                <div className="flex items-center gap-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700/60">
+                  <div className="w-11 h-11 rounded-full flex items-center justify-center bg-slate-200 dark:bg-slate-600 text-slate-400 dark:text-slate-500">
+                    <Calendar className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-900 dark:text-slate-100 font-bold">{t('dashboard.noUpcomingBills', lang)}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">{t('dashboard.allCaughtUp', lang)}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {upcomingBills.slice(0, 3).map((bill) => {
+                    const dueDate = new Date(bill.nextDue + 'T00:00:00');
+                    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                    const daysUntil = Math.round((dueDate.getTime() - todayMidnight.getTime()) / 86400000);
+                    const isUrgent = daysUntil <= 3;
+                    return (
+                      <div key={bill.id} className="flex items-center justify-between p-3.5 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors border border-transparent hover:border-slate-100 dark:hover:border-slate-700/60">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${isUrgent ? 'bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400 pulse-glow' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
+                            <Calendar className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <p className="text-sm text-slate-900 dark:text-slate-100 font-bold">{bill.name}</p>
+                            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
+                              {daysUntil === 0 ? t('dashboard.dueToday', lang) : `${daysUntil}d`} · {formatDate(bill.nextDue, lang)}
+                            </p>
+                          </div>
+                        </div>
+                        <span className={`text-sm font-extrabold ${isUrgent ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>
+                          {formatCurrency(myBillShare(bill))}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {upcomingBills.length > 3 && (
+                    <a href="/bills" className="block text-center text-xs font-bold text-amber-600 dark:text-amber-400 hover:text-amber-500 dark:hover:text-amber-400 transition-colors pt-1.5">
+                      {t('dashboard.moreUpcomingBills', lang, { n: upcomingBills.length - 3 })}
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {/* Group Money widget — outstanding tabs & vault progress (client-fetched) */}
+          <FundingWidget />
+
+          {/* Recent Transactions */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800/50">
+                  <ArrowLeftRight className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <CardTitle>{t('dashboard.recent', lang)}</CardTitle>
+              </div>
+              <a href="/transactions" className="whitespace-nowrap text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 dark:hover:text-emerald-400 transition-colors bg-emerald-50 dark:bg-emerald-900/30 px-3 py-1.5 rounded-lg">{t('common.viewAll', lang)}</a>
+            </CardHeader>
+            <div className="mt-2">
+              <RecentTransactions
+                items={recentTx.map((tx) => ({
+                  id: tx.id,
+                  date: tx.date,
+                  description: tx.description,
+                  amount: tx.amount,
+                  type: tx.type,
+                  category: tx.category,
+                }))}
+                emptyTitle={t('dashboard.noTransactions', lang)}
+                emptySub={t('dashboard.addOneToStart', lang)}
+              />
+            </div>
+          </Card>
+        </div>
+      </>
+    ),
+  };
+  const dashboardLayout = resolveDashboardLayout(settings.dashboardLayout);
+
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto pb-28 md:pb-8">
       {/* Server-rendered page: re-pull on tab focus + every 60s so a dashboard
@@ -648,378 +1054,9 @@ export default async function DashboardPage() {
         })}
       </div>
 
-      {/* This Month — calendar (when) + category breakdown (what). The calendar's
-          footer carries the month's income / spending / net, so it replaces the
-          old income & spending KPI tiles. */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <Card className="min-h-[380px] flex flex-col">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <CardIcon tone="indigo">
-                <CalendarDays className="w-5 h-5" />
-              </CardIcon>
-              <div>
-                <CardTitle>{t('dashboard.spendingCalendar', lang)}</CardTitle>
-                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('dashboard.spendingCalendarSub', lang)}</p>
-              </div>
-            </div>
-          </CardHeader>
-          <div className="flex-1 mt-1">
-            <SpendingHeatmap days={heatmapDays} todayIso={todayIso} />
-          </div>
-        </Card>
+      {dashboardLayout.filter((c) => c.visible).map((c) => <Fragment key={c.id}>{sections[c.id]}</Fragment>)}
 
-        <Card className="min-h-[380px] flex flex-col">
-          <CardHeader>
-            <div>
-              <CardTitle>{t('dashboard.spendingThisMonth', lang)}</CardTitle>
-              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">{t('dashboard.whereMoneyWent', lang)}</p>
-            </div>
-            <div className="text-right">
-              <span className="text-xl font-extrabold text-slate-900 dark:text-slate-100 font-display">{formatCurrency(readiness.ready ? projectedSpend : monthSpending)}</span>
-              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mt-0.5">{readiness.ready ? t('dashboard.projectedSpend', lang) : t('dashboard.spentSoFar', lang)}</p>
-            </div>
-          </CardHeader>
-          <div className="flex-1 flex items-center justify-center">
-            <SpendingPieChart data={categoryData} />
-          </div>
-        </Card>
-      </div>
-
-      {/* Assets / Liabilities / Savings / Emergency Fund */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-emerald-100 dark:border-emerald-800/50 p-4">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('common.assets', lang)}</p>
-          <AnimatedNumber value={totalAssets} kind="currency" maxSize={18} minSize={11} className="font-display font-extrabold text-emerald-600 dark:text-emerald-400 mt-1" />
-        </div>
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-rose-100 dark:border-rose-800/50 p-4">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('common.liabilities', lang)}</p>
-          <AnimatedNumber value={totalDebt > 0 ? -totalDebt : 0} kind="currency" maxSize={18} minSize={11} className="font-display font-extrabold text-rose-600 dark:text-rose-400 mt-1" />
-        </div>
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700/60 p-4">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('dashboard.savings', lang)}</p>
-          <AnimatedNumber value={totalSaved} kind="currency" maxSize={18} minSize={11} className="font-display font-extrabold text-purple-600 dark:text-purple-400 mt-1" />
-        </div>
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700/60 p-4">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('dashboard.emergency', lang)}</p>
-          <p className={`text-lg font-extrabold mt-1 tracking-tight ${emergencyFundMonths >= 6 ? 'text-emerald-600 dark:text-emerald-400' : emergencyFundMonths >= 3 ? 'text-indigo-600 dark:text-indigo-400' : emergencyFundMonths >= 1 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>
-            {emergencyFundMonths.toFixed(1)} <span className="text-sm font-bold text-slate-400 dark:text-slate-500">{t('charts.monthsShort', lang)}</span>
-          </p>
-        </div>
-      </div>
-
-      {/* Credit Utilization — a big-but-brief summary; full detail lives on
-          /credit. Only shown when at least one card has a limit set. */}
-      {creditReport.hasLimits && creditReport.overallUtil !== null && creditReport.overallStatus !== null && (() => {
-        const util = creditReport.overallUtil;
-        const status = creditReport.overallStatus;
-        const over = util > CREDIT_UTIL_TARGET;
-        // One actionable line: statement-aware if a close is imminent, else a
-        // paydown target, else a positive note.
-        const nudge =
-          over && worstCard && worstStmtSoon && worstStmtDays !== null
-            ? { tone: 'amber', text: t('credit.payBeforeStmt', lang, { amount: formatCurrency(worstCard.paydownToTarget), card: worstCard.account.name, days: worstStmtDays, pct: CREDIT_UTIL_TARGET }) }
-            : over && worstCard
-            ? { tone: 'amber', text: t('credit.payToTargetCard', lang, { amount: formatCurrency(worstCard.paydownToTarget), card: worstCard.account.name, pct: CREDIT_UTIL_TARGET }) }
-            : util <= CREDIT_UTIL_IDEAL
-            ? { tone: 'emerald', text: t('credit.atIdeal', lang) }
-            : { tone: 'emerald', text: t('credit.underTarget', lang, { pct: CREDIT_UTIL_TARGET }) };
-        return (
-          <Card tone={over ? 'rose' : 'emerald'}>
-            <CardHeader>
-              <div className="flex items-center gap-3">
-                <CardIcon tone={over ? 'rose' : 'emerald'}>
-                  <CreditCard className="w-5 h-5" />
-                </CardIcon>
-                <div>
-                  <CardTitle>{t('dashboard.creditUtil', lang)}</CardTitle>
-                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('credit.overallSub', lang)}</p>
-                </div>
-              </div>
-              <a href="/credit" className="whitespace-nowrap text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg">{t('common.manage', lang)}</a>
-            </CardHeader>
-
-            <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-5 lg:gap-8">
-              {/* Left: overall utilization + trend */}
-              <div className="space-y-3">
-                <div className="flex items-end justify-between gap-3">
-                  <div className="flex items-baseline gap-2">
-                    <span className={`text-4xl font-extrabold font-display ${CREDIT_STATUS_TEXT[status]}`}>{Math.round(util)}%</span>
-                    <span className={`text-sm font-bold ${CREDIT_STATUS_TEXT[status]}`}>{t(`credit.status.${status}`, lang)}</span>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">{t('credit.owedOfLimit', lang, { balance: formatCurrency(creditReport.totalBalance), limit: formatCurrency(creditReport.totalLimit) })}</p>
-                    <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-0.5">{t('credit.availableLine', lang, { amount: formatCurrency(creditReport.totalAvailable) })}</p>
-                  </div>
-                </div>
-                {/* Utilization bar with a marker at the 30% recommended cap */}
-                <div className="relative h-3 w-full rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-                  <div className={`h-full rounded-full ${CREDIT_STATUS_BAR[status]}`} style={{ width: `${Math.min(100, util)}%` }} />
-                  <div className="absolute top-0 bottom-0 w-px bg-slate-500/70 dark:bg-slate-300/60" style={{ left: `${CREDIT_UTIL_TARGET}%` }} aria-hidden />
-                </div>
-                {utilTrend.length >= 2 && (
-                  <div className={CREDIT_STATUS_TEXT[status]}>
-                    <p className="text-[11px] font-bold text-slate-400 dark:text-slate-500 mb-1">{t('credit.trendLabel', lang)}</p>
-                    <Sparkline data={utilTrend} height={28} strokeWidth={2} />
-                  </div>
-                )}
-                <p className={`text-sm font-semibold flex items-center gap-2 ${nudge.tone === 'amber' ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-700 dark:text-emerald-300'}`}>
-                  <Target className="w-4 h-4 shrink-0" />
-                  {nudge.text}
-                </p>
-              </div>
-
-              {/* Right: brief per-card breakdown (highest utilization first) */}
-              <div className="space-y-2.5">
-                {creditCardsByUtil.slice(0, 3).map((c) => (
-                  <div key={c.account.id} className="flex items-center gap-3">
-                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200 w-28 sm:w-32 shrink-0 truncate">{c.account.name}</span>
-                    <div className="flex-1 relative h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-                      <div className={`h-full rounded-full ${CREDIT_STATUS_BAR[c.status!]}`} style={{ width: `${Math.min(100, c.util!)}%` }} />
-                      <div className="absolute top-0 bottom-0 w-px bg-slate-500/60 dark:bg-slate-300/50" style={{ left: `${CREDIT_UTIL_TARGET}%` }} aria-hidden />
-                    </div>
-                    <span className={`text-xs font-extrabold w-10 text-right shrink-0 tabular-nums ${CREDIT_STATUS_TEXT[c.status!]}`}>{Math.round(c.util!)}%</span>
-                  </div>
-                ))}
-                {creditCardsByUtil.length > 3 && (
-                  <a href="/credit" className="block text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline pt-1">
-                    {t('credit.viewMoreCards', lang, { n: creditCardsByUtil.length - 3 })}
-                  </a>
-                )}
-              </div>
-            </div>
-          </Card>
-        );
-      })()}
-
-      {/* Net Worth Trend */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800/50">
-              <TrendingUp className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-            </div>
-            <div>
-              <CardTitle>{t('dashboard.netWorthTrend', lang)}</CardTitle>
-              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t(basis === 'liquid' ? 'dashboard.netWorthSubLiquid' : 'dashboard.netWorthSubTotal', lang)}</p>
-            </div>
-          </div>
-        </CardHeader>
-        <div className="mt-2">
-          <NetWorthTrendChart
-            data={netWorthPoints}
-            projection={readiness.ready && netWorthProjection.length > 0 ? netWorthProjection : undefined}
-            assumption={forecastAssumption}
-          />
-        </div>
-      </Card>
-
-      {/* Monthly Cash Flow */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-3">
-            <CardIcon tone="indigo">
-              <BarChart3 className="w-5 h-5" />
-            </CardIcon>
-            <div>
-              <CardTitle>{t('dashboard.cashFlow', lang)}</CardTitle>
-              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('dashboard.cashFlowSubtitle', lang)}</p>
-            </div>
-          </div>
-        </CardHeader>
-        <MonthlyBarChart data={cashFlowData} />
-      </Card>
-
-      {/* Emergency Fund + Health Score row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        <EmergencyFundWidget liquidSavings={liquidSavings} avgMonthlyExpense={avgMonthlyExpense} />
-        <FinancialHealthScore data={{
-          score: healthScore,
-          savingsRate,
-          emergencyFundMonths,
-          overBudgetCount,
-          budgetCount: budgets.length,
-          dti,
-          netWorthTrendPct,
-          spendingCv,
-          creditUtil: creditReport.overallUtil,
-          breakdown: healthBreakdown,
-        }} />
-      </div>
-
-      {/* Budget + Goals row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50">
-                <BarChart3 className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-              </div>
-              <CardTitle>{t('dashboard.budgetProgress', lang)}</CardTitle>
-              <HelpHint label="What do these badges mean?" align="left">
-                <p className="font-bold mb-2">Reading the badges</p>
-                <ul className="space-y-1.5 list-none">
-                  <li>
-                    <span className="font-bold text-amber-300">~$X overshoot</span> — at your current daily pace,
-                    you&apos;re projected to spend $X over the budget by month-end.
-                  </li>
-                  <li>
-                    <span className="font-bold text-emerald-300">On pace</span> — pace stays inside the cap if today&apos;s rate holds.
-                  </li>
-                  <li>
-                    <span className="font-bold text-rose-300">$X over</span> — you&apos;ve already exceeded the budget this month.
-                  </li>
-                  <li>
-                    <span className="font-bold text-slate-300 dark:text-slate-600">+$X vs last mo</span> — month-over-month change in spending.
-                  </li>
-                </ul>
-                <p className="mt-2 text-slate-300 dark:text-slate-600">Projection = (spent ÷ days elapsed) × days in month.</p>
-              </HelpHint>
-            </div>
-            <a href="/planning" className="whitespace-nowrap text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg">{t('common.manage', lang)}</a>
-          </CardHeader>
-          <div className="mt-4">
-            <BudgetVsActualChart data={budgetData} />
-            <BudgetBars data={topBudgetData} daysLeft={daysLeft} daysElapsed={daysElapsed} showMoM totalSpend={totalMonthSpend} />
-            {budgetData.length > 3 && (
-              <a href="/planning" className="block text-center text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors pt-3">
-                {t('dashboard.moreBudgetCategories', lang, { n: budgetData.length - 3 })}
-              </a>
-            )}
-          </div>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-purple-50 dark:bg-purple-900/30 border border-purple-100 dark:border-purple-800/50">
-                <PiggyBank className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-              </div>
-              <CardTitle>{t('dashboard.savingsGoals', lang)}</CardTitle>
-            </div>
-            <a href="/planning" className="whitespace-nowrap text-xs font-bold text-purple-600 dark:text-purple-400 hover:text-purple-500 dark:hover:text-purple-400 transition-colors bg-purple-50 dark:bg-purple-900/30 px-3 py-1.5 rounded-lg">{t('common.manage', lang)}</a>
-          </CardHeader>
-          <div className="mt-4">
-            <GoalsSummary data={goalData} />
-            {showStaleSavings && staleSavings && (
-              <div className="mt-4 flex items-center gap-3 p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40">
-                <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400">
-                  <Calendar className="w-4 h-4" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-bold text-amber-800 dark:text-amber-300 truncate">
-                    {t('dashboard.staleSavingsTitle', lang, { name: staleSavings.account.name })}
-                  </p>
-                  <p className="text-xs font-medium text-amber-700/80 dark:text-amber-400/80 mt-0.5">
-                    {staleSavings.lastDeposit
-                      ? t('dashboard.staleSavingsBody', lang, { days: staleSavings.daysSince })
-                      : t('dashboard.staleSavingsNever', lang)}
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-        </Card>
-      </div>
-
-      {/* Upcoming Bills + Recent Transactions */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Bill Forecast */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-100 dark:border-amber-800/50">
-                <Calendar className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-              </div>
-              <div>
-                <CardTitle>{t('dashboard.billForecast', lang)}</CardTitle>
-                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('dashboard.billForecastSubtitle', lang, { daysLeft })}</p>
-              </div>
-            </div>
-            <div className="text-right">
-              {upcomingBillsTotal > 0 && (
-                <p className="text-base font-extrabold text-amber-600 dark:text-amber-400">{formatCurrency(upcomingBillsTotal)}</p>
-              )}
-              <a href="/bills" className="inline-block whitespace-nowrap mt-1 text-xs font-bold text-amber-600 dark:text-amber-400 hover:text-amber-500 dark:hover:text-amber-400 transition-colors bg-amber-50 dark:bg-amber-900/30 px-3 py-1.5 rounded-lg">{t('common.viewAll', lang)}</a>
-            </div>
-          </CardHeader>
-          <div className="mt-2">
-            {upcomingBills.length === 0 ? (
-              <div className="flex items-center gap-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700/60">
-                <div className="w-11 h-11 rounded-full flex items-center justify-center bg-slate-200 dark:bg-slate-600 text-slate-400 dark:text-slate-500">
-                  <Calendar className="w-5 h-5" />
-                </div>
-                <div>
-                  <p className="text-sm text-slate-900 dark:text-slate-100 font-bold">{t('dashboard.noUpcomingBills', lang)}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">{t('dashboard.allCaughtUp', lang)}</p>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {upcomingBills.slice(0, 3).map((bill) => {
-                  const dueDate = new Date(bill.nextDue + 'T00:00:00');
-                  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                  const daysUntil = Math.round((dueDate.getTime() - todayMidnight.getTime()) / 86400000);
-                  const isUrgent = daysUntil <= 3;
-                  return (
-                    <div key={bill.id} className="flex items-center justify-between p-3.5 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors border border-transparent hover:border-slate-100 dark:hover:border-slate-700/60">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${isUrgent ? 'bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400 pulse-glow' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
-                          <Calendar className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <p className="text-sm text-slate-900 dark:text-slate-100 font-bold">{bill.name}</p>
-                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
-                            {daysUntil === 0 ? t('dashboard.dueToday', lang) : `${daysUntil}d`} · {formatDate(bill.nextDue, lang)}
-                          </p>
-                        </div>
-                      </div>
-                      <span className={`text-sm font-extrabold ${isUrgent ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>
-                        {formatCurrency(myBillShare(bill))}
-                      </span>
-                    </div>
-                  );
-                })}
-                {upcomingBills.length > 3 && (
-                  <a href="/bills" className="block text-center text-xs font-bold text-amber-600 dark:text-amber-400 hover:text-amber-500 dark:hover:text-amber-400 transition-colors pt-1.5">
-                    {t('dashboard.moreUpcomingBills', lang, { n: upcomingBills.length - 3 })}
-                  </a>
-                )}
-              </div>
-            )}
-          </div>
-        </Card>
-
-        {/* Group Money widget — outstanding tabs & vault progress (client-fetched) */}
-        <FundingWidget />
-
-        {/* Recent Transactions */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800/50">
-                <ArrowLeftRight className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-              </div>
-              <CardTitle>{t('dashboard.recent', lang)}</CardTitle>
-            </div>
-            <a href="/transactions" className="whitespace-nowrap text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 dark:hover:text-emerald-400 transition-colors bg-emerald-50 dark:bg-emerald-900/30 px-3 py-1.5 rounded-lg">{t('common.viewAll', lang)}</a>
-          </CardHeader>
-          <div className="mt-2">
-            <RecentTransactions
-              items={recentTx.map((tx) => ({
-                id: tx.id,
-                date: tx.date,
-                description: tx.description,
-                amount: tx.amount,
-                type: tx.type,
-                category: tx.category,
-              }))}
-              emptyTitle={t('dashboard.noTransactions', lang)}
-              emptySub={t('dashboard.addOneToStart', lang)}
-            />
-          </div>
-        </Card>
-      </div>
+      <DashboardCustomizer layout={dashboardLayout} />
 
       </StaggerReveal>
     </div>

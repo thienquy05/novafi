@@ -10,6 +10,15 @@ Tracks completed work at each step so any session can resume without losing cont
 
 ---
 
+## 2026-10-21 — Convenience: customizable Home (branch claude/novafi-ux-perf-networth)
+
+Plan Section 7.6.
+- WHAT: `lib/dashboardLayout.ts` — 8 card groups below the KPI bento (calendar, balances, credit, netWorth, cashFlow, health, budgetsGoals, billsRecent); layout saved per account in `settings.dashboardLayout` (sheet key `dashboard_layout`) as ordered ids with '-' = hidden; unknown ids dropped, new cards appended visible (+ tests).
+- WHAT: dashboard JSX for those groups moved into a `sections` map rendered in the saved order (greeting, health banner, KPI bento stay fixed). `DashboardCustomizer` (client) — "Customize Home" button at the bottom → modal with a switch + up/down per card, Save / Reset to default → `PATCH /api/settings {list:'dashboardLayout', set}` (PATCH gained `set` to replace an ordered list) → `router.refresh()`.
+- WHY: users put their priority first and hide what they don't use (Monarch pattern); synced across devices.
+
+---
+
 ## 2026-10-21 — Convenience: transaction tags (+ 2,000-row delete bug) (branch claude/novafi-ux-perf-networth)
 
 Plan Section 7.5.

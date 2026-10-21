@@ -158,6 +158,7 @@ export function parseSettingsRows(rows: string[][]): TaxSettings {
     timeZone: get('time_zone', DEFAULT_TAX_SETTINGS.timeZone),
     dismissedSubscriptions: get('dismissed_subscriptions', '').split('|').filter(Boolean),
     dismissedCancelReminders: get('dismissed_cancel_reminders', '').split('|').filter(Boolean),
+    dashboardLayout: get('dashboard_layout', '').split('|').filter(Boolean),
   };
 }
 
@@ -209,6 +210,7 @@ export async function saveSettings(
     ['bucket_target_savings', String(settings.bucketTargetSavings ?? DEFAULT_BUCKET_TARGETS.savings)],
     ['dismissed_subscriptions', (settings.dismissedSubscriptions ?? []).join('|')],
     ['dismissed_cancel_reminders', (settings.dismissedCancelReminders ?? []).join('|')],
+    ['dashboard_layout', (settings.dashboardLayout ?? []).join('|')],
   ];
   await sheets.spreadsheets.values.update({
     spreadsheetId,

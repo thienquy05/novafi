@@ -31,10 +31,12 @@ export interface TaxSettings {
   // ── Subscriptions (synced across devices) ─────────────────────────────────
   dismissedSubscriptions: string[];   // merchant keys the user marked "Not a subscription"
   dismissedCancelReminders: string[]; // tracked-subscription ids whose "unused?" reminder was dismissed
+  // ── Home layout (synced) ────────────────────────────────────────────────────
+  dashboardLayout: string[]; // ordered card ids, '-' prefix = hidden (lib/dashboardLayout.ts); [] = default
 }
 
-/** App-managed settings lists that PATCH /api/settings can add to / remove from. */
-export type SettingsListKey = 'dismissedSubscriptions' | 'dismissedCancelReminders';
+/** App-managed settings lists that PATCH /api/settings can change. */
+export type SettingsListKey = 'dismissedSubscriptions' | 'dismissedCancelReminders' | 'dashboardLayout';
 
 export interface TaxResult {
   grossPaycheck: number;
