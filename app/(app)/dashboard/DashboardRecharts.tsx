@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -360,6 +360,21 @@ export function NetWorthTrendChart({ data, projection, assumption }: { data: Net
   const c = useIsDark() ? CHART.dark : CHART.light;
   const anim = useChartAnim(900);
 
+  // Every month gets a label (`interval={0}`; Recharts' default silently drops
+  // ticks it thinks are crowded). When the labels no longer fit side by side
+  // (phones: up to 12 history + projected months) they tilt instead of vanishing.
+  const figureRef = useRef<HTMLElement>(null);
+  const [plotWidth, setPlotWidth] = useState(0);
+  useEffect(() => {
+    const el = figureRef.current;
+    if (!el) return;
+    const measure = () => setPlotWidth(el.clientWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ready, data.length]);
+
   if (data.length < 2) {
     return (
       <div className="h-48 flex flex-col items-center justify-center text-center">
@@ -393,6 +408,8 @@ export function NetWorthTrendChart({ data, projection, assumption }: { data: Net
     ...(projection ?? []).map((p) => ({ label: p.label, projected: p.projected, kind: 'projected' as const })),
   ];
   const hasEstimates = data.some((d) => d.kind === 'estimated');
+  // "Oct '26" at 12px semi-bold is ~46px wide; tilt once a slot is narrower than that.
+  const tiltLabels = plotWidth > 0 && (plotWidth - 46) / chartData.length < 50;
 
   return (
     <div className="w-full">
@@ -408,7 +425,8 @@ export function NetWorthTrendChart({ data, projection, assumption }: { data: Net
         )}
       </div>
       <figure
-        className="h-52 w-full"
+        ref={figureRef}
+        className={`${tiltLabels ? 'h-60' : 'h-52'} w-full`}
         role="img"
         aria-label={`${t('dashboard.netWorthTrend')}: ${formatCurrency(latest)}${hasProjection ? ` · ${t('charts.projected')} ${projection![projection!.length - 1].label}: ${formatCurrency(projection![projection!.length - 1].projected)}` : ''}`}
       >
@@ -427,10 +445,11 @@ export function NetWorthTrendChart({ data, projection, assumption }: { data: Net
             <CartesianGrid strokeDasharray="3 3" stroke={c.grid} vertical={false} />
             <XAxis
               dataKey="label"
-              tick={{ fill: c.axis, fontSize: 12, fontWeight: 600 }}
+              interval={0}
+              tick={{ fill: c.axis, fontSize: tiltLabels ? 11 : 12, fontWeight: 600 }}
               axisLine={false}
               tickLine={false}
-              dy={10}
+              {...(tiltLabels ? { angle: -45, textAnchor: 'end' as const, height: 52, dy: 4 } : { dy: 10 })}
             />
             <YAxis
               tick={{ fill: c.axis, fontSize: 12, fontWeight: 600 }}

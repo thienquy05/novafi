@@ -56,6 +56,10 @@ Settings (key/value) · Accounts `A:R` · Transactions `A:K` · Paychecks · Bud
 
 # Change log (newest first)
 
+## 2026-10-21 — Net worth trend: label every month on the x-axis (branch claude/intelligent-euler-72c25f)
+
+- WHAT: `NetWorthTrendChart` (`app/(app)/dashboard/DashboardRecharts.tsx`) — `XAxis` now has `interval={0}` so every month (up to 12 history + projected) is labeled. Recharts' default `preserveEnd` silently skipped ticks it judged crowded, so users saw gaps like "Jan, Mar, May…". A `ResizeObserver` on the chart `<figure>` measures the plot width; when a label slot is narrower than ~50px (phones) the labels tilt −45° (11px, axis height 52, chart height `h-60`) instead of being dropped. Wide screens keep the horizontal 12px labels.
+- WHY (user): "for the net worth trend, make sure the horizontal bar has the full months" — confirmed they meant *show every month label* (not full month names, not padding to 12 months).
 ## 2026-10-21 — Replace live Nova with interactive Codex sprite sheets (branch claude/festive-edison-p5rcvh)
 
 Replaced the dashboard's inline SVG mascot with two layered 3×3 WebP sheets and kept the `<NovaAvatar status size />` API. Added matching PNG sources under `design/mascot/codex/`, pure gaze/tap helpers and tests, a localized English/Vietnamese accessible label, status-tinted glow, and the demo's pointer/touch/keyboard, hold, dizzy, scroll, sleep/wake, haptic, and reduced-motion behavior. Removed the unused SVG-era `lib/mascotLook.ts` and test. The user chose neutral gaze and idle across every financial health status; taps cycle heart/sparkle/delighted regardless of status.
