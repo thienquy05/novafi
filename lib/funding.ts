@@ -1,4 +1,4 @@
-import type { Funding, FundingContribution, FundingParticipant, FundingRepayment, Transaction } from '@/types';
+import type { Funding, FundingContribution, FundingParticipant, FundingReimbursement, FundingRepayment, Transaction } from '@/types';
 import { generateId } from './utils';
 import { roundCents } from './calculations';
 
@@ -10,10 +10,16 @@ import { roundCents } from './calculations';
 //   • A repayment is a participant paying you back: a `transfer` INTO one of your
 //     accounts tagged 'FundingRepay', so it lands as neither income nor debt.
 //   • The user's own pledge is existing money, so it creates no cash row.
+//   • A REAL pool's spend can be paid with another account/card; the pool pays
+//     that account back later (a `transfer` pool account → that account, tagged
+//     'FundingReimburse'), so until then it shows as owed back.
 
 // Repayment rows carry their own category so they're excluded from the
 // "funding held for others" net-worth adjustment (which only looks at 'Funding').
 export const FUNDING_REPAY_CATEGORY = 'FundingRepay';
+// A real pool paying back the account/card a spend was charged to. Moves money
+// between two of your own accounts, so it's neither spending nor income.
+export const FUNDING_REIMBURSE_CATEGORY = 'FundingReimburse';
 
 // Single shared round-to-cents (lib/calculations.ts) so funding math can never
 // round a cent differently from bills/loans/splits.
@@ -244,7 +250,11 @@ export function repointRealPoolAccount(
 ): { funding: Funding; addTxs: Transaction[]; removeTxIds: string[] } | null {
   const oldId = f.poolAccountId;
   if (!oldId || !newAccountId || oldId === newAccountId) return null;
-  const linked = new Set<string>([...(f.spendTxIds ?? []), ...((f.contributions ?? []).map((c) => c.id))]);
+  const linked = new Set<string>([
+    ...(f.spendTxIds ?? []),
+    ...(f.contributions ?? []).map((c) => c.id),
+    ...(f.reimbursements ?? []).map((r) => r.id),
+  ]);
   const idMap = new Map<string, string>();
   const addTxs: Transaction[] = [];
   const removeTxIds: string[] = [];
@@ -263,8 +273,14 @@ export function repointRealPoolAccount(
   // Map the pool's own references onto the new row ids (rows not touched keep theirs).
   const spendTxIds = (f.spendTxIds ?? []).map((id) => idMap.get(id) ?? id);
   const contributions = (f.contributions ?? []).map((c) => (idMap.has(c.id) ? { ...c, id: idMap.get(c.id)! } : c));
+  // A payback whose card was the old pool account now pays back the new one.
+  const reimbursements = (f.reimbursements ?? []).map((r) => ({
+    ...r,
+    id: idMap.get(r.id) ?? r.id,
+    account: r.account === oldId ? newAccountId : r.account,
+  }));
   return {
-    funding: { ...f, poolAccountId: newAccountId, account: newAccountId, spendTxIds, contributions },
+    funding: { ...f, poolAccountId: newAccountId, account: newAccountId, spendTxIds, contributions, reimbursements },
     addTxs,
     removeTxIds,
   };
@@ -294,6 +310,9 @@ export function syncFundingTxAmount(f: Funding, original: Transaction, updated: 
   if (f.spendTxIds.includes(updated.id)) {
     return { ...f, spent: Math.max(0, round(f.spent + delta)) };
   }
+  if ((f.reimbursements ?? []).some((r) => r.id === updated.id)) {
+    return { ...f, reimbursements: f.reimbursements!.map((r) => (r.id === updated.id ? { ...r, amount: round(updated.amount) } : r)) };
+  }
   return null;
 }
 
@@ -311,6 +330,10 @@ export function syncFundingTxRemoval(f: Funding, tx: Transaction): Funding | nul
       spendTxIds: f.spendTxIds.filter((id) => id !== tx.id),
       spent: Math.max(0, round(f.spent - tx.amount)),
     };
+  }
+  if ((f.reimbursements ?? []).some((r) => r.id === tx.id)) {
+    // The payback row is gone, so the spend is owed back again.
+    return { ...f, reimbursements: f.reimbursements!.filter((r) => r.id !== tx.id) };
   }
   return null;
 }
@@ -402,6 +425,7 @@ export function referencedTxIds(fundings: Funding[]): string[] {
     for (const id of f.spendTxIds ?? []) if (id) ids.add(id);
     for (const r of f.repayments ?? []) if (r.id) ids.add(r.id);
     for (const c of f.contributions ?? []) if (c.id) ids.add(c.id);
+    for (const r of f.reimbursements ?? []) if (r.id) ids.add(r.id);
   }
   return [...ids];
 }
@@ -443,7 +467,7 @@ export function groupFundingSpends(spendTxIds: string[], transactions: Transacti
 // contributions (real pools), and repayments (virtual pools). Sorted newest first.
 export interface FundingActivity {
   date: string;
-  type: 'created' | 'spend' | 'contribution' | 'repayment';
+  type: 'created' | 'spend' | 'contribution' | 'repayment' | 'reimbursement';
   label: string;
   amount: number;
 }
@@ -460,8 +484,75 @@ export function buildPoolActivity(f: Funding, transactions: Transaction[]): Fund
   for (const c of f.contributions ?? []) {
     entries.push({ date: c.date, type: 'contribution', label: c.participant, amount: c.amount });
   }
+  for (const r of f.reimbursements ?? []) {
+    entries.push({ date: r.date, type: 'reimbursement', label: r.account, amount: r.amount });
+  }
   // Sort newest first; 'created' is always last when dates tie.
   return entries.sort((a, b) =>
     b.date.localeCompare(a.date) || (a.type === 'created' ? 1 : b.type === 'created' ? -1 : 0),
   );
+}
+
+// ── Real pool: spend paid with another account, reimbursed later ──────────────
+// A real pool's spend may be charged to a card/account other than the one that
+// holds the pool's cash. The spend itself is booked on that account as usual
+// (buildSpendTxs) and counts toward the pool's `spent`; the pool then owes that
+// account the full spend until the user taps Reimburse, which moves the money
+// from the pool's account to it. Net worth doesn't move (both are your accounts).
+
+export function spendReimbursement(f: Funding, spendKey: string): FundingReimbursement | undefined {
+  return (f.reimbursements ?? []).find((r) => r.spendKey === spendKey);
+}
+
+/** Paid with an account other than the pool's own, and not paid back yet. */
+export function needsReimbursement(f: Funding, s: Pick<FundingSpend, 'key' | 'chargedAccount'>): boolean {
+  return isRealPool(f) && !!f.poolAccountId && !!s.chargedAccount
+    && s.chargedAccount !== f.poolAccountId && !spendReimbursement(f, s.key);
+}
+
+/** Total the pool still has to pay back across its spends. */
+export function owedBackTotal(f: Funding, spends: FundingSpend[]): number {
+  return round(spends.filter((s) => needsReimbursement(f, s)).reduce((sum, s) => sum + s.amount, 0));
+}
+
+/** The transfer (pool account → the charged account) and its record. */
+export function buildReimburseTx(
+  f: Funding,
+  s: Pick<FundingSpend, 'key' | 'chargedAccount' | 'amount'>,
+  description: string,
+  date: string,
+): { tx: Transaction; reimbursement: FundingReimbursement } | null {
+  if (!f.poolAccountId || !s.chargedAccount || s.chargedAccount === f.poolAccountId) return null;
+  const amount = round(s.amount);
+  if (!(amount > 0)) return null;
+  const tx: Transaction = {
+    id: generateId(), date, description, amount,
+    type: 'transfer', category: FUNDING_REIMBURSE_CATEGORY,
+    account: f.poolAccountId, toAccount: s.chargedAccount,
+    createdAt: new Date().toISOString(),
+  };
+  return { tx, reimbursement: { id: tx.id, spendKey: s.key, amount, account: s.chargedAccount, date } };
+}
+
+/**
+ * Editing a spend replaces its rows (new grouping key). If the old spend had been
+ * paid back, keep it paid back: drop the old payback row and, when the edited
+ * spend is still charged to another account, re-create it for the new amount and
+ * account on the original payback date.
+ */
+export function rebuildReimbursement(
+  f: Funding,
+  oldKey: string,
+  next: Pick<FundingSpend, 'key' | 'chargedAccount' | 'amount'>,
+  description: string,
+): { reimbursements: FundingReimbursement[]; addTxs: Transaction[]; removeTxIds: string[] } {
+  const prev = spendReimbursement(f, oldKey);
+  const others = (f.reimbursements ?? []).filter((r) => r.spendKey !== oldKey);
+  if (!prev) return { reimbursements: others, addTxs: [], removeTxIds: [] };
+  const rebuilt = buildReimburseTx(f, next, description, prev.date);
+  return {
+    reimbursements: rebuilt ? [...others, rebuilt.reimbursement] : others,
+    addTxs: rebuilt ? [rebuilt.tx] : [],
+    removeTxIds: [prev.id],
+  };
 }

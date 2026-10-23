@@ -2043,10 +2043,11 @@ export function suggestBudgetReallocations(
 //     separately, so the gross deposit overstates what's actually spendable.
 
 // Reserved transfer categories move money that either isn't yours (a Funding
-// pool's cash, a split repayment) or isn't saving (a loan disbursement). A pool
+// pool's cash, a pool paying back a card, a split repayment) or isn't saving
+// (a loan disbursement). A pool
 // can legitimately be held in a savings account, so without this guard other
 // people's contributions would be booked as the user's savings.
-const RESERVED_TRANSFER_CATEGORIES = new Set(['Funding', 'FundingRepay', 'Loan', 'Split']);
+const RESERVED_TRANSFER_CATEGORIES = new Set(['Funding', 'FundingRepay', 'FundingReimburse', 'Loan', 'Split']);
 
 // Accounts money must come FROM for a transfer to count as deliberate saving —
 // a real spending account. Excludes savings→savings shuffles (moving money you

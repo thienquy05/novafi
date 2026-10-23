@@ -3,7 +3,7 @@ import { getTransactions, addTransaction, addTransactions, deleteTransaction, up
 import { invalidateMany, cachedOrFetch, CACHE_TTL, TX_CACHES } from '@/lib/cache';
 import { withSession, writeVersionOf } from '@/lib/apiRoute';
 import { applyTransactionToBalances } from '@/lib/calculations';
-import { syncFundingTxAmount, syncFundingTxRemoval } from '@/lib/funding';
+import { syncFundingTxAmount, syncFundingTxRemoval, FUNDING_REIMBURSE_CATEGORY } from '@/lib/funding';
 import { syncLoanTxAmount, syncLoanTxRemoval } from '@/lib/loans';
 import { syncSplitTxAmount, syncSplitTxRemoval } from '@/lib/splits';
 import type { Account, Transaction } from '@/types';
@@ -66,7 +66,7 @@ async function reconcileRecords<T>(
 // or deleting such a row HERE — the generic ledger route, which those features'
 // own APIs do not go through — must reconcile the owning record, or its page
 // would keep showing stale figures. Owned cash rows always carry their
-// feature's category ('Funding' / 'Loan' / 'Split'), so anything else skips the
+// feature's category ('Funding' / 'FundingReimburse' / 'Loan' / 'Split'), so anything else skips the
 // extra Sheets reads. (A split's `myShareTxId` row is a normal user-categorized
 // expense and is not caught here; the transactions UI locks it instead, and
 // group-edit tolerates a missing row.)
@@ -81,7 +81,7 @@ async function reconcileLinkedRecords(
   );
   const stale: string[] = [];
 
-  if (categories.has('Funding')) {
+  if (categories.has('Funding') || categories.has(FUNDING_REIMBURSE_CATEGORY)) {
     const fundings = await getFundings(accessToken, spreadsheetId);
     if (await reconcileRecords(fundings, edits, removals, syncFundingTxAmount, syncFundingTxRemoval,
       (f) => upsertFunding(accessToken, spreadsheetId, f))) stale.push('funding');

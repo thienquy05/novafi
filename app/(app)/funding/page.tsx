@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, Children, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { CircleDollarSign, Plus, Trash2, Users, Wallet, AlertCircle, MinusCircle, UserPlus, Pencil, HandCoins, Archive, ArchiveRestore, ChevronDown, Receipt, Landmark, PartyPopper, Target, Share2, Sparkles, Clock, SlidersHorizontal, CalendarDays } from 'lucide-react';
+import { CircleDollarSign, Plus, Trash2, Users, Wallet, AlertCircle, MinusCircle, UserPlus, Pencil, HandCoins, Archive, ArchiveRestore, ChevronDown, Receipt, Landmark, PartyPopper, Target, Share2, Sparkles, Clock, SlidersHorizontal, CalendarDays, Undo2 } from 'lucide-react';
 import { LoadError } from '@/components/ui/LoadError';
 import { FitText } from '@/components/ui/FitText';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -19,13 +19,14 @@ import { peekCache, ensureResources, isFresh } from '@/lib/client/store';
 import { loadTransactionsByIds } from '@/lib/client/api';
 import { useToast } from '@/lib/toast';
 import { useTranslation } from '@/lib/i18n/context';
-import type { Account, Funding, FundingContribution, FundingParticipant, FundingRepayment, Transaction } from '@/types';
+import type { Account, Funding, FundingContribution, FundingParticipant, FundingReimbursement, FundingRepayment, Transaction } from '@/types';
 import {
   myContribution, totalContribution, poolRemaining,
   buildSpendTxs, buildRepayTx, groupFundingSpends, participantOwed, participantRepaid, totalOwed,
   totalRepaid, isFullySettled,
   isRealPool, buildPoolContributionTx, participantsFromContributions, contributionsTotal, poolProgress,
   repointRealPoolAccount, planVirtualPoolEdit, buildPoolActivity, referencedTxIds,
+  spendReimbursement, needsReimbursement, owedBackTotal, buildReimburseTx, rebuildReimbursement,
   type FundingSpend, type FundingActivity,
 } from '@/lib/funding';
 import { applyTransactionToBalances } from '@/lib/calculations';
@@ -217,6 +218,12 @@ export default function FundingPage() {
   // Accounts a repayment can land IN: deposit accounts only (a payback is cash to you).
   const depositAccounts = accounts.filter((a) => a.type === 'checking' || a.type === 'savings' || a.type === 'cash');
   const accountName = (id: string) => accounts.find((a) => a.id === id)?.name ?? id;
+  // A spend can be charged to any chargeable account; a real pool's own holding
+  // account is always offered (a legacy `pool`-type one isn't in chargeAccounts).
+  const spendAccountsFor = (f: Funding) =>
+    isRealPool(f) && f.poolAccountId && !chargeAccounts.some((a) => a.id === f.poolAccountId)
+      ? [...accounts.filter((a) => a.id === f.poolAccountId), ...chargeAccounts]
+      : chargeAccounts;
   // A legacy real pool still parks its cash in an auto-created `pool`-type account.
   // Such pools get a one-click prompt to move that cash into a real account.
   const legacyHolding = (f: Funding) => isRealPool(f) && accounts.find((a) => a.id === f.poolAccountId)?.type === 'pool';
@@ -364,7 +371,7 @@ export default function FundingPage() {
     setSpendAmount(String(s.amount)); setSpendMine(s.myShare ? String(s.myShare) : '');
     setSpendDesc(s.description);
     setSpendDate(s.date); setSpendCategory(s.category ?? 'Other');
-    setSpendAccount(isRealPool(f) ? (f.poolAccountId ?? '') : (s.chargedAccount || f.account || chargeAccounts[0]?.id || ''));
+    setSpendAccount(s.chargedAccount || (isRealPool(f) ? (f.poolAccountId ?? '') : (f.account || chargeAccounts[0]?.id || '')));
   }
 
   async function recordSpend() {
@@ -377,25 +384,60 @@ export default function FundingPage() {
     const txs = buildSpendTxs(spendAccount, amount, mine, note, date, spendCategory);
     const removeTxIds = editingSpend?.txIds ?? [];
     const prevAmount = editingSpend?.amount ?? 0;
+    // An already paid-back spend stays paid back for its new amount/account.
+    const payback = editingSpend
+      ? rebuildReimbursement(spendFor, editingSpend.key, { key: txs[0]?.createdAt ?? '', chargedAccount: spendAccount, amount }, t('funding.reimburseDefault', { desc: note }))
+      : null;
     const updated: Funding = {
       ...spendFor,
       spent: Math.max(0, round2(spendFor.spent - prevAmount + amount)),
       spendTxIds: [...spendFor.spendTxIds.filter((id) => !removeTxIds.includes(id)), ...txs.map((tx) => tx.id)],
+      ...(payback ? { reimbursements: payback.reimbursements } : {}),
     };
     setFundings((prev) => prev.map((f) => f.id === updated.id ? updated : f));
     setSpendFor(null); setEditingSpend(null);
-    await persist(updated, txs, removeTxIds, editingSpend ? 'funding.spendUpdated' : 'funding.spendRecorded');
+    await persist(
+      updated,
+      [...txs, ...(payback?.addTxs ?? [])],
+      [...removeTxIds, ...(payback?.removeTxIds ?? [])],
+      editingSpend ? 'funding.spendUpdated' : 'funding.spendRecorded',
+    );
   }
 
   async function deleteSpend(f: Funding, s: FundingSpend) {
     if (!(await askConfirm(t('funding.confirmDeleteSpend'), true))) return;
+    // Its payback (if any) is reversed with it, so the pool's account gets it back.
+    const payback = spendReimbursement(f, s.key);
     const updated: Funding = {
       ...f,
       spent: Math.max(0, round2(f.spent - s.amount)),
       spendTxIds: f.spendTxIds.filter((id) => !s.txIds.includes(id)),
+      reimbursements: (f.reimbursements ?? []).filter((r) => r !== payback),
     };
     setFundings((prev) => prev.map((x) => x.id === updated.id ? updated : x));
-    await persist(updated, [], s.txIds, 'funding.spendDeleted');
+    await persist(updated, [], payback ? [...s.txIds, payback.id] : s.txIds, 'funding.spendDeleted');
+  }
+
+  // ── Reimburse (real pools) ─────────────────────────────────────────────────────
+  // A spend paid with another account/card is owed back until the user moves the
+  // money: one transfer from the pool's account to that account, for the full spend.
+  async function reimburseSpend(f: Funding, s: FundingSpend) {
+    const message = t('funding.confirmReimburse', {
+      amount: formatCurrency(s.amount), from: accountName(f.poolAccountId ?? ''), to: accountName(s.chargedAccount),
+    });
+    if (!(await askConfirm(message))) return;
+    const built = buildReimburseTx(f, s, t('funding.reimburseDefault', { desc: s.description }), today());
+    if (!built) return;
+    const updated: Funding = { ...f, reimbursements: [...(f.reimbursements ?? []), built.reimbursement] };
+    setFundings((prev) => prev.map((x) => x.id === updated.id ? updated : x));
+    await persist(updated, [built.tx], [], 'funding.reimbursed');
+  }
+
+  async function undoReimburse(f: Funding, r: FundingReimbursement) {
+    if (!(await askConfirm(t('funding.confirmUndoReimburse', { to: accountName(r.account) })))) return;
+    const updated: Funding = { ...f, reimbursements: (f.reimbursements ?? []).filter((x) => x.id !== r.id) };
+    setFundings((prev) => prev.map((x) => x.id === updated.id ? updated : x));
+    await persist(updated, [], [r.id], 'funding.reimburseUndone');
   }
 
   // ── Contributions (real pools) ─────────────────────────────────────────────────
@@ -704,6 +746,7 @@ export default function FundingPage() {
     const myShare = myContribution(f.participants);
     const owed = totalOwed(f);
     const spends = groupFundingSpends(f.spendTxIds, transactions);
+    const owedBack = owedBackTotal(f, spends);
     const spendsOpen = openSpends.has(f.id);
     const paysOpen = openPays.has(f.id);
     const contribsOpen = openContribs.has(f.id);
@@ -780,6 +823,19 @@ export default function FundingPage() {
             <FitText maxSize={16} minSize={11} className={`font-extrabold mt-0.5 ${remaining < 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{formatCurrency(Math.abs(remaining))}</FitText>
           </div>
         </div>
+
+        {/* Spends paid with another card/account that the pool hasn't paid back yet */}
+        {owedBack > 0 && (
+          <div className="rounded-2xl bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 p-3 flex items-center justify-between gap-3">
+            <div className="flex items-start gap-2 min-w-0">
+              <HandCoins className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+              <p className="text-xs font-medium text-amber-800 dark:text-amber-300 wrap-anywhere">{t('funding.owedBackBanner', { amount: formatCurrency(owedBack) })}</p>
+            </div>
+            {!spendsOpen && (
+              <Button variant="secondary" size="sm" className="shrink-0" onClick={() => toggle(setOpenSpends, f.id)}>{t('funding.owedBackView')}</Button>
+            )}
+          </div>
+        )}
 
         {/* Savings-goal progress (real pools with a target) */}
         {real && progress !== null && (
@@ -871,6 +927,26 @@ export default function FundingPage() {
                       <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
                         {t('funding.chargedTo', { account: accountName(s.chargedAccount) })}{s.myShare > 0 ? ` · ${t('funding.yourShareOf', { amount: formatCurrency(s.myShare) })}` : ''} · {formatDate(s.date, lang)}
                       </p>
+                      {(() => {
+                        const payback = spendReimbursement(f, s.key);
+                        if (payback) {
+                          return (
+                            <p className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
+                              {t('funding.reimbursedOn', { account: accountName(payback.account), date: formatDate(payback.date, lang) })}
+                              <button onClick={() => undoReimburse(f, payback)} className="hit-area text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-1 rounded-lg" aria-label={t('funding.undoReimburse')} title={t('funding.undoReimburse')}><Undo2 className="w-3.5 h-3.5" /></button>
+                            </p>
+                          );
+                        }
+                        if (!needsReimbursement(f, s)) return null;
+                        return (
+                          <div className="flex flex-wrap items-center gap-2 mt-1">
+                            <p className="text-[11px] font-bold text-amber-700 dark:text-amber-400 wrap-anywhere">{t('funding.owedBackTo', { account: accountName(s.chargedAccount) })}</p>
+                            <Button variant="secondary" size="sm" className={EMERALD_BTN} onClick={() => reimburseSpend(f, s)} disabled={saving}>
+                              <HandCoins className="w-4 h-4" />{t('funding.reimburse')}
+                            </Button>
+                          </div>
+                        );
+                      })()}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <span className="text-sm font-extrabold text-rose-600 dark:text-rose-400">{formatCurrency(s.amount)}</span>
@@ -972,16 +1048,16 @@ export default function FundingPage() {
               <CappedList moreLabel={t('common.showAllCount', { count: activityLog.length })} lessLabel={t('common.showLess')}>
                 {activityLog.map((entry, i) => (
                   <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60">
-                    <div className={`w-2 h-2 rounded-full shrink-0 ${entry.type === 'spend' ? 'bg-rose-400' : entry.type === 'created' ? 'bg-indigo-400' : 'bg-emerald-400'}`} />
+                    <div className={`w-2 h-2 rounded-full shrink-0 ${entry.type === 'spend' ? 'bg-rose-400' : entry.type === 'reimbursement' ? 'bg-amber-400' : entry.type === 'created' ? 'bg-indigo-400' : 'bg-emerald-400'}`} />
                     <div className="flex-1 min-w-0">
                       <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                        {entry.type === 'created' ? t('funding.activityCreated') : entry.type === 'spend' ? t('funding.activitySpend') : entry.type === 'contribution' ? t('funding.activityContrib') : t('funding.activityRepay')}
+                        {entry.type === 'created' ? t('funding.activityCreated') : entry.type === 'spend' ? t('funding.activitySpend') : entry.type === 'contribution' ? t('funding.activityContrib') : entry.type === 'reimbursement' ? t('funding.activityReimburse') : t('funding.activityRepay')}
                       </p>
-                      <p className="text-xs font-medium text-slate-700 dark:text-slate-200 wrap-anywhere">{entry.label}</p>
+                      <p className="text-xs font-medium text-slate-700 dark:text-slate-200 wrap-anywhere">{entry.type === 'reimbursement' ? accountName(entry.label) : entry.label}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className={`text-xs font-extrabold ${entry.type === 'spend' ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                        {entry.type === 'spend' ? '-' : '+'}{formatCurrency(entry.amount)}
+                      <p className={`text-xs font-extrabold ${entry.type === 'spend' ? 'text-rose-600 dark:text-rose-400' : entry.type === 'reimbursement' ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                        {entry.type === 'spend' || entry.type === 'reimbursement' ? '-' : '+'}{formatCurrency(entry.amount)}
                       </p>
                       <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">{formatDate(entry.date, lang)}</p>
                     </div>
@@ -1192,20 +1268,21 @@ export default function FundingPage() {
           <>
             <div className="space-y-5 pb-4">
               <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{t('funding.spendingFrom', { desc: spendFor.description, remaining: formatCurrency(poolRemaining(spendFor)) })}</p>
-              {isRealPool(spendFor) ? (
-                // Real pools draw from their own holding account — not a choice.
-                <div className="rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 px-3 py-2.5">
-                  <p className="text-[11px] font-bold text-emerald-700/80 dark:text-emerald-400/80 uppercase tracking-wider">{t('funding.chargeFrom')}</p>
-                  <p className="text-sm font-bold text-slate-700 dark:text-slate-200 mt-0.5">{accountName(spendFor.poolAccountId ?? '')}</p>
-                </div>
-              ) : (
+              <div>
                 <Select
                   label={t('funding.chargeFrom')}
                   value={spendAccount}
-                  options={chargeAccounts.map((a) => ({ value: a.id, label: a.name }))}
+                  options={spendAccountsFor(spendFor).map((a) => ({
+                    value: a.id,
+                    label: isRealPool(spendFor) && a.id === spendFor.poolAccountId ? t('funding.poolAccountOption', { account: a.name }) : a.name,
+                  }))}
                   onChange={(e) => setSpendAccount(e.target.value)}
                 />
-              )}
+                {/* Real pools: paying with another account means the pool owes it back. */}
+                {isRealPool(spendFor) && spendAccount && spendAccount !== spendFor.poolAccountId && (
+                  <p className="text-xs font-medium text-amber-700 dark:text-amber-400 mt-1.5">{t('funding.owedBackHint', { account: accountName(spendAccount), pool: accountName(spendFor.poolAccountId ?? '') })}</p>
+                )}
+              </div>
               <Input label={t('funding.amount')} type="text" inputMode="decimal" placeholder="0.00" value={spendAmount} onChange={(e) => setSpendAmount(e.target.value.replace(/[^0-9.]/g, ''))} />
               <div>
                 <Input label={t('funding.myShare')} type="text" inputMode="decimal" placeholder="0.00" value={spendMine} onChange={(e) => setSpendMine(e.target.value.replace(/[^0-9.]/g, ''))} />
