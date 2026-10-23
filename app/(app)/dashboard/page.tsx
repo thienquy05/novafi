@@ -78,11 +78,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // What others owe the user sits beside net worth, never inside it. Splits and
   // Funding share the cache keys of their API routes, and a failed read just
   // hides the line (it must never take the dashboard down).
-  const [dashData, splits, fundings] = await Promise.all([
+  // Funding also feeds the "held for others" deduction, so a failed read is
+  // remembered (null) and this visit's net worth snapshot isn't saved.
+  const [dashData, splits, fundingsRead] = await Promise.all([
     getDashboardData(token, sheetId, writeVersion),
     cachedOrFetch(`splits:${sheetId}`, CACHE_TTL.SHORT, () => getSplits(token, sheetId), writeVersion).catch(() => []),
-    cachedOrFetch(`funding:${sheetId}`, CACHE_TTL.SHORT, () => getFundings(token, sheetId), writeVersion).catch(() => []),
+    cachedOrFetch(`funding:${sheetId}`, CACHE_TTL.SHORT, () => getFundings(token, sheetId), writeVersion).catch(() => null),
   ]);
+  const fundings = fundingsRead ?? [];
 
   const { transactions, accounts, bills, budgets, goals, settings, netWorthHistory } = dashData;
 
@@ -122,14 +125,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // money inflates the raw balances but isn't the user's. Subtract the per-account
   // "held for others" amounts everywhere wealth is summed (net worth, assets,
   // savings) so a pool only ever shows up as money flow, never as net worth.
-  const fundingHeldByAccount = calcFundingHeldByAccount(transactions);
+  const fundingHeldByAccount = calcFundingHeldByAccount(fundings);
   const fundingHeld = Object.values(fundingHeldByAccount).reduce((s, n) => s + n, 0);
   // One definition (calcNetWorth) for the hero, the trend chart, the forecast and
   // the Accounts page; both bases are kept so a saved snapshot never mixes them.
   const excludeLoans = settings.excludeLoansFromNetWorth;
   const basis: NetWorthBasis = excludeLoans ? 'liquid' : 'total';
-  const totalNetWorth = calcNetWorth(accounts, transactions, 'total');
-  const liquidNetWorth = calcNetWorth(accounts, transactions, 'liquid');
+  const totalNetWorth = calcNetWorth(accounts, fundings, 'total');
+  const liquidNetWorth = calcNetWorth(accounts, fundings, 'liquid');
   const netWorth = basis === 'liquid' ? liquidNetWorth : totalNetWorth;
   const totalAssets = calcTotalAssets(accounts) - fundingHeld;
   const totalDebt = calcTotalDebt(accounts);
@@ -173,7 +176,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const storedSnapshot = netWorthHistory.filter((s) => s.month === currentMonthKey).at(-1);
   const sig = snapshotSignature(snapshot);
   const savedKey = `${session.spreadsheetId}:${currentMonthKey}`;
-  if ((!storedSnapshot || snapshotSignature(storedSnapshot) !== sig) && savedSnapshots.get(savedKey) !== sig) {
+  if (fundingsRead !== null && (!storedSnapshot || snapshotSignature(storedSnapshot) !== sig) && savedSnapshots.get(savedKey) !== sig) {
     savedSnapshots.set(savedKey, sig);
     const { accessToken, spreadsheetId } = session;
     after(() => upsertNetWorthSnapshot(accessToken, spreadsheetId, snapshot).catch(() => { savedSnapshots.delete(savedKey); }));

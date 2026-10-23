@@ -135,46 +135,51 @@ describe('syncFundingTxRemoval', () => {
 // ── Funding held for others → excluded from net worth ─────────────────────────
 
 describe('calcFundingHeldByAccount / calcFundingHeld', () => {
-  it('treats an others-contribution transfer as money held in that account', () => {
-    const txs = [buildContributionTx('acc1', 200, 'Beach trip', '2026-06-09')!];
-    expect(calcFundingHeldByAccount(txs)).toEqual({ acc1: 200 });
-    expect(calcFundingHeld(txs)).toBe(200);
+  const vault = (o: Partial<Funding> = {}): Funding =>
+    makePool({ kind: 'real', poolAccountId: 'sav1', account: 'sav1', contributionTxId: '', ...o });
+  const people = (...p: [string, number, boolean][]): FundingParticipant[] =>
+    p.map(([name, contributed, isMe]) => ({ name, contributed, isMe }));
+
+  it('holds the others share of what is left, in proportion to who put it in', () => {
+    // Me 100 + others 200 = 300, 90 spent → 210 left, 2/3 of it is others'.
+    const f = vault({ spent: 90 });
+    expect(calcFundingHeldByAccount([f])).toEqual({ sav1: 140 });
+    expect(calcFundingHeld([f])).toBe(140);
   });
 
-  it('spending others share draws the held amount back down, my expense does not', () => {
-    // 200 in from others, then a 300 spend with my 100 share: only the 200 others
-    // portion leaves the account (transfer), so nothing is left held.
-    const txs = [
-      buildContributionTx('acc1', 200, 'Beach trip', '2026-06-09')!,
-      ...buildSpendTxs('acc1', 300, 100, 'Dinner', '2026-06-10'),
-    ];
-    expect(calcFundingHeld(txs)).toBe(0);
+  it('holds nothing once the pool is spent or overspent', () => {
+    // "Iphone" vault: Ba put in 1,000, 1,507.42 spent.
+    const f = vault({ participants: people(['Ba', 1000, false]), totalContributed: 1000, spent: 1507.42 });
+    expect(calcFundingHeldByAccount([f])).toEqual({});
   });
 
-  it('keeps the unspent others portion held', () => {
-    const txs = [
-      buildContributionTx('acc1', 200, 'Beach trip', '2026-06-09')!,
-      ...buildSpendTxs('acc1', 80, 30, 'Snacks', '2026-06-10'), // 50 of others spent
-    ];
-    expect(calcFundingHeld(txs)).toBe(150); // 200 − 50
+  it('matches the Family Trip vault: 393.62 left, others put in 1,350.13 of 1,800.13', () => {
+    const f = vault({
+      participants: people(['Me', 450, true], ['Dad', 450, false], ['Mom', 450, false], ['Hân', 450, false], ['Bình', 0.13, false]),
+      totalContributed: 1800.13,
+      spent: 1406.51,
+    });
+    expect(calcFundingHeld([f])).toBe(295.22);
   });
 
-  it('ignores non-Funding transfers and never goes negative', () => {
-    const txs: Transaction[] = [
-      { id: 't1', date: '2026-06-09', description: 'move', amount: 500, type: 'transfer', category: 'Transfer', account: '', toAccount: 'acc1' },
-      { id: 't2', date: '2026-06-09', description: 'spend', amount: 75, type: 'transfer', category: 'Funding', account: 'acc1', toAccount: '' },
-    ];
-    expect(calcFundingHeldByAccount(txs)).toEqual({}); // funding out with no funding in → floored away
-    expect(calcFundingHeld(txs)).toBe(0);
+  it('ignores closed pools and pools with only my money', () => {
+    expect(calcFundingHeld([vault({ closed: true })])).toBe(0);
+    expect(calcFundingHeld([vault({ participants: people(['Me', 300, true]) })])).toBe(0);
   });
 
-  it('tracks held money per account independently', () => {
-    const txs = [
-      buildContributionTx('acc1', 200, 'Trip', '2026-06-09')!,
-      buildContributionTx('acc2', 50, 'Gift', '2026-06-09')!,
-    ];
-    expect(calcFundingHeldByAccount(txs)).toEqual({ acc1: 200, acc2: 50 });
-    expect(calcFundingHeld(txs)).toBe(250);
+  it('a virtual pool is a budget and holds no cash, unless it has a legacy others-contribution row', () => {
+    expect(calcFundingHeld([makePool({ contributionTxId: '' })])).toBe(0);
+    // Legacy: others' 200 of 300 parked in `account`, 120 spent → 180 left, 2/3 others'.
+    expect(calcFundingHeldByAccount([makePool()])).toEqual({ acc1: 120 });
+  });
+
+  it('sums pools per holding account', () => {
+    const held = calcFundingHeldByAccount([
+      vault({ spent: 0 }),
+      vault({ id: 'f2', poolAccountId: 'chk1', spent: 0 }),
+      vault({ id: 'f3', spent: 150 }),
+    ]);
+    expect(held).toEqual({ sav1: 300, chk1: 200 });
   });
 });
 
@@ -200,12 +205,6 @@ describe('buildRepayTx', () => {
     expect(repayment).toEqual({ id: tx.id, participant: 'Alex', amount: 120, account: 'cash1', date: '2026-06-20' });
   });
 
-  it('a repayment is excluded from the funding-held net-worth adjustment', () => {
-    // Only category 'Funding' transfers count as held; a 'FundingRepay' must not.
-    const { tx } = buildRepayTx('cash1', 200, 'Alex', 'x', '2026-06-20');
-    expect(calcFundingHeld([tx])).toBe(0);
-    expect(calcFundingHeldByAccount([tx])).toEqual({});
-  });
 });
 
 describe('settle-up math', () => {
@@ -271,7 +270,6 @@ describe('real pool: contribution building', () => {
     expect(tx!.category).toBe('Transfer');     // NOT 'Funding' → stays my money, not held
     expect(tx!.account).toBe('sav1');          // leaves my savings
     expect(tx!.toAccount).toBe('chk1');        // into the holding account
-    expect(calcFundingHeld([tx!])).toBe(0);    // my own money is never "held for others"
     expect(contribution).toMatchObject({ id: tx!.id, participant: 'Me', amount: 100, isMe: true, account: 'sav1' });
   });
 
@@ -281,7 +279,6 @@ describe('real pool: contribution building', () => {
     expect(tx!.category).toBe('Funding');
     expect(tx!.account).toBe('');              // external source → not income
     expect(tx!.toAccount).toBe('chk1');
-    expect(calcFundingHeldByAccount([tx!])).toEqual({ chk1: 200 });
     expect(contribution.account).toBe('');    // others' money isn't drawn from one of my accounts
   });
 });
@@ -338,10 +335,15 @@ describe('real pool: full cash-flow keeps net worth honest', () => {
     const chk = accounts.find((a) => a.id === 'chk1')!;
     expect(chk.balance).toBe(900);            // my $100 left checking
     expect(hold.balance).toBe(210);           // 100 + 200 − 90
-    // Of the holding balance, $140 is Alex's held cash (200 in − 60 of his share spent).
-    const held = calcFundingHeldByAccount([mine, others, ...spend]);
+    // 210 left in the pool, split by who put it in: Alex owns 2/3 = $140.
+    const pool = makePool({
+      kind: 'real', poolAccountId: 'sav1', account: 'sav1', contributionTxId: '',
+      participants: [{ name: 'Me', contributed: 100, isMe: true }, { name: 'Alex', contributed: 200, isMe: false }],
+      totalContributed: 300, spent: 90,
+    });
+    const held = calcFundingHeldByAccount([pool]);
     expect(held).toEqual({ sav1: 140 });
-    // My money still in the pool = balance − held = 70 (my 100 in − 30 of my share spent).
+    // My money still in the pool = balance − held = 70.
     expect(hold.balance - held.sav1).toBe(70);
   });
 });
@@ -413,8 +415,8 @@ describe('repointRealPoolAccount (legacy pool migration)', () => {
     for (const tx of res.addTxs) accounts = applyTransactionToBalances(accounts, tx, 'apply');
     expect(accounts.find((a) => a.id === 'pool1')!.balance).toBe(0);   // emptied → safe to delete
     expect(accounts.find((a) => a.id === 'chk1')!.balance).toBe(1110); // 1000 + (200 − 90)
-    // Held-for-others now tracks the real account: Alex's 200 in − 60 share out = 140.
-    expect(calcFundingHeldByAccount(res.addTxs)).toEqual({ chk1: 140 });
+    // Held-for-others now follows the pool onto the real account.
+    expect(Object.keys(calcFundingHeldByAccount([res.funding]))).toEqual(['chk1']);
   });
 
   it('is a no-op when the target equals the current account or there is no holding account', () => {

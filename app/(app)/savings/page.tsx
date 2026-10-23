@@ -13,7 +13,7 @@ import { formatCurrency, formatDate, generateId, today } from '@/lib/utils';
 import { calcSavingsInterest, calcFundingHeldByAccount } from '@/lib/calculations';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { peekCache, ensureResources } from '@/lib/client/store';
-import type { Account, Transaction, Goal } from '@/types';
+import type { Account, Transaction, Goal, Funding } from '@/types';
 import { FitText } from '@/components/ui/FitText';
 import { SavingsSkeleton } from '@/components/ui/Skeleton';
 import { StaggerReveal } from '@/components/ui/Reveal';
@@ -82,6 +82,7 @@ export default function SavingsPage() {
   const [allAccounts, setAllAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
   const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
   const [goals, setGoals] = useState<Goal[]>(() => peekCache(['goals'])?.goals ?? []);
+  const [fundings, setFundings] = useState<Funding[]>(() => peekCache(['funding'])?.funding ?? []);
   const [selectedAccount, setSelectedAccount] = useState<string>('all');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ActionForm>(EMPTY_FORM);
@@ -106,12 +107,13 @@ export default function SavingsPage() {
     // One round trip instead of three; served from the client cache when fresh.
     // A failed read shows an error + retry (it used to leave the skeleton forever).
     try {
-      const data = await ensureResources(['accounts', 'transactions', 'goals'], { force });
+      const data = await ensureResources(['accounts', 'transactions', 'goals', 'funding'], { force });
       const accs = data.accounts;
       setAllAccounts(accs);
       setAccounts(accs.filter((a) => a.type === 'savings'));
       setTransactions(data.transactions);
       setGoals(data.goals);
+      setFundings(data.funding);
       setError(false);
     } catch {
       setError(true);
@@ -142,7 +144,7 @@ export default function SavingsPage() {
 
   // Same as the dashboard's "Total Saved": funding pools can park OTHER people's
   // cash in a savings account — net it out so the two figures always agree.
-  const fundingHeldByAccount = useMemo(() => calcFundingHeldByAccount(transactions), [transactions]);
+  const fundingHeldByAccount = useMemo(() => calcFundingHeldByAccount(fundings), [fundings]);
   const totalSaved = accounts.reduce((s, a) => s + a.balance - (fundingHeldByAccount[a.id] ?? 0), 0);
 
   // Money INTO savings = a deposit (income) or a transfer whose destination is a

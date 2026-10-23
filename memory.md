@@ -6,7 +6,7 @@ The single running log of NovaFi changes. **One file only** (`/memory.md` at the
 
 ---
 
-# Current state (as of 2026-10-21)
+# Current state (as of 2026-10-23)
 
 ## Stack
 Next.js 16 (App Router; **breaking changes vs older Next — read `node_modules/next/dist/docs/`**), React 19, next-auth v5 (Google OAuth), Google Sheets API (`googleapis`) as the database, Tailwind v4, framer-motion, recharts, lucide-react, Vitest (pre-commit hook runs `typecheck` + `test`).
@@ -31,7 +31,7 @@ Settings (key/value) · Accounts `A:R` · Transactions `A:K` · Paychecks · Bud
 
 ## Key domain logic (`lib/calculations.ts` unless noted)
 - **Net worth:** `calcNetWorth(accounts, txs, 'total'|'liquid')`. `buildNetWorthSeries` ends at the live value; estimated months come from transactions. `calcCashFlowProjection` = average monthly net flow (+ loan payoff on the liquid basis).
-- **Net worth is "mine only":** fronted cash (loans lent, split shares, funding-tab spends) leaves the account balance and the IOU is never added back; cash held for others in funding pools is subtracted (`calcFundingHeld`). What people owe the user is reported SEPARATELY by `calcOwedToYou(splits, fundings)` (`lib/receivables.ts`: bill + one-off split remainders + unpaid pledges on open virtual funding tabs; personal 'lent' loans are intentionally not included) and shown under the dashboard net worth hero — never added to the figure, the chart or the saved NetWorthHistory snapshot.
+- **Net worth is "mine only":** fronted cash (loans lent, split shares, funding-tab spends) leaves the account balance and the IOU is never added back; cash held for others in funding pools is subtracted (`calcFundingHeld(fundings)`: per OPEN pool, what's left × others' share of contributions, in the holding account; closed pools hold nothing). Assets = every non-credit/loan account − held; Savings = savings-type accounts − held in them. What people owe the user is reported SEPARATELY by `calcOwedToYou(splits, fundings)` (`lib/receivables.ts`: bill + one-off split remainders + unpaid pledges on open virtual funding tabs; personal 'lent' loans are intentionally not included) and shown under the dashboard net worth hero — never added to the figure, the chart or the saved NetWorthHistory snapshot.
 - **Subscriptions:** `detectSubscriptions(txs, today, dismissed)` needs a billing rhythm + fixed price + a non-everyday category (or a known service). `merchantMatches` does whole-word matching.
 - **Cards:** `cardPaymentStatus` gives paid/due/overdue from the due day + minimum.
 - **Notifications:** `lib/notifications.ts` `buildNotifications(data, ctx, prefs)` honours mute, budget-% and reminder-day settings.
@@ -57,12 +57,19 @@ Settings (key/value) · Accounts `A:R` · Transactions `A:K` · Paychecks · Bud
 
 # Change log (newest first)
 
+## 2026-10-23 — "Held for others" now comes from each funding pool, not from ledger rows (branch claude/report-print-preview)
+
+- WHAT: `lib/calculations.ts` `calcFundingHeldByAccount` / `calcFundingHeld` now take `Funding[]` instead of `Transaction[]`, and `calcNetWorth(accounts, fundings, basis)` likewise. For each OPEN pool: held = (totalContributed − spent, floored at 0) × (others' contributions ÷ totalContributed), credited to the real pool's `poolAccountId` (or a legacy virtual pool's `account` when it has a `contributionTxId`). Closed pools and other virtual pools hold nothing. Callers updated: dashboard (Assets, Savings, net worth hero and snapshot), Accounts page (net worth, assets — it now loads `funding` and no longer loads `transactions`), Savings page (Total Saved — now also loads `funding`). The dashboard skips saving this month's NetWorthHistory snapshot when the funding read fails, so a figure missing the deduction is never stored. Tests rewritten for the new rule, including the user's real vaults.
+- WHY (user): Assets ($843.42) was lower than Savings ($984.52), and both looked too low. The old ledger-based figure subtracted $2,623.34 "held for others", more than others had ever put in ($2,350.13 across both vaults). The user's vaults: "Iphone" (real, Costco account, Ba $1,000 in, $1,507.42 spent → $0 held) and "Family Trip" (real, Saving (vacation) account, others $1,350.13 of $1,800.13, $393.62 left → $295.22 held). Decided with the user: proportional split of what's left; closed pools are ignored (leftover counts as the user's); Assets keeps counting every non-debt account (savings, investment, checking, cash), and goals count only through their linked account (unlinked goal amounts would double-count).
+- Verified: typecheck, 752 tests; touched-file lint has no new warnings. In `NOVAFI_MOCK=1` dev mode Home, Accounts and Savings render and agree (the mock data has no pools, so the pool math is covered by the unit tests).
+- Still open: real pools paying a spend with another card/account, with a later "Reimburse" button that pays that account back from the pool (user picked "later, by button"). Not started.
+
 ## 2026-10-23 — Reports: PDF button opens a visible preview with Print / Share (branch claude/report-print-preview)
 
 - WHAT: `app/(app)/reports/page.tsx` `handleExportPdf` no longer writes the report into a hidden 0×0 iframe and calls `print()` on it. It now opens a full-screen preview overlay (safe-area padded, z-[100]) that shows the same `reportToHtml` output in a visible `<iframe srcDoc>`, with Close, Share and Print buttons. Print calls `print()` on the visible frame (falls back to `window.print()`). Share uses `navigator.share({ files: [novafi-report-YYYY.html] })` when the device can share files (the iOS share sheet offers Print / Save to Files), otherwise it downloads the HTML file. New i18n keys `reports.previewTitle`, `reports.print`, `reports.share` (en + vi).
 - WHY (user): tapping the Report's PDF button did nothing in the iPhone home-screen app. Printing an off-screen iframe is unreliable/blocked in iOS standalone web apps. The user chose a "report preview page" (no new PDF library) over generating a real .pdf file.
 - Verified in `NOVAFI_MOCK=1` dev mode at an iPhone 13 viewport (Playwright/Chromium): the preview opens and renders the report. Real-iPhone print/share is not yet verified. Typecheck, 752 tests and touched-file lint clean (one pre-existing lint warning).
-- Open (same user request, not done yet): the dashboard Savings/Assets cards look too low — "held for others (funding)" is $2,623.34. Suspected cause: `calcFundingHeldByAccount` is per-account and transaction-based, so others' cash credited to one account is never reduced when it's spent/moved from another account. Waiting on the user's Funding pool details. The user also wants real pools to allow paying a spend with a different card/account, with a later "Reimburse" button that pays that account back from the pool.
+- Follow-up: the Savings/Assets fix is in the 2026-10-23 "held for others" entry above.
 
 ## 2026-10-21 — Dashboard: show money owed to you separately from net worth (branch claude/jolly-heisenberg-wep341)
 
