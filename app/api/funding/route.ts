@@ -74,7 +74,7 @@ export const POST = withSession(async ({ accessToken, spreadsheetId, req }) => {
 });
 
 // Delete a pool and reverse every cash row it created (contribution + spends +
-// repayments) so all touched accounts return exactly where they were. Mirrors
+// repayments + reimbursements) so all touched accounts return exactly where they were. Mirrors
 // loan/split deletes.
 export const DELETE = withSession(async ({ accessToken, spreadsheetId, req }) => {
   const { id }: { id: string } = await req.json();
@@ -90,6 +90,7 @@ export const DELETE = withSession(async ({ accessToken, spreadsheetId, req }) =>
         ...(funding.spendTxIds ?? []),
         ...(funding.repayments ?? []).map((r) => r.id),
         ...(funding.contributions ?? []).map((c) => c.id),
+        ...(funding.reimbursements ?? []).map((r) => r.id),
       ].filter(Boolean) as string[]
     : [];
   let updatedAccounts: Account[] | null = null;

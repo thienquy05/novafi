@@ -20,7 +20,7 @@ import { useToast } from '@/lib/toast';
 import { PullToRefresh } from '@/components/PullToRefresh';
 import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { LoadError } from '@/components/ui/LoadError';
-import type { Account, Transaction } from '@/types';
+import type { Account, Funding } from '@/types';
 import { useTranslation } from '@/lib/i18n/context';
 
 const ACCOUNT_COLORS = [
@@ -97,9 +97,9 @@ const UTIL_TEXT: Record<string, string> = {
 export default function AccountsPage() {
   const { t } = useTranslation();
   const [accounts, setAccounts] = useState<Account[]>(() => peekCache(['accounts'])?.accounts ?? []);
-  // Transactions are needed only to net out funding pools — money those pools hold
-  // in real accounts on behalf of OTHERS, which isn't the user's wealth.
-  const [transactions, setTransactions] = useState<Transaction[]>(() => peekCache(['transactions'])?.transactions ?? []);
+  // Funding pools are needed only to net out the money they hold in real
+  // accounts on behalf of OTHERS, which isn't the user's wealth.
+  const [fundings, setFundings] = useState<Funding[]>(() => peekCache(['funding'])?.funding ?? []);
   // Mirror the dashboard's headline: the "exclude loans from net worth" setting
   // must produce the SAME net-worth figure here as on the dashboard.
   const [excludeLoans, setExcludeLoans] = useState(() => peekCache(['settings'])?.settings?.excludeLoansFromNetWorth === true);
@@ -136,9 +136,9 @@ export default function AccountsPage() {
 
   const load = useCallback(async (force = false) => {
     try {
-      const { accounts, transactions, settings } = await ensureResources(['accounts', 'transactions', 'settings'], { force });
+      const { accounts, settings, funding } = await ensureResources(['accounts', 'settings', 'funding'], { force });
       setAccounts(accounts);
-      setTransactions(transactions);
+      setFundings(funding);
       setExcludeLoans(settings?.excludeLoansFromNetWorth === true);
       setError(false);
     } catch {
@@ -292,13 +292,13 @@ export default function AccountsPage() {
     // raw balance but isn't the user's wealth, so net it out of net worth/assets.
     // Same shared helpers (and the same exclude-loans setting) as the dashboard,
     // so the two headline figures can never disagree.
-    const fundingHeld = Object.values(calcFundingHeldByAccount(transactions)).reduce((s, n) => s + n, 0);
+    const fundingHeld = Object.values(calcFundingHeldByAccount(fundings)).reduce((s, n) => s + n, 0);
     return {
-      netWorth: calcNetWorth(accounts, transactions, excludeLoans ? 'liquid' : 'total'),
+      netWorth: calcNetWorth(accounts, fundings, excludeLoans ? 'liquid' : 'total'),
       totalAssets: calcTotalAssets(accounts) - fundingHeld,
       totalDebt: calcTotalDebt(accounts),
     };
-  }, [accounts, transactions, excludeLoans]);
+  }, [accounts, fundings, excludeLoans]);
 
   const grouped = useMemo(() => {
     const g: Record<Account['type'], Account[]> = { checking: [], cash: [], savings: [], credit: [], investment: [], loan: [], pool: [] };

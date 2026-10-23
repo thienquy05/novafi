@@ -318,6 +318,18 @@ export interface FundingRepayment {
   date: string;        // YYYY-MM-DD
 }
 
+// A real pool paying back a spend that was charged to another of your accounts
+// or cards. `id` is the ledger transfer it created (pool account → that account,
+// category 'FundingReimburse'); `spendKey` is the spend's grouping key (the
+// spend rows' shared createdAt — see groupFundingSpends).
+export interface FundingReimbursement {
+  id: string;
+  spendKey: string;
+  amount: number;
+  account: string;     // the account/card paid back
+  date: string;        // YYYY-MM-DD
+}
+
 export interface Funding {
   id: string;
   description: string;
@@ -336,6 +348,7 @@ export interface Funding {
   poolAccountId?: string;   // the account holding the real cash — a chosen deposit account (legacy pools reference an auto-created `pool` account until migrated)
   target?: number;          // optional savings-goal target (drives a progress bar); 0/absent = none
   contributions?: FundingContribution[]; // itemized cash put into the pool
+  reimbursements?: FundingReimbursement[]; // spends paid with another account, paid back from the pool
 }
 
 // Investments are tracked as money flow, not as brokerage lots. An

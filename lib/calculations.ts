@@ -1,6 +1,6 @@
 import type {
   Account, Transaction, Bill, Budget, Loan, Split, Goal, PaycheckEntry, TaxSettings,
-  BudgetBucket, CategoryBucketMap, NetWorthSnapshot,
+  BudgetBucket, CategoryBucketMap, NetWorthSnapshot, Funding,
 } from '@/types';
 import { BUDGET_BUCKETS, DEFAULT_CATEGORY_BUCKETS, DEFAULT_BUCKET_TARGETS } from '@/types';
 
@@ -39,33 +39,34 @@ export function calcLiquidSavings(accounts: Account[]): number {
 }
 
 // ── Funding pools held for others ───────────────────────────────────────────────
-// Money that a Funding (treasurer-held) pool parked in a real account on behalf of
-// OTHER people is NOT the user's asset — they're just holding it. The cash arrives
-// as a `transfer` tagged category 'Funding' INTO an account (toAccount set, empty
-// source) and leaves as a `transfer` OUT (account set, empty destination) when the
-// others' share is disbursed. The user's own contribution never creates a row, and
-// their own spend is an `expense`, so neither shows up here. The net per account is
-// therefore exactly the others' cash still sitting in it — which we subtract from
-// net worth / assets so the pool only ever influences money flow, never wealth.
-export function calcFundingHeldByAccount(transactions: Transaction[]): Record<string, number> {
+// Cash a Funding pool holds on behalf of OTHER people sits in one of the user's
+// accounts but isn't theirs, so it's subtracted from net worth / assets / savings.
+// It's read from each OPEN pool's own figures, not re-derived from ledger rows
+// (rows booked against a different account, or a re-pointed holding account,
+// made that drift): what's left in the pool (contributed − spent, floored at 0)
+// split in proportion to who put it in, so others own others ÷ total of it.
+// A closed pool is settled — any leftover counts as the user's.
+// Real pools hold it in `poolAccountId`; a legacy virtual pool with an upfront
+// others'-contribution row (`contributionTxId`) holds it in `account`. Other
+// virtual pools are just a budget — no cash is held, so nothing is subtracted.
+export function calcFundingHeldByAccount(fundings: Funding[]): Record<string, number> {
   const held: Record<string, number> = {};
-  for (const tx of transactions) {
-    if (tx.category !== 'Funding' || tx.type !== 'transfer') continue;
-    if (tx.toAccount) {
-      held[tx.toAccount] = roundCents((held[tx.toAccount] ?? 0) + tx.amount); // others' cash in
-    } else if (tx.account) {
-      held[tx.account] = roundCents((held[tx.account] ?? 0) - tx.amount);     // others' cash out
-    }
-  }
-  // Never let a stray edit turn into a net worth *boost* — floor each account at 0.
-  for (const id of Object.keys(held)) {
-    if (held[id] <= 0) delete held[id];
+  for (const f of fundings) {
+    if (f.closed) continue;
+    const account = f.kind === 'real' ? f.poolAccountId : f.contributionTxId ? f.account : '';
+    if (!account) continue;
+    const total = f.totalContributed;
+    const others = (f.participants ?? []).filter((p) => !p.isMe).reduce((s, p) => s + (p.contributed || 0), 0);
+    const remaining = total - f.spent;
+    if (!(total > 0) || !(others > 0) || !(remaining > 0)) continue;
+    const share = roundCents(remaining * Math.min(1, others / total));
+    if (share > 0) held[account] = roundCents((held[account] ?? 0) + share);
   }
   return held;
 }
 
-export function calcFundingHeld(transactions: Transaction[]): number {
-  return Object.values(calcFundingHeldByAccount(transactions)).reduce((s, n) => s + n, 0);
+export function calcFundingHeld(fundings: Funding[]): number {
+  return roundCents(Object.values(calcFundingHeldByAccount(fundings)).reduce((s, n) => s + n, 0));
 }
 
 // ── Net worth: one definition, history and forecast ──────────────────────────
@@ -74,9 +75,9 @@ export function calcFundingHeld(transactions: Transaction[]): number {
 export type NetWorthBasis = 'total' | 'liquid';
 
 /** The headline net worth. Home (hero, chart, forecast) and Accounts all use this. */
-export function calcNetWorth(accounts: Account[], transactions: Transaction[], basis: NetWorthBasis): number {
+export function calcNetWorth(accounts: Account[], fundings: Funding[], basis: NetWorthBasis): number {
   const raw = basis === 'liquid' ? calcLiquidNetWorth(accounts) : calcTraditionalNetWorth(accounts);
-  return roundCents(raw - calcFundingHeld(transactions));
+  return roundCents(raw - calcFundingHeld(fundings));
 }
 
 /**
@@ -2042,10 +2043,11 @@ export function suggestBudgetReallocations(
 //     separately, so the gross deposit overstates what's actually spendable.
 
 // Reserved transfer categories move money that either isn't yours (a Funding
-// pool's cash, a split repayment) or isn't saving (a loan disbursement). A pool
+// pool's cash, a pool paying back a card, a split repayment) or isn't saving
+// (a loan disbursement). A pool
 // can legitimately be held in a savings account, so without this guard other
 // people's contributions would be booked as the user's savings.
-const RESERVED_TRANSFER_CATEGORIES = new Set(['Funding', 'FundingRepay', 'Loan', 'Split']);
+const RESERVED_TRANSFER_CATEGORIES = new Set(['Funding', 'FundingRepay', 'FundingReimburse', 'Loan', 'Split']);
 
 // Accounts money must come FROM for a transfer to count as deliberate saving —
 // a real spending account. Excludes savings→savings shuffles (moving money you

@@ -34,7 +34,7 @@ import {
   isSpendableAccount, OVERDRAFT_HORIZON_DAYS,
   calcSavingsInterest,
 } from '@/lib/calculations';
-import type { Account, Transaction, Bill, Budget, Loan, Split, PaycheckEntry, CategoryBucketMap } from '@/types';
+import type { Account, Transaction, Bill, Budget, Loan, Split, PaycheckEntry, CategoryBucketMap, Funding } from '@/types';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -1348,7 +1348,11 @@ describe('calcSpendingPace', () => {
 
 describe('calcNetWorth', () => {
   it('total counts loans as debt; liquid ignores them; both net out funding held for others', () => {
-    const fundingIn = makeTx({ type: 'transfer', category: 'Funding', account: '', toAccount: 'chk', amount: 300 });
+    const fundingIn: Funding = {
+      id: 'f', description: 'Pool', account: 'chk', date: '2026-01-01', kind: 'real', poolAccountId: 'chk',
+      participants: [{ name: 'A', contributed: 300, isMe: false }],
+      totalContributed: 300, spent: 0, contributionTxId: '', spendTxIds: [], repayments: [], closed: false,
+    };
     expect(calcNetWorth(MIXED_ACCOUNTS, [], 'total')).toBe(5000 + 10000 - 2000 - 20000);
     expect(calcNetWorth(MIXED_ACCOUNTS, [], 'liquid')).toBe(5000 + 10000 - 2000);
     expect(calcNetWorth(MIXED_ACCOUNTS, [fundingIn], 'liquid')).toBe(5000 + 10000 - 2000 - 300);

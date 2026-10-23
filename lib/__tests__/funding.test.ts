@@ -6,6 +6,8 @@ import {
   isFullySettled, FUNDING_REPAY_CATEGORY,
   isRealPool, buildPoolContributionTx, participantsFromContributions, contributionsTotal, poolProgress,
   repointRealPoolAccount, planVirtualPoolEdit, referencedTxIds,
+  FUNDING_REIMBURSE_CATEGORY, spendReimbursement, needsReimbursement, owedBackTotal, buildReimburseTx,
+  rebuildReimbursement, type FundingSpend,
 } from '@/lib/funding';
 import { applyTransactionToBalances, calcFundingHeld, calcFundingHeldByAccount } from '@/lib/calculations';
 import type { Account, Funding, FundingContribution, FundingParticipant, FundingRepayment, Transaction } from '@/types';
@@ -135,46 +137,51 @@ describe('syncFundingTxRemoval', () => {
 // ── Funding held for others → excluded from net worth ─────────────────────────
 
 describe('calcFundingHeldByAccount / calcFundingHeld', () => {
-  it('treats an others-contribution transfer as money held in that account', () => {
-    const txs = [buildContributionTx('acc1', 200, 'Beach trip', '2026-06-09')!];
-    expect(calcFundingHeldByAccount(txs)).toEqual({ acc1: 200 });
-    expect(calcFundingHeld(txs)).toBe(200);
+  const vault = (o: Partial<Funding> = {}): Funding =>
+    makePool({ kind: 'real', poolAccountId: 'sav1', account: 'sav1', contributionTxId: '', ...o });
+  const people = (...p: [string, number, boolean][]): FundingParticipant[] =>
+    p.map(([name, contributed, isMe]) => ({ name, contributed, isMe }));
+
+  it('holds the others share of what is left, in proportion to who put it in', () => {
+    // Me 100 + others 200 = 300, 90 spent → 210 left, 2/3 of it is others'.
+    const f = vault({ spent: 90 });
+    expect(calcFundingHeldByAccount([f])).toEqual({ sav1: 140 });
+    expect(calcFundingHeld([f])).toBe(140);
   });
 
-  it('spending others share draws the held amount back down, my expense does not', () => {
-    // 200 in from others, then a 300 spend with my 100 share: only the 200 others
-    // portion leaves the account (transfer), so nothing is left held.
-    const txs = [
-      buildContributionTx('acc1', 200, 'Beach trip', '2026-06-09')!,
-      ...buildSpendTxs('acc1', 300, 100, 'Dinner', '2026-06-10'),
-    ];
-    expect(calcFundingHeld(txs)).toBe(0);
+  it('holds nothing once the pool is spent or overspent', () => {
+    // "Iphone" vault: Ba put in 1,000, 1,507.42 spent.
+    const f = vault({ participants: people(['Ba', 1000, false]), totalContributed: 1000, spent: 1507.42 });
+    expect(calcFundingHeldByAccount([f])).toEqual({});
   });
 
-  it('keeps the unspent others portion held', () => {
-    const txs = [
-      buildContributionTx('acc1', 200, 'Beach trip', '2026-06-09')!,
-      ...buildSpendTxs('acc1', 80, 30, 'Snacks', '2026-06-10'), // 50 of others spent
-    ];
-    expect(calcFundingHeld(txs)).toBe(150); // 200 − 50
+  it('matches the Family Trip vault: 393.62 left, others put in 1,350.13 of 1,800.13', () => {
+    const f = vault({
+      participants: people(['Me', 450, true], ['Dad', 450, false], ['Mom', 450, false], ['Hân', 450, false], ['Bình', 0.13, false]),
+      totalContributed: 1800.13,
+      spent: 1406.51,
+    });
+    expect(calcFundingHeld([f])).toBe(295.22);
   });
 
-  it('ignores non-Funding transfers and never goes negative', () => {
-    const txs: Transaction[] = [
-      { id: 't1', date: '2026-06-09', description: 'move', amount: 500, type: 'transfer', category: 'Transfer', account: '', toAccount: 'acc1' },
-      { id: 't2', date: '2026-06-09', description: 'spend', amount: 75, type: 'transfer', category: 'Funding', account: 'acc1', toAccount: '' },
-    ];
-    expect(calcFundingHeldByAccount(txs)).toEqual({}); // funding out with no funding in → floored away
-    expect(calcFundingHeld(txs)).toBe(0);
+  it('ignores closed pools and pools with only my money', () => {
+    expect(calcFundingHeld([vault({ closed: true })])).toBe(0);
+    expect(calcFundingHeld([vault({ participants: people(['Me', 300, true]) })])).toBe(0);
   });
 
-  it('tracks held money per account independently', () => {
-    const txs = [
-      buildContributionTx('acc1', 200, 'Trip', '2026-06-09')!,
-      buildContributionTx('acc2', 50, 'Gift', '2026-06-09')!,
-    ];
-    expect(calcFundingHeldByAccount(txs)).toEqual({ acc1: 200, acc2: 50 });
-    expect(calcFundingHeld(txs)).toBe(250);
+  it('a virtual pool is a budget and holds no cash, unless it has a legacy others-contribution row', () => {
+    expect(calcFundingHeld([makePool({ contributionTxId: '' })])).toBe(0);
+    // Legacy: others' 200 of 300 parked in `account`, 120 spent → 180 left, 2/3 others'.
+    expect(calcFundingHeldByAccount([makePool()])).toEqual({ acc1: 120 });
+  });
+
+  it('sums pools per holding account', () => {
+    const held = calcFundingHeldByAccount([
+      vault({ spent: 0 }),
+      vault({ id: 'f2', poolAccountId: 'chk1', spent: 0 }),
+      vault({ id: 'f3', spent: 150 }),
+    ]);
+    expect(held).toEqual({ sav1: 300, chk1: 200 });
   });
 });
 
@@ -200,12 +207,6 @@ describe('buildRepayTx', () => {
     expect(repayment).toEqual({ id: tx.id, participant: 'Alex', amount: 120, account: 'cash1', date: '2026-06-20' });
   });
 
-  it('a repayment is excluded from the funding-held net-worth adjustment', () => {
-    // Only category 'Funding' transfers count as held; a 'FundingRepay' must not.
-    const { tx } = buildRepayTx('cash1', 200, 'Alex', 'x', '2026-06-20');
-    expect(calcFundingHeld([tx])).toBe(0);
-    expect(calcFundingHeldByAccount([tx])).toEqual({});
-  });
 });
 
 describe('settle-up math', () => {
@@ -271,7 +272,6 @@ describe('real pool: contribution building', () => {
     expect(tx!.category).toBe('Transfer');     // NOT 'Funding' → stays my money, not held
     expect(tx!.account).toBe('sav1');          // leaves my savings
     expect(tx!.toAccount).toBe('chk1');        // into the holding account
-    expect(calcFundingHeld([tx!])).toBe(0);    // my own money is never "held for others"
     expect(contribution).toMatchObject({ id: tx!.id, participant: 'Me', amount: 100, isMe: true, account: 'sav1' });
   });
 
@@ -281,7 +281,6 @@ describe('real pool: contribution building', () => {
     expect(tx!.category).toBe('Funding');
     expect(tx!.account).toBe('');              // external source → not income
     expect(tx!.toAccount).toBe('chk1');
-    expect(calcFundingHeldByAccount([tx!])).toEqual({ chk1: 200 });
     expect(contribution.account).toBe('');    // others' money isn't drawn from one of my accounts
   });
 });
@@ -338,10 +337,15 @@ describe('real pool: full cash-flow keeps net worth honest', () => {
     const chk = accounts.find((a) => a.id === 'chk1')!;
     expect(chk.balance).toBe(900);            // my $100 left checking
     expect(hold.balance).toBe(210);           // 100 + 200 − 90
-    // Of the holding balance, $140 is Alex's held cash (200 in − 60 of his share spent).
-    const held = calcFundingHeldByAccount([mine, others, ...spend]);
+    // 210 left in the pool, split by who put it in: Alex owns 2/3 = $140.
+    const pool = makePool({
+      kind: 'real', poolAccountId: 'sav1', account: 'sav1', contributionTxId: '',
+      participants: [{ name: 'Me', contributed: 100, isMe: true }, { name: 'Alex', contributed: 200, isMe: false }],
+      totalContributed: 300, spent: 90,
+    });
+    const held = calcFundingHeldByAccount([pool]);
     expect(held).toEqual({ sav1: 140 });
-    // My money still in the pool = balance − held = 70 (my 100 in − 30 of my share spent).
+    // My money still in the pool = balance − held = 70.
     expect(hold.balance - held.sav1).toBe(70);
   });
 });
@@ -413,8 +417,8 @@ describe('repointRealPoolAccount (legacy pool migration)', () => {
     for (const tx of res.addTxs) accounts = applyTransactionToBalances(accounts, tx, 'apply');
     expect(accounts.find((a) => a.id === 'pool1')!.balance).toBe(0);   // emptied → safe to delete
     expect(accounts.find((a) => a.id === 'chk1')!.balance).toBe(1110); // 1000 + (200 − 90)
-    // Held-for-others now tracks the real account: Alex's 200 in − 60 share out = 140.
-    expect(calcFundingHeldByAccount(res.addTxs)).toEqual({ chk1: 140 });
+    // Held-for-others now follows the pool onto the real account.
+    expect(Object.keys(calcFundingHeldByAccount([res.funding]))).toEqual(['chk1']);
   });
 
   it('is a no-op when the target equals the current account or there is no holding account', () => {
@@ -551,5 +555,79 @@ describe('referencedTxIds', () => {
 
   it('returns [] for pools with no linked rows', () => {
     expect(referencedTxIds([makePool({ contributionTxId: '', spendTxIds: [], repayments: [] })])).toEqual([]);
+  });
+});
+
+// ── Real pool: spend paid with another account, reimbursed later ──────────────
+
+describe('reimbursing a real pool spend paid with another account', () => {
+  const acc = (id: string, type: Account['type'], balance: number): Account =>
+    ({ id, name: id, type, institution: '', balance, last4: '', color: '#000', createdAt: '2026-01-01' });
+  const vault = (o: Partial<Funding> = {}): Funding =>
+    makePool({ kind: 'real', poolAccountId: 'sav1', account: 'sav1', contributionTxId: '', reimbursements: [], ...o });
+  const spend = (o: Partial<FundingSpend> = {}): FundingSpend => ({
+    key: 'k1', txIds: ['s1'], amount: 90, myShare: 30, chargedAccount: 'card1',
+    description: 'Dinner', date: '2026-06-10', category: 'Food', ...o,
+  });
+
+  it('only a real pool spend charged to another account is owed back', () => {
+    expect(needsReimbursement(vault(), spend())).toBe(true);
+    expect(needsReimbursement(vault(), spend({ chargedAccount: 'sav1' }))).toBe(false); // paid from the pool itself
+    expect(needsReimbursement(makePool(), spend())).toBe(false);                       // virtual pools hold no cash
+    expect(owedBackTotal(vault(), [spend(), spend({ key: 'k2', amount: 10 }), spend({ key: 'k3', chargedAccount: 'sav1' })])).toBe(100);
+  });
+
+  it('builds one transfer from the pool account to the card for the full spend', () => {
+    const built = buildReimburseTx(vault(), spend(), 'Pool payback: Dinner', '2026-06-12')!;
+    expect(built.tx).toMatchObject({
+      type: 'transfer', category: FUNDING_REIMBURSE_CATEGORY, amount: 90, account: 'sav1', toAccount: 'card1', date: '2026-06-12',
+    });
+    expect(built.reimbursement).toEqual({ id: built.tx.id, spendKey: 'k1', amount: 90, account: 'card1', date: '2026-06-12' });
+    expect(buildReimburseTx(vault(), spend({ chargedAccount: 'sav1' }), 'x', '2026-06-12')).toBeNull();
+
+    const f = vault({ reimbursements: [built.reimbursement] });
+    expect(spendReimbursement(f, 'k1')).toEqual(built.reimbursement);
+    expect(needsReimbursement(f, spend())).toBe(false);
+    expect(referencedTxIds([f])).toContain(built.tx.id);
+  });
+
+  it('paying with a card then reimbursing leaves the card whole and the pool account down by the spend', () => {
+    let accounts: Account[] = [acc('sav1', 'savings', 500), acc('card1', 'credit', 0)];
+    const txs = buildSpendTxs('card1', 90, 30, 'Dinner', '2026-06-10');
+    for (const tx of txs) accounts = applyTransactionToBalances(accounts, tx, 'apply');
+    expect(accounts.find((a) => a.id === 'card1')!.balance).toBe(90); // card owes 90
+    const built = buildReimburseTx(vault(), spend({ key: txs[0].createdAt! }), 'x', '2026-06-12')!;
+    accounts = applyTransactionToBalances(accounts, built.tx, 'apply');
+    expect(accounts.find((a) => a.id === 'card1')!.balance).toBe(0);
+    expect(accounts.find((a) => a.id === 'sav1')!.balance).toBe(410);
+  });
+
+  it('editing a paid-back spend re-creates its payback for the new amount; paying from the pool drops it', () => {
+    const first = buildReimburseTx(vault(), spend(), 'x', '2026-06-12')!;
+    const f = vault({ reimbursements: [first.reimbursement] });
+    const moved = rebuildReimbursement(f, 'k1', { key: 'k9', chargedAccount: 'card2', amount: 120 }, 'y');
+    expect(moved.removeTxIds).toEqual([first.tx.id]);
+    expect(moved.addTxs[0]).toMatchObject({ amount: 120, account: 'sav1', toAccount: 'card2', date: '2026-06-12' });
+    expect(moved.reimbursements).toEqual([{ id: moved.addTxs[0].id, spendKey: 'k9', amount: 120, account: 'card2', date: '2026-06-12' }]);
+
+    const toPool = rebuildReimbursement(f, 'k1', { key: 'k9', chargedAccount: 'sav1', amount: 120 }, 'y');
+    expect(toPool).toEqual({ reimbursements: [], addTxs: [], removeTxIds: [first.tx.id] });
+    expect(rebuildReimbursement(vault(), 'k1', { key: 'k9', chargedAccount: 'card2', amount: 1 }, 'y'))
+      .toEqual({ reimbursements: [], addTxs: [], removeTxIds: [] });
+  });
+
+  it('keeps the payback record in sync with ledger edits and deletes', () => {
+    const built = buildReimburseTx(vault(), spend(), 'x', '2026-06-12')!;
+    const f = vault({ reimbursements: [built.reimbursement] });
+    expect(syncFundingTxAmount(f, built.tx, { ...built.tx, amount: 80 })!.reimbursements![0].amount).toBe(80);
+    expect(syncFundingTxRemoval(f, built.tx)!.reimbursements).toEqual([]);
+  });
+
+  it('re-points paybacks when a legacy pool moves to a real account', () => {
+    const built = buildReimburseTx(vault({ poolAccountId: 'pool1' }), spend(), 'x', '2026-06-12')!;
+    const f = vault({ poolAccountId: 'pool1', account: 'pool1', spendTxIds: [], reimbursements: [built.reimbursement] });
+    const res = repointRealPoolAccount(f, 'chk1', [built.tx])!;
+    expect(res.addTxs[0]).toMatchObject({ account: 'chk1', toAccount: 'card1' });
+    expect(res.funding.reimbursements![0].id).toBe(res.addTxs[0].id);
   });
 });

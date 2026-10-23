@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Account, Transaction } from '@/types';
+import type { Account, Funding, Transaction } from '@/types';
 import {
   buildNetWorthSeries, calcCashFlowProjection, calcFundingHeldByAccount, calcNetWorth,
   cardPaymentStatus, daysUntilStatement, detectSubscriptions, merchantMatches, roundCents,
@@ -31,13 +31,14 @@ describe('extreme financial inputs', () => {
 
   it('rounds binary floating cents and funding transfers by account', () => {
     expect(roundCents(0.1 + 0.2)).toBe(0.3);
-    const transfers = [
-      tx('in1', '2026-01-01', 'transfer', 0.1, { category: 'Funding', account: '', toAccount: 'checking' }),
-      tx('in2', '2026-01-01', 'transfer', 0.2, { category: 'Funding', account: '', toAccount: 'checking' }),
-      tx('out', '2026-01-02', 'transfer', 0.1, { category: 'Funding', account: 'checking' }),
-    ];
-    expect(calcFundingHeldByAccount(transfers)).toEqual({ checking: 0.2 });
-    expect(calcNetWorth([account('checking', 'checking', 1)], transfers, 'total')).toBe(0.8);
+    // 0.1 + 0.2 from others, 0.1 spent → 0.2 left, all others' money.
+    const pool: Funding = {
+      id: 'f', description: 'Pool', account: 'checking', date: '2026-01-01', kind: 'real', poolAccountId: 'checking',
+      participants: [{ name: 'A', contributed: 0.1, isMe: false }, { name: 'B', contributed: 0.2, isMe: false }],
+      totalContributed: 0.1 + 0.2, spent: 0.1, contributionTxId: '', spendTxIds: [], repayments: [], closed: false,
+    };
+    expect(calcFundingHeldByAccount([pool])).toEqual({ checking: 0.2 });
+    expect(calcNetWorth([account('checking', 'checking', 1)], [pool], 'total')).toBe(0.8);
   });
 
   it('returns empty history and no projection without transactions', () => {

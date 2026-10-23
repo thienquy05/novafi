@@ -108,6 +108,7 @@ const FUNDING_HEADER = [
   'id', 'description', 'account', 'date', 'participants_json',
   'total_contributed', 'spent', 'contribution_tx_id', 'spend_tx_ids', 'closed',
   'repayments_json', 'kind', 'pool_account_id', 'target', 'contributions_json',
+  'reimbursements_json',
 ];
 // A `values.get` against a tab that doesn't exist fails with HTTP 400 ("Unable
 // to parse range"). We use that to distinguish "tab not provisioned yet" (lazy-
@@ -984,7 +985,7 @@ export async function getFundings(
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'Funding!A2:O1000',
+      range: 'Funding!A2:P1000',
     });
     return (res.data.values ?? []).map((r) => {
       let participants: Funding['participants'] = [];
@@ -993,6 +994,8 @@ export async function getFundings(
       try { repayments = JSON.parse(String(r[10] ?? '[]')); } catch { repayments = []; }
       let contributions: Funding['contributions'] = [];
       try { contributions = JSON.parse(String(r[14] ?? '[]')); } catch { contributions = []; }
+      let reimbursements: Funding['reimbursements'] = [];
+      try { reimbursements = JSON.parse(String(r[15] || '[]')); } catch { reimbursements = []; }
       // Legacy rows (pre-real-pool) have no kind column → they're virtual.
       const kind: Funding['kind'] = r[11] === 'real' ? 'real' : 'virtual';
       return {
@@ -1011,6 +1014,7 @@ export async function getFundings(
         poolAccountId: r[12] ? String(r[12]) : undefined,
         target: r[13] === undefined || r[13] === '' ? undefined : Number(r[13]),
         contributions,
+        reimbursements,
       };
     });
   } catch (err) {
@@ -1043,6 +1047,7 @@ export async function upsertFunding(
         JSON.stringify(funding.repayments ?? []),
         funding.kind ?? 'virtual', funding.poolAccountId ?? '', funding.target ?? '',
         JSON.stringify(funding.contributions ?? []),
+        JSON.stringify(funding.reimbursements ?? []),
       ]],
     },
   });
