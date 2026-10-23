@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { RefreshCw, BarChart3, TrendingUp, TrendingDown, DollarSign, Calendar, Download, Printer } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { RefreshCw, BarChart3, TrendingUp, TrendingDown, DollarSign, Calendar, Download, Printer, X, Share } from 'lucide-react';
 import { LoadError } from '@/components/ui/LoadError';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { PullToRefresh } from '@/components/PullToRefresh';
@@ -38,6 +38,9 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(() => peekCache(['transactions', 'budgets', 'settings']) === null);
   const [error, setError] = useState(false);
   const [selectedYear, setSelectedYear] = useState(() => zonedNow().getFullYear());
+  // HTML of the printable report while its preview is open (null = closed).
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const previewFrame = useRef<HTMLIFrameElement>(null);
   const reduced = useReducedMotion();
 
   const load = useCallback(async (force = false) => {
@@ -195,23 +198,39 @@ export default function ReportsPage() {
       merchant: t('reports.exportMerchant'),
       visits: t('reports.exportVisits'),
     });
-    // Render into an off-screen iframe and print — lets the user "Save as PDF"
-    // with no PDF library and without navigating away.
-    const iframe = document.createElement('iframe');
-    iframe.setAttribute('aria-hidden', 'true');
-    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
-    document.body.appendChild(iframe);
-    const doc = iframe.contentWindow?.document;
-    if (!doc) { iframe.remove(); return; }
-    doc.open();
-    doc.write(html);
-    doc.close();
-    // Give the layout + logo image a tick before printing, then clean up.
-    setTimeout(() => {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-      setTimeout(() => iframe.remove(), 1000);
-    }, 300);
+    // Show the report in a full-screen preview first. Printing a hidden zero-size
+    // iframe does nothing in an iPhone home-screen app, so the user gets a visible
+    // page with Print and Share buttons (iOS's share sheet also offers Print/Save).
+    setPreviewHtml(html);
+  }
+
+  function handlePrintPreview() {
+    try {
+      const win = previewFrame.current?.contentWindow;
+      if (win) { win.focus(); win.print(); } else window.print();
+    } catch {
+      window.print();
+    }
+  }
+
+  async function handleSharePreview() {
+    if (!previewHtml) return;
+    const file = new File([previewHtml], `novafi-report-${selectedYear}.html`, { type: 'text/html' });
+    if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: `${t('reports.annualReport')} ${selectedYear}` });
+      } catch {
+        // Cancelled by the user, or sharing failed — the preview stays open.
+      }
+      return;
+    }
+    // No file sharing (most desktops) — save the report file instead.
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.name;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   return (
@@ -450,6 +469,36 @@ export default function ReportsPage() {
             </div>
           </Card>
         </>
+      )}
+
+      {/* Printable report preview — full screen, above the nav. */}
+      {previewHtml !== null && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('reports.previewTitle')}
+          className="fixed inset-0 z-[100] flex flex-col bg-slate-100 dark:bg-slate-900"
+          style={{ paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+        >
+          <div className="flex items-center gap-2 px-3 py-2.5 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+            <Button variant="secondary" onClick={() => setPreviewHtml(null)} title={t('common.close')} aria-label={t('common.close')}>
+              <X className="w-4 h-4" />
+            </Button>
+            <p className="flex-1 min-w-0 text-sm font-bold text-slate-900 dark:text-slate-100 wrap-anywhere">{t('reports.previewTitle')} · {selectedYear}</p>
+            <Button variant="secondary" onClick={handleSharePreview} title={t('reports.share')} aria-label={t('reports.share')}>
+              <Share className="w-4 h-4" /><span className="hidden sm:inline">{t('reports.share')}</span>
+            </Button>
+            <Button onClick={handlePrintPreview} title={t('reports.print')}>
+              <Printer className="w-4 h-4" /><span>{t('reports.print')}</span>
+            </Button>
+          </div>
+          <iframe
+            ref={previewFrame}
+            srcDoc={previewHtml}
+            title={t('reports.previewTitle')}
+            className="flex-1 w-full border-0 bg-white"
+          />
+        </div>
       )}
     </div>
   );

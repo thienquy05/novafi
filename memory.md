@@ -57,6 +57,13 @@ Settings (key/value) · Accounts `A:R` · Transactions `A:K` · Paychecks · Bud
 
 # Change log (newest first)
 
+## 2026-10-23 — Reports: PDF button opens a visible preview with Print / Share (branch claude/report-print-preview)
+
+- WHAT: `app/(app)/reports/page.tsx` `handleExportPdf` no longer writes the report into a hidden 0×0 iframe and calls `print()` on it. It now opens a full-screen preview overlay (safe-area padded, z-[100]) that shows the same `reportToHtml` output in a visible `<iframe srcDoc>`, with Close, Share and Print buttons. Print calls `print()` on the visible frame (falls back to `window.print()`). Share uses `navigator.share({ files: [novafi-report-YYYY.html] })` when the device can share files (the iOS share sheet offers Print / Save to Files), otherwise it downloads the HTML file. New i18n keys `reports.previewTitle`, `reports.print`, `reports.share` (en + vi).
+- WHY (user): tapping the Report's PDF button did nothing in the iPhone home-screen app. Printing an off-screen iframe is unreliable/blocked in iOS standalone web apps. The user chose a "report preview page" (no new PDF library) over generating a real .pdf file.
+- Verified in `NOVAFI_MOCK=1` dev mode at an iPhone 13 viewport (Playwright/Chromium): the preview opens and renders the report. Real-iPhone print/share is not yet verified. Typecheck, 752 tests and touched-file lint clean (one pre-existing lint warning).
+- Open (same user request, not done yet): the dashboard Savings/Assets cards look too low — "held for others (funding)" is $2,623.34. Suspected cause: `calcFundingHeldByAccount` is per-account and transaction-based, so others' cash credited to one account is never reduced when it's spent/moved from another account. Waiting on the user's Funding pool details. The user also wants real pools to allow paying a spend with a different card/account, with a later "Reimburse" button that pays that account back from the pool.
+
 ## 2026-10-21 — Dashboard: show money owed to you separately from net worth (branch claude/jolly-heisenberg-wep341)
 
 - WHAT: new `lib/receivables.ts` `calcOwedToYou(splits, fundings)` → `{ splits, funding, total }`. Splits = `splitRemaining` over every `Split` row (recurring bill splits AND one-off expense splits share the sheet), funding = `totalOwed` over open (`!closed`) non-real (virtual) pools. The dashboard server component now also reads `splits` + `funding` (same `cachedOrFetch` keys/TTL/write-version as their API routes; a failed read falls back to `[]` so Home never breaks) and the net worth hero shows a line "$X owed to you · not counted in net worth" (only when > 0). New i18n key `dashboard.owedToYouSeparate` (en + vi). Tests: `lib/__tests__/receivables.test.ts`.
