@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, Search, Pencil, Download, Users, List, Bookmark, BookmarkCheck, ChevronDown, ChevronLeft, ChevronRight, X, Filter, ArrowLeftRight, HandCoins, ArrowUpRight, ArrowDownLeft, UserPlus, Trash2, Check, Archive, Split as SplitIcon } from 'lucide-react';
 import { LoadError } from '@/components/ui/LoadError';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { NovaTip } from '@/components/NovaTip';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -1840,6 +1841,7 @@ export default function TransactionsPage() {
           </div>
         }
       />
+      <NovaTip page="transactions" />
 
       {/* Month navigator — scopes the totals + ledger to one month */}
       <div className="flex items-center justify-between gap-2">

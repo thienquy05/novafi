@@ -13,6 +13,7 @@ import { formatCurrency } from '@/lib/utils';
 import { useTranslation } from '@/lib/i18n/context';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { DATA_CHANGED_EVENT } from '@/lib/client/store';
+import { useSmartText } from '@/components/NovaTip';
 import type { Insight, InsightKind, InsightTone, MoneyFlowSummary } from '@/lib/insights';
 
 // The Money Flow modal — the app reading this month's money flow back to you in
@@ -67,6 +68,8 @@ export function MoneyFlowButton({ className }: { className?: string }) {
   const [flow, setFlow] = useState<MoneyFlowSummary | null>(null);
   const [insights, setInsights] = useState<Insight[]>([]);
   const [loaded, setLoaded] = useState(false);
+  // Claude-written copy for the cards (by insight id); template text until it arrives or if AI is off.
+  const smart = useSmartText(open);
 
   // Track unmount so late fetch responses never set state on a dead component.
   const mountedRef = useRef(true);
@@ -170,6 +173,7 @@ export function MoneyFlowButton({ className }: { className?: string }) {
               {insights.map((ins) => {
                 const Icon = KIND_ICON[ins.kind];
                 const style = TONE_STYLE[ins.tone];
+                const ai = smart?.insights?.[ins.id];
                 return (
                   <Link
                     key={ins.id}
@@ -181,8 +185,8 @@ export function MoneyFlowButton({ className }: { className?: string }) {
                       <Icon className="w-4 h-4" />
                     </span>
                     <span className="flex-1 min-w-0">
-                      <span className="block text-sm font-bold text-slate-900 dark:text-slate-100">{ins.title}</span>
-                      <span className="block text-xs font-medium text-slate-600 dark:text-slate-300 mt-0.5 leading-snug">{ins.body}</span>
+                      <span className="block text-sm font-bold text-slate-900 dark:text-slate-100">{ai?.title ?? ins.title}</span>
+                      <span className="block text-xs font-medium text-slate-600 dark:text-slate-300 mt-0.5 leading-snug">{ai?.body ?? ins.body}</span>
                     </span>
                     <ChevronRight className="w-4 h-4 text-slate-300 dark:text-slate-600 shrink-0 mt-1 transition-transform group-hover:translate-x-0.5" />
                   </Link>

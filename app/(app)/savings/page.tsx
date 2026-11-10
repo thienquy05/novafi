@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ArrowDownLeft, ArrowUpRight, ArrowRightLeft, PiggyBank, Target, Pencil, CheckCircle2, Trash2, Percent } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { NovaTip } from '@/components/NovaTip';
 import { PullToRefresh } from '@/components/PullToRefresh';
 import { LoadError } from '@/components/ui/LoadError';
 import { Card } from '@/components/ui/Card';
@@ -350,6 +351,7 @@ export default function SavingsPage() {
           ) : undefined
         }
       />
+      <NovaTip page="savings" />
 
       {accounts.length === 0 ? (
         <Card className="text-center py-16 bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700/60">

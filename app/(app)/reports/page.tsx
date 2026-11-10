@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { RefreshCw, BarChart3, TrendingUp, TrendingDown, DollarSign, Calendar, Download, Printer, X, Share } from 'lucide-react';
 import { LoadError } from '@/components/ui/LoadError';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { NovaTip } from '@/components/NovaTip';
 import { PullToRefresh } from '@/components/PullToRefresh';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -266,6 +267,7 @@ export default function ReportsPage() {
           </div>
         }
       />
+      <NovaTip page="reports" />
 
       {loading ? (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

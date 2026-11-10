@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Plus, Trash2, Target, PiggyBank, Pencil, TrendingUp, TrendingDown, Zap, GripVertical, ChevronDown, ChevronLeft, ChevronRight, Scale, Wand2 } from 'lucide-react';
 import Link from 'next/link';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { NovaTip } from '@/components/NovaTip';
 import { LoadError } from '@/components/ui/LoadError';
 import { Card } from '@/components/ui/Card';
 import { FitText } from '@/components/ui/FitText';
@@ -503,6 +504,7 @@ export default function PlanningPage() {
         title={t('planning.title')}
         subtitle={t('planning.subtitle', { daysLeft: todayDaysLeft })}
       />
+      <NovaTip page="planning" />
 
       {/* Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
