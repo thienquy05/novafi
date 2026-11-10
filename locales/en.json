@@ -98,6 +98,10 @@
     "showLess": "Show less"
   },
   "login": {
+    "accessDeniedTitle": "This account isn't approved yet",
+    "accessDeniedBody": "NovaFi is invite-only. Ask the owner to add your Google email, then try again.",
+    "signInErrorTitle": "Sign-in didn't work",
+    "signInErrorBody": "Please try again.",
     "tagline": "Wealth management, redefined.",
     "welcomeBack": "Welcome back",
     "subtitle": "Securely sync your finances using your own Google Sheets.",

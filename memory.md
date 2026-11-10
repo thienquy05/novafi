@@ -52,6 +52,9 @@ Settings (key/value) · Accounts `A:R` · Transactions `A:K` · Paychecks · Bud
 - **Smart text** `GET /api/ai/insights`: one structured-output call (effort `low`) → `{insights: {id: {title, body}}, tips: {dashboard, planning, transactions, reports, savings}}`, regenerated only on a material change — cache key = user + lang + `materialFingerprint(context)` (amounts bucketed to 2 significant figures, date ignored, insight ids included), no time-based expiry (one entry per user+lang, per process). Client: `useSmartText()` / `<NovaTip page>` (`components/NovaTip.tsx`, sessionStorage `nf_smarttext_v1`, kept until a write or language change; empty result retried after 5 min). The Money Flow modal overlays AI title/body by insight id.
 - `insightContextFor(now, tr, fmt)` (`lib/insights.ts`) builds the month/day context for both `/api/money-flow` and the AI routes so insight ids always match.
 
+## Access
+- **Invite-only:** sign-in requires the Google email to be in `NOVAFI_ALLOWED_EMAILS` (lib/allowlist.ts; unset = nobody). Checked at sign-in and on every session read.
+
 ## Testing
 - `npm test` (Vitest, also the pre-commit hook with `typecheck`).
 - **Dev test mode** (no Google needed): `NOVAFI_MOCK=1 npm run dev`, switch user type with cookie `nf_mock_profile` = extreme | negative | empty (lib/devMock.ts, lib/devFixture.ts). Never active in production builds.
@@ -63,6 +66,16 @@ Settings (key/value) · Accounts `A:R` · Transactions `A:K` · Paychecks · Bud
 ---
 
 # Change log (newest first)
+
+## 2026-11-10 — Invite-only sign-in: email allowlist (branch claude/novafi-email-allowlist)
+
+WHAT:
+- `lib/allowlist.ts`: `isEmailAllowed(email)` checks `NOVAFI_ALLOWED_EMAILS` (comma/semicolon/space/newline separated, case-insensitive). Unset/empty = nobody can sign in (fail closed) — the owner must list their own email. Tests: `lib/__tests__/allowlist.test.ts`.
+- `lib/auth.ts`: new `signIn` callback allows only Google-verified (`email_verified`) emails on the list; `jwt` callback re-checks on every session read and returns `null` (clears the session) if the email was removed, so revoking needs no sign-out. `pages.error = '/'`.
+- Login page (`app/page.tsx`) reads `?error=` and shows an amber notice: AccessDenied → "This account isn't approved yet — NovaFi is invite-only, ask the owner to add your Google email"; other errors → "Sign-in didn't work". Strings `login.accessDenied*`, `login.signInError*` (en/vi).
+- Dev mock mode is unaffected (it bypasses next-auth).
+
+WHY: user: "we should have an email allowlist in the sign-in option. everyone wants to sign up need my permission." Also caps who can spend the owner's ANTHROPIC_API_KEY via Nova. To grant access: add the email to `NOVAFI_ALLOWED_EMAILS` (`.env.local` + hosting env) and restart/redeploy. If requests become frequent, upgrade to a stored list with an in-app approve button.
 
 ## 2026-11-10 — Rebased Nova onto master; Codex-designed chat with the Nova mascot (branch claude/novafi-ux-perf-networth)
 

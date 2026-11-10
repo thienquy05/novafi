@@ -6,6 +6,7 @@ import { withRetryProxy } from './retry';
 import { cookies } from 'next/headers';
 import { MOCK_MODE, MOCK_PROFILE_COOKIE, MOCK_PROFILES, mockSpreadsheetId } from './devMock';
 import type { MockProfile } from './devFixture';
+import { isEmailAllowed } from './allowlist';
 
 const SPREADSHEET_NAME = 'NovaFi Finance Data';
 
@@ -153,8 +154,17 @@ const nextAuth = NextAuth({
     }),
   ],
   callbacks: {
+    // Invite-only (lib/allowlist.ts): a Google account must be on NOVAFI_ALLOWED_EMAILS
+    // and verified by Google. false → Auth.js redirects to pages.error with ?error=AccessDenied.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async signIn({ profile }: any) {
+      return profile?.email_verified === true && isEmailAllowed(profile?.email);
+    },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async jwt({ token, account }: any) {
+      // Re-checked on every session read: removing an email from the list ends
+      // that user's existing session (null clears the session cookie).
+      if (!isEmailAllowed(token.email)) return null;
       // First sign in — store tokens and find/create spreadsheet
       if (account?.access_token) {
         token.accessToken = account.access_token as string;
@@ -211,6 +221,7 @@ const nextAuth = NextAuth({
   },
   pages: {
     signIn: '/',
+    error: '/', // the login page shows ?error=AccessDenied as "not approved yet"
   },
 });
 

@@ -98,6 +98,10 @@
     "showLess": "Thu gọn"
   },
   "login": {
+    "accessDeniedTitle": "Tài khoản này chưa được duyệt",
+    "accessDeniedBody": "NovaFi chỉ dành cho người được mời. Hãy nhờ chủ ứng dụng thêm email Google của bạn, rồi thử lại.",
+    "signInErrorTitle": "Đăng nhập không thành công",
+    "signInErrorBody": "Vui lòng thử lại.",
     "tagline": "Quản lý tài sản, được định nghĩa lại.",
     "welcomeBack": "Chào mừng trở lại",
     "subtitle": "Đồng bộ tài chính an toàn qua Google Sheets của bạn.",

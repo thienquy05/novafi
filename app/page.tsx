@@ -8,12 +8,13 @@ import { Tilt3D } from '@/components/ui/Tilt3D';
 import { t } from '@/lib/i18n';
 import type { Language } from '@/types';
 
-export default async function LoginPage() {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const session = await auth();
   if (session?.user) redirect('/dashboard');
 
   const jar = await cookies();
   const lang: Language = jar.get('nf_lang')?.value === 'vi' ? 'vi' : 'en';
+  const { error } = await searchParams;
 
   const features = [
     { Icon: TrendingUp, key: 'featureTracking' as const, color: 'text-indigo-500 dark:text-indigo-400' },
@@ -59,6 +60,13 @@ export default async function LoginPage() {
                 {t('login.subtitle', lang)}
               </p>
             </div>
+
+            {error && (
+              <div role="alert" className="mb-5 rounded-2xl border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-900/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+                <p className="font-bold">{t(error === 'AccessDenied' ? 'login.accessDeniedTitle' : 'login.signInErrorTitle', lang)}</p>
+                <p className="mt-0.5 font-medium">{t(error === 'AccessDenied' ? 'login.accessDeniedBody' : 'login.signInErrorBody', lang)}</p>
+              </div>
+            )}
 
             <form
               action={async () => {
