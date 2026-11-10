@@ -6,6 +6,11 @@ The single running log of NovaFi changes. **One file only** (`/memory.md` at the
 
 ---
 
+## 2026-11-10 — Fix 76 Dependabot alerts (branch claude/fix-dependabot-vulns)
+**WHAT:** Bumped `next` + `eslint-config-next` 16.2.4 → 16.4.6 (pinned exact, as before), `next-auth` → 5.0.0-beta.32 (pulls `@auth/core` 0.41.3), and ran `npm audit fix` for transitive packages (vite, postcss, qs, sharp, nanoid, js-yaml, brace-expansion, zod, browserslist, source-map-js, etc.). Added an `overrides` entry forcing `minimatch ^11.0.1` under `@typescript-eslint/typescript-estree` (its ^10 range is vulnerable; lint-only dep). `npm audit` → 0 vulnerabilities. Typecheck, 6642 tests and `next build` pass.
+**WHY:** GitHub flagged 76 open alerts (4 critical in next/next-auth/@auth/core, plus highs in next, vite, sharp, etc.).
+**Note:** `npm run lint` runs out of memory on this machine both before and after this change (pre-existing, unrelated).
+
 # Current state (as of 2026-11-10)
 
 ## Stack
