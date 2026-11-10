@@ -19,5 +19,5 @@ export async function loadAdvisorInputs({ accessToken, spreadsheetId, req }: Ses
   ]);
   const now = zonedNow(data.settings.timeZone || req.cookies.get('nf_tz')?.value || DEFAULT_TIME_ZONE);
   const insights = topInsights(data, insightContextFor(now, (k, p) => t(k, lang, p), formatCurrency));
-  return { lang, insights, context: buildAdvisorContext(data, now, insights, { fundings, splits }) };
+  return { lang, insights, context: buildAdvisorContext(data, now, insights, { fundings, splits }), toolEnv: { data, fundings, now } };
 }
