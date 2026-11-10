@@ -1481,5 +1481,28 @@
     "savingsTitle": "{name} chưa tăng gần đây",
     "savingsBody": "Không có khoản nạp trong {days} ngày — cân nhắc nạp thêm.",
     "savingsNeverBody": "Chưa có khoản nạp nào — bắt đầu tài khoản này bằng một lần chuyển."
+  },
+  "advisor": {
+    "welcome": "Chào bạn! Bạn muốn biết gì về tài chính của mình?",
+    "title": "Cố vấn Nova",
+    "subtitle": "Trợ lý tài chính của bạn",
+    "placeholder": "Hỏi Nova…",
+    "send": "Gửi",
+    "newChat": "Cuộc trò chuyện mới",
+    "thinking": "Nova đang suy nghĩ…",
+    "chipCut": "Tôi nên cắt giảm ở đâu?",
+    "chipAfford": "Tôi có đủ chi 500 $?",
+    "chipGoals": "Tôi có đúng tiến độ?",
+    "chipEmergency": "Quỹ khẩn cấp bao nhiêu?",
+    "disclaimer": "AI có thể sai. Không phải tư vấn tài chính.",
+    "notConfigured": "Nova chưa được thiết lập (thiếu API key).",
+    "rateLimited": "Đã đạt giới hạn mỗi giờ. Thử lại sau.",
+    "error": "Chưa trả lời được. Vui lòng thử lại.",
+    "busy": "Nova đang bận. Thử lại sau một phút.",
+    "refused": "Nova không thể hỗ trợ yêu cầu này.",
+    "tipLabel": "Mẹo từ Nova",
+    "askNova": "Hỏi Nova",
+    "openChat": "Trò chuyện với Nova",
+    "close": "Đóng trò chuyện"
   }
 }

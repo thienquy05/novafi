@@ -6,6 +6,7 @@ import { Sidebar, MobileNav, MobileHeader } from '@/components/Sidebar';
 import { MotionProvider } from '@/components/MotionProvider';
 import { CacheSync } from '@/components/CacheSync';
 import { PWA } from '@/components/PWA';
+import { NovaChat } from '@/components/NovaChat';
 import { AlertTriangle } from 'lucide-react';
 import { t } from '@/lib/i18n';
 import type { Language } from '@/types';
@@ -76,6 +77,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </main>
         <MobileNav />
         <PWA />
+        <NovaChat />
       </div>
     </MotionProvider>
   );

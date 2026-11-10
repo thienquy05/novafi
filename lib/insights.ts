@@ -395,6 +395,20 @@ const BUCKET_DRIFT_MIN_DOLLARS = 50;
 /** The widget surfaces at most this many cards — guidance, not a feed. */
 export const MAX_SURFACED_INSIGHTS = 4;
 
+/** Month keys + day math for `now` — shared by the Money Flow and AI routes so insight ids always match. */
+export function insightContextFor(now: Date, tr: InsightContext['tr'], fmt: InsightContext['fmt']): InsightContext {
+  const key = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return {
+    now,
+    monthKey: key(now),
+    prevMonthKey: key(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+    daysInMonth: new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate(),
+    daysElapsed: now.getDate(),
+    tr,
+    fmt,
+  };
+}
+
 export function topInsights(data: InsightData, ctx: InsightContext, max = MAX_SURFACED_INSIGHTS): Insight[] {
   return buildInsights(data, ctx).slice(0, max);
 }

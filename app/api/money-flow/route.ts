@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { auth } from '@/lib/auth';
 import { getDashboardData, parseWriteVersion, WRITE_VERSION_COOKIE } from '@/lib/apiRoute';
-import { buildMoneyFlowSummary, topInsights, type Insight, type MoneyFlowSummary } from '@/lib/insights';
+import { buildMoneyFlowSummary, insightContextFor, topInsights, type Insight, type MoneyFlowSummary } from '@/lib/insights';
 import { t } from '@/lib/i18n';
 import { formatCurrency, zonedNow, DEFAULT_TIME_ZONE } from '@/lib/utils';
 import type { Language } from '@/types';
@@ -33,25 +33,10 @@ export async function GET() {
     // Anchor "now" to the user's chosen time zone (same as the dashboard) so the
     // month/day math lines up with the rest of the app.
     const now = zonedNow(settings.timeZone || jar.get('nf_tz')?.value || DEFAULT_TIME_ZONE);
-    const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const prevMonthKey = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
-    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    const daysElapsed = now.getDate();
+    const ctx = insightContextFor(now, (k, p) => t(k, lang, p), formatCurrency);
 
-    const flow = buildMoneyFlowSummary(transactions, thisMonth);
-    const insights = topInsights(
-      { accounts, transactions, bills, goals, paychecks, settings },
-      {
-        now,
-        monthKey: thisMonth,
-        prevMonthKey,
-        daysInMonth,
-        daysElapsed,
-        tr: (k, p) => t(k, lang, p),
-        fmt: formatCurrency,
-      },
-    );
+    const flow = buildMoneyFlowSummary(transactions, ctx.monthKey);
+    const insights = topInsights({ accounts, transactions, bills, goals, paychecks, settings }, ctx);
 
     return NextResponse.json({ flow, insights } satisfies MoneyFlowPayload);
   } catch {

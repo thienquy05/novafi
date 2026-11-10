@@ -6,7 +6,7 @@ The single running log of NovaFi changes. **One file only** (`/memory.md` at the
 
 ---
 
-# Current state (as of 2026-10-23)
+# Current state (as of 2026-11-10)
 
 ## Stack
 Next.js 16 (App Router; **breaking changes vs older Next — read `node_modules/next/dist/docs/`**), React 19, next-auth v5 (Google OAuth), Google Sheets API (`googleapis`) as the database, Tailwind v4, framer-motion, recharts, lucide-react, Vitest (pre-commit hook runs `typecheck` + `test`).
@@ -45,6 +45,13 @@ Settings (key/value) · Accounts `A:R` · Transactions `A:K` · Paychecks · Bud
 - Don't export non-component values from `'use client'` files for server use (they arrive as client references).
 - **Mascot:** `app/(app)/dashboard/NovaAvatar.tsx` uses two 3×3 transparent WebP sheets from `public/mascots/`, with PNG sources in `design/mascot/codex/`. `lib/mascotSprite.ts` holds gaze and tap helpers. The face stays neutral across health statuses; `STATUS_COLOR` glows and the localized button label convey status. The generated sheets have frame alignment differences that need an art pass for exact body consistency.
 
+## AI layer — Nova (`lib/ai/*`, added 2026-11-10)
+- **Model:** `claude-sonnet-5-5` via `@anthropic-ai/sdk` (`lib/ai/claude.ts`). Server-only; needs `ANTHROPIC_API_KEY` in `.env.local`. Without it `getClaude()` is null: `/api/advisor` → 503 "not configured", `/api/ai/insights` → `{}` and the UI keeps the template copy. Every call sends the Sonnet 5.5 refusal fallback (`betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default'`), so calls use `client.beta.messages`.
+- **Privacy:** Claude only sees `buildAdvisorContext()` (`lib/ai/context.ts`): 6-month totals, net worth on the dashboard's basis (funding pools netted out), money owed to you, category vs 3-mo avg, budgets, net worth, cash/emergency months, bills ≤30 days, subscription count/total, goals, template insights. Never transaction descriptions/merchants/last4 (test: `lib/__tests__/ai-context.test.ts`).
+- **Chat** `POST /api/advisor`, UI = floating bubble `components/NovaChat.tsx` mounted once in `app/(app)/layout.tsx` (no page/nav entry; open from anywhere with `window.dispatchEvent(new Event(OPEN_NOVA_EVENT))`, as NovaTip's "Ask Nova" does; nothing is sent until the user asks — no auto opener): validated history (`parseMessages`: alternating, user-first/last, ≤19 turns, user ≤2000 chars, assistant turns trimmed to 8000), 30 req/h per user (per-process limiter), streams plain text, effort `medium`, snapshot cached with `cache_control`. Not wrapped in `withSession` on purpose (a chat isn't a write → no `nf_wv` stamp).
+- **Smart text** `GET /api/ai/insights`: one structured-output call (effort `low`) → `{insights: {id: {title, body}}, tips: {dashboard, planning, transactions, reports, savings}}`, regenerated only on a material change — cache key = user + lang + `materialFingerprint(context)` (amounts bucketed to 2 significant figures, date ignored, insight ids included), no time-based expiry (one entry per user+lang, per process). Client: `useSmartText()` / `<NovaTip page>` (`components/NovaTip.tsx`, sessionStorage `nf_smarttext_v1`, kept until a write or language change; empty result retried after 5 min). The Money Flow modal overlays AI title/body by insight id.
+- `insightContextFor(now, tr, fmt)` (`lib/insights.ts`) builds the month/day context for both `/api/money-flow` and the AI routes so insight ids always match.
+
 ## Testing
 - `npm test` (Vitest, also the pre-commit hook with `typecheck`).
 - **Dev test mode** (no Google needed): `NOVAFI_MOCK=1 npm run dev`, switch user type with cookie `nf_mock_profile` = extreme | negative | empty (lib/devMock.ts, lib/devFixture.ts). Never active in production builds.
@@ -56,6 +63,53 @@ Settings (key/value) · Accounts `A:R` · Transactions `A:K` · Paychecks · Bud
 ---
 
 # Change log (newest first)
+
+## 2026-11-10 — Rebased Nova onto master; Codex-designed chat with the Nova mascot (branch claude/novafi-ux-perf-networth)
+
+WHAT:
+- Branch fast-forwarded to origin/master (ca24026, 15 commits incl. funding reimbursements, "held for others" from pools, money-owed line, Nova sprite sheets); the uncommitted Nova work was stashed and re-applied (only memory.md conflicted — both logs kept).
+- Adapted to master: `calcNetWorth` now takes funding pools, so `lib/ai/load.ts` reads `funding:` + `splits:` (same cache keys as the dashboard, failures → []) and `buildAdvisorContext(data, now, insights, { fundings, splits })` nets out money held for others and adds `owedToYou` (`calcOwedToYou`, not part of net worth). Persona mentions it.
+- `components/NovaFace.tsx`: static sprout-bear mascot from `public/mascots/nova-*.webp` via `lib/mascotSprite` (`reaction` = blink/heart/sparkle/surprised/starstruck/bashful/sleepy/dizzy/delighted, null = front pose). Replaces every Sparkles icon in the chat and in `NovaTip`.
+- Chat visual redesign by Codex (`codex exec`, brief limited to NovaChat/NovaTip, logic untouched): white header with Nova, cream welcome card with a large delighted Nova, wrapping suggestion pills, Nova avatar on replies/typing, clearer send enabled/disabled states, 44px controls. Claude follow-up after a browser check: on desktop the panel hugs its content while empty and only takes the fixed 560px height once chatting (removes the big empty gap).
+
+WHY: user: "have codex design the chat interface … rebase master then implement this feature then check to see what's should be done differently … add [the NovaFi iconic character] into our chat interface instead of the boring 'star' logo."
+
+## 2026-11-10 — Nova chat: ask-first, shorter text, short answers, redesigned panel (branch claude/novafi-ux-perf-networth)
+
+WHAT:
+- No auto answer: removed the hidden opener; the panel opens on a welcome line + 4 short suggestion buttons and Nova only replies when asked. ↺ now just clears the chat. `advisor.opener` removed.
+- Shorter UI copy (en/vi): subtitle "Your money coach", placeholder "Ask Nova…", disclaimer "AI can make mistakes. Not financial advice.", shorter chips and error lines, new `advisor.welcome`.
+- Short, organized answers: chat system prompt now asks for ≤80 words — one direct sentence + up to 3 bullets with the key numbers, no greeting/headings/closing question, rounded amounts, odd data only if it changes the answer. Persona line simplified.
+- Redesign (`components/NovaChat.tsx`): gradient indigo→purple header, Nova avatar on replies, gradient user bubbles, bouncing typing dots, centered welcome state, pill input + round send button, framer-motion open/close, line-based Markdown renderer (bullets with dots, mixed sentence + list).
+- Errors no longer pollute history: `/api/advisor` streams failures as `STREAM_ERROR_MARK` (`\u0000`) + i18n key (`lib/ai/shared.ts`); the client shows them as a status line and drops the exchange instead of saving "Couldn't answer" as a Nova message.
+
+WHY: user: "reduce the text … keep it simple, and wait for the user ask to answer, not auto answer … try to be organize and short", then "the UI of the chat interface does not look good". Verified in the browser against the user's dev server with a live key (one transient Anthropic "Connection error" seen, retry succeeded).
+
+## 2026-11-10 — Nova chat becomes a floating bubble (branch claude/novafi-ux-perf-networth)
+
+WHAT: Replaced the `/advisor` page + its Sidebar/mobile-nav entries with `components/NovaChat.tsx`: a gradient bubble (bottom-right, above the mobile nav at `bottom-[104px]`, `z-[55]` under modals/PWA prompt) that opens a chat panel — full-screen on phones, a 400×640 floating card on desktop. Mounted once in the app layout, so the conversation survives navigation and keeps streaming while closed (a pulse dot shows on the bubble). Nothing is fetched until the first open. Esc / X closes; ↺ starts a new chat. NovaTip's "Ask Nova" now opens the bubble via the `nova:open` window event. Strings: `advisor.openChat`, `advisor.close`; `nav.advisor` removed. Verified in the browser with a live key: streamed analysis on mobile and desktop layouts, Esc close, reopen from the tip.
+
+WHY: user: "let's have it as bubble chat so we can easily click to chat, so we don't have to navigate it."
+
+## 2026-11-10 — Smart text regenerates on material change, not every 6h (branch claude/novafi-ux-perf-networth)
+
+WHAT: `/api/ai/insights` no longer expires on a timer. Its cache key is `materialFingerprint(context)` (`lib/ai/context.ts`): every amount (also numbers inside insight text) bucketed to 2 significant figures (~5% steps), the date dropped, insight ids kept — so the copy is rebuilt only when a figure moves materially or a warning appears/clears. A new fingerprint evicts the user's old entry. The prompt now asks Claude to quote amounts at the same 2-significant-figure precision so cached text never shows a stale exact figure. Client (`useSmartText`) dropped its 30-min refresh; it refetches only after a write or a language change (the server then decides if it is material). Tests in `lib/__tests__/ai-context.test.ts`.
+
+WHY: user: "the text doesn't have to be regenerated every 6 hours, just change when the amount change and effect others critically".
+
+## 2026-11-10 — Nova AI advisor + Claude-written smart text (branch claude/novafi-ux-perf-networth)
+
+WHAT:
+- New `/advisor` chat page (Sidebar overview group + mobile nav): opens with a hidden prompt so Nova starts with an analysis of this month's money flow, then free-form follow-ups and suggestion chips. Answers stream from `POST /api/advisor` (Claude Sonnet 5.5, `@anthropic-ai/sdk` 1.7). Tiny safe Markdown renderer (bold, lists, paragraphs) — no HTML injection.
+- Smart text: `GET /api/ai/insights` rewrites the rule-based Money Flow insight cards in natural language and writes one "Nova tip" per page; `<NovaTip/>` added under the header of dashboard, planning, transactions, reports and savings. Template copy stays as fallback.
+- `lib/ai/claude.ts` (client, persona, request guards, rate limiter), `lib/ai/context.ts` (aggregate snapshot), `lib/ai/load.ts` (shared route loader), `lib/ai/shared.ts` (client-safe types/limits). `insightContextFor()` extracted into `lib/insights.ts` and reused by `/api/money-flow` (behaviour unchanged).
+- `advisor.*` + `nav.advisor` strings in en/vi. Tests: `lib/__tests__/ai-context.test.ts` (no descriptions leak; snapshot shape; chat guards; rate limit).
+
+WHY: the user asked for an AI financial advisor that analyzes their money flow through the Claude API, plus "smart text across the platform instead of the boring hardcoded text". Choices made with the user: chat advisor, aggregates only (no transaction descriptions), Sonnet 5.5, smart text = insight cards + page tips.
+
+Codex review (`codex review --uncommitted`, run outside the sandbox) found 4 P2 issues, all fixed: (1) smart-text cache key now hashes the whole snapshot, not just insight text, so budget changes regenerate tips; (2) `useSmartText` reloads mounted consumers on `DATA_CHANGED_EVENT`, and a generation counter stops pre-write requests from re-caching; (3) the advisor opener effect is restartable under React Strict Mode (it used to leave an empty answer); (4) long earlier Nova answers are trimmed to 8000 chars server-side instead of rejecting every follow-up.
+
+Notes: `.env.local.example` could not be read from the agent sandbox, so `ANTHROPIC_API_KEY=` still needs adding there by hand. Full-repo `npm run lint` crashed node (V8 abort) in the sandbox; lint on the changed files passes with two `set-state-in-effect` warnings (same pattern as the existing sessionStorage restore in MoneyFlowButton).
 
 ## 2026-10-23 — Funding: real-pool spends can be paid with another card, then reimbursed by button (branch claude/report-print-preview)
 

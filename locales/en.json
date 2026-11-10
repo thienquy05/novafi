@@ -1481,5 +1481,28 @@
     "savingsTitle": "{name} hasn't grown lately",
     "savingsBody": "No deposit in {days} days — consider topping it up.",
     "savingsNeverBody": "No deposits yet — kick off this account with a transfer."
+  },
+  "advisor": {
+    "welcome": "Hi! What would you like to know about your money?",
+    "title": "Nova Advisor",
+    "subtitle": "Your money coach",
+    "placeholder": "Ask Nova…",
+    "send": "Send",
+    "newChat": "New chat",
+    "thinking": "Nova is thinking…",
+    "chipCut": "Where can I cut back?",
+    "chipAfford": "Can I afford $500?",
+    "chipGoals": "Am I on track?",
+    "chipEmergency": "Emergency fund size?",
+    "disclaimer": "AI can make mistakes. Not financial advice.",
+    "notConfigured": "Nova isn't set up yet (missing API key).",
+    "rateLimited": "Hourly limit reached. Try again later.",
+    "error": "Couldn't answer. Please try again.",
+    "busy": "Nova is busy. Try again in a minute.",
+    "refused": "Nova can't help with that one.",
+    "tipLabel": "Nova tip",
+    "askNova": "Ask Nova",
+    "openChat": "Chat with Nova",
+    "close": "Close chat"
   }
 }

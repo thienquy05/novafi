@@ -36,6 +36,7 @@ import { AutoRefreshOnFocus } from '@/components/AutoRefreshOnFocus';
 import { PullToRefresh } from '@/components/PullToRefresh';
 import { DashboardCustomizer } from './DashboardCustomizer';
 import { FirstRunChecklist, type ChecklistStep } from './FirstRunChecklist';
+import { NovaTip } from '@/components/NovaTip';
 import { resolveDashboardLayout, ONBOARD_COOKIE, type DashboardCardId } from '@/lib/dashboardLayout';
 import { SpendingHeatmap } from './SpendingHeatmap';
 import { HelpHint } from '@/components/ui/HelpHint';
@@ -999,6 +1000,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           </div>
         </div>
       </div>
+      <NovaTip page="dashboard" />
 
       {/* First-run checklist — only while a setup step is open and not hidden */}
       {onboardingSteps.some((s) => !s.done) && jar.get(ONBOARD_COOKIE)?.value !== '1' && (
