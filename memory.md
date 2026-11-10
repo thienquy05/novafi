@@ -53,6 +53,7 @@ Settings (key/value) · Accounts `A:R` · Transactions `A:K` · Paychecks · Bud
 - `insightContextFor(now, tr, fmt)` (`lib/insights.ts`) builds the month/day context for both `/api/money-flow` and the AI routes so insight ids always match.
 
 ## Access
+- **Nova tools:** chat can call read-only tools (lib/ai/tools.ts) for history beyond the 6-month snapshot; max 3 rounds per question.
 - **Invite-only:** sign-in requires the Google email to be in `NOVAFI_ALLOWED_EMAILS` (lib/allowlist.ts; unset = nobody). Checked at sign-in and on every session read.
 
 ## Testing
@@ -66,6 +67,11 @@ Settings (key/value) · Accounts `A:R` · Transactions `A:K` · Paychecks · Bud
 ---
 
 # Change log (newest first)
+
+## 2026-11-10 — Nova chat: on-demand read-only tools for cash-flow history (branch claude/novafi-email-allowlist)
+- `lib/ai/tools.ts`: 5 tools Nova can call from the chat — `monthly_history` (≤24 mo), `category_trend`, `top_merchants`, `account_flows` (per-account in/out/transfers per month = savings + money-flow history), `cash_flow_outlook` (reuses `calcCashFlowProjection` + `calcLongestUntouchedSavings`). Whole dollars, months as parallel arrays, inputs clamped, errors returned as JSON (never throw). Merchant NAMES allowed (via `normalizeMerchant`); never raw descriptions, ids, single-purchase dates or account numbers. Tests: `lib/__tests__/ai-tools.test.ts`.
+- `app/api/advisor/route.ts`: bounded tool loop (max 3 tool rounds, last round has no tools), text streamed across rounds; tools + snapshot cached as one prefix (`cache_control` on the last tool and the snapshot). The persona in `claude.ts` is unchanged (shared with smart text, which has no tools). `loadAdvisorInputs` now also returns `toolEnv` (already-loaded data; no extra Sheets reads).
+- WHY: the always-sent snapshot only covers 6 months of aggregates, so Nova couldn't answer savings-history / money-flow questions. Tools fetch deeper history only when a question needs it, so ordinary chats cost the same tokens as before. Storage stays Google Sheets (user asked about Supabase; not needed for this).
 
 ## 2026-11-10 — Invite-only sign-in: email allowlist (branch claude/novafi-email-allowlist)
 
