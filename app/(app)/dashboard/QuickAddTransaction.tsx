@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
-import { generateId, today, formatCurrency } from '@/lib/utils';
+import { generateId, today, formatCurrency, parseTagInput } from '@/lib/utils';
 import { evaluatePaymentSafety, isOverdraftAssessable } from '@/lib/calculations';
 import type { Account, Bill, Transaction } from '@/types';
 import { useCategories } from '@/hooks/useCategories';
@@ -22,6 +22,7 @@ const EMPTY_FORM = {
   category: 'Food',
   account: '',
   toAccount: '',
+  tags: '',
 };
 
 type QuickAddVariant = 'header' | 'fab' | 'sidebar' | 'navFab';
@@ -107,6 +108,7 @@ export function QuickAddTransaction({ accounts: accountsProp, bills: billsProp, 
       account: form.account,
       toAccount: form.type === 'transfer' ? form.toAccount : undefined,
       createdAt: new Date().toISOString(),
+      tags: parseTagInput(form.tags),
     };
 
     try {
@@ -233,6 +235,17 @@ export function QuickAddTransaction({ accounts: accountsProp, bills: billsProp, 
             />
           </div>
 
+          <div>
+            <Input
+              label={t('transactions.tags')}
+              placeholder={t('transactions.tagsPlaceholder')}
+              value={form.tags}
+              autoComplete="off"
+              onChange={(e) => setForm((f) => ({ ...f, tags: e.target.value }))}
+            />
+            <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 mt-1">{t('transactions.tagsHint')}</p>
+          </div>
+
           {/* Category + Account (or From/To for transfers) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {form.type !== 'transfer' && (
@@ -248,7 +261,7 @@ export function QuickAddTransaction({ accounts: accountsProp, bills: billsProp, 
               value={form.account}
               options={[
                 { value: '', label: t('common.selectPlaceholder') },
-                ...accounts.filter((a) => a.type !== 'pool').map((a) => ({ value: a.id, label: a.name })),
+                ...accounts.filter((a) => a.type !== 'pool').map((a) => ({ value: a.id, label: a.type === 'credit' || a.type === 'loan' ? `${a.name} (owed: ${formatCurrency(a.balance)})` : `${a.name} (${formatCurrency(a.balance)})` })),
               ]}
               onChange={(e) => setForm((f) => ({ ...f, account: e.target.value }))}
             />
@@ -258,12 +271,24 @@ export function QuickAddTransaction({ accounts: accountsProp, bills: billsProp, 
                 value={form.toAccount}
                 options={[
                   { value: '', label: t('common.selectPlaceholder') },
-                  ...accounts.filter((a) => a.id !== form.account && a.type !== 'pool').map((a) => ({ value: a.id, label: a.name })),
+                  ...accounts.filter((a) => a.id !== form.account && a.type !== 'pool').map((a) => ({ value: a.id, label: a.type === 'credit' || a.type === 'loan' ? `${a.name} · Pay off (owed: ${formatCurrency(a.balance)})` : `${a.name} (${formatCurrency(a.balance)})` })),
                 ]}
                 onChange={(e) => setForm((f) => ({ ...f, toAccount: e.target.value }))}
               />
             )}
           </div>
+
+          {form.type === 'transfer' && form.toAccount && (() => {
+            const toAcc = accounts.find((a) => a.id === form.toAccount);
+            const isDebt = toAcc?.type === 'credit' || toAcc?.type === 'loan';
+            const amt = parseFloat(form.amount) || 0;
+            if (!toAcc || !amt) return null;
+            return (
+              <div className="text-sm text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 space-y-1">
+                {isDebt ? <><p className="text-blue-600 dark:text-blue-400 font-bold text-xs">Credit card payoff</p><p className="font-medium text-xs">Balance after: <span className="text-slate-900 dark:text-slate-100 font-bold">{formatCurrency(Math.max(0, toAcc.balance - amt))} owed</span></p></> : <><p className="text-blue-600 dark:text-blue-400 font-bold text-xs">Transfer preview</p><p className="font-medium text-xs">{toAcc.name} after: <span className="text-slate-900 dark:text-slate-100 font-bold">{formatCurrency(toAcc.balance + amt)}</span></p></>}
+              </div>
+            );
+          })()}
 
           {/* Payment safeguard — warns before the spend overdraws a deposit
               account, eats into the buffer you set, or runs a credit card past
