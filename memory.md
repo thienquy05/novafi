@@ -6,6 +6,14 @@ The single running log of NovaFi changes. **One file only** (`/memory.md` at the
 
 ---
 
+## 2026-11-10 — Quick-add gets add-transaction extras (branch claude/group-tab-auto-split)
+**WHAT:** `QuickAddTransaction` now has the tags field (saved via `parseTagInput`), account balances / owed amounts in the account dropdowns, and the transfer / card-payoff preview — matching the add-transaction modal. Not ported: save-as-template and split-by-category (they depend on page-level state in `transactions/page.tsx`).
+**WHY:** Quick-add lagged the full form; user asked for parity.
+
+## 2026-11-10 — Quick-add menu now picks up newly added categories (branch claude/group-tab-auto-split)
+**WHAT:** `invalidateCategoriesCache()` in `hooks/useCategories.ts` now also dispatches a `nf:categories-invalidated` window event, and every mounted `useCategories` hook listens for it and reloads (`load()` extracted inside the effect).
+**WHY:** The nav quick-add button stays mounted across navigation, so its hook fetched categories once and never again; Settings cleared the sessionStorage cache but the live instance kept stale state. Pages (e.g. add-transaction) remount and re-read the cache, so they looked fine.
+
 ## 2026-11-10 — Fix 76 Dependabot alerts (branch claude/fix-dependabot-vulns)
 **WHAT:** Bumped `next` + `eslint-config-next` 16.2.4 → 16.4.6 (pinned exact, as before), `next-auth` → 5.0.0-beta.32 (pulls `@auth/core` 0.41.3), and ran `npm audit fix` for transitive packages (vite, postcss, qs, sharp, nanoid, js-yaml, brace-expansion, zod, browserslist, source-map-js, etc.). Added an `overrides` entry forcing `minimatch ^11.0.1` under `@typescript-eslint/typescript-estree` (its ^10 range is vulnerable; lint-only dep). `npm audit` → 0 vulnerabilities. Typecheck, 6642 tests and `next build` pass.
 **WHY:** GitHub flagged 76 open alerts (4 critical in next/next-auth/@auth/core, plus highs in next, vite, sharp, etc.).
