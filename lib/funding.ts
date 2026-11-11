@@ -41,6 +41,45 @@ export function poolRemaining(f: Pick<Funding, 'totalContributed' | 'spent'>): n
   return round(f.totalContributed - f.spent);
 }
 
+// ── Open tab (auto-split) ─────────────────────────────────────────────────────
+// For an `autoSplit` virtual tab nobody pledges upfront. Every spend is split across
+// the group: the host's own slice is the spend's `myShare`, and the rest is divided
+// equally among the other people and ADDED to their `contributed` — which is exactly
+// what `participantOwed` already subtracts paybacks from. So the owed math, paybacks,
+// receivables and the dashboard widget all keep working unchanged.
+
+/** Split `total` into `n` cent-exact shares (any remainder cents go to the first people). Negative totals split too. */
+export function splitCents(total: number, n: number): number[] {
+  if (n <= 0) return [];
+  const cents = Math.round(Math.abs(total) * 100);
+  const sign = total < 0 ? -1 : 1;
+  const base = Math.floor(cents / n);
+  const extra = cents - base * n;
+  return Array.from({ length: n }, (_, i) => (sign * (base + (i < extra ? 1 : 0))) / 100);
+}
+
+/** The host's equal slice of a bill: amount ÷ everyone in the tab (0 when the host isn't in it). */
+export function defaultMyShare(f: Pick<Funding, 'participants'>, amount: number): number {
+  if (!f.participants.some((p) => p.isMe)) return 0;
+  return round(splitCents(amount, f.participants.length)[0] ?? 0);
+}
+
+/**
+ * Move an auto-split tab's running shares by a change in the others' portion
+ * (`dOthers`, split equally among the non-me people) and in the host's portion
+ * (`dMine`). Shares never go below 0; `totalContributed` is re-summed.
+ */
+export function shiftAutoSplit(f: Funding, dOthers: number, dMine: number): Funding {
+  const others = f.participants.filter((p) => !p.isMe);
+  const shares = splitCents(dOthers, others.length);
+  let i = 0;
+  const participants = f.participants.map((p) => ({
+    ...p,
+    contributed: Math.max(0, round(p.contributed + (p.isMe ? dMine : (shares[i++] ?? 0)))),
+  }));
+  return { ...f, participants, totalContributed: totalContribution(participants) };
+}
+
 // ── Repayment / settle-up math ────────────────────────────────────────────────
 // Each NON-me participant pledged `contributed`; what they still owe you is that
 // pledge minus everything they've paid back. The "me" row is the user's own money
@@ -308,7 +347,9 @@ export function syncFundingTxAmount(f: Funding, original: Transaction, updated: 
     return { ...f, participants, totalContributed: round(myContribution(f.participants) + updated.amount) };
   }
   if (f.spendTxIds.includes(updated.id)) {
-    return { ...f, spent: Math.max(0, round(f.spent + delta)) };
+    const next = { ...f, spent: Math.max(0, round(f.spent + delta)) };
+    // Open tab: the transfer row is the others' portion, the expense row is the host's.
+    return f.autoSplit ? shiftAutoSplit(next, updated.type === 'transfer' ? delta : 0, updated.type === 'transfer' ? 0 : delta) : next;
   }
   if ((f.reimbursements ?? []).some((r) => r.id === updated.id)) {
     return { ...f, reimbursements: f.reimbursements!.map((r) => (r.id === updated.id ? { ...r, amount: round(updated.amount) } : r)) };
@@ -325,11 +366,12 @@ export function syncFundingTxRemoval(f: Funding, tx: Transaction): Funding | nul
     return { ...f, participants, contributionTxId: '', totalContributed: myContribution(f.participants) };
   }
   if (f.spendTxIds.includes(tx.id)) {
-    return {
+    const next = {
       ...f,
       spendTxIds: f.spendTxIds.filter((id) => id !== tx.id),
       spent: Math.max(0, round(f.spent - tx.amount)),
     };
+    return f.autoSplit ? shiftAutoSplit(next, tx.type === 'transfer' ? -tx.amount : 0, tx.type === 'transfer' ? 0 : -tx.amount) : next;
   }
   if ((f.reimbursements ?? []).some((r) => r.id === tx.id)) {
     // The payback row is gone, so the spend is owed back again.

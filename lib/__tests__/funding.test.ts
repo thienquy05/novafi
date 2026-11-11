@@ -7,7 +7,7 @@ import {
   isRealPool, buildPoolContributionTx, participantsFromContributions, contributionsTotal, poolProgress,
   repointRealPoolAccount, planVirtualPoolEdit, referencedTxIds,
   FUNDING_REIMBURSE_CATEGORY, spendReimbursement, needsReimbursement, owedBackTotal, buildReimburseTx,
-  rebuildReimbursement, type FundingSpend,
+  rebuildReimbursement, type FundingSpend, splitCents, defaultMyShare, shiftAutoSplit,
 } from '@/lib/funding';
 import { applyTransactionToBalances, calcFundingHeld, calcFundingHeldByAccount } from '@/lib/calculations';
 import type { Account, Funding, FundingContribution, FundingParticipant, FundingRepayment, Transaction } from '@/types';
@@ -629,5 +629,55 @@ describe('reimbursing a real pool spend paid with another account', () => {
     const res = repointRealPoolAccount(f, 'chk1', [built.tx])!;
     expect(res.addTxs[0]).toMatchObject({ account: 'chk1', toAccount: 'card1' });
     expect(res.funding.reimbursements![0].id).toBe(res.addTxs[0].id);
+  });
+});
+
+describe('open tab (autoSplit)', () => {
+  const tab = (): Funding => ({
+    id: 'f1', description: 'Trip', account: 'a', date: '2026-11-10', kind: 'virtual',
+    participants: [
+      { id: 'm', name: 'Me', contributed: 0, isMe: true },
+      { id: 'a', name: 'Alex', contributed: 0, isMe: false },
+      { id: 's', name: 'Sam', contributed: 0, isMe: false },
+    ],
+    totalContributed: 0, spent: 0, contributionTxId: '', spendTxIds: [], repayments: [], closed: false, autoSplit: true,
+  });
+
+  it('splitCents is cent-exact, remainder to the first people, and handles negatives', () => {
+    expect(splitCents(100, 3)).toEqual([33.34, 33.33, 33.33]);
+    expect(splitCents(-100, 3)).toEqual([-33.34, -33.33, -33.33]);
+    expect(splitCents(5, 0)).toEqual([]);
+  });
+
+  it('defaultMyShare is an equal slice, 0 when the host is not in the tab', () => {
+    expect(defaultMyShare(tab(), 90)).toBe(30);
+    expect(defaultMyShare({ participants: [{ name: 'Alex', contributed: 0, isMe: false }] }, 90)).toBe(0);
+  });
+
+  it('a spend adds the group slice to what each person owes; paybacks reduce it', () => {
+    // $100 bill, host slice 33.34 → others owe 66.66 → 33.33 each
+    let f = shiftAutoSplit(tab(), 66.66, 33.34);
+    expect(f.participants.map((p) => p.contributed)).toEqual([33.34, 33.33, 33.33]);
+    expect(f.totalContributed).toBe(100);
+    expect(totalOwed(f)).toBe(66.66);
+    f = { ...f, repayments: [{ id: 'r', participant: 'Alex', participantId: 'a', amount: 20, account: 'a', date: '2026-11-11' }] };
+    expect(totalOwed(f)).toBe(46.66);
+  });
+
+  it('undoing a spend (delete / edit) never leaves negative shares', () => {
+    const f = shiftAutoSplit(shiftAutoSplit(tab(), 66.66, 33.34), -66.66, -33.34);
+    expect(f.participants.every((p) => p.contributed === 0)).toBe(true);
+    expect(shiftAutoSplit(tab(), -10, -10).participants.every((p) => p.contributed === 0)).toBe(true);
+  });
+
+  it('ledger edits/deletes of a spend row keep the shares in sync', () => {
+    const base = { ...shiftAutoSplit(tab(), 60, 30), spent: 90, spendTxIds: ['x', 'e'] };
+    const transfer = { id: 'x', date: '', description: '', amount: 60, type: 'transfer', category: 'Funding', account: 'a' } as Transaction;
+    const bigger = syncFundingTxAmount(base, transfer, { ...transfer, amount: 80 })!;
+    expect(bigger.participants.map((p) => p.contributed)).toEqual([30, 40, 40]);
+    const gone = syncFundingTxRemoval(base, transfer)!;
+    expect(gone.participants.map((p) => p.contributed)).toEqual([30, 0, 0]);
+    const expense = { ...transfer, id: 'e', amount: 30, type: 'expense' } as Transaction;
+    expect(syncFundingTxRemoval(base, expense)!.participants.map((p) => p.contributed)).toEqual([0, 30, 30]);
   });
 });

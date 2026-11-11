@@ -108,7 +108,7 @@ const FUNDING_HEADER = [
   'id', 'description', 'account', 'date', 'participants_json',
   'total_contributed', 'spent', 'contribution_tx_id', 'spend_tx_ids', 'closed',
   'repayments_json', 'kind', 'pool_account_id', 'target', 'contributions_json',
-  'reimbursements_json',
+  'reimbursements_json', 'auto_split',
 ];
 // A `values.get` against a tab that doesn't exist fails with HTTP 400 ("Unable
 // to parse range"). We use that to distinguish "tab not provisioned yet" (lazy-
@@ -985,7 +985,7 @@ export async function getFundings(
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'Funding!A2:P1000',
+      range: 'Funding!A2:Q1000',
     });
     return (res.data.values ?? []).map((r) => {
       let participants: Funding['participants'] = [];
@@ -1015,6 +1015,7 @@ export async function getFundings(
         target: r[13] === undefined || r[13] === '' ? undefined : Number(r[13]),
         contributions,
         reimbursements,
+        ...(r[16] === 'true' ? { autoSplit: true } : {}),
       };
     });
   } catch (err) {
@@ -1048,6 +1049,7 @@ export async function upsertFunding(
         funding.kind ?? 'virtual', funding.poolAccountId ?? '', funding.target ?? '',
         JSON.stringify(funding.contributions ?? []),
         JSON.stringify(funding.reimbursements ?? []),
+        funding.autoSplit ? 'true' : '',
       ]],
     },
   });

@@ -344,6 +344,10 @@ export interface Funding {
   spendTxIds: string[];     // ids of every spend row (my-share expenses + others transfers)
   repayments: FundingRepayment[]; // virtual only: participants paying you back (settle-up)
   closed: boolean;          // user marked the pool wrapped up
+  // VIRTUAL "open tab": nobody pledges upfront. Each spend is split automatically across
+  // the group — the others' portion is added to their `contributed` (what they owe), so
+  // they can pay back any time. Absent/false = the classic fixed-pledge tab.
+  autoSplit?: boolean;
   // ── REAL pools only ──
   poolAccountId?: string;   // the account holding the real cash — a chosen deposit account (legacy pools reference an auto-created `pool` account until migrated)
   target?: number;          // optional savings-goal target (drives a progress bar); 0/absent = none
