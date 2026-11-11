@@ -23,7 +23,7 @@ import type { Account, Funding, FundingContribution, FundingParticipant, Funding
 import {
   myContribution, totalContribution, poolRemaining,
   buildSpendTxs, buildRepayTx, groupFundingSpends, participantOwed, participantRepaid, totalOwed,
-  totalRepaid, isFullySettled,
+  totalRepaid, isFullySettled, shiftAutoSplit, defaultMyShare,
   isRealPool, buildPoolContributionTx, participantsFromContributions, contributionsTotal, poolProgress,
   repointRealPoolAccount, planVirtualPoolEdit, buildPoolActivity, referencedTxIds,
   spendReimbursement, needsReimbursement, owedBackTotal, buildReimburseTx, rebuildReimbursement,
@@ -108,6 +108,7 @@ export default function FundingPage() {
   const [myRowId, setMyRowId] = useState(() => generateId()); // stable id for the "me" pledge
   const [others, setOthers] = useState<OtherRow[]>([emptyOther()]);
   const [target, setTarget] = useState(''); // real pool: optional savings-goal target
+  const [autoSplit, setAutoSplit] = useState(true); // virtual tab: split each spend across the group, no upfront pledges
 
   // Contribution modal (real pools — add / edit a cash-in). Mirrors the payback modal.
   const [contribFor, setContribFor] = useState<Funding | null>(null);
@@ -127,6 +128,7 @@ export default function FundingPage() {
   const [spendAccount, setSpendAccount] = useState('');
   const [spendDate, setSpendDate] = useState(today());
   const [spendCategory, setSpendCategory] = useState('Other');
+  const [mineTouched, setMineTouched] = useState(false); // open tab: stop auto-filling my share once I type one
 
   const [payDate, setPayDate] = useState(today());
 
@@ -244,14 +246,15 @@ export default function FundingPage() {
 
   function openNew() {
     setKind('virtual'); setDesc(''); setAccountId(depositAccounts[0]?.id ?? accounts[0]?.id ?? '');
-    setIncludeMe(true); setMyAmount(''); setMyRowId(generateId()); setOthers([emptyOther()]); setTarget(''); setOpen(true);
+    setIncludeMe(true); setMyAmount(''); setMyRowId(generateId()); setOthers([emptyOther()]); setTarget(''); setAutoSplit(true); setOpen(true);
   }
 
   const draftParticipants = (): FundingParticipant[] => {
     const list: FundingParticipant[] = [];
-    if (includeMe && num(myAmount) > 0) list.push({ id: myRowId, name: t('funding.me'), contributed: num(myAmount), isMe: true });
+    // Open tab: names only — shares build up as spends are recorded.
+    if (includeMe && (autoSplit || num(myAmount) > 0)) list.push({ id: myRowId, name: t('funding.me'), contributed: autoSplit ? 0 : num(myAmount), isMe: true });
     for (const o of others) {
-      if (o.name.trim() && num(o.amount) > 0) list.push({ id: o.id, name: o.name.trim(), contributed: num(o.amount), isMe: false });
+      if (o.name.trim() && (autoSplit || num(o.amount) > 0)) list.push({ id: o.id, name: o.name.trim(), contributed: autoSplit ? 0 : num(o.amount), isMe: false });
     }
     return list;
   };
@@ -301,6 +304,7 @@ export default function FundingPage() {
     }
     const participants = draftParticipants();
     if (!desc.trim() || participants.length === 0) return;
+    if (autoSplit && !participants.some((p) => !p.isMe)) return; // nobody to split with
     // Virtual pool: no cash moves up front — just the agreed budget and who pledged.
     const funding: Funding = {
       id: generateId(),
@@ -315,6 +319,7 @@ export default function FundingPage() {
       spendTxIds: [],
       repayments: [],
       closed: false,
+      ...(autoSplit ? { autoSplit: true } : {}),
     };
     setFundings((prev) => [funding, ...prev]);
     setOpen(false);
@@ -363,14 +368,14 @@ export default function FundingPage() {
   function openSpend(f: Funding) {
     setSpendFor(f); setEditingSpend(null);
     setSpendAmount(''); setSpendMine(''); setSpendDesc('');
-    setSpendDate(today()); setSpendCategory('Other');
+    setSpendDate(today()); setSpendCategory('Other'); setMineTouched(false);
     setSpendAccount(isRealPool(f) ? (f.poolAccountId ?? '') : (f.account || chargeAccounts[0]?.id || ''));
   }
   function openEditSpend(f: Funding, s: FundingSpend) {
     setSpendFor(f); setEditingSpend(s);
     setSpendAmount(String(s.amount)); setSpendMine(s.myShare ? String(s.myShare) : '');
     setSpendDesc(s.description);
-    setSpendDate(s.date); setSpendCategory(s.category ?? 'Other');
+    setSpendDate(s.date); setSpendCategory(s.category ?? 'Other'); setMineTouched(true);
     setSpendAccount(s.chargedAccount || (isRealPool(f) ? (f.poolAccountId ?? '') : (f.account || chargeAccounts[0]?.id || '')));
   }
 
@@ -388,12 +393,18 @@ export default function FundingPage() {
     const payback = editingSpend
       ? rebuildReimbursement(spendFor, editingSpend.key, { key: txs[0]?.createdAt ?? '', chargedAccount: spendAccount, amount }, t('funding.reimburseDefault', { desc: note }))
       : null;
-    const updated: Funding = {
+    let updated: Funding = {
       ...spendFor,
       spent: Math.max(0, round2(spendFor.spent - prevAmount + amount)),
       spendTxIds: [...spendFor.spendTxIds.filter((id) => !removeTxIds.includes(id)), ...txs.map((tx) => tx.id)],
       ...(payback ? { reimbursements: payback.reimbursements } : {}),
     };
+    // Open tab: the group's slice of this bill lands on what each person owes — only the
+    // change vs. the spend being edited, so edits never double count.
+    if (spendFor.autoSplit) {
+      const prevMine = editingSpend?.myShare ?? 0;
+      updated = shiftAutoSplit(updated, (amount - mine) - (prevAmount - prevMine), mine - prevMine);
+    }
     setFundings((prev) => prev.map((f) => f.id === updated.id ? updated : f));
     setSpendFor(null); setEditingSpend(null);
     await persist(
@@ -408,12 +419,13 @@ export default function FundingPage() {
     if (!(await askConfirm(t('funding.confirmDeleteSpend'), true))) return;
     // Its payback (if any) is reversed with it, so the pool's account gets it back.
     const payback = spendReimbursement(f, s.key);
-    const updated: Funding = {
+    let updated: Funding = {
       ...f,
       spent: Math.max(0, round2(f.spent - s.amount)),
       spendTxIds: f.spendTxIds.filter((id) => !s.txIds.includes(id)),
       reimbursements: (f.reimbursements ?? []).filter((r) => r !== payback),
     };
+    if (f.autoSplit) updated = shiftAutoSplit(updated, -(s.amount - s.myShare), -s.myShare);
     setFundings((prev) => prev.map((x) => x.id === updated.id ? updated : x));
     await persist(updated, [], payback ? [...s.txIds, payback.id] : s.txIds, 'funding.spendDeleted');
   }
@@ -629,6 +641,7 @@ export default function FundingPage() {
     setEditMyId(me?.id ?? generateId()); // backfill a stable id for legacy "me"
     // Each row carries the participant's stable id + the name it had on open, so a
     // rename keeps its identity (legacy rows without an id get one assigned now).
+    // Open tab: the amount is each person's running share (kept as-is, not editable here).
     const others = f.participants.filter((p) => !p.isMe).map((p) => ({ key: generateId(), id: p.id ?? generateId(), origName: p.name, name: p.name, amount: String(p.contributed) }));
     setEditOthers(others.length ? others : [emptyOther()]);
   }
@@ -636,9 +649,10 @@ export default function FundingPage() {
   // Build the edited roster from the modal fields, preserving each row's stable id.
   const editParticipants = (): FundingParticipant[] => {
     const list: FundingParticipant[] = [];
-    if (editIncludeMe && num(editMyAmount) > 0) list.push({ id: editMyId, name: t('funding.me'), contributed: num(editMyAmount), isMe: true });
+    const open = !!editFor?.autoSplit; // open tab: people with no share yet are kept
+    if (editIncludeMe && (open || num(editMyAmount) > 0)) list.push({ id: editMyId, name: t('funding.me'), contributed: num(editMyAmount), isMe: true });
     for (const o of editOthers) {
-      if (o.name.trim() && num(o.amount) > 0) list.push({ id: o.id, name: o.name.trim(), contributed: num(o.amount), isMe: false });
+      if (o.name.trim() && (open || num(o.amount) > 0)) list.push({ id: o.id, name: o.name.trim(), contributed: num(o.amount), isMe: false });
     }
     return list;
   };
@@ -664,9 +678,10 @@ export default function FundingPage() {
     if (newParticipants.length === 0) return;
     const keptRename: Record<string, string> = {};
     const me = editFor.participants.find((p) => p.isMe);
-    if (editIncludeMe && num(editMyAmount) > 0 && me) keptRename[me.name] = t('funding.me');
+    const keepZero = !!editFor.autoSplit;
+    if (editIncludeMe && (keepZero || num(editMyAmount) > 0) && me) keptRename[me.name] = t('funding.me');
     for (const o of editOthers) {
-      if (o.origName && o.name.trim() && num(o.amount) > 0) keptRename[o.origName] = o.name.trim();
+      if (o.origName && o.name.trim() && (keepZero || num(o.amount) > 0)) keptRename[o.origName] = o.name.trim();
     }
     const droppedRepaid = editFor.repayments.filter((r) => keptRename[r.participant] === undefined).length;
     if (droppedRepaid > 0 && !(await askConfirm(t('funding.confirmDropPaid', { n: droppedRepaid })))) return;
@@ -809,6 +824,22 @@ export default function FundingPage() {
 
         {/* Pool figures — min-w-0 + FitText so large amounts shrink to fit three
             narrow columns on a phone instead of overflowing the card. */}
+        {f.autoSplit ? (
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          <div className="min-w-0 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-3">
+            <p className="stat-label text-slate-500 dark:text-slate-400">{t('funding.spent')}</p>
+            <FitText maxSize={16} minSize={11} className="font-extrabold text-rose-600 dark:text-rose-400 mt-0.5">{formatCurrency(f.spent)}</FitText>
+          </div>
+          <div className="min-w-0 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-3">
+            <p className="stat-label text-slate-500 dark:text-slate-400">{t('funding.paidBack')}</p>
+            <FitText maxSize={16} minSize={11} className="font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">{formatCurrency(totalRepaid(f.repayments))}</FitText>
+          </div>
+          <div className="min-w-0 rounded-2xl bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 p-3">
+            <p className="stat-label text-amber-700/80 dark:text-amber-400/80">{t('funding.stillOwed')}</p>
+            <FitText maxSize={16} minSize={11} className="font-extrabold text-amber-600 dark:text-amber-400 mt-0.5">{formatCurrency(owed)}</FitText>
+          </div>
+        </div>
+        ) : (
         <div className="grid grid-cols-3 gap-2 sm:gap-3">
           <div className="min-w-0 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-3">
             <p className="stat-label text-slate-500 dark:text-slate-400">{t('funding.pool')}</p>
@@ -823,6 +854,7 @@ export default function FundingPage() {
             <FitText maxSize={16} minSize={11} className={`font-extrabold mt-0.5 ${remaining < 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{formatCurrency(Math.abs(remaining))}</FitText>
           </div>
         </div>
+        )}
 
         {/* Spends paid with another card/account that the pool hasn't paid back yet */}
         {owedBack > 0 && (
@@ -882,7 +914,7 @@ export default function FundingPage() {
                       <span className="text-xs font-medium text-slate-400 dark:text-slate-500">{t('funding.paidIn')}</span>
                     )
                   ) : p.isMe ? (
-                    <span className="text-xs font-medium text-slate-400 dark:text-slate-500">{t('funding.yourPledge')}</span>
+                    <span className="text-xs font-medium text-slate-400 dark:text-slate-500">{t(f.autoSplit ? 'funding.yourShareLabel' : 'funding.yourPledge')}</span>
                   ) : owe > 0 ? (
                     <button onClick={() => openPay(f, p)} className="text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline">
                       {t('funding.owesYou', { amount: formatCurrency(owe) })}
@@ -894,7 +926,7 @@ export default function FundingPage() {
               );
             })}
           </div>
-          {myShare > 0 && (
+          {myShare > 0 && !f.autoSplit && (
             <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 mt-2">{t(real ? 'funding.yourMoneyIn' : 'funding.yourStake', { amount: formatCurrency(myShare) })}</p>
           )}
         </div>
@@ -1208,6 +1240,15 @@ export default function FundingPage() {
             ))}
           </div>
           <p className="text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/40 rounded-xl px-3 py-2">{t(kind === 'real' ? 'funding.realHint' : 'funding.virtualHint')}</p>
+          {kind !== 'real' && (
+            <label className="flex items-start gap-2.5 cursor-pointer rounded-2xl border border-indigo-100 dark:border-indigo-800/40 p-3">
+              <input type="checkbox" checked={autoSplit} onChange={(e) => setAutoSplit(e.target.checked)} className="w-4 h-4 mt-0.5 rounded accent-indigo-600" />
+              <span>
+                <span className="block text-sm font-bold text-slate-800 dark:text-slate-200">{t('funding.autoSplitToggle')}</span>
+                <span className="block text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{t('funding.autoSplitHint')}</span>
+              </span>
+            </label>
+          )}
           <Input label={t('funding.description')} placeholder={t('funding.descPlaceholder')} value={desc} onChange={(e) => setDesc(e.target.value)} />
           <Select
             label={t(kind === 'real' ? 'funding.holdIn' : 'funding.defaultAccount')}
@@ -1225,7 +1266,7 @@ export default function FundingPage() {
               <input type="checkbox" checked={includeMe} onChange={(e) => setIncludeMe(e.target.checked)} className="w-4 h-4 rounded accent-indigo-600" />
               <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{t(kind === 'real' ? 'funding.includeMeReal' : 'funding.includeMe')}</span>
             </label>
-            {includeMe && kind !== 'real' && (
+            {includeMe && kind !== 'real' && !autoSplit && (
               <Input label={t('funding.myContribution')} type="text" inputMode="decimal" placeholder="0.00" value={myAmount} onChange={(e) => setMyAmount(e.target.value.replace(/[^0-9.]/g, ''))} />
             )}
           </div>
@@ -1236,7 +1277,7 @@ export default function FundingPage() {
             {others.map((o, i) => (
               <div key={o.key} className="flex items-center gap-2.5">
                 <Input className="h-14 flex-1 text-lg placeholder:text-lg placeholder:font-medium" placeholder={t('funding.personName')} value={o.name} onChange={(e) => setOthers((prev) => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
-                {kind !== 'real' && (
+                {kind !== 'real' && !autoSplit && (
                   <Input className="h-14 w-24 text-lg" type="text" inputMode="decimal" placeholder="0.00" value={o.amount} onChange={(e) => setOthers((prev) => prev.map((x, j) => j === i ? { ...x, amount: e.target.value.replace(/[^0-9.]/g, '') } : x))} />
                 )}
                 <button onClick={() => setOthers((prev) => prev.length > 1 ? prev.filter((_, j) => j !== i) : prev)} className="text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 shrink-0 p-2 rounded-xl transition-colors" aria-label="Remove"><Trash2 className="w-5 h-5" /></button>
@@ -1250,14 +1291,14 @@ export default function FundingPage() {
           {kind === 'real' && (
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/40 rounded-xl px-3 py-2">{t('funding.realMembersHint')}</p>
           )}
-          {kind !== 'real' && draftTotal > 0 && (
+          {kind !== 'real' && !autoSplit && draftTotal > 0 && (
             <p className="text-sm font-bold text-slate-600 dark:text-slate-300 text-center">{t('funding.poolTotal', { amount: formatCurrency(draftTotal) })}</p>
           )}
         </div>
         <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
           <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
-            <Button className="flex-1 shadow-sm" onClick={createPool} disabled={saving || !desc.trim() || (kind === 'real' ? draftRealCount === 0 : draftTotal <= 0)}>{saving ? t('common.saving') : t('funding.createPool')}</Button>
+            <Button className="flex-1 shadow-sm" onClick={createPool} disabled={saving || !desc.trim() || (kind === 'real' ? draftRealCount === 0 : autoSplit ? !others.some((o) => o.name.trim()) : draftTotal <= 0)}>{saving ? t('common.saving') : t('funding.createPool')}</Button>
           </div>
         </div>
       </Modal>
@@ -1283,10 +1324,22 @@ export default function FundingPage() {
                   <p className="text-xs font-medium text-amber-700 dark:text-amber-400 mt-1.5">{t('funding.owedBackHint', { account: accountName(spendAccount), pool: accountName(spendFor.poolAccountId ?? '') })}</p>
                 )}
               </div>
-              <Input label={t('funding.amount')} type="text" inputMode="decimal" placeholder="0.00" value={spendAmount} onChange={(e) => setSpendAmount(e.target.value.replace(/[^0-9.]/g, ''))} />
+              <Input label={t('funding.amount')} type="text" inputMode="decimal" placeholder="0.00" value={spendAmount} onChange={(e) => {
+                const v = e.target.value.replace(/[^0-9.]/g, '');
+                setSpendAmount(v);
+                // Open tab: my slice follows the bill (equal split) until I type my own.
+                if (spendFor.autoSplit && !mineTouched) { const m = defaultMyShare(spendFor, num(v)); setSpendMine(m > 0 ? String(m) : ''); }
+              }} />
               <div>
-                <Input label={t('funding.myShare')} type="text" inputMode="decimal" placeholder="0.00" value={spendMine} onChange={(e) => setSpendMine(e.target.value.replace(/[^0-9.]/g, ''))} />
-                {!isRealPool(spendFor) && (spendFor.participants.length ?? 0) > 1 && (
+                <Input label={t('funding.myShare')} type="text" inputMode="decimal" placeholder="0.00" value={spendMine} onChange={(e) => { setMineTouched(true); setSpendMine(e.target.value.replace(/[^0-9.]/g, '')); }} />
+                {spendFor.autoSplit && (() => {
+                  const others = spendFor.participants.filter((p) => !p.isMe).length;
+                  const each = others > 0 ? Math.max(0, round2(num(spendAmount) - Math.min(num(spendMine), num(spendAmount)))) / others : 0;
+                  return others > 0 && num(spendAmount) > 0 ? (
+                    <p className="text-xs font-bold text-indigo-600 dark:text-indigo-400 mt-1.5">{t('funding.eachOwes', { n: others, amount: formatCurrency(each) })}</p>
+                  ) : null;
+                })()}
+                {!isRealPool(spendFor) && !spendFor.autoSplit && (spendFor.participants.length ?? 0) > 1 && (
                   <button
                     type="button"
                     onClick={() => { const n = spendFor.participants.length; const total = num(spendAmount); if (total > 0 && n > 0) setSpendMine(String(round2(total / n))); }}
@@ -1496,7 +1549,7 @@ export default function FundingPage() {
                       <input type="checkbox" checked={editIncludeMe} onChange={(e) => setEditIncludeMe(e.target.checked)} className="w-4 h-4 rounded accent-indigo-600" />
                       <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{t('funding.includeMe')}</span>
                     </label>
-                    {editIncludeMe && (
+                    {editIncludeMe && !editFor.autoSplit && (
                       <Input label={t('funding.myContribution')} type="text" inputMode="decimal" placeholder="0.00" value={editMyAmount} onChange={(e) => setEditMyAmount(e.target.value.replace(/[^0-9.]/g, ''))} />
                     )}
                   </div>
@@ -1507,7 +1560,7 @@ export default function FundingPage() {
                     {editOthers.map((o, i) => (
                       <div key={o.key} className="flex items-center gap-2.5">
                         <Input className="h-14 flex-1 text-lg placeholder:text-lg placeholder:font-medium" placeholder={t('funding.personName')} value={o.name} onChange={(e) => setEditOthers((prev) => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
-                        <Input className="h-14 w-24 text-lg" type="text" inputMode="decimal" placeholder="0.00" value={o.amount} onChange={(e) => setEditOthers((prev) => prev.map((x, j) => j === i ? { ...x, amount: e.target.value.replace(/[^0-9.]/g, '') } : x))} />
+                        {!editFor.autoSplit && <Input className="h-14 w-24 text-lg" type="text" inputMode="decimal" placeholder="0.00" value={o.amount} onChange={(e) => setEditOthers((prev) => prev.map((x, j) => j === i ? { ...x, amount: e.target.value.replace(/[^0-9.]/g, '') } : x))} />}
                         <button onClick={() => setEditOthers((prev) => prev.length > 1 ? prev.filter((_, j) => j !== i) : [emptyOther()])} className="text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 shrink-0 p-2 rounded-xl transition-colors" aria-label="Remove"><Trash2 className="w-5 h-5" /></button>
                       </div>
                     ))}
@@ -1515,8 +1568,8 @@ export default function FundingPage() {
                       <UserPlus className="w-5 h-5" />{t('funding.addPerson')}
                     </button>
                   </div>
-                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/40 rounded-xl px-3 py-2">{t('funding.editVirtualHint')}</p>
-                  {totalContribution(editParticipants()) > 0 && (
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/40 rounded-xl px-3 py-2">{t(editFor.autoSplit ? 'funding.editAutoHint' : 'funding.editVirtualHint')}</p>
+                  {!editFor.autoSplit && totalContribution(editParticipants()) > 0 && (
                     <p className="text-sm font-bold text-slate-600 dark:text-slate-300 text-center">{t('funding.poolTotal', { amount: formatCurrency(totalContribution(editParticipants())) })}</p>
                   )}
                 </>
@@ -1525,7 +1578,7 @@ export default function FundingPage() {
             <div className="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4">
               <div className="flex gap-3">
                 <Button variant="secondary" className="flex-1" onClick={() => setEditFor(null)}>{t('common.cancel')}</Button>
-                <Button className="flex-1 shadow-sm" onClick={saveEdit} disabled={saving || !editDesc.trim() || (!isRealPool(editFor) && totalContribution(editParticipants()) <= 0)}>{saving ? t('common.saving') : t('common.save')}</Button>
+                <Button className="flex-1 shadow-sm" onClick={saveEdit} disabled={saving || !editDesc.trim() || (!isRealPool(editFor) && (editFor.autoSplit ? editParticipants().length === 0 : totalContribution(editParticipants()) <= 0))}>{saving ? t('common.saving') : t('common.save')}</Button>
               </div>
             </div>
           </>
