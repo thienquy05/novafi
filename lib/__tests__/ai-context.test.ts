@@ -43,7 +43,7 @@ const data: DashboardData = {
 describe('buildAdvisorContext', () => {
   const ctx = buildAdvisorContext(data, NOW, [], NO_EXTRAS);
 
-  it('sends aggregates only — never descriptions or account numbers', () => {
+  it('never sends raw descriptions or account numbers', () => {
     const json = JSON.stringify(ctx);
     for (const t of data.transactions) expect(json).not.toContain(t.description);
     expect(json).not.toContain('9876');
@@ -54,8 +54,19 @@ describe('buildAdvisorContext', () => {
     expect(ctx.monthly[5]).toMatchObject({ month: '2026-07', income: 4000 });
     expect(ctx.categoriesThisMonthVs3moAvg.find((c) => c.category === 'Food')).toMatchObject({ thisMonth: 120 });
     expect(ctx.budgets[0]).toMatchObject({ category: 'Food', limit: 300, spentThisMonth: 120 });
-    expect(ctx.billsNext30Days.map((b) => b.name)).toEqual(['Rent']);
+    expect(ctx.bills.map((b) => b.name)).toEqual(['Rent', 'Insurance']); // all active bills, soonest first
+    expect(ctx.bills[0]).toEqual({ name: 'Rent', amount: 1200, dueDate: '2026-07-25', frequency: 'monthly' });
     expect(ctx.cashOnHand).toBe(3000);
+  });
+
+  it('lists subscriptions by cleaned name and flags overdue / split / variable bills', () => {
+    expect(ctx.subscriptions.items[0]).toMatchObject({ name: 'streamco', amount: 15.99, frequency: 'monthly' });
+    const late = buildAdvisorContext({ ...data, bills: [
+      { id: 'b3', name: 'Power', amount: 90, frequency: 'monthly', nextDue: '2026-07-10', account: 'chk', category: 'Utilities', isActive: true, variable: true, splitParticipants: [{ contactId: 'c1', amount: 30 }] },
+      { id: 'b4', name: 'Gym', amount: 40, frequency: 'monthly', nextDue: '2026-07-01', account: 'chk', category: 'Fun', isActive: false },
+    ] }, NOW, [], NO_EXTRAS);
+    expect(buildAdvisorContext({ ...data, bills: [{ ...data.bills[1], name: 'Insurance acct 1234-5678' }] }, NOW, [], NO_EXTRAS).bills[0].name).toBe('Insurance acct …');
+    expect(late.bills).toEqual([{ name: 'Power', amount: 60, fullAmount: 90, estimate: true, dueDate: '2026-07-10', overdue: true, frequency: 'monthly' }]);
   });
 });
 
