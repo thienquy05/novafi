@@ -6,6 +6,13 @@ The single running log of NovaFi changes. **One file only** (`/memory.md` at the
 
 ---
 
+## 2026-11-13 — Nova can answer about people, bills and single purchases (branch claude/nova-ask-anything)
+- `lib/ai/tools.ts`: 2 new chat tools. `people_owed {name?}` = one "who owes whom" view merging loans (lent → they owe me, borrowed → I owe), bill + one-off splits (`splitRemaining`) and open virtual group tabs (`participantOwed`; real pools and closed tabs = 0, same as `calcOwedToYou`), per person with each item (source, what, date, original, paid back, remaining), plus active split bills' upcoming shares (names via Contacts). Name search is accent/case-insensitive word-prefix (`fold` + `nameMatches`: "Quy" ~ "Quý Phạm", "dat" ~ "Đạt"), checked against the contact's current AND stored name (renames). Grouping is by contact id (tab participants: exact name) — folding is only for search, so "Hòa" and "Hoa" stay two people. Overview = open balances only; with a name, settled history too. Totals cover everyone even when the list is cut at 30. `find_transactions {query?, category?, months?}` = per-month spending/income totals over ≤24 months + the single matching transactions (date, description, amount, category, account) for the last 2 months only (≤40 rows); no filter = latest transactions incl. transfers.
+- Privacy change (user's choice): tools may now send single transactions (last 2 months) and people's names; every free-text field goes through `maskDigits` (runs of 4+ digits, incl. `1234-5678` / spaced, → "…"). The always-sent snapshot is unchanged (still aggregates only).
+- `lib/ai/load.ts` also reads loans + contacts (same cache keys as their routes). Failed side reads become `[]` but are listed in `toolEnv.unavailable` → `people_owed` returns a `warning` instead of a silent $0.
+- `app/api/advisor/route.ts`: prompt tells Nova to use `people_owed` for any person question (names typed in Vietnamese/English, accents optional; list all matches) and `find_transactions` for a merchant/purchase/recent-transactions question. Upcoming bills still come from the snapshot (`billsNext30Days`).
+- WHY: user wants to ask Nova anything on the platform ("how much does Quý owe me", "upcoming bills", "how much did I pay for Spotify"). Reviewed by Codex (2 passes); fixed its findings (digit masking, merging different people, totals after truncation, silent failed reads, renamed contacts). Tests: `lib/__tests__/ai-tools.test.ts`.
+
 ## 2026-11-10 — Quick-add gets add-transaction extras (branch claude/group-tab-auto-split)
 **WHAT:** `QuickAddTransaction` now has the tags field (saved via `parseTagInput`), account balances / owed amounts in the account dropdowns, and the transfer / card-payoff preview — matching the add-transaction modal. Not ported: save-as-template and split-by-category (they depend on page-level state in `transactions/page.tsx`).
 **WHY:** Quick-add lagged the full form; user asked for parity.
@@ -19,7 +26,7 @@ The single running log of NovaFi changes. **One file only** (`/memory.md` at the
 **WHY:** GitHub flagged 76 open alerts (4 critical in next/next-auth/@auth/core, plus highs in next, vite, sharp, etc.).
 **Note:** `npm run lint` runs out of memory on this machine both before and after this change (pre-existing, unrelated).
 
-# Current state (as of 2026-11-10)
+# Current state (as of 2026-11-13)
 
 ## Stack
 Next.js 16 (App Router; **breaking changes vs older Next — read `node_modules/next/dist/docs/`**), React 19, next-auth v5 (Google OAuth), Google Sheets API (`googleapis`) as the database, Tailwind v4, framer-motion, recharts, lucide-react, Vitest (pre-commit hook runs `typecheck` + `test`).
@@ -67,7 +74,7 @@ Settings (key/value) · Accounts `A:R` · Transactions `A:K` · Paychecks · Bud
 - `insightContextFor(now, tr, fmt)` (`lib/insights.ts`) builds the month/day context for both `/api/money-flow` and the AI routes so insight ids always match.
 
 ## Access
-- **Nova tools:** chat can call read-only tools (lib/ai/tools.ts) for history beyond the 6-month snapshot; max 3 rounds per question.
+- **Nova tools:** chat can call read-only tools (lib/ai/tools.ts) for history beyond the 6-month snapshot; max 3 rounds per question. `people_owed` (loans/splits/group tabs per person, Vietnamese accent-insensitive name prefix) and `find_transactions` (merchant totals ≤24 mo + single transactions for the last 2 months, digits masked) go below aggregates by the user's choice; the snapshot stays aggregates-only.
 - **Invite-only:** sign-in requires the Google email to be in `NOVAFI_ALLOWED_EMAILS` (lib/allowlist.ts; unset = nobody). Checked at sign-in and on every session read.
 
 ## Testing

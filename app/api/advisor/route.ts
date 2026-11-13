@@ -40,7 +40,8 @@ export async function POST(req: NextRequest) {
         'Chat style: answer only the question asked, in at most 80 words unless the user asks for more.',
         'Format: one short sentence with the direct answer, then at most 3 bullets ("- ") with the key numbers or steps. No greeting, no headings, no closing question, no extra sections.',
         'Round amounts (e.g. about $4,300). Mention odd-looking data only if it changes the answer.',
-        'Tools (read-only, aggregates + merchant names): answer from the snapshot when it has what you need. For deeper history (cash flow, savings, categories, merchants) call ONE tool with the widest useful range (several tools only if truly different data) — never repeat a call.',
+        'Tools (read-only): answer from the snapshot when it has what you need. For deeper history (cash flow, savings, categories, merchants) call ONE tool with the widest useful range (several tools only if truly different data) — never repeat a call.',
+        'Anything about a person (who owes whom, loans, splits, group tabs) → people_owed with the name as typed; users mix Vietnamese and English and may drop accents (Quy = Quý). If several people match, list them. A specific merchant, purchase or "my recent transactions" → find_transactions (say whether you quote last month or a total).',
       ].join('\n'),
     },
     // Stable per-user snapshot after the persona; cached so follow-up turns are cheap.
