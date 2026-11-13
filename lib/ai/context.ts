@@ -2,6 +2,7 @@ import type { DashboardData } from '@/lib/sheets';
 import type { Insight } from '@/lib/insights';
 import type { Funding, Split } from '@/types';
 import { calcOwedToYou } from '@/lib/receivables';
+import { maskDigits } from '@/lib/ai/tools';
 import {
   aggregateCategoryTotals,
   calcEmergencyFundMonths,
@@ -11,12 +12,16 @@ import {
   calcSavingsRate,
   detectSubscriptions,
   myBillShare,
+  normalizeMerchant,
   roundCents,
 } from '@/lib/calculations';
 
-// The ONLY data the advisor sends to Claude: aggregates from the same shared
-// calculators the pages use. Never transaction descriptions, merchants or
-// account numbers (asserted in lib/__tests__/ai-context.test.ts).
+// The always-sent snapshot: aggregates from the same shared calculators the
+// pages use, plus bill and subscription NAMES (user's choice; subscription names
+// go through normalizeMerchant, bill names through maskDigits — no account numbers;
+// no charge dates either, they would churn materialFingerprint every month). Never raw transaction
+// descriptions or account numbers (asserted in lib/__tests__/ai-context.test.ts).
+// Deeper detail is behind the chat tools (lib/ai/tools.ts).
 
 const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 const dateKey = (d: Date) => `${monthKey(d)}-${String(d.getDate()).padStart(2, '0')}`;
@@ -52,11 +57,11 @@ export function buildAdvisorContext(data: DashboardData, now: Date, insights: In
     .filter((a) => a.type === 'checking' || a.type === 'savings' || a.type === 'cash')
     .reduce((s, a) => s + a.balance, 0);
 
-  const in30 = dateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 30));
+  const today = dateKey(now);
   const subs = detectSubscriptions(txs, now, settings?.dismissedSubscriptions ?? []).filter((s) => s.isActive);
 
   return {
-    today: dateKey(now),
+    today,
     monthly,
     categoriesThisMonthVs3moAvg: categories,
     budgets: budgets.map((b) => ({ category: b.category, limit: b.amount, period: b.period, spentThisMonth: current[b.category] ?? 0 })),
@@ -73,10 +78,30 @@ export function buildAdvisorContext(data: DashboardData, now: Date, insights: In
     owedToYou: calcOwedToYou(splits, fundings).total,
     cashOnHand: roundCents(cash),
     emergencyFundMonths: Math.round(calcEmergencyFundMonths(cash, avgMonthlySpend) * 10) / 10,
-    billsNext30Days: bills
-      .filter((b) => b.isActive && b.nextDue <= in30)
-      .map((b) => ({ name: b.name, amount: myBillShare(b), dueDate: b.nextDue, frequency: b.frequency })),
-    subscriptions: { count: subs.length, monthlyTotal: roundCents(subs.reduce((s, x) => s + x.monthlyAmount, 0)) },
+    // Every active bill (yearly ones included), soonest first; amount = the user's share.
+    bills: bills
+      .filter((b) => b.isActive)
+      .sort((a, b) => a.nextDue.localeCompare(b.nextDue))
+      .slice(0, 40)
+      .map((b) => {
+        const mine = myBillShare(b);
+        return {
+          name: maskDigits(b.name),
+          amount: mine,
+          ...(mine !== b.amount ? { fullAmount: b.amount } : {}),
+          ...(b.variable ? { estimate: true } : {}),
+          dueDate: b.nextDue,
+          ...(b.nextDue < today ? { overdue: true } : {}),
+          frequency: b.frequency,
+        };
+      }),
+    subscriptions: {
+      monthlyTotal: roundCents(subs.reduce((s, x) => s + x.monthlyAmount, 0)),
+      items: subs
+        .sort((a, b) => b.monthlyAmount - a.monthlyAmount)
+        .slice(0, 25)
+        .map((s) => ({ name: normalizeMerchant(s.merchant).slice(0, 40), amount: s.amount, frequency: s.frequency, perMonth: s.monthlyAmount })),
+    },
     goals: goals.map((g) => ({ name: g.name, target: g.targetAmount, saved: g.currentAmount, deadline: g.deadline })),
     appInsights: insights.map((i) => ({ id: i.id, kind: i.kind, title: i.title, body: i.body })),
   };

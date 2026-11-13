@@ -15,7 +15,7 @@ import { MAX_TURNS, MAX_USER_CHARS, STREAM_ERROR_MARK, type ChatMessage } from '
 const STORE_KEY = 'nf_advisor_chat_v1';
 /** Dispatch on window to open the bubble from anywhere (e.g. NovaTip's "Ask Nova"). */
 export const OPEN_NOVA_EVENT = 'nova:open';
-const CHIPS = ['advisor.chipCut', 'advisor.chipAfford', 'advisor.chipGoals', 'advisor.chipEmergency'] as const;
+const CHIPS = ['advisor.chipOwed', 'advisor.chipBills', 'advisor.chipCut', 'advisor.chipAfford'] as const;
 
 /** Tiny Markdown subset (paragraphs, bullet/numbered lists, **bold**, headings) rendered as text — no HTML injection. */
 function inline(s: string) {
