@@ -263,3 +263,13 @@
     }
   }
 }
+/* Chat overlay on phones: lock page scroll behind it and drop the home-indicator padding while the keyboard is up
+   (see hooks/useKeyboardViewport.ts). */
+html.chat-lock,
+html.chat-lock body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+html[data-kb] .nf-chat-composer {
+  padding-bottom: 0;
+}

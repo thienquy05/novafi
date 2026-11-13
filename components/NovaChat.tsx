@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from '@/lib/i18n/context';
 import { cn } from '@/lib/utils';
 import { NovaFace } from '@/components/NovaFace';
+import { useKeyboardViewport } from '@/hooks/useKeyboardViewport';
 import { MAX_TURNS, MAX_USER_CHARS, STREAM_ERROR_MARK, type ChatMessage } from '@/lib/ai/shared';
 
 // Nova chat as a floating bubble on every app page (mounted once in
@@ -162,7 +163,17 @@ export function NovaChat() {
 
   useEffect(() => () => abortRef.current?.abort(), []);
   useEffect(() => { if (open) endRef.current?.scrollIntoView({ block: 'end' }); }, [messages, open]);
-  useEffect(() => { if (open) inputRef.current?.focus({ preventScroll: true }); }, [open]);
+  useKeyboardViewport(open);
+  // Auto-focus only where there's a physical keyboard: on phones it would pop the keyboard up over the welcome chips.
+  useEffect(() => { if (open && window.matchMedia('(min-width: 768px)').matches) inputRef.current?.focus({ preventScroll: true }); }, [open]);
+  // The visible area changes when the keyboard opens/closes — keep the latest message in view.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!open || !vv) return;
+    const onResize = () => endRef.current?.scrollIntoView({ block: 'end' });
+    vv.addEventListener('resize', onResize);
+    return () => vv.removeEventListener('resize', onResize);
+  }, [open]);
 
   const canSend = !busy && input.trim().length > 0;
   const empty = messages.length === 0;
@@ -198,7 +209,7 @@ export function NovaChat() {
             exit={{ opacity: 0, y: 24, scale: 0.98 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
             className={cn(
-              'fixed z-[150] inset-0 md:inset-auto md:right-6 md:bottom-6 md:w-[400px] flex flex-col',
+              'fixed z-[150] left-0 right-0 top-[var(--vvt,0px)] h-[var(--vvh,100dvh)] md:top-auto md:left-auto md:right-6 md:bottom-6 md:w-[400px] flex flex-col',
               // Desktop: hug the welcome content, then grow to a fixed height once chatting.
               empty ? 'md:h-auto md:max-h-[calc(100dvh-48px)]' : 'md:h-[min(560px,calc(100dvh-48px))]',
               'bg-white dark:bg-slate-900 md:rounded-3xl md:shadow-2xl md:shadow-slate-900/20 md:ring-1 md:ring-slate-200/80 md:dark:ring-slate-700 overflow-hidden',
@@ -282,7 +293,7 @@ export function NovaChat() {
             </div>
 
             {/* Composer */}
-            <div className="shrink-0 pb-safe bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
+            <div className="nf-chat-composer shrink-0 pb-safe bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
               <div className="p-3">
                 <form
                   onSubmit={(e) => { e.preventDefault(); if (canSend) send(messages, input); }}
