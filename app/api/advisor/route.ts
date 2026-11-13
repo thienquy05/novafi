@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
-import { ADVISOR_MODEL, FALLBACK_PARAMS, advisorPersona, getClaude, parseMessages, rateLimited } from '@/lib/ai/claude';
+import { ADVISOR_MODEL, FALLBACK_PARAMS, advisorPersona, getClaude, languageName, parseMessages, rateLimited } from '@/lib/ai/claude';
 import { loadAdvisorInputs } from '@/lib/ai/load';
 import { STREAM_ERROR_MARK } from '@/lib/ai/shared';
 import { ADVISOR_TOOLS, runAdvisorTool } from '@/lib/ai/tools';
@@ -31,21 +31,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'data_unavailable' }, { status: 502 });
   }
   const { lang, context, toolEnv } = inputs; // errors after this point are streamed as STREAM_ERROR_MARK + i18n key
+  // The insight cards restate snapshot numbers as prose — only smart text needs them.
+  const { appInsights: _cards, ...snapshot } = context;
+  void _cards;
 
   const system: Anthropic.Beta.BetaTextBlockParam[] = [
     {
       type: 'text',
       text: [
-        advisorPersona(lang),
-        'Chat style: answer only the question asked, in at most 80 words unless the user asks for more.',
-        'Format: one short sentence with the direct answer, then at most 3 bullets ("- ") with the key numbers or steps. No greeting, no headings, no closing question, no extra sections.',
-        'Round amounts (e.g. about $4,300). Mention odd-looking data only if it changes the answer.',
-        'Tools (read-only): answer from the snapshot when it has what you need. For deeper history (cash flow, savings, categories, merchants) call ONE tool with the widest useful range (several tools only if truly different data) — never repeat a call.',
-        'Anything about a person (who owes whom, loans, splits, group tabs) → people_owed with the name as typed; users mix Vietnamese and English and may drop accents (Quy = Quý). If several people match, list them. A specific merchant, purchase or "my recent transactions" → find_transactions (say whether you quote last month or a total).',
+        advisorPersona(),
+        `Reply in the language of the user's latest message (they often mix Vietnamese and English); if unclear, use ${languageName(lang)}.`,
+        'Answer the question directly and briefly (about 80 words unless asked for more), bullets when useful. Exact amounts for debts and single charges.',
+        'Use the read-only tools for anything the snapshot lacks; if no tool has it either, say so in one line.',
       ].join('\n'),
     },
     // Stable per-user snapshot after the persona; cached so follow-up turns are cheap.
-    { type: 'text', text: `Financial snapshot:\n${JSON.stringify(context)}`, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: `Financial snapshot:\n${JSON.stringify(snapshot)}`, cache_control: { type: 'ephemeral' } },
   ];
   // Tool definitions render before the system prompt; marking the last one caches tools + system together.
   const tools = ADVISOR_TOOLS.map((t, i) => (i === ADVISOR_TOOLS.length - 1 ? { ...t, cache_control: { type: 'ephemeral' as const } } : t));

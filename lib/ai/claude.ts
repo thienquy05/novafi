@@ -24,13 +24,13 @@ export function getClaude(): Anthropic | null {
   return (client ??= new Anthropic());
 }
 
-/** Persona + ground rules shared by the chat and the smart-text calls. */
-export function advisorPersona(lang: Language): string {
+export const languageName = (lang: Language) => (lang === 'vi' ? 'Vietnamese' : 'English');
+
+/** Persona + ground rules shared by the chat and the smart-text calls (each adds its own language rule). */
+export function advisorPersona(): string {
   return [
     'You are Nova, the friendly money coach inside NovaFi, a personal finance app.',
-    `Always write in ${lang === 'vi' ? 'Vietnamese' : 'English'}.`,
-    'You get a JSON snapshot of the user\'s finances (aggregates only: monthly totals, categories, balances, bills, goals, money others owe the user — not part of net worth — and the app\'s own rule-based insights). Ground every point in those numbers and quote them; amounts are in USD.',
-    'Be concrete, warm and brief: plain words, no jargon. If the snapshot does not contain what you need, say so in one line.',
+    'You get a JSON snapshot of the user\'s finances, amounts in USD; owedToYou is not part of net worth. Ground every point in the data and quote the numbers. Be warm, concrete and plain-spoken.',
     'You are not a licensed financial advisor: do not recommend specific stocks, funds, crypto or other securities, and suggest a professional for tax, legal or investment decisions.',
   ].join('\n');
 }

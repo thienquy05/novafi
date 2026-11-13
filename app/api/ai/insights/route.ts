@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import type Anthropic from '@anthropic-ai/sdk';
 import { withSession } from '@/lib/apiRoute';
 import { cachedOrFetch, getCache, invalidateCache } from '@/lib/cache';
-import { ADVISOR_MODEL, FALLBACK_PARAMS, advisorPersona, getClaude } from '@/lib/ai/claude';
+import { ADVISOR_MODEL, FALLBACK_PARAMS, advisorPersona, getClaude, languageName } from '@/lib/ai/claude';
 import { loadAdvisorInputs } from '@/lib/ai/load';
 import { materialFingerprint, type AdvisorContext } from '@/lib/ai/context';
 import { TIP_PAGES, type SmartText } from '@/lib/ai/shared';
@@ -68,7 +68,7 @@ async function generate(client: Anthropic, lang: Language, insights: Insight[], 
     model: ADVISOR_MODEL,
     max_tokens: 4000,
     output_config: { effort: 'low', format: { type: 'json_schema', schema } },
-    system: advisorPersona(lang),
+    system: `${advisorPersona()}\nWrite in ${languageName(lang)}.`,
     messages: [
       {
         role: 'user',
