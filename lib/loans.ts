@@ -1,6 +1,6 @@
 import type { Loan, Transaction } from '@/types';
 import { roundCents } from './calculations';
-import { today } from './utils';
+import { generateId, today } from './utils';
 
 // ── Ledger → loan reconciliation ──────────────────────────────────────────────
 // A loan caches numbers (`principal`, `repaidAmount`, `settled`) derived from
@@ -47,4 +47,32 @@ export function syncLoanTxRemoval(l: Loan, tx: Transaction): Loan | null {
     return { ...next, repaymentTxIds: (l.repaymentTxIds ?? []).filter((id) => id !== tx.id) };
   }
   return null;
+}
+
+// Builds the cash-movement transaction for a loan principal or payback. It's a
+// `transfer` with an external (empty) counterparty so it shifts the account
+// balance WITHOUT counting as income or expense. Cash leaves the account when
+// you lend the principal or repay something you borrowed; otherwise it comes in.
+export function buildLoanTx(
+  direction: Loan['direction'],
+  kind: 'principal' | 'payback',
+  amount: number,
+  account: string,
+  description: string,
+  date: string,
+): Transaction {
+  const cashOut = (direction === 'lent') === (kind === 'principal');
+  return {
+    id: generateId(),
+    date,
+    description,
+    amount,
+    type: 'transfer',
+    // Tagged 'Loan' (not 'Transfer') so the ledger history shows a distinct
+    // loan icon/name. It stays a `transfer`, so income/expense math is unaffected.
+    category: 'Loan',
+    account: cashOut ? account : '',
+    toAccount: cashOut ? '' : account,
+    createdAt: new Date().toISOString(),
+  };
 }

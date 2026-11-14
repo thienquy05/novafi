@@ -8,8 +8,9 @@ import {
   calcSavingsRate,
   normalizeMerchant,
 } from '@/lib/calculations';
-import { isRealPool, participantOwed, participantRepaid } from '@/lib/funding';
+import { isRealPool, participantOverpaid, participantOwed, participantRepaid } from '@/lib/funding';
 import { isOneOffSplit, splitRemaining } from '@/lib/splits';
+import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '@/types';
 import type { Contact, Funding, Loan, Split } from '@/types';
 
 // On-demand, read-only tools for the Nova chat. The always-sent snapshot stays
@@ -18,8 +19,9 @@ import type { Contact, Funding, Loan, Split } from '@/types';
 // dollars, months as parallel arrays (fewer tokens than rows). By the user's
 // choice two tools go deeper: find_transactions lists single transactions
 // (description, date, amount) but only for the last 2 months, and people_owed
-// names the people in loans/splits/group tabs. Never ids or account numbers
-// (long digit runs in descriptions are masked).
+// names the people in loans/splits/group tabs. Record ids are included only so
+// Nova's write actions (lib/ai/actions.ts) can point at one; never account
+// numbers (long digit runs in descriptions are masked).
 
 export type ToolEnv = {
   data: DashboardData; fundings: Funding[]; loans: Loan[]; splits: Split[]; contacts: Contact[]; now: Date;
@@ -108,6 +110,11 @@ export const ADVISOR_TOOLS = [
         months: { type: 'integer', description: `${MONTHS_DESC} Default ${DETAIL_MONTHS}, max 24 (single transactions are still only the last ${DETAIL_MONTHS}).` },
       },
     },
+  },
+  {
+    name: 'accounts_and_tabs',
+    description: 'Exact names to use in actions: the user\'s accounts (name, type, balance), expense and income categories, and group tabs (name, kind, open tab or not, archived, spent, each person\'s share, paid back, still owes, to refund). Call before an action when you are not sure of a name.',
+    input_schema: { type: 'object', properties: {} },
   },
   {
     name: 'cash_flow_outlook',
@@ -208,7 +215,7 @@ function cashFlowOutlook(env: ToolEnv) {
   };
 }
 
-type OweItem = { source: 'loan' | 'bill_split' | 'expense_split' | 'group_tab'; what: string; date: string; direction: 'they_owe_me' | 'i_owe_them'; original: number; paidBack: number; remaining: number };
+type OweItem = { id: string; source: 'loan' | 'bill_split' | 'expense_split' | 'group_tab'; what: string; date: string; direction: 'they_owe_me' | 'i_owe_them'; original: number; paidBack: number; remaining: number };
 
 function peopleOwed(env: ToolEnv, input: Record<string, unknown>) {
   const query = typeof input.name === 'string' ? input.name.trim() : '';
@@ -229,16 +236,19 @@ function peopleOwed(env: ToolEnv, input: Record<string, unknown>) {
 
   for (const l of env.loans) {
     const remaining = l.settled ? 0 : Math.max(0, l.principal - (l.repaidAmount || 0));
-    add(l.contactName, l.contactId, { source: 'loan', what: l.note || 'loan', date: l.date, direction: l.direction === 'lent' ? 'they_owe_me' : 'i_owe_them', original: l.principal, paidBack: l.repaidAmount || 0, remaining });
+    add(l.contactName, l.contactId, { id: l.id, source: 'loan', what: l.note || 'loan', date: l.date, direction: l.direction === 'lent' ? 'they_owe_me' : 'i_owe_them', original: l.principal, paidBack: l.repaidAmount || 0, remaining });
   }
   for (const s of env.splits) {
-    add(s.contactName, s.contactId, { source: isOneOffSplit(s) ? 'expense_split' : 'bill_split', what: s.billName, date: s.date, direction: 'they_owe_me', original: s.amount, paidBack: s.repaidAmount || 0, remaining: splitRemaining(s) });
+    add(s.contactName, s.contactId, { id: s.id, source: isOneOffSplit(s) ? 'expense_split' : 'bill_split', what: s.billName, date: s.date, direction: 'they_owe_me', original: s.amount, paidBack: s.repaidAmount || 0, remaining: splitRemaining(s) });
   }
   for (const f of env.fundings) {
     if (isRealPool(f)) continue; // everyone already paid in — nothing to settle
     for (const p of f.participants) {
       if (p.isMe) continue;
-      add(p.name, '', { source: 'group_tab', what: f.description, date: f.date, direction: 'they_owe_me', original: p.contributed || 0, paidBack: participantRepaid(f.repayments, p), remaining: f.closed ? 0 : participantOwed(p, f.repayments) });
+      add(p.name, '', { id: f.id, source: 'group_tab', what: f.description, date: f.date, direction: 'they_owe_me', original: p.contributed || 0, paidBack: participantRepaid(f.repayments, p), remaining: f.closed ? 0 : participantOwed(p, f.repayments) });
+      // Paid back more than their (re-split) share → the user owes them a refund.
+      const refund = participantOverpaid(p, f.repayments);
+      if (refund > 0) add(p.name, '', { id: f.id, source: 'group_tab', what: `refund — ${f.description}`, date: f.date, direction: 'i_owe_them', original: refund, paidBack: 0, remaining: refund });
     }
   }
 
@@ -280,7 +290,7 @@ function findTransactions(env: ToolEnv, input: Record<string, unknown>) {
   const accountName = new Map(env.data.accounts.map((a) => [a.id, a.name]));
   const spending = new Array<number>(months.length).fill(0);
   const income = new Array<number>(months.length).fill(0);
-  const rows: { date: string; description: string; amount: number; type: string; category: string; account: string }[] = [];
+  const rows: { id: string; date: string; description: string; amount: number; type: string; category: string; account: string }[] = [];
   let count = 0;
   for (const t of env.data.transactions) {
     const i = idx.get(t.date.slice(0, 7));
@@ -292,7 +302,7 @@ function findTransactions(env: ToolEnv, input: Record<string, unknown>) {
     else if (q || cat) continue; // transfers only show up in the unfiltered "latest" list
     count += 1;
     if (detail.has(t.date.slice(0, 7))) {
-      rows.push({ date: t.date, description: maskDigits(t.description), amount: usd2(t.amount), type: t.type, category: t.category, account: maskDigits(accountName.get(t.account) ?? '') });
+      rows.push({ id: t.id, date: t.date, description: maskDigits(t.description), amount: usd2(t.amount), type: t.type, category: t.category, account: maskDigits(accountName.get(t.account) ?? '') });
     }
   }
   rows.sort((a, b) => b.date.localeCompare(a.date));
@@ -308,6 +318,32 @@ function findTransactions(env: ToolEnv, input: Record<string, unknown>) {
   };
 }
 
+function accountsAndTabs(env: ToolEnv) {
+  const s = env.data.settings;
+  const name = (p: { name: string; isMe: boolean }) => (p.isMe ? 'me' : maskDigits(p.name));
+  return {
+    accounts: env.data.accounts.filter((a) => a.type !== 'pool').map((a) => ({ name: maskDigits(a.name), type: a.type, balance: usd2(a.balance) })),
+    expenseCategories: [...EXPENSE_CATEGORIES, ...(s.customExpenseCategories ?? [])].filter((c) => !(s.hiddenExpenseCategories ?? []).includes(c)),
+    incomeCategories: [...INCOME_CATEGORIES, ...(s.customIncomeCategories ?? [])].filter((c) => !(s.hiddenIncomeCategories ?? []).includes(c)),
+    groupTabs: env.fundings.slice(0, 30).map((f) => ({
+      name: maskDigits(f.description),
+      kind: isRealPool(f) ? 'group_vault' : f.autoSplit ? 'open_tab' : 'fixed_pledge_tab',
+      archived: f.closed,
+      spent: usd2(f.spent),
+      people: f.participants.map((p) => ({
+        name: name(p),
+        share: usd2(p.contributed || 0),
+        ...(isRealPool(f) || p.isMe ? {} : {
+          paidBack: participantRepaid(f.repayments, p),
+          owes: participantOwed(p, f.repayments),
+          toRefund: participantOverpaid(p, f.repayments),
+        }),
+      })),
+    })),
+    ...(env.unavailable?.length ? { warning: `could not read ${env.unavailable.join(', ')}` } : {}),
+  };
+}
+
 /** Runs one tool; always returns a compact JSON string (errors included) so a bad call never breaks the chat. */
 export function runAdvisorTool(name: string, input: unknown, env: ToolEnv): string {
   const args = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
@@ -320,6 +356,7 @@ export function runAdvisorTool(name: string, input: unknown, env: ToolEnv): stri
       case 'people_owed': return JSON.stringify(peopleOwed(env, args));
       case 'find_transactions': return JSON.stringify(findTransactions(env, args));
       case 'cash_flow_outlook': return JSON.stringify(cashFlowOutlook(env));
+      case 'accounts_and_tabs': return JSON.stringify(accountsAndTabs(env));
       default: return JSON.stringify({ error: 'unknown_tool' });
     }
   } catch {
