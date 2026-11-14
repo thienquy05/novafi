@@ -38,7 +38,7 @@ class PlanError extends Error {
 
 const CONFIRM_FIRST = {
   type: 'boolean',
-  description: 'true when you had to assume something the user did not say (account, amount, person, date): the user then sees a summary and must OK it. Risky actions always wait for OK anyway.',
+  description: 'true when you had to assume something the user did not say (account, amount, person, date): the user then sees a summary and must OK it. Risky actions, and any account, tab or person name that is not typed exactly, always wait for OK anyway.',
 } as const;
 const DATE = { type: 'string', description: 'YYYY-MM-DD; default today.' } as const;
 const TAB = { type: 'string', description: 'Group tab name (or its start), as listed by accounts_and_tabs.' } as const;
@@ -220,9 +220,8 @@ function accountOf(c: Ctx, query: unknown, what = 'account'): Account {
   const usable = c.env.data.accounts.filter((a) => a.type !== 'pool');
   const q = str(query);
   const byId = usable.find((a) => a.id === q);
-  // A unique start-of-name match is fine for the user's OWN accounts ("chase" → "Chase Checking")
-  // and tabs ("new york" → "New York trip"): few, distinct names. People flag loose matches for an OK.
-  return byId ?? pickByName(usable, (a) => a.name, q, what, { loose: false });
+  // Not the exact name ("chase" → "Chase Checking")? The card shows what was found and waits for the user's OK.
+  return byId ?? pickByName(usable, (a) => a.name, q, what, c.flags);
 }
 
 function categoryOf(env: ActionEnv, type: 'expense' | 'income', query: unknown): string {
@@ -246,10 +245,10 @@ function tabOf(c: Ctx, query: unknown): Funding {
   if (exact.length === 1) return exact[0];
   const open = env.fundings.filter((f) => !f.closed);
   try {
-    return pickByName(open.length ? open : env.fundings, (f) => f.description, q, 'group tab', { loose: false });
+    return pickByName(open.length ? open : env.fundings, (f) => f.description, q, 'group tab', c.flags);
   } catch (e) {
     if (open.length === env.fundings.length) throw e;
-    return pickByName(env.fundings, (f) => f.description, q, 'group tab', { loose: false });
+    return pickByName(env.fundings, (f) => f.description, q, 'group tab', c.flags);
   }
 }
 

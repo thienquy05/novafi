@@ -130,7 +130,7 @@ describe('Nova actions — group tab re-split (New York trip: 7 → 9 people)', 
 
 describe('Nova actions — transactions and paybacks', () => {
   it('a clear expense runs straight away (not risky) on the matched account and category', () => {
-    const p = plan('add_transaction', { type: 'expense', amount: 24.5, description: 'Lunch', category: 'food', account: 'chase' });
+    const p = plan('add_transaction', { type: 'expense', amount: 24.5, description: 'Lunch', category: 'food', account: 'Chase Checking' });
     expect(p.risky).toBe(false);
     expect(p.request).toMatchObject({ method: 'POST', path: '/api/transactions', body: { amount: 24.5, category: 'Food', account: 'chk', date: '2026-11-14', type: 'expense' } });
   });
@@ -203,7 +203,7 @@ describe('Nova actions — review fixes', () => {
     const r = plan('group_tab_payback', { tab: 'new york', person: 'an', amount: 20, account: 'chase' }, env);
     expect(r.lines[0]).toContain('Anh Tuấn');
     expect(r.risky).toBe(true); // loose → card
-    expect(plan('group_tab_payback', { tab: 'new york', person: 'Lan', amount: 20, account: 'chase' }, env).risky).toBe(false);
+    expect(plan('group_tab_payback', { tab: 'New York trip', person: 'Lan', amount: 20, account: 'Chase Checking' }, env).risky).toBe(false);
   });
 
   it('refuses to edit/delete rows owned by a group tab, loan or split', () => {
@@ -213,6 +213,16 @@ describe('Nova actions — review fixes', () => {
       expect(!r.ok && r.error).toContain('New York trip');
     }
     expect(planAction('edit_transaction', { id: 's2e', amount: 1 }, makeEnv()).ok).toBe(false);
+  });
+
+  it('a partial account or tab name shows what was found and waits for OK', () => {
+    const acc = plan('add_transaction', { type: 'expense', amount: 5, description: 'Coffee', account: 'chase' });
+    expect(acc.risky).toBe(true);
+    expect(acc.lines[0]).toContain('Chase Checking');
+    const tab = plan('group_tab_archive', { tab: 'new york', archived: true });
+    expect(tab.risky).toBe(true);
+    expect(tab.title).toContain('New York trip');
+    expect(plan('group_tab_archive', { tab: 'New York trip', archived: true }).risky).toBe(false);
   });
 
   it('moving a row to another account waits for OK', () => {
