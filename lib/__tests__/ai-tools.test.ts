@@ -132,7 +132,8 @@ describe('advisor tools', () => {
     expect(r.totalSpending).toBe(36.97);
     expect(r.matches).toBe(3);
     expect(r.transactions.map((t: { date: string }) => t.date)).toEqual(['2026-07-14', '2026-06-20']);
-    expect(JSON.stringify(r)).not.toContain('4412345');
+    // Ids are the fixture's (built from the description); real ids are generated timestamps.
+    expect(JSON.stringify({ ...r, transactions: r.transactions.map((t: { id?: string }) => ({ ...t, id: undefined })) })).not.toContain('4412345');
   });
 
   it('find_transactions with no filter lists the latest rows incl. transfers, never older than 2 months', () => {

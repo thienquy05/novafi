@@ -1,12 +1,12 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Send, RotateCcw, X } from 'lucide-react';
+import { Send, RotateCcw, X, Check, Loader2, AlertTriangle, Ban } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from '@/lib/i18n/context';
 import { cn } from '@/lib/utils';
 import { NovaFace } from '@/components/NovaFace';
 import { useKeyboardViewport } from '@/hooks/useKeyboardViewport';
-import { MAX_TURNS, MAX_USER_CHARS, STREAM_ERROR_MARK, type ChatMessage } from '@/lib/ai/shared';
+import { ACTION_END, ACTION_MARK, MAX_TURNS, MAX_USER_CHARS, STREAM_ERROR_MARK, actionNote, type ActionCard, type ActionStatus, type ChatMessage } from '@/lib/ai/shared';
 
 // Nova chat as a floating bubble on every app page (mounted once in
 // app/(app)/layout.tsx, so it survives navigation and keeps streaming while
@@ -59,6 +59,95 @@ function Rich({ text }: { text: string }) {
   );
 }
 
+/** Split a streamed answer into its text and the action cards embedded in it (an unfinished trailing card is dropped until it completes). */
+type PlannedCard = Omit<ActionCard, 'status' | 'id'>;
+function parseStream(raw: string): { text: string; cards: PlannedCard[] } {
+  const cards: PlannedCard[] = [];
+  let text = '';
+  let rest = raw;
+  for (;;) {
+    const start = rest.indexOf(ACTION_MARK);
+    if (start < 0) { text += rest; break; }
+    text += rest.slice(0, start);
+    const end = rest.indexOf(ACTION_END, start);
+    if (end < 0) break; // still streaming
+    try { cards.push(JSON.parse(rest.slice(start + 1, end))); } catch { /* ignore a malformed card */ }
+    rest = rest.slice(end + 1);
+  }
+  return { text, cards };
+}
+
+/** What the server sees: the reply plus one note per action so Nova knows what was saved, cancelled or still waiting. */
+const forServer = (m: ChatMessage) => ({
+  role: m.role,
+  content: m.actions?.length ? `${m.content || '…'}\n\n${m.actions.map(actionNote).join('\n')}` : m.content || '…',
+});
+
+let cardSeq = 0;
+const toCards = (cards: PlannedCard[], ids?: string[]): ActionCard[] | undefined =>
+  cards.length ? cards.map((c, i) => ({ ...c, id: ids?.[i] ?? `c${Date.now()}-${cardSeq++}`, status: 'pending' })) : undefined;
+
+/** A card re-planned in this reply (the user said "yes" in words) supersedes its earlier pending copy. */
+function markReplaced(history: ChatMessage[], cards: PlannedCard[]): ChatMessage[] {
+  const fps = new Set(cards.map((c) => c.fp));
+  if (!fps.size) return history;
+  return history.map((m) => (m.actions?.some((a) => fps.has(a.fp) && a.status === 'pending')
+    ? { ...m, actions: m.actions.map((a) => (fps.has(a.fp) && a.status === 'pending' ? { ...a, status: 'replaced' as const } : a)) }
+    : m));
+}
+
+function ActionCardView({ card, locked, onConfirm, onCancel }: { card: ActionCard; locked: boolean; onConfirm: () => void; onCancel: () => void }) {
+  const { t } = useTranslation();
+  const tone: Record<ActionStatus, string> = {
+    pending: 'ring-indigo-200 dark:ring-indigo-800 bg-indigo-50/60 dark:bg-indigo-950/30',
+    running: 'ring-slate-200 dark:ring-slate-700 bg-white dark:bg-slate-800',
+    done: 'ring-emerald-200 dark:ring-emerald-800 bg-emerald-50/60 dark:bg-emerald-950/30',
+    failed: 'ring-rose-200 dark:ring-rose-800 bg-rose-50/60 dark:bg-rose-950/30',
+    changed: 'ring-amber-200 dark:ring-amber-800 bg-amber-50/60 dark:bg-amber-950/30',
+    cancelled: 'ring-slate-200 dark:ring-slate-700 bg-slate-50 dark:bg-slate-800/60 opacity-75',
+    replaced: 'ring-slate-200 dark:ring-slate-700 bg-slate-50 dark:bg-slate-800/60 opacity-75',
+  };
+  return (
+    <div className={cn('rounded-2xl ring-1 px-4 py-3 text-[13px] leading-relaxed', tone[card.status])}>
+      <p className="font-bold text-slate-900 dark:text-white wrap-anywhere">{card.title}</p>
+      <ul className="mt-1.5 space-y-1 text-slate-600 dark:text-slate-300">
+        {card.lines.map((line, i) => (
+          <li key={i} className="flex gap-2">
+            <span className="mt-[7px] w-1 h-1 rounded-full bg-slate-400 shrink-0" />
+            <span className="min-w-0 wrap-anywhere">{line}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-2.5" aria-live="polite">
+        {card.status === 'pending' ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={onConfirm} disabled={locked} className="min-h-11 disabled:opacity-50 px-4 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+              {t('advisor.actionConfirm')}
+            </button>
+            <button onClick={onCancel} disabled={locked} className="min-h-11 disabled:opacity-50 px-4 rounded-xl bg-white dark:bg-slate-800 ring-1 ring-slate-200 dark:ring-slate-600 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 focus-visible:outline-2 focus-visible:outline-indigo-500">
+              {t('advisor.actionCancel')}
+            </button>
+            <span className="text-xs text-slate-500 dark:text-slate-400 wrap-anywhere">{t('advisor.actionWaiting')}</span>
+          </div>
+        ) : (
+          <p className={cn('flex items-center gap-1.5 text-xs font-bold wrap-anywhere', {
+            'text-slate-500 dark:text-slate-400': card.status === 'running' || card.status === 'cancelled' || card.status === 'replaced',
+            'text-emerald-700 dark:text-emerald-300': card.status === 'done',
+            'text-rose-700 dark:text-rose-300': card.status === 'failed',
+            'text-amber-700 dark:text-amber-300': card.status === 'changed',
+          })}>
+            {card.status === 'running' && <Loader2 className="w-3.5 h-3.5 shrink-0 motion-safe:animate-spin" />}
+            {card.status === 'done' && <Check className="w-3.5 h-3.5 shrink-0" />}
+            {(card.status === 'failed' || card.status === 'changed') && <AlertTriangle className="w-3.5 h-3.5 shrink-0" />}
+            {(card.status === 'cancelled' || card.status === 'replaced') && <Ban className="w-3.5 h-3.5 shrink-0" />}
+            {t(`advisor.action_${card.status}`)}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TypingDots() {
   return (
     <span className="flex items-center gap-1 py-1" aria-hidden>
@@ -97,7 +186,7 @@ export function NovaChat() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // History is always odd-length and alternating, so the last MAX_TURNS (odd) still starts with a user turn.
-        body: JSON.stringify({ messages: next.slice(-MAX_TURNS) }),
+        body: JSON.stringify({ messages: next.slice(-MAX_TURNS).map(forServer) }),
         signal: ac.signal,
       });
       if (!res.ok || !res.body) {
@@ -105,24 +194,34 @@ export function NovaChat() {
       }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
+      // Only the reply being streamed is replaced (functional update), so a Confirm / Cancel
+      // tapped on an older card meanwhile is never overwritten. This reply's cards stay locked
+      // until the stream ends; each keeps one id from first appearance.
+      const ids: string[] = [];
+      const replaceLast = (msg: ChatMessage) => setMessages((list) => [...list.slice(0, -1), msg]);
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
         answer += decoder.decode(value, { stream: true });
-        setMessages([...next, { role: 'assistant', content: answer.split(STREAM_ERROR_MARK)[0] }]);
+        const live = parseStream(answer.split(STREAM_ERROR_MARK)[0]);
+        const cards = toCards(live.cards, ids);
+        cards?.forEach((c, i) => { ids[i] = c.id; });
+        replaceLast({ role: 'assistant', content: live.text, actions: cards });
       }
       // A server-side failure arrives as MARK + i18n key: show it as an error, never as a saved answer.
-      const [text, failKey] = answer.split(STREAM_ERROR_MARK);
-      if (failKey) throw new Error(failKey.trim());
-      answer = text;
-      if (!answer.trim()) throw new Error('advisor.error');
-      const final: ChatMessage[] = [...next, { role: 'assistant', content: answer.trim() }];
-      setMessages(final);
-      try { sessionStorage.setItem(STORE_KEY, JSON.stringify({ lang, messages: final })); } catch { /* ignore */ }
+      const [raw, failKey] = answer.split(STREAM_ERROR_MARK);
+      const { text, cards } = parseStream(raw);
+      if (failKey && !cards.length) throw new Error(failKey.trim());
+      if (!text.trim() && !cards.length) throw new Error('advisor.error');
+      const actions = toCards(cards, ids);
+      setMessages((list) => [...markReplaced(list.slice(0, -1), cards), { role: 'assistant', content: text.trim(), actions }]);
+      if (failKey) setError(failKey.trim());
+      // A clear simple action runs straight away; risky ones wait for Confirm.
+      for (const a of actions ?? []) if (!a.needsConfirm) void runRef.current(a);
     } catch (err) {
       if (ac.signal.aborted) return;
-      // Drop the failed exchange so the history stays alternating.
-      setMessages(history);
+      // Drop the failed exchange (the user turn + the reply) so the history stays alternating.
+      setMessages((list) => list.slice(0, -2));
       setError(err instanceof Error && err.message.startsWith('advisor.') ? err.message : 'advisor.error');
     } finally {
       if (abortRef.current === ac) {
@@ -130,7 +229,34 @@ export function NovaChat() {
         setBusy(false);
       }
     }
-  }, [lang]);
+  }, []);
+
+  const setStatus = useCallback((id: string, status: ActionStatus) => {
+    setMessages((list) => list.map((m) => (m.actions?.some((a) => a.id === id)
+      ? { ...m, actions: m.actions.map((a) => (a.id === id ? { ...a, status } : a)) }
+      : m)));
+  }, []);
+
+  // Each card runs at most once per page load, whatever the render state says.
+  const startedRef = useRef(new Set<string>());
+  // Run one planned action through /api/advisor/execute (re-planned server-side; 409 = data changed since the card was shown).
+  const runAction = useCallback(async (card: ActionCard) => {
+    if (startedRef.current.has(card.id)) return;
+    startedRef.current.add(card.id);
+    setStatus(card.id, 'running');
+    try {
+      const res = await fetch('/api/advisor/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tool: card.tool, input: card.input, fp: card.fp }),
+      });
+      setStatus(card.id, res.ok ? 'done' : res.status === 409 ? 'changed' : 'failed');
+    } catch {
+      setStatus(card.id, 'failed');
+    }
+  }, [setStatus]);
+  const runRef = useRef(runAction);
+  useEffect(() => { runRef.current = runAction; }, [runAction]);
 
   const startFresh = useCallback(() => {
     abortRef.current?.abort();
@@ -141,10 +267,15 @@ export function NovaChat() {
   }, []);
 
   // Restore this session's chat (same language) once on mount — no request is made.
+  // An action that was still running when the page went away has an unknown outcome: never re-run it blindly.
   useEffect(() => {
     try {
       const saved = JSON.parse(sessionStorage.getItem(STORE_KEY) ?? 'null') as { lang: string; messages: ChatMessage[] } | null;
-      if (saved?.lang === lang && Array.isArray(saved.messages) && saved.messages.length >= 2) setMessages(saved.messages);
+      if (saved?.lang === lang && Array.isArray(saved.messages) && saved.messages.length >= 2) {
+        setMessages(saved.messages.map((m) => (m.actions
+          ? { ...m, actions: m.actions.map((a, j) => ({ ...a, id: a.id || `r${j}-${a.fp}`, status: a.status === 'running' ? 'changed' as const : a.status })) }
+          : m)));
+      }
     } catch { /* ignore */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount only
   }, []);
@@ -160,6 +291,12 @@ export function NovaChat() {
       window.removeEventListener('keydown', onKey);
     };
   }, []);
+
+  // Keep the finished chat (and each action's status) for this tab session.
+  useEffect(() => {
+    if (busy || messages.length < 2) return;
+    try { sessionStorage.setItem(STORE_KEY, JSON.stringify({ lang, messages })); } catch { /* ignore */ }
+  }, [messages, busy, lang]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
   useEffect(() => { if (open) endRef.current?.scrollIntoView({ block: 'end' }); }, [messages, open]);
@@ -275,9 +412,22 @@ export function NovaChat() {
                   </div>
                 ) : (
                   <div key={i} className="flex items-start gap-2">
-                    <NovaFace reaction={m.content ? 'blink' : 'sparkle'} size={32} />
-                    <div className="min-w-0 max-w-[calc(100%_-_40px)] rounded-2xl rounded-tl-md bg-white dark:bg-slate-800 ring-1 ring-slate-200/70 dark:ring-slate-700/70 px-4 py-3 text-[14px] leading-relaxed text-slate-700 dark:text-slate-200 wrap-anywhere shadow-sm [&_strong]:text-slate-900 dark:[&_strong]:text-white">
-                      {m.content ? <Rich text={m.content} /> : <TypingDots />}
+                    <NovaFace reaction={m.content || m.actions?.length ? 'blink' : 'sparkle'} size={32} />
+                    <div className="min-w-0 max-w-[calc(100%_-_40px)] flex-1 space-y-2">
+                      {(m.content || !m.actions?.length) && (
+                        <div className="w-fit max-w-full rounded-2xl rounded-tl-md bg-white dark:bg-slate-800 ring-1 ring-slate-200/70 dark:ring-slate-700/70 px-4 py-3 text-[14px] leading-relaxed text-slate-700 dark:text-slate-200 wrap-anywhere shadow-sm [&_strong]:text-slate-900 dark:[&_strong]:text-white">
+                          {m.content ? <Rich text={m.content} /> : <TypingDots />}
+                        </div>
+                      )}
+                      {m.actions?.map((a) => (
+                        <ActionCardView
+                          key={a.id}
+                          card={a}
+                          locked={busy && i === messages.length - 1}
+                          onConfirm={() => { if (a.status === 'pending') void runAction(a); }}
+                          onCancel={() => { if (a.status === 'pending' && !startedRef.current.has(a.id)) setStatus(a.id, 'cancelled'); }}
+                        />
+                      ))}
                     </div>
                   </div>
                 ),

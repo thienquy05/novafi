@@ -22,7 +22,7 @@ import { useTranslation } from '@/lib/i18n/context';
 import type { Account, Funding, FundingContribution, FundingParticipant, FundingReimbursement, FundingRepayment, Transaction } from '@/types';
 import {
   myContribution, totalContribution, poolRemaining,
-  buildSpendTxs, buildRepayTx, groupFundingSpends, participantOwed, participantRepaid, totalOwed,
+  buildSpendTxs, buildRepayTx, groupFundingSpends, participantOwed, participantRepaid, totalOwed, participantOverpaid, isRefund,
   totalRepaid, isFullySettled, shiftAutoSplit, defaultMyShare,
   isRealPool, buildPoolContributionTx, participantsFromContributions, contributionsTotal, poolProgress,
   repointRealPoolAccount, planVirtualPoolEdit, buildPoolActivity, referencedTxIds,
@@ -602,7 +602,8 @@ export default function FundingPage() {
         lines.push(`  • ${p.name}: ${formatCurrency(p.contributed)} contributed`);
       } else {
         const owe = participantOwed(p, f.repayments);
-        const status = p.isMe ? 'your pledge' : owe > 0 ? `owes ${formatCurrency(owe)}` : 'settled ✓';
+        const refund = participantOverpaid(p, f.repayments);
+        const status = p.isMe ? 'your pledge' : owe > 0 ? `owes ${formatCurrency(owe)}` : refund > 0 ? `to refund ${formatCurrency(refund)}` : 'settled ✓';
         lines.push(`  • ${p.name}: ${formatCurrency(p.contributed)} — ${status}`);
       }
     }
@@ -900,6 +901,7 @@ export default function FundingPage() {
             {f.participants.map((p, i) => {
               const owe = participantOwed(p, f.repayments);
               const paid = participantRepaid(f.repayments, p);
+              const refund = participantOverpaid(p, f.repayments);
               return (
                 <div key={i} className="flex items-center justify-between gap-2 text-sm">
                   <span className={`inline-flex items-center gap-1.5 font-bold px-2.5 py-1 rounded-lg ${p.isMe ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
@@ -919,6 +921,9 @@ export default function FundingPage() {
                     <button onClick={() => openPay(f, p)} className="text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline">
                       {t('funding.owesYou', { amount: formatCurrency(owe) })}
                     </button>
+                  ) : refund > 0 ? (
+                    // Paid back more than their share (e.g. after a re-split): the user owes it back.
+                    <span className="text-xs font-bold text-rose-600 dark:text-rose-400 text-right wrap-anywhere">{t('funding.toRefund', { amount: formatCurrency(refund) })}</span>
                   ) : (
                     <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">{paid > 0 ? t('funding.settledUp') : t('funding.nothingOwed')}</span>
                   )}
@@ -1048,11 +1053,12 @@ export default function FundingPage() {
                   <div key={r.id} className="flex items-center justify-between gap-2 rounded-xl bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-800/40 px-3 py-2">
                     <div className="min-w-0">
                       <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{r.participant}</p>
-                      <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">{t('funding.paidInto', { account: accountName(r.account) })} · {formatDate(r.date, lang)}</p>
+                      <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">{t(isRefund(r) ? 'funding.refundedFrom' : 'funding.paidInto', { account: accountName(r.account) })} · {formatDate(r.date, lang)}</p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
-                      <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">{formatCurrency(r.amount)}</span>
-                      <button onClick={() => openEditPay(f, r)} className="hit-area text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1.5 rounded-lg" aria-label={t('funding.edit')}><Pencil className="w-3.5 h-3.5" /></button>
+                      <span className={`text-sm font-extrabold ${isRefund(r) ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{isRefund(r) ? `−${formatCurrency(-r.amount)}` : formatCurrency(r.amount)}</span>
+                      {/* A refund (money sent back) can be deleted but not edited as a payback. */}
+                      {!isRefund(r) && <button onClick={() => openEditPay(f, r)} className="hit-area text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1.5 rounded-lg" aria-label={t('funding.edit')}><Pencil className="w-3.5 h-3.5" /></button>}
                       <button onClick={() => deletePayment(f, r)} className="hit-area text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-1.5 rounded-lg" aria-label={t('common.delete')}><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   </div>
@@ -1080,16 +1086,16 @@ export default function FundingPage() {
               <CappedList moreLabel={t('common.showAllCount', { count: activityLog.length })} lessLabel={t('common.showLess')}>
                 {activityLog.map((entry, i) => (
                   <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60">
-                    <div className={`w-2 h-2 rounded-full shrink-0 ${entry.type === 'spend' ? 'bg-rose-400' : entry.type === 'reimbursement' ? 'bg-amber-400' : entry.type === 'created' ? 'bg-indigo-400' : 'bg-emerald-400'}`} />
+                    <div className={`w-2 h-2 rounded-full shrink-0 ${entry.type === 'spend' || entry.type === 'refund' ? 'bg-rose-400' : entry.type === 'reimbursement' ? 'bg-amber-400' : entry.type === 'created' ? 'bg-indigo-400' : 'bg-emerald-400'}`} />
                     <div className="flex-1 min-w-0">
                       <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                        {entry.type === 'created' ? t('funding.activityCreated') : entry.type === 'spend' ? t('funding.activitySpend') : entry.type === 'contribution' ? t('funding.activityContrib') : entry.type === 'reimbursement' ? t('funding.activityReimburse') : t('funding.activityRepay')}
+                        {entry.type === 'created' ? t('funding.activityCreated') : entry.type === 'spend' ? t('funding.activitySpend') : entry.type === 'contribution' ? t('funding.activityContrib') : entry.type === 'reimbursement' ? t('funding.activityReimburse') : entry.type === 'refund' ? t('funding.activityRefund') : t('funding.activityRepay')}
                       </p>
                       <p className="text-xs font-medium text-slate-700 dark:text-slate-200 wrap-anywhere">{entry.type === 'reimbursement' ? accountName(entry.label) : entry.label}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className={`text-xs font-extrabold ${entry.type === 'spend' ? 'text-rose-600 dark:text-rose-400' : entry.type === 'reimbursement' ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                        {entry.type === 'spend' || entry.type === 'reimbursement' ? '-' : '+'}{formatCurrency(entry.amount)}
+                      <p className={`text-xs font-extrabold ${entry.type === 'spend' || entry.type === 'refund' ? 'text-rose-600 dark:text-rose-400' : entry.type === 'reimbursement' ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                        {entry.type === 'spend' || entry.type === 'reimbursement' || entry.type === 'refund' ? '-' : '+'}{formatCurrency(entry.amount)}
                       </p>
                       <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">{formatDate(entry.date, lang)}</p>
                     </div>

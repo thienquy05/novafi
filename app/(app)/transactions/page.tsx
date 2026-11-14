@@ -12,6 +12,7 @@ import { Modal } from '@/components/ui/Modal';
 import { SwipeToDelete } from '@/components/ui/SwipeToDelete';
 import { TransactionsSkeleton } from '@/components/ui/Skeleton';
 import { Collapsible } from '@/components/ui/Collapsible';
+import { buildLoanTx } from '@/lib/loans';
 import { formatCurrency, formatCompact, formatDate, generateId, today, dateLocale, matchesRange, parseTagInput, type TxRange } from '@/lib/utils';
 import { transactionsToCsv } from '@/lib/csv';
 import { calcLoanRemaining } from '@/lib/calculations';
@@ -155,34 +156,6 @@ function txSort(a: Transaction, b: Transaction): number {
   const dateCmp = b.date.localeCompare(a.date);
   if (dateCmp !== 0) return dateCmp;
   return (b.createdAt ?? b.id).localeCompare(a.createdAt ?? a.id);
-}
-
-// Builds the cash-movement transaction for a loan principal or payback. It's a
-// `transfer` with an external (empty) counterparty so it shifts the account
-// balance WITHOUT counting as income or expense. Cash leaves the account when
-// you lend the principal or repay something you borrowed; otherwise it comes in.
-function buildLoanTx(
-  direction: Loan['direction'],
-  kind: 'principal' | 'payback',
-  amount: number,
-  account: string,
-  description: string,
-  date: string,
-): Transaction {
-  const cashOut = (direction === 'lent') === (kind === 'principal');
-  return {
-    id: generateId(),
-    date,
-    description,
-    amount,
-    type: 'transfer',
-    // Tagged 'Loan' (not 'Transfer') so the ledger history shows a distinct
-    // loan icon/name. It stays a `transfer`, so income/expense math is unaffected.
-    category: 'Loan',
-    account: cashOut ? account : '',
-    toAccount: cashOut ? '' : account,
-    createdAt: new Date().toISOString(),
-  };
 }
 
 // Newest first, breaking same-day ties by createdAt (falling back to id).

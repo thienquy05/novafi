@@ -509,7 +509,7 @@ export function groupFundingSpends(spendTxIds: string[], transactions: Transacti
 // contributions (real pools), and repayments (virtual pools). Sorted newest first.
 export interface FundingActivity {
   date: string;
-  type: 'created' | 'spend' | 'contribution' | 'repayment' | 'reimbursement';
+  type: 'created' | 'spend' | 'contribution' | 'repayment' | 'refund' | 'reimbursement';
   label: string;
   amount: number;
 }
@@ -521,7 +521,8 @@ export function buildPoolActivity(f: Funding, transactions: Transaction[]): Fund
     entries.push({ date: s.date, type: 'spend', label: s.description, amount: s.amount });
   }
   for (const r of f.repayments) {
-    entries.push({ date: r.date, type: 'repayment', label: r.participant, amount: r.amount });
+    // A refund is stored as a negative repayment; list it as its own (positive) entry.
+    entries.push({ date: r.date, type: r.amount < 0 ? 'refund' : 'repayment', label: r.participant, amount: Math.abs(r.amount) });
   }
   for (const c of f.contributions ?? []) {
     entries.push({ date: c.date, type: 'contribution', label: c.participant, amount: c.amount });
@@ -596,5 +597,107 @@ export function rebuildReimbursement(
     reimbursements: rebuilt ? [...others, rebuilt.reimbursement] : others,
     addTxs: rebuilt ? [rebuilt.tx] : [],
     removeTxIds: [prev.id],
+  };
+}
+
+// ── Refunds after a re-split ──────────────────────────────────────────────────
+// Re-splitting a tab (e.g. more people joined) can leave someone who already paid
+// back MORE than their new share. That surplus is shown as "to refund" — derived,
+// never stored — until the user records the refund: a FundingRepay transfer OUT of
+// one of their accounts, stored on the pool as a NEGATIVE repayment so the
+// person's net paid-back drops to their share and the surplus disappears.
+
+/** What a participant paid back beyond their current share — the user owes it back (0 when not overpaid). */
+export function participantOverpaid(p: FundingParticipant, repayments: FundingRepayment[]): number {
+  if (p.isMe) return 0;
+  return Math.max(0, round(participantRepaid(repayments, p) - (p.contributed || 0)));
+}
+
+/** True for a refund record (money you sent back), as opposed to a payback you received. */
+export function isRefund(r: FundingRepayment): boolean {
+  return r.amount < 0;
+}
+
+/** The cash row for refunding a participant: money OUT of `account`, plus the negative repayment record. */
+export function buildRefundTx(
+  account: string,
+  amount: number,
+  participant: string,
+  description: string,
+  date: string,
+): { tx: Transaction; repayment: FundingRepayment } {
+  const amt = round(amount);
+  const id = generateId();
+  return {
+    tx: {
+      id, date, description, amount: amt,
+      type: 'transfer', category: FUNDING_REPAY_CATEGORY, account, toAccount: '',
+      createdAt: new Date().toISOString(),
+    },
+    repayment: { id, participant, amount: -amt, account, date },
+  };
+}
+
+// ── Re-splitting an open tab ──────────────────────────────────────────────────
+
+/** Split `total` cents across `weights` proportionally, cent-exact (largest remainder), each part ≤ its weight's share. */
+export function allocateCents(total: number, weights: number[]): number[] {
+  const cents = Math.round(total * 100);
+  const sum = weights.reduce((s, w) => s + Math.max(0, w), 0);
+  if (!(sum > 0) || cents <= 0) return weights.map(() => 0);
+  const raw = weights.map((w) => (cents * Math.max(0, w)) / sum);
+  const out = raw.map(Math.floor);
+  let left = cents - out.reduce((s, x) => s + x, 0);
+  const order = raw.map((r, i) => [r - Math.floor(r), i] as const).sort((a, b) => b[0] - a[0]);
+  for (const [, i] of order) {
+    if (left <= 0) break;
+    out[i] += 1;
+    left -= 1;
+  }
+  return out.map((c) => c / 100);
+}
+
+/**
+ * Re-split an open tab's PAST spends over a new roster. `participants` is the final
+ * roster and `shares` each person's new total (index-aligned; must sum to the spends'
+ * total). Each non-me share becomes that person's `contributed` (what they owe before
+ * paybacks); the host's share is spread over the spends in proportion to their amounts
+ * and each spend's ledger rows (my-share expense + fronted transfer) are rebuilt to
+ * match — same account, date, description, category, tags and createdAt, so account
+ * balances don't move and the spend still groups as one. Untouched spends keep their rows.
+ */
+export function resplitOpenTab(
+  f: Funding,
+  participants: FundingParticipant[],
+  shares: number[],
+  transactions: Transaction[],
+): { funding: Funding; addTxs: Transaction[]; removeTxIds: string[]; rebuiltSpends: number } {
+  const spends = groupFundingSpends(f.spendTxIds, transactions);
+  const myIdx = participants.findIndex((p) => p.isMe);
+  const myTotal = myIdx >= 0 ? round(shares[myIdx] ?? 0) : 0;
+  const mine = allocateCents(myTotal, spends.map((s) => s.amount));
+  const byId = new Map(transactions.map((t) => [t.id, t]));
+  const addTxs: Transaction[] = [];
+  const removeTxIds: string[] = [];
+  let spendTxIds = [...f.spendTxIds];
+  let rebuiltSpends = 0;
+  spends.forEach((s, i) => {
+    if (round(mine[i]) === round(s.myShare)) return;
+    rebuiltSpends += 1;
+    const rows = s.txIds.map((id) => byId.get(id)).filter(Boolean) as Transaction[];
+    const createdAt = rows.find((r) => r.createdAt)?.createdAt || new Date().toISOString();
+    const tags = rows.find((r) => r.tags?.length)?.tags;
+    const fresh = buildSpendTxs(s.chargedAccount, s.amount, mine[i], s.description, s.date, s.category)
+      .map((tx) => ({ ...tx, createdAt, ...(tags ? { tags } : {}) }));
+    removeTxIds.push(...s.txIds);
+    addTxs.push(...fresh);
+    spendTxIds = [...spendTxIds.filter((id) => !s.txIds.includes(id)), ...fresh.map((tx) => tx.id)];
+  });
+  const next = participants.map((p, i) => ({ ...p, contributed: round(shares[i] ?? 0) }));
+  return {
+    funding: { ...f, participants: next, totalContributed: totalContribution(next), spendTxIds },
+    addTxs,
+    removeTxIds,
+    rebuiltSpends,
   };
 }
